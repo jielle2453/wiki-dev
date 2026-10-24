@@ -88,6 +88,8 @@ def _apply(cwd, args, as_json):
                      + ("" if got["snapshot"] else "（還原前的快照也一起清掉了）"))
     if got["hidden_left"]:
         lines.append(f"不想讓 AI 看到的夾還沒清完：{got['hidden_left']}")
+    for why in got.get("not_finished") or []:
+        lines.append(f"還原好了，但有一步{why}")  # 換入成功之後才出錯的：照實說還原好了、哪一步沒做完（N-3）
     if got["build_step"]:
         lines.append(f"建置停在「{got['build_step']}」那一步，下次打 build 從那裡接著做")
     _out(as_json, "\n".join(lines), dict(got, ok=True, message=got["sentence"]))

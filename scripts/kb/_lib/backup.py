@@ -204,15 +204,19 @@ def _why_zip(e):
     return "不是完整的 zip 檔" if isinstance(e, zipfile.BadZipFile) else "檔案讀不出來"
 
 
-def oserror_sentence(e, need_mb=None, free_mb=None, source=None):
-    """OSError 依 errno 分三種白話（T-6）：檔案開著（帶檔名）、空間不夠、找不到那份；其他回 None 讓呼叫端說「沒有做成」。"""
+def oserror_sentence(e, need_mb=None, free_mb=None, source=None, source_path=None):
+    """OSError 依 errno 分三種白話（T-6）：檔案開著（帶檔名）、空間不夠、找不到那份；其他回 None 讓呼叫端說「沒有做成」。
+    FileNotFoundError 只有找不到的正是來源（source_path）才說「找不到這份」，解壓縮或搬動時別的檔不見了照一般那句（N-4）。"""
     code = getattr(e, "errno", None)
     if code == errno.ENOSPC:
         if need_mb is not None and free_mb is not None:
             return NO_SPACE.format(need=need_mb, free=free_mb)
         return "空間不夠，騰出空間再說一次；什麼都沒動"
-    if isinstance(e, FileNotFoundError) and source is not None:
-        return NOT_FOUND.format(source)
+    if isinstance(e, FileNotFoundError) and source is not None and source_path is not None:
+        missing = getattr(e, "filename", None)
+        if missing and _norm(missing) == _norm(source_path):
+            return NOT_FOUND.format(source)
+        return None
     if isinstance(e, PermissionError) or getattr(e, "winerror", None) in (5, 32, 33):
         name = Path(str(getattr(e, "filename", None) or getattr(e, "filename2", None) or "")).name or "某個檔案"
         return FILE_OPEN.format(name=name)
@@ -266,10 +270,16 @@ def _mb_up(n):
     return max(1, math.ceil(n / (1024 * 1024)))
 
 
+_LOCAL_PREFIX = re.compile(r"^//[?.]/[A-Za-z]:(/|$)")
+
+
 def is_network_path(to):
-    """\\ 或 // 開頭的路徑（含 @SSL 那種經網路傳出去的寫法）：網路位置，備份不收（D-204 補）。"""
-    s = str(to).strip().strip("\"'")
-    return s.startswith("\\\\") or s.startswith("//")
+    """網路位置（UNC，含 @SSL 那種經網路傳出去的寫法），備份不收（D-204 補）。Windows 把 \\ 與 / 混寫也當 UNC（\\/host/share、/\\host\\share），
+    所以先把 \\ 換成 / 再看開頭是不是 //（N-1）；\\?\\C:\\、\\.\\C:\\ 這種本機長路徑前綴放行，\\?\\UNC\\ 照擋。"""
+    s = str(to).strip().strip("\"'").replace("\\", "/")
+    if not s.startswith("//"):
+        return False
+    return not _LOCAL_PREFIX.match(s)
 
 
 def _refusal(vault, to, total):
@@ -395,6 +405,11 @@ def backup(vault, to=None):
     refuse = _refusal(vault, target, total)
     if refuse:
         raise Refused(refuse)
+    try:  # N-6：寫 zip 之前先記位置、補 vault.json，第一份備份裡才有位置紀錄；寫不了不擋備份
+        from kb._lib import moved
+        moved.note_place(vault)
+    except (OSError, ValueError):
+        pass
     dest_dir = Path(target)
     meta = _meta_for(vault, "backup", None)
     with acquire(vault):

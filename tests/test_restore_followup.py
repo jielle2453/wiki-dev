@@ -8,6 +8,7 @@ import os
 import shutil
 import unittest
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -221,7 +222,7 @@ class Failure(unittest.TestCase):
         s = restore.oserror_sentence
         self.assertEqual(s(PermissionError(13, "x", "a.docx"), need_mb=5, free_mb=1), "有檔案開著（a.docx），關掉再說一次；什麼都沒動")
         self.assertEqual(s(OSError(errno.ENOSPC, "no space"), need_mb=5, free_mb=1), "空間不夠：要 5 MB，那裡只剩 1 MB")
-        self.assertEqual(s(FileNotFoundError(2, "x", "x.zip"), source="x.zip"), "找不到這份：x.zip")
+        self.assertEqual(s(FileNotFoundError(2, "x", "x.zip"), source="x.zip", source_path=Path("x.zip")), "找不到這份：x.zip")
 
     def test_space_check_before_anything_is_touched(self):
         before = _backup.tree(self.V)
@@ -414,7 +415,8 @@ class Misc(unittest.TestCase):
     def test_clean_keeps_open_job_turns(self):
         ids = _backup.put_turns(self.V, [90, 80] + [1] * 30)
         (self.V / SYSTEM / "batches.json").write_text(json.dumps({
-            "schema_version": 1, "jobs": [{"job": "j-1", "session_id": "s", "status": "open", "turn": ids[0]},
+            "schema_version": 1, "jobs": [{"job": "j-1", "session_id": "s", "status": "open", "turn": ids[0],
+                                           "created": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")},
                                           {"job": "j-0", "session_id": "s", "status": "closed", "turn": ids[1]}],
             "batches": [], "agents": []}), encoding="utf-8")
         clean.run(self.V)

@@ -318,9 +318,10 @@ class _Incomplete(backup.Refused):
     """換入失敗、而且倒不回：restore-old 不能刪（還原前的東西還在裡面）。"""
 
 
-def oserror_sentence(e, need_mb=None, free_mb=None, source=None):
-    """OSError 依 errno 分：檔案開著（帶檔名）、空間不夠、找不到那份；其他說沒有做成（T-6）。"""
-    return backup.oserror_sentence(e, need_mb, free_mb, source) or GENERIC_FAILED.format(why=type(e).__name__)
+def oserror_sentence(e, need_mb=None, free_mb=None, source=None, source_path=None):
+    """OSError 依 errno 分：檔案開著（帶檔名）、空間不夠、找不到那份（只有真的是來源找不到，N-4）；其他說沒有做成（T-6）。"""
+    return (backup.oserror_sentence(e, need_mb, free_mb, source, source_path)
+            or GENERIC_FAILED.format(why=type(e).__name__))
 
 
 def _is_lock(name):
@@ -473,19 +474,21 @@ def _reapply_hidden(vault, hidden_now, keep_snapshots=()):
                     purge.record(vault, alias, spec, "turns", purge.own_turns(vault), turn_id, undo)
                 folders._guarded_drop(vault, ids, turn_id, original, inv_before, record)
                 blocking = purge.blocking(vault, set(purge.target(vault, alias, spec)["ids"]) | set(ids))
-                if blocking:  # 還有綜合卡寫著那夾的內容：留著 pending，照一般流程重寫綜合卡再 purge
+                if blocking:  # 還有綜合卡寫著那夾的內容：留著 pending，照一般流程重寫綜合卡再 purge（不算重清過）
                     left.append(f"還有綜合卡寫著「{name}」的內容：{'、'.join(blocking)}（先照 rules/synthesis.md 重寫，再跑 kb folders purge）")
-                else:
-                    got = purge.purge(vault, alias, spec, root, turn_id, keep_snapshots=keep_snapshots)
-                    if got["remaining"]:
-                        left.append(f"「{name}」" + purge.remaining_text(got["remaining"]))
-                    else:
-                        purge.mark_done(vault, alias, spec, turn_id)
-            done.append(name)
+                    continue
+                got = purge.purge(vault, alias, spec, root, turn_id, keep_snapshots=keep_snapshots)
+                if got["remaining"]:
+                    left.append(f"「{name}」" + purge.remaining_text(got["remaining"]))
+                    continue
+                purge.mark_done(vault, alias, spec, turn_id)
+            done.append(name)  # 真的清完了才算（輸出才不會一行說清了、一行說還沒）
         except folders._Undone as e:
             left.append(f"「{name}」重清沒有成功（{e}），已經倒回；請再說一次不想讓 AI 看到這一夾")
         except purge.Blocked as b:
             left.append(f"還有綜合卡寫著「{name}」的內容：{'、'.join(b.args[0])}")
+        except Exception as e:  # noqa: BLE001  換入已經成功：這一步出任何例外都照實說沒做完，不讓 apply 丟出去（N-3）
+            left.append(f"「{name}」重清沒有做完（{type(e).__name__}）；請再說一次不想讓 AI 看到這一夾")
     return done, left
 
 
@@ -558,18 +561,26 @@ def apply(cwd, source, conversation=False):
             if isinstance(e, (OSError, zipfile.BadZipFile)):
                 if isinstance(e, zipfile.BadZipFile):
                     raise backup.Refused(backup.BROKEN.format(why="不是完整的 zip 檔")) from None
-                raise backup.Refused(oserror_sentence(e, need_mb, free_mb, source)) from None
+                raise backup.Refused(oserror_sentence(e, need_mb, free_mb, source, zip_path)) from None
             if isinstance(e, Exception):
                 raise backup.Refused(GENERIC_FAILED.format(why=type(e).__name__)) from None
             raise
         shutil.rmtree(paths.long_path(old_dir), ignore_errors=True)
         shutil.rmtree(paths.long_path(extracted), ignore_errors=True)
-        vault_lib.ensure_vault_id(target)
-        _run_init(target)
-        if vault is not None:
-            backup.rotate_snapshots(target, protect=(zip_path,) if source_is_snapshot else ())
+        not_finished = []  # 換入已經成功：後面哪一步出例外都不再往外丟（客戶會以為還原失敗），照實說哪一步沒做完（N-3）
+        for label, fn in (("補知識庫編號（vault.json）", lambda: vault_lib.ensure_vault_id(target)),
+                          ("補骨架與遷移狀態檔，請跑 kb init", lambda: _run_init(target)),
+                          ("輪替快照", lambda: backup.rotate_snapshots(
+                              target, protect=(zip_path,) if source_is_snapshot else ()) if vault is not None else None)):
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001
+                not_finished.append(f"{label}沒做完（{type(e).__name__}）")
     keep = (snapshot,) if snapshot is not None and clean_before else ()
-    reapplied, left = (_reapply_hidden(target, hidden_now, keep) if hidden_now else ([], []))
+    try:
+        reapplied, left = (_reapply_hidden(target, hidden_now, keep) if hidden_now else ([], []))
+    except Exception as e:  # noqa: BLE001
+        reapplied, left = [], [f"重清不想讓 AI 看到的夾沒有做完（{type(e).__name__}）；請再說一次不想讓 AI 看到那一夾"]
     kept = snapshot is not None and snapshot.exists()
     n = _count_to_reorganize(target)
     when = when_text(meta.get("created"))
@@ -579,7 +590,7 @@ def apply(cwd, source, conversation=False):
                                        [{"path": SYSTEM, "action": "modify"}], "restore apply", conversation)
     return {"sentence": sentence, "snapshot": snapshot.name if kept else None,
             "created": meta.get("created"), "hidden_reapplied": reapplied, "hidden_left": "；".join(left) or None,
-            "to_reorganize": n, "build_step": step}
+            "to_reorganize": n, "build_step": step, "not_finished": not_finished}
 
 
 def list_for(cwd, from_dir=None):

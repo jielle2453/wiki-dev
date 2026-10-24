@@ -875,12 +875,14 @@ def _file_tool(tool, target, cwd, vault, sources):
 
 
 # 目的地用旗標指定的寫法（T-11）：-t／--target-directory 只認小寫 -t（cp 的大寫 -T 是「不當夾」，意思相反）；-Destination 不分大小寫、可縮寫
-_DEST_FLAG = re.compile(r"""(?:^|\s)(?:-t|--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+_DEST_FLAG = re.compile(r"""(?:^|\s)(?:-[A-Za-z]*t|--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+# PowerShell 的參數不是短選項併寫（-Path、-Force 結尾的 t 不算 -t）：只認 -Destination
+_DEST_FLAG_PS = re.compile(r"""(?:^|\s)(?i:-Dest\w*)(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
 
 
-def _destination_by_flag(text, cwd):
-    """寫法裡用旗標指定了目的地就回它（正規化）；沒有回 None。"""
-    m = _DEST_FLAG.search(text)
+def _destination_by_flag(text, cwd, powershell=False):
+    """寫法裡用旗標指定了目的地就回它（正規化）；沒有回 None。-t 可以併在短選項裡（cp -rt、cp -at，N-2），大寫 -T 意思相反不算。"""
+    m = (_DEST_FLAG_PS if powershell else _DEST_FLAG).search(text)
     if not m:
         return None
     return normalize(m.group(1).strip("\"'"), cwd)
@@ -894,7 +896,7 @@ def _moves_root(flat, cwd, vault_n, powershell):
     for _sub, _stage, text in _stages(flat, powershell):
         if cmdparse.verb_of(text.split()) in MOVE_COPY_VERBS:
             paths = cmdparse.extract_paths(text, cwd, powershell=powershell)
-            dest = _destination_by_flag(text, cwd)
+            dest = _destination_by_flag(text, cwd, powershell)
             if dest is not None:
                 sources = list(paths)
                 if dest in sources:

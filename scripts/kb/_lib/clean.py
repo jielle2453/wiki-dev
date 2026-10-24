@@ -1,7 +1,7 @@
 """清理（備份還原與換電腦 要做的事 3，D-207、D-056、D-211）：回合備份與快照放太久的清掉。
 
 回合備份（.system/versions/<回合>/）：超過 versions_keep_days 天、或超過 versions_keep_turns 個就從最舊的清，
-但至少留最近 versions_min_turns 個；目前回合（turns/current.json）、還沒答完的回合（turns/*.json 的 done 不是 true）與 card-maker 還開著的整理 job 的回合（batches.json 的 job，測試 T-9）不清。
+但至少留最近 versions_min_turns 個；目前回合（turns/current.json）、還沒答完的回合（turns/*.json 的 done 不是 true）與 card-maker 還有動靜的整理 job 的回合（batches.json 的 open job，批次 last_seen 在 card_batch_idle_minutes 內，測試 T-9、N-5；當機留下的 job 不永遠保護）不清。
 快照超過 snapshots_keep 份清最舊的。清掉的回合不進回合備份（它本身就是備份）。
 plan 只算、不動；run 持 backup 同一把鎖（.system/revert.lock）做，搶不到不等。kb backup 成功後叫 run，健檢（lint 題）之後也叫它。
 結果：{"turns_removed","earliest":{"time","prompt_head"}|None,"snapshots_removed","freed_bytes"}；earliest 是清完之後最早還能退回的那一句。
@@ -38,7 +38,20 @@ def _open_job_turns(vault):
         data = batches.load(vault)
     except batches.Unreadable:
         return set()
-    return {str(j["turn"]) for j in data["jobs"] if j.get("status") == "open" and j.get("turn")}
+    now = batches._now()
+    out = set()
+    for j in data["jobs"]:
+        if j.get("status") != "open" or not j.get("turn"):
+            continue
+        mine = [b for b in data["batches"] if b.get("job") == j.get("job") and b.get("status") == "open"]
+        if mine:
+            active = any(not batches._idle(b, now) for b in mine)  # 還有一批有動靜（last_seen 在閒置分鐘內）
+        else:
+            made = batches._parse(j.get("created"))  # 還沒有批次：看 job 本身是不是剛開
+            active = made is not None and now - made <= timedelta(minutes=batches._idle_minutes(None))
+        if active:
+            out.add(str(j["turn"]))
+    return out
 
 
 def _protected(vault):
