@@ -874,15 +874,42 @@ def _file_tool(tool, target, cwd, vault, sources):
     return Decision(decision, zone, code, reason, rows, vault)
 
 
+# 目的地用旗標指定的寫法（T-11）：-t／--target-directory 只認小寫 -t（cp 的大寫 -T 是「不當夾」，意思相反）；-Destination 不分大小寫、可縮寫
+_DEST_FLAG = re.compile(r"""(?:^|\s)(?:-t|--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+
+
+def _destination_by_flag(text, cwd):
+    """寫法裡用旗標指定了目的地就回它（正規化）；沒有回 None。"""
+    m = _DEST_FLAG.search(text)
+    if not m:
+        return None
+    return normalize(m.group(1).strip("\"'"), cwd)
+
+
 def _moves_root(flat, cwd, vault_n, powershell):
-    """搬或複製的那段，總資料夾本身是來源（不是最後一個路徑，也就不是「放進總資料夾」）：mv／Move-Item／cp -r／robocopy 整個知識庫。
-    目的地是總資料夾（cp a.txt .）不算；cd 之後才寫的 . 用原本的 cwd 算，看不出來就當不是（理由句退回 Z8 那句，照樣擋）。"""
+    """搬或複製的那段，總資料夾本身是來源（不是目的地，也就不是「放進總資料夾」）：mv／Move-Item／cp -r／robocopy 整個知識庫。
+    目的地用旗標指定（mv -t、cp --target-directory、-Destination）時，其餘路徑都是來源（來源可以排在最後，T-11）；
+    沒有旗標時最後一個路徑是目的地。目的地是總資料夾（cp a.txt .）不算；cd 之後才寫的 . 用原本的 cwd 算，
+    看不出來就當不是（理由句退回 Z8 那句，照樣擋）。"""
     for _sub, _stage, text in _stages(flat, powershell):
         if cmdparse.verb_of(text.split()) in MOVE_COPY_VERBS:
             paths = cmdparse.extract_paths(text, cwd, powershell=powershell)
-            if vault_n in paths[:-1]:
+            dest = _destination_by_flag(text, cwd)
+            if dest is not None:
+                sources = list(paths)
+                if dest in sources:
+                    sources.remove(dest)
+            else:
+                sources = paths[:-1]
+            if vault_n in sources:
                 return True
     return False
+
+
+def _hidden_exclude_under(sources, path_n):
+    """path 底下（含自己）有沒有「不想讓 AI 看到」的排除（kind hidden，不管清完了沒；沒寫 kind 當 hidden，跟 sources 讀法一致）。"""
+    return any(ex.get("kind", "hidden") == "hidden" and inside(ex["root"], path_n)
+               for src in sources.entries for ex in src["excludes"])
 
 
 def _single_filename(pattern):
@@ -1309,11 +1336,13 @@ def decide(payload):
                 d = _file_tool(tool, head, cwd, vault, sources)
                 if d.decision == "deny":
                     return d
-            # B-425 (a)：Glob 樣式是單一檔名時只在 path 那一層找、不走進底下的夾：path 含不讀夾（Z10b）不擋，
-            # 改判「path／檔名」這個檔（像密碼的檔名照走憑證那道、檔名剛好是不讀夾的名字照 Z10）；path 本身在不讀夾裡照 Z10
+            # B-425 (a)（T-7 後）：Glob 樣式是單一檔名、而且 path 底下的排除夾全是 unused 時，不判 Z10b，
+            # 改判「path／檔名」這個檔（像密碼的檔名照走憑證那道、檔名剛好是不讀夾的名字照 Z10）；path 本身在不讀夾裡照 Z10。
+            # Glob 的單一檔名實測也會往下找、列出不讀夾裡同名檔的路徑：unused 可以接受，hidden 連檔名都算要清的（D-174），照舊擋 Z10b
             if (tool == "Glob" and _single_filename(ti.get("pattern")) and "{" not in str(target)
                     and not cmdparse.is_wildcard(str(target))
-                    and classify(target_n, normalize(vault, None), sources)[0] == "Z10b"):
+                    and classify(target_n, normalize(vault, None), sources)[0] == "Z10b"
+                    and not _hidden_exclude_under(sources, target_n)):
                 return _file_tool(tool, target_n + "/" + str(ti["pattern"]), cwd, vault, sources)
         return _file_tool(tool, str(target), cwd, vault, sources)
 

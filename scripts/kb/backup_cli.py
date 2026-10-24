@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from kb import guard, journal_cli
-from kb._lib import backup, clean, config
+from kb._lib import backup, clean, config, moved
 
 LOCK_BUSY = backup.BUSY
 SUCCESS = "備份好了：{path}（{files} 份、{mb}）；那裡留最近 {keep} 份。"
@@ -53,11 +53,16 @@ def run(args):
             return 0
         conversation = journal_cli.in_conversation(vault)
         got = backup.backup(vault, args.to)
+        try:
+            moved.note_place(vault)  # 這題的指令第一次跑成功時記位置、補 vault.json（測試 T-2）；寫不了不擋、拒絕時不寫
+        except (OSError, ValueError):
+            pass
     except backup.Refused as e:
         _out(as_json, str(e), {"ok": False, "message": str(e)})
         return 3
     except (ValueError, OSError) as e:
-        line = f"備份沒有做成：{type(e).__name__}"
+        line = backup.oserror_sentence(e) if isinstance(e, OSError) else None
+        line = line or f"備份沒有做成：{type(e).__name__}"
         _out(as_json, line, {"ok": False, "message": line})
         return 3
     line = SUCCESS.format(path=got["path"], files=got["files"], mb=clean.mb_text(got["bytes"]),

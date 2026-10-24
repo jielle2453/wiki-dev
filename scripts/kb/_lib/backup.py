@@ -3,13 +3,15 @@
 內容：知識庫整個，排除 .system/temp/、.system/snapshots/、鎖檔（*.lock）；空夾也記（型別夾）；zip 根目錄多一個
 wiki-with-willy-backup.json（schema 1：kind、reason、created、plugin_version、machine、vault_name、vault_id、files、bytes）。
 先寫成同目錄的 .tmp、寫完驗一次（testzip、zip slip、meta）再改名；失敗不留 .tmp。長路徑照 paths.long_path。
-放哪：env.json 這台電腦的 backup_dir；沒有回 need_to，AI 問客戶，帶 --to 再跑、程式記住。
+放哪：env.json 這台電腦的 backup_dir；沒有回 need_to，AI 問客戶，帶 --to 再跑、程式記住。網路位置（\\ 或 // 開頭）不收：
+防 AI 被藏在檔案裡的指令騙去把整個知識庫寫到別台（D-204 補）；雲端同步程式的夾（OneDrive、Dropbox）與對應好的磁碟機是本機路徑，照收。
 留 backup_keep 份：只算這個夾裡檔名合格、根目錄有 meta、vault_id 相同的 zip；客戶自己放的別的檔不碰。
 背景整理（card-maker）只擋還有動靜的批次，判斷用 batches 同一套（live、_idle）：視窗當掉留下的舊批次不擋。
 鎖是 .system/revert.lock（跟退回共用），搶不到不等。快照（snapshot）跟備份寫同一種 zip，放 .system/snapshots/，留 snapshots_keep 份。
 備份本身不改知識庫，不進回合備份；寫 zip 的程式只讀知識庫。
 """
 import contextlib
+import errno
 import json
 import math
 import os
@@ -37,6 +39,7 @@ REASON_TEXT = {"restore": "還原前", "upgrade": "升級前"}
 KINDS = ("backup", "snapshot")
 
 NEED_TO = "還沒說備份要放哪"
+NETWORK_PATH = "備份要放在這台電腦的資料夾或隨身碟；網路上的位置請先對應成磁碟機"
 IN_VAULT = "備份不能放在知識庫裡面"
 IN_SOURCE = "備份不能放在登記的資料夾「{alias}」裡，不然會被當成新檔整理"
 NOT_WRITABLE = "那個位置寫不進去：{path}"
@@ -48,6 +51,7 @@ NOT_OURS = "這份不是 wiki-with-willy 的備份"
 BROKEN = "這份備份壞了（{why}），換一份"
 NEWER = "這份備份是比較新的版本（{version}）做的，先升級再還原"
 FILE_OPEN = "有檔案開著（{name}），關掉再說一次；什麼都沒動"
+NOT_FOUND = "找不到這份：{}"
 
 
 class Refused(Exception):
@@ -138,19 +142,24 @@ def collect(vault):
 
 def write_zip(vault, dest_path, meta):
     """把知識庫寫成 dest_path 這個 zip（呼叫端決定要不要先寫 .tmp）；meta 補上 files、bytes 寫在根目錄。回 {"files","bytes"}。
+    meta 最後才寫、用真的寫進去的份數（走訪到寫入之間不見的檔略過，不算）；修改時間早於 1980 的檔也照寫（strict_timestamps=False，T-5）。
     檔案被別的程式開著讀不了丟 Refused（FILE_OPEN），已寫的半成品由呼叫端清掉。"""
-    files, empty, total = collect(vault)
-    meta = dict(meta, files=len(files), bytes=total)
-    with zipfile.ZipFile(str(dest_path), "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(META_NAME, json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    files, empty, _total = collect(vault)
+    written, size = 0, 0
+    with zipfile.ZipFile(str(dest_path), "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as z:
         for rel in empty:
             z.writestr(rel, "")
         for src, rel in files:
             try:
                 z.write(paths.long_path(src), rel)
+            except FileNotFoundError:
+                continue  # 走訪之後被刪掉了：不算
             except PermissionError:
                 raise Refused(FILE_OPEN.format(name=Path(rel).name)) from None
-    return {"files": len(files), "bytes": total}
+            written += 1
+            size += z.getinfo(rel).file_size
+        z.writestr(META_NAME, json.dumps(dict(meta, files=written, bytes=size), ensure_ascii=False, indent=2) + "\n")
+    return {"files": written, "bytes": size}
 
 
 def read_meta(zip_path):
@@ -169,12 +178,12 @@ def _unsafe_member(name):
             or n.startswith("//"))
 
 
-def verify(zip_path):
+def verify(zip_path, full=True):
     """驗一份 zip：壞了（BadZipFile、testzip）、不安全的路徑（zip slip）、不是我們的備份（沒有 meta）、版本比現在新。
-    過了回 meta；不過丟 Refused（句子照 spec）。"""
+    過了回 meta；不過丟 Refused（句子照 spec）。full 是 False 只讀 meta 與中央目錄、不跑 testzip（列清單用，T-12；完整驗證留給 check、apply）。"""
     try:
         with zipfile.ZipFile(str(zip_path)) as z:
-            bad = z.testzip()
+            bad = z.testzip() if full else None
             names = z.namelist()
     except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError) as e:
         raise Refused(BROKEN.format(why=_why_zip(e))) from None
@@ -193,6 +202,21 @@ def verify(zip_path):
 
 def _why_zip(e):
     return "不是完整的 zip 檔" if isinstance(e, zipfile.BadZipFile) else "檔案讀不出來"
+
+
+def oserror_sentence(e, need_mb=None, free_mb=None, source=None):
+    """OSError 依 errno 分三種白話（T-6）：檔案開著（帶檔名）、空間不夠、找不到那份；其他回 None 讓呼叫端說「沒有做成」。"""
+    code = getattr(e, "errno", None)
+    if code == errno.ENOSPC:
+        if need_mb is not None and free_mb is not None:
+            return NO_SPACE.format(need=need_mb, free=free_mb)
+        return "空間不夠，騰出空間再說一次；什麼都沒動"
+    if isinstance(e, FileNotFoundError) and source is not None:
+        return NOT_FOUND.format(source)
+    if isinstance(e, PermissionError) or getattr(e, "winerror", None) in (5, 32, 33):
+        name = Path(str(getattr(e, "filename", None) or getattr(e, "filename2", None) or "")).name or "某個檔案"
+        return FILE_OPEN.format(name=name)
+    return None
 
 
 # ---------- 放哪、拒絕 ----------
@@ -242,8 +266,16 @@ def _mb_up(n):
     return max(1, math.ceil(n / (1024 * 1024)))
 
 
+def is_network_path(to):
+    """\\ 或 // 開頭的路徑（含 @SSL 那種經網路傳出去的寫法）：網路位置，備份不收（D-204 補）。"""
+    s = str(to).strip().strip("\"'")
+    return s.startswith("\\\\") or s.startswith("//")
+
+
 def _refusal(vault, to, total):
     """放哪有問題回那一句，沒問題回 None（不含鎖：鎖在動手時才搶）。"""
+    if is_network_path(to):
+        return NETWORK_PATH
     n = _norm(to)
     if paths.inside(n, _norm(vault)):
         return IN_VAULT
@@ -269,8 +301,8 @@ def check(vault, to=None):
            "sync_folder": False, "refuse": None}
     if target is None:
         return got
-    got["to"] = Path(target).resolve().as_posix()
-    got["sync_folder"] = _sync_folder(target)
+    got["to"] = str(target).strip() if is_network_path(target) else Path(target).resolve().as_posix()
+    got["sync_folder"] = False if is_network_path(target) else _sync_folder(target)
     got["refuse"] = _refusal(vault, target, total)
     return got
 
@@ -389,9 +421,10 @@ def backup(vault, to=None):
 
 # ---------- 快照 ----------
 
-def snapshot(vault, reason):
+def snapshot(vault, reason, rotate=True, protect=()):
     """拍快照（還原前、升級前）：跟備份同一種 zip，放 .system/snapshots/，留 snapshots_keep 份。回快照路徑。
-    呼叫端（restore、升級）已拿著鎖；這裡不搶。"""
+    呼叫端（restore、升級）已拿著鎖；這裡不搶。rotate 是 False 先不輪替（還原要等成功了才輪替，失敗才不會擠掉較舊有用的那份，T-10）；
+    protect 是輪替時不刪的快照（來源是快照時，T-6）。"""
     if reason not in REASON_TEXT:
         raise ValueError(f"快照的原因只收 restore、upgrade：{reason}")
     folder = Path(vault) / SNAPSHOT_REL
@@ -405,12 +438,21 @@ def snapshot(vault, reason):
         name = f"{base} ({n}).zip"
     dest = folder / name
     _write_verified(vault, dest, _meta_for(vault, "snapshot", reason))
+    if rotate:
+        rotate_snapshots(vault, protect)
+    return dest
+
+
+def rotate_snapshots(vault, protect=()):
+    """快照超過 snapshots_keep 份就刪最舊的；protect 裡的不刪（可能因此多留一份）。"""
+    keep_names = {Path(p).name for p in protect}
     for p in snapshots(vault)[config.get(vault, "snapshots_keep"):]:
+        if p.name in keep_names:
+            continue
         try:
             p.unlink()
         except OSError:
             pass
-    return dest
 
 
 def snapshots(vault):
@@ -427,7 +469,7 @@ def _describe(path, kind_hint):
     path = Path(path)
     meta = read_meta(path) or {}
     try:
-        verify(path)
+        verify(path, full=False)
         usable, why = True, None
     except Refused as e:
         usable, why = False, str(e)

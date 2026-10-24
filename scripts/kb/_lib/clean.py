@@ -1,7 +1,7 @@
 """清理（備份還原與換電腦 要做的事 3，D-207、D-056、D-211）：回合備份與快照放太久的清掉。
 
 回合備份（.system/versions/<回合>/）：超過 versions_keep_days 天、或超過 versions_keep_turns 個就從最舊的清，
-但至少留最近 versions_min_turns 個；目前回合（turns/current.json）與還沒答完的回合（turns/*.json 的 done 不是 true）不清。
+但至少留最近 versions_min_turns 個；目前回合（turns/current.json）、還沒答完的回合（turns/*.json 的 done 不是 true）與 card-maker 還開著的整理 job 的回合（batches.json 的 job，測試 T-9）不清。
 快照超過 snapshots_keep 份清最舊的。清掉的回合不進回合備份（它本身就是備份）。
 plan 只算、不動；run 持 backup 同一把鎖（.system/revert.lock）做，搶不到不等。kb backup 成功後叫 run，健檢（lint 題）之後也叫它。
 結果：{"turns_removed","earliest":{"time","prompt_head"}|None,"snapshots_removed","freed_bytes"}；earliest 是清完之後最早還能退回的那一句。
@@ -31,9 +31,19 @@ def _started(folder):
         return turn._turn_time(folder.name), (info if isinstance(info, dict) else {})
 
 
+def _open_job_turns(vault):
+    """card-maker 還開著的整理 job 的回合代號（很長的整理，派工那句的回合備份不能被清掉）；batches.json 讀不到當沒有。"""
+    from kb._lib import batches
+    try:
+        data = batches.load(vault)
+    except batches.Unreadable:
+        return set()
+    return {str(j["turn"]) for j in data["jobs"] if j.get("status") == "open" and j.get("turn")}
+
+
 def _protected(vault):
-    """目前回合與還沒答完的回合代號。"""
-    out = set()
+    """目前回合、還沒答完的回合與還開著的 job 的回合代號。"""
+    out = _open_job_turns(vault)
     folder = Path(vault) / TURNS_REL
     if not folder.is_dir():
         return out

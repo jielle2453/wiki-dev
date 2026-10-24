@@ -44,6 +44,15 @@ def _mmdd(created):
 KIND_WORD = {"backup": "備份", "snapshot": "快照"}
 
 
+def _note_place(vault):
+    """這題的指令第一次跑時記位置、補 vault.json（測試 T-2）；寫不了不擋指令。"""
+    from kb._lib import moved
+    try:
+        moved.note_place(vault)
+    except (OSError, ValueError):
+        pass
+
+
 def _list_line(g):
     who = f"{g['machine']} 做的" if g.get("machine") else "不知道哪台做的"
     line = f"{_mmdd(g['created'])}｜{KIND_WORD.get(g['kind'], g['kind'])}｜{who}｜{clean.mb_text(g['bytes'])}"
@@ -71,9 +80,12 @@ def _apply(cwd, args, as_json):
     vault, _target = restore.target_of(cwd)
     conversation = journal_cli.in_conversation(vault) if vault is not None else False
     got = restore.apply(cwd, args.source, conversation)
+    if vault is not None:
+        _note_place(vault)  # 成功才記（拒絕時什麼都不動）
     lines = [got["sentence"]]
     for name in got["hidden_reapplied"]:
-        lines.append(f"你設成不想讓 AI 看到的「{name}」留著、也再清了一次（還原前的快照也一起清掉了）")
+        lines.append(f"你設成不想讓 AI 看到的「{name}」留著、也再清了一次"
+                     + ("" if got["snapshot"] else "（還原前的快照也一起清掉了）"))
     if got["hidden_left"]:
         lines.append(f"不想讓 AI 看到的夾還沒清完：{got['hidden_left']}")
     if got["build_step"]:

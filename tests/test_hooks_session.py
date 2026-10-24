@@ -302,7 +302,7 @@ class OpeningInventory(unittest.TestCase):
         before = stamps()
         self.status()
         after = stamps()
-        self.assertEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json"})
+        self.assertEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
 
 
 INGEST_HINT = ("有變動：先照 ingest skill 整理（開始前照 announce 說一句），整理完再完整回答客戶；"
@@ -348,7 +348,7 @@ class OpeningIngestHint(unittest.TestCase):
         self.assertEqual(self.hint_lines(lines), [])
         after = {p.relative_to(self.V).as_posix(): p.stat().st_mtime_ns
                  for p in (self.V / ".system").rglob("*") if p.is_file()}
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
         (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 1}), encoding="utf-8")
         self.assertIn(UNSORTED_HINT.format(n=1), self.status())
 
@@ -446,7 +446,7 @@ class OpeningEntityDrift(unittest.TestCase):
         i = lines.index("變動：實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
@@ -537,7 +537,7 @@ class OpeningProfile(unittest.TestCase):
             self.edit(*change)
             self.assertTrue(self.profile_lines())
             after = stamps()
-            self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json"}, set())
+            self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json"}, set())
         self.assertEqual(self.md.read_text(encoding="utf-8").count("| 工地 | 事 |"), 1)
 
     def test_broken_profile_json_other_lines_printed(self):
@@ -632,7 +632,7 @@ class OpeningAgenda(unittest.TestCase):
         before = stamps()
         self.status()
         after = stamps()
-        self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json"}, set())
+        self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json"}, set())
         self.assertFalse((self.V / "系統" / "日程.md").exists())
 
 
@@ -773,6 +773,28 @@ class OpeningMoved(unittest.TestCase):
         lines = self.status()
         self.assertNotIn(self.MOVED, lines)
         self.assertNotIn(self.NEW, lines)
+
+    def test_first_run_quietly_records_the_place_and_vault_id(self):
+        """測試 T-2：這台與別台都沒有位置紀錄（first）時，開場默默寫 vault_path、補 vault.json，不印；第二次開場也不印。"""
+        self.assertFalse((self.V / ".system" / "vault.json").exists())
+        lines = self.status()
+        self.assertNotIn(self.MOVED, lines)
+        self.assertNotIn(self.NEW, lines)
+        data = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["machines"][self.me()]["vault_path"], self.here())
+        self.assertTrue((self.V / ".system" / "vault.json").is_file())
+        before = (self.V / ".system" / "env.json").read_bytes()
+        lines = self.status()
+        self.assertNotIn(self.MOVED, lines)
+        self.assertEqual((self.V / ".system" / "env.json").read_bytes(), before)
+
+    def test_after_the_first_record_moving_the_folder_is_noticed(self):
+        """記過位置之後搬到別處：開場印換了位置那句（舊位置是自己記的，不是 kb moved 寫的）。"""
+        self.status()  # 第一次：記下位置
+        data = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        data["machines"][self.me()]["vault_path"] = "D:/lin/舊位置/知識庫"  # 模擬記的是搬家之前的位置
+        (self.V / ".system" / "env.json").write_text(json.dumps(data), encoding="utf-8")
+        self.assertIn(self.MOVED, self.status())
 
     def test_same_place_prints_nothing(self):
         self.put_env({self.me(): {"vault_path": self.here()}})

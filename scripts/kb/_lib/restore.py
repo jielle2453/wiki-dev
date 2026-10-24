@@ -8,7 +8,11 @@ apply：先拍快照（現在是知識庫才拍，reason restore）→ 解到 .s
 保留、不還原的（PRESERVED）：vault.json、env.json（現在有就留；空資料夾還原用備份的）、turns/、snapshots/、temp/、guard-status/、
 ledger.tsv、hook-errors.log、鎖檔。之後：跑 kb init 同一支補骨架與遷移、現在有而那份沒有的 hidden 排除寫回並重清、
 清冊快速比一次回「還原後有 N 份要重新整理」、記一段工作日誌（程式段，對話裡叫的併進回合）。
-check 用 tempfile 解需要的檔到系統暫存，不寫知識庫。比對用各自的 load（舊備份的 schema 照現有遷移讀）。
+check 用 tempfile 解需要的檔到系統暫存，不寫知識庫。
+測試後修正（design/reports/備份還原與換電腦-測試.md）：重清 hidden 走跟 kb folders exclude --kind hidden 同一條路（T-1、T-4：對帳、拿卡、
+重寫總目錄與綜合卡快取、purge），kind 不同（備份裡是 unused）也換成 hidden；purge 刪快照跳過這次的還原前快照（拍的時候現在的 hidden 都清完了才留，
+使用者定）；換入任何例外（含中斷）都倒回，倒不回就留著 restore-old 並說放哪（T-3）；來源是快照時輪替不刪它、失敗就拿掉這次拍的快照、
+動手前做空間檢查、OSError 依 errno 分三種白話（T-6、T-10）；成功句依有沒有還原前快照換說法（T-8）；別個知識庫的備份 check 回 other_vault（照樣放行）。比對用各自的 load（舊備份的 schema 照現有遷移讀）。
 """
 import argparse
 import contextlib
@@ -24,6 +28,7 @@ from pathlib import Path
 
 from kb._lib import backup, env, paths
 from kb._lib import io as kio
+from kb._lib import vault as vault_lib
 
 EXAMPLES_MAX = 3
 SYSTEM = ".system"
@@ -236,11 +241,12 @@ def check(cwd, source):
     只讀。擋的原因放 refuse（其他欄位盡量算、算不出來給空的）。"""
     vault, target = target_of(cwd)
     got = {"created": None, "machine": None, "kind": None, "lose": {}, "back": {}, "examples": {}, "examples_back": {},
-           "hidden_reapply": [], "build_step": None, "refuse": None}
+           "hidden_reapply": [], "build_step": None, "other_vault": False, "refuse": None}
     try:
         zip_path = find_source(source, vault, cwd)
         meta = backup.verify(zip_path)
-        got.update(created=meta.get("created"), machine=meta.get("machine"), kind=meta.get("kind"))
+        got.update(created=meta.get("created"), machine=meta.get("machine"), kind=meta.get("kind"),
+                   other_vault=_other_vault(vault, meta))
         _guard_target(vault, target)
         if vault is not None and backup.batch_running(vault):
             raise backup.Refused(backup.BATCH_RUNNING.format(what="還原"))
@@ -249,6 +255,17 @@ def check(cwd, source):
     except backup.Refused as e:
         got["refuse"] = str(e)
     return got
+
+
+def _other_vault(vault, meta):
+    """這份備份的 vault_id 跟現在的知識庫不同（別個知識庫的備份）；現在沒有知識庫或任何一邊沒有編號都算不是。"""
+    if vault is None or not meta.get("vault_id"):
+        return False
+    try:
+        mine = vault_lib.vault_id(vault)
+    except (ValueError, OSError):
+        return False
+    return bool(mine) and mine != meta["vault_id"]
 
 
 def when_text(created):
@@ -264,6 +281,8 @@ def lines(result):
     if result.get("refuse"):
         return [result["refuse"]]
     out = [f"會回到 {when_text(result['created'])} 的樣子"]
+    if result.get("other_vault"):
+        out.append("這份是另一個知識庫的備份，不是這個知識庫自己的")
     if result.get("machine"):
         out.append(f"這份是 {result['machine']} 做的{'快照' if result.get('kind') == 'snapshot' else '備份'}")
     for key, word, unit in CLASSES:
@@ -289,9 +308,19 @@ def lines(result):
 
 # ---------- 動手 ----------
 
-def _first_name(e):
-    name = getattr(e, "filename", None) or getattr(e, "filename2", None) or ""
-    return Path(str(name)).name or "某個檔案"
+UNDO_FAILED = "還原沒做完，有東西沒能移回去：還原前的東西放在 {where}（先別刪那個夾），請服務人員看一下"
+GENERIC_FAILED = "還原沒有做成：{why}；什麼都沒動"
+SNAPSHOT_LINE = "已還原到 {when} 的備份；說「剛剛的還原不要了」可以回到還原前。還原後有 {n} 份要重新整理。"
+NO_SNAPSHOT_LINE = "已還原到 {when} 的備份；這次沒有還原前的快照，回不到還原前。還原後有 {n} 份要重新整理。"
+
+
+class _Incomplete(backup.Refused):
+    """換入失敗、而且倒不回：restore-old 不能刪（還原前的東西還在裡面）。"""
+
+
+def oserror_sentence(e, need_mb=None, free_mb=None, source=None):
+    """OSError 依 errno 分：檔案開著（帶檔名）、空間不夠、找不到那份；其他說沒有做成（T-6）。"""
+    return backup.oserror_sentence(e, need_mb, free_mb, source) or GENERIC_FAILED.format(why=type(e).__name__)
 
 
 def _is_lock(name):
@@ -350,64 +379,36 @@ def _move_all(pairs, done):
 
 
 def _undo(done):
-    """倒著搬回去；倒不回的略過（不會比不倒更糟）。"""
+    """倒著搬回去；回倒不回的那幾筆（空的就是全回去了）。"""
+    bad = []
     for src, dst in reversed(done):
         try:
             _rename(dst, src)
         except OSError:
-            pass
+            bad.append((src, dst))
+    return bad
 
 
-def _swap_in(target, extracted, old_dir, vault_exists):
-    """把現在的移到 old_dir、解出來的移到位；任何一步失敗全部移回丟 Refused。成功回 None（restore-old 由呼叫端刪）。"""
+def _swap_in(target, extracted, old_dir, vault_exists, need_mb=None, free_mb=None):
+    """把現在的移到 old_dir、解出來的移到位；任何例外（含中斷）都全部移回。
+    倒不回丟 _Incomplete（說還原前的東西放在哪，restore-old 不刪）；倒得回的 OSError 依 errno 說、其他 Exception 說沒有做成，
+    KeyboardInterrupt 這類倒回後照原樣往外丟。"""
     moved_old, placed = [], []
     try:
         _move_all([(src, Path(old_dir).joinpath(*parts)) for src, parts in _top_moves(target, vault_exists)
                    if parts != (SYSTEM, "temp")], moved_old)
         _move_all([(src, Path(target).joinpath(*parts)) for src, parts in _top_moves(extracted, vault_exists)],
                   placed)
-    except OSError as e:
-        _undo(placed)
-        _undo(moved_old)
-        raise backup.Refused(FILE_OPEN.format(name=_first_name(e))) from None
-
-
-def _reapply_hidden(vault, hidden_now):
-    """現在有、還原後的 sources.json 沒有的 hidden 排除寫回去（purge 記待清）並重清。回 (寫回的 "別名/spec", 沒清完的說明或 None)。"""
-    from kb._lib import purge, turn
-    from kb._lib import sources as sources_lib
-    path = Path(vault) / SYSTEM / "sources.json"
-    with kio.FileLock(path):
-        raw = sources_lib.load_raw(vault)
-        have = {(s.get("alias"), ex.get("spec")) for s in raw["sources"] for ex in s.get("excludes") or []}
-        added = []
-        for alias, spec, row in hidden_now:
-            if (alias, spec) in have:
-                continue
-            src = next((s for s in raw["sources"] if s.get("alias") == alias), None)
-            if src is None:
-                continue
-            src.setdefault("excludes", []).append(dict(row, purge=sources_lib.PURGE_PENDING))
-            added.append((alias, spec))
-        if not added:
-            return [], None
-        kio.write_json_atomic(path, raw)
-        sources = sources_lib.Sources(vault, raw)
-        turn_id = turn.current(vault)["turn"]
-        left = None
-        for alias, spec in added:
-            ex = next((e for s in sources.entries if s["alias"] == alias for e in s["excludes"] if e["spec"] == spec), None)
-            if ex is None:
-                continue
-            try:
-                got = purge.purge(vault, alias, spec, ex["root"], turn_id)
-                if got["remaining"]:
-                    left = purge.remaining_text(got["remaining"])
-                else:
-                    purge.mark_done(vault, alias, spec, turn_id)
-            except purge.Blocked as b:
-                left = "還有綜合卡引用那夾的卡：" + "、".join(b.args[0])
-    return [f"{a}/{s}" for a, s in added], left
+    except BaseException as e:  # noqa: BLE001  中斷也要倒回，不然還原前的資料會留在 restore-old 裡被刪掉
+        bad = _undo(placed) + _undo(moved_old)
+        if bad:
+            where = Path(old_dir).relative_to(target).as_posix()
+            raise _Incomplete(UNDO_FAILED.format(where=where)) from e
+        if isinstance(e, OSError):
+            raise backup.Refused(oserror_sentence(e, need_mb, free_mb)) from None
+        if isinstance(e, Exception):
+            raise backup.Refused(GENERIC_FAILED.format(why=type(e).__name__)) from None
+        raise
 
 
 def _hidden_rows(vault):
@@ -418,6 +419,74 @@ def _hidden_rows(vault):
         return []
     return [(s.get("alias"), ex.get("spec"), dict(ex)) for s in data.get("sources", []) if isinstance(s, dict)
             for ex in s.get("excludes") or [] if isinstance(ex, dict) and ex.get("kind") == "hidden"]
+
+
+def _hidden_all_clean(rows):
+    """現在的 hidden 排除都清完了（purge 是日期、不是 pending）：這時拍的還原前快照裡沒有那夾的東西，purge 可以留著它。"""
+    from kb._lib import sources as sources_lib
+    return all(row.get("purge") != sources_lib.PURGE_PENDING for _a, _s, row in rows)
+
+
+def _reapply_hidden(vault, hidden_now, keep_snapshots=()):
+    """現在是 hidden、還原後的 sources.json 沒有或不是 hidden 的排除，走跟 kb folders exclude --kind hidden 同一條路
+    （寫排除列、清冊對帳標 excluded、拿掉那些卡、重寫總目錄與綜合卡快取、purge），清完要真的找不到才標完成（T-1、T-4）。
+    一條一條做。回 (重清的「別名/spec」, 沒清完的說明清單)；失敗整段倒回那一條、說明留給客戶。"""
+    from kb import folders
+    from kb._lib import cards, inventory, purge, turn
+    from kb._lib import sources as sources_lib
+    done, left = [], []
+    sources_path = Path(vault) / sources_lib.SOURCES_REL
+    for alias, spec, row in hidden_now:
+        name = f"{alias}/{spec}"
+        try:
+            with kio.FileLock(sources_path):
+                raw = sources_lib.load_raw(vault)
+                entry = next((s for s in raw["sources"] if s.get("alias") == alias), None)
+                if entry is None:
+                    continue  # 那個來源不在還原後的登記表裡，沒有東西要清
+                rows = entry.setdefault("excludes", [])
+                cur = next((ex for ex in rows if ex.get("spec") == spec), None)
+                if cur is not None and cur.get("kind") == "hidden":
+                    continue
+                if cur is not None:
+                    cur.update(kind="hidden", purge=sources_lib.PURGE_PENDING)  # 備份裡同一夾是 unused：換成 hidden，不降級
+                else:
+                    rows.append(dict(row, purge=sources_lib.PURGE_PENDING))
+                before = folders._snapshot_status(vault)
+                before_entries = inventory.load(vault)["entries"]
+                inv_before = folders._inventory_bytes(vault)
+                turn_id, original = folders._backup_then_write(vault, raw)
+                folders._inventory_step(vault, original, folders._reconcile, vault, raw, turn_id)
+                ids = folders._gone(before, folders._snapshot_status(vault))
+                root = next(ex["root"] for s in sources_lib.Sources(vault, raw).entries if s["alias"] == alias
+                            for ex in s["excludes"] if ex["spec"] == spec)
+
+                def record(undo, ids=ids, before_entries=before_entries, alias=alias, spec=spec, turn_id=turn_id):
+                    gone = set(ids)
+                    names = {loc.get("uri", "").rpartition("/")[2] for e in before_entries if e.get("id") in gone
+                             for loc in e.get("locations") or [] if isinstance(loc, dict)}
+                    purge.record_scope(vault, alias, spec, {"ids": gone, "hashes": {purge.name_hash(n) for n in names if n}},
+                                       turn_id)
+                    groups = cards._scan_groups(vault)[0]
+                    purge.record_titles(vault, alias, spec, {cards._title(c) for cid in gone for c in groups.get(cid, [])},
+                                        turn_id, undo)
+                    purge.record(vault, alias, spec, "turns", purge.own_turns(vault), turn_id, undo)
+                folders._guarded_drop(vault, ids, turn_id, original, inv_before, record)
+                blocking = purge.blocking(vault, set(purge.target(vault, alias, spec)["ids"]) | set(ids))
+                if blocking:  # 還有綜合卡寫著那夾的內容：留著 pending，照一般流程重寫綜合卡再 purge
+                    left.append(f"還有綜合卡寫著「{name}」的內容：{'、'.join(blocking)}（先照 rules/synthesis.md 重寫，再跑 kb folders purge）")
+                else:
+                    got = purge.purge(vault, alias, spec, root, turn_id, keep_snapshots=keep_snapshots)
+                    if got["remaining"]:
+                        left.append(f"「{name}」" + purge.remaining_text(got["remaining"]))
+                    else:
+                        purge.mark_done(vault, alias, spec, turn_id)
+            done.append(name)
+        except folders._Undone as e:
+            left.append(f"「{name}」重清沒有成功（{e}），已經倒回；請再說一次不想讓 AI 看到這一夾")
+        except purge.Blocked as b:
+            left.append(f"還有綜合卡寫著「{name}」的內容：{'、'.join(b.args[0])}")
+    return done, left
 
 
 def _run_init(target):
@@ -437,6 +506,12 @@ def _count_to_reorganize(vault):
     return sum(len(report[k]) for k in ("added", "modified", "moved", "missing"))
 
 
+def _mb_numbers(vault, target, meta):
+    """(要幾 MB, 剩幾 MB)：解出來的未壓縮大小，加上現在知識庫的大小（拍快照）。"""
+    need = int(meta.get("bytes") or 0) + (backup.collect(vault)[2] if vault is not None else 0)
+    return backup._mb_up(need), backup._free_bytes(target) // (1024 * 1024), need
+
+
 def apply(cwd, source, conversation=False):
     """還原。回 {"sentence","snapshot","created","hidden_reapplied","hidden_left","to_reorganize","build_step"}；
     不過、做不到丟 backup.Refused（一句話）。呼叫端在 cwd 跑（cwd 在知識庫裡就還原那個知識庫）。"""
@@ -446,46 +521,64 @@ def apply(cwd, source, conversation=False):
     _guard_target(vault, target)
     if vault is not None and backup.batch_running(vault):
         raise backup.Refused(backup.BATCH_RUNNING.format(what="還原"))
+    need_mb, free_mb, need = _mb_numbers(vault, target, meta)
+    if need > backup._free_bytes(target):  # 動手之前：連快照都還沒拍
+        raise backup.Refused(backup.NO_SPACE.format(need=need_mb, free=free_mb))
     (target / SYSTEM).mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     temp = target / SYSTEM / "temp"
     extracted, old_dir = temp / f"restore-{stamp}", temp / f"restore-old-{stamp}"
+    source_is_snapshot = vault is not None and zip_path.parent.resolve() == (vault / backup.SNAPSHOT_REL).resolve()
     with backup.acquire(target):
         snapshot = None
         hidden_now = _hidden_rows(target) if vault is not None else []
+        clean_before = _hidden_all_clean(hidden_now)
         step = None
         try:
             if vault is not None:
-                snapshot = backup.snapshot(vault, "restore")
+                snapshot = backup.snapshot(vault, "restore", rotate=False)  # 成功了才輪替：失敗時不擠掉較舊有用的快照
             extracted.mkdir(parents=True)
             _unpack(zip_path, extracted, meta)
             (extracted / backup.META_NAME).unlink()
             step = _build_step(extracted)
-            _swap_in(target, extracted, old_dir, vault is not None)
-        except (OSError, zipfile.BadZipFile) as e:
+            _swap_in(target, extracted, old_dir, vault is not None, need_mb, free_mb)
+        except _Incomplete:
+            shutil.rmtree(paths.long_path(extracted), ignore_errors=True)  # restore-old 留著：還原前的東西在裡面
+            raise
+        except BaseException as e:  # noqa: BLE001
             shutil.rmtree(paths.long_path(extracted), ignore_errors=True)
             shutil.rmtree(paths.long_path(old_dir), ignore_errors=True)
-            raise backup.Refused(FILE_OPEN.format(name=_first_name(e))) from None
-        except BaseException:
-            shutil.rmtree(paths.long_path(extracted), ignore_errors=True)
-            shutil.rmtree(paths.long_path(old_dir), ignore_errors=True)
+            if snapshot is not None:  # 這次拍的快照拿掉（失敗了不需要，也免得擠掉較舊的）
+                try:
+                    snapshot.unlink()
+                except OSError:
+                    pass
+            if isinstance(e, backup.Refused):
+                raise
+            if isinstance(e, (OSError, zipfile.BadZipFile)):
+                if isinstance(e, zipfile.BadZipFile):
+                    raise backup.Refused(backup.BROKEN.format(why="不是完整的 zip 檔")) from None
+                raise backup.Refused(oserror_sentence(e, need_mb, free_mb, source)) from None
+            if isinstance(e, Exception):
+                raise backup.Refused(GENERIC_FAILED.format(why=type(e).__name__)) from None
             raise
         shutil.rmtree(paths.long_path(old_dir), ignore_errors=True)
         shutil.rmtree(paths.long_path(extracted), ignore_errors=True)
-        from kb._lib import vault as vault_lib
         vault_lib.ensure_vault_id(target)
         _run_init(target)
-    reapplied, left = (_reapply_hidden(target, hidden_now) if hidden_now else ([], None))
-    if reapplied and snapshot is not None and not snapshot.exists():
-        snapshot = None
+        if vault is not None:
+            backup.rotate_snapshots(target, protect=(zip_path,) if source_is_snapshot else ())
+    keep = (snapshot,) if snapshot is not None and clean_before else ()
+    reapplied, left = (_reapply_hidden(target, hidden_now, keep) if hidden_now else ([], []))
+    kept = snapshot is not None and snapshot.exists()
     n = _count_to_reorganize(target)
     when = when_text(meta.get("created"))
-    sentence = AFTER_SENTENCE.format(when=when, n=n)
+    sentence = (SNAPSHOT_LINE if kept else NO_SNAPSHOT_LINE).format(when=when, n=n)
     from kb import journal_cli
     journal_cli.record_program_or_warn(target, f"已還原到 {when} 的備份（{meta.get('machine') or '另一台電腦'} 做的）",
                                        [{"path": SYSTEM, "action": "modify"}], "restore apply", conversation)
-    return {"sentence": sentence, "snapshot": snapshot.name if snapshot is not None else None,
-            "created": meta.get("created"), "hidden_reapplied": reapplied, "hidden_left": left,
+    return {"sentence": sentence, "snapshot": snapshot.name if kept else None,
+            "created": meta.get("created"), "hidden_reapplied": reapplied, "hidden_left": "；".join(left) or None,
             "to_reorganize": n, "build_step": step}
 
 

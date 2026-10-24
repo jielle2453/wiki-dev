@@ -1189,40 +1189,81 @@ class CredentialRound1(unittest.TestCase):
 
 
 class GlobSingleFilename(DecideBase):
-    """B-425 (a)：Glob 樣式是單一檔名時只在 path 那一層找，path 含不讀夾也不判 Z10b；會往下走的樣式、像密碼的檔名照擋。"""
+    """B-425 (a)（T-7 後）：Glob 樣式是單一檔名、而且 path 底下的排除夾全是 unused 時，只在 path 那一層找，不判 Z10b；
+    path 底下有 hidden 排除（含已清完的）、會往下走的樣式、像密碼的檔名照擋（Glob 單一檔名實測也會往下找，hidden 連檔名都算要清的，D-174）。"""
+
+    def setUp(self):
+        self.sources_path = self.V / ".system" / "sources.json"
+        self.saved = self.sources_path.read_text(encoding="utf-8")
+        self.unused_root = self.tmp / "封存來源"
+        (self.unused_root / "舊版").mkdir(parents=True, exist_ok=True)
+        self.set_sources({"封存": [{"spec": "舊版", "kind": "unused", "reason": "舊的", "added": "2026-10-12"}]})
+
+    def tearDown(self):
+        self.sources_path.write_text(self.saved, encoding="utf-8")
+
+    def set_sources(self, extra):
+        import json
+        data = json.loads(self.saved)
+        for alias, excludes in extra.items():
+            data["sources"].append({"id": "src-eeee", "alias": alias, "spec": str(self.unused_root).replace("\\", "/"),
+                                    "excludes": excludes})
+        self.sources_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def glob(self, path, pattern):
         return guard.decide({"tool_name": "Glob", "tool_input": {"path": str(path), "pattern": pattern}, "cwd": str(self.V)})
 
-    def test_single_filename_in_source_with_excluded_child_allowed(self):
+    def test_single_filename_where_only_unused_excluded_is_allowed(self):
         for pattern in ("信義王報價.xlsx", "報價.xlsx", "v1.2.xlsx"):
             with self.subTest(pattern=pattern):
-                d = self.glob(self.raw / "行政", pattern)
+                d = self.glob(self.unused_root, pattern)
                 self.assertEqual((d.decision, d.zone), ("allow", "Z9"), d)
 
-    def test_descending_patterns_still_z10b(self):
-        for pattern in ("**/*.xlsx", "*.xlsx", "報價?.xlsx", "報價[12].xlsx", "子夾/報價.xlsx", "子夾\\報價.xlsx",
-                        "../報價.xlsx", "{a,b}.xlsx", "", ".", ".."):
+    def test_single_filename_where_hidden_excluded_still_z10b(self):
+        """fixture 的「行政」底下有 hidden（薪資）也有 unused（舊檔）：照舊擋 Z10b。"""
+        for pattern in ("信義王報價.xlsx", "報價.xlsx"):
             with self.subTest(pattern=pattern):
                 d = self.glob(self.raw / "行政", pattern)
                 self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10b", "excluded_inside"), d)
 
+    def test_hidden_already_purged_still_counts_as_hidden(self):
+        self.set_sources({"清完": [{"spec": "舊版", "kind": "hidden", "reason": "x", "added": "2026-10-12",
+                                    "purge": "2026-10-20"}]})
+        d = self.glob(self.unused_root, "報價.xlsx")  # 兩個來源同一個根：其中一條是 hidden（已清完）
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10b", "excluded_inside"), d)
+
+    def test_exclude_without_kind_counts_as_hidden(self):
+        self.set_sources({"沒寫種類": [{"spec": "舊版", "reason": "x"}]})
+        d = self.glob(self.unused_root, "報價.xlsx")
+        self.assertEqual((d.decision, d.zone), ("deny", "Z10b"), d)
+
+    def test_descending_patterns_still_z10b(self):
+        for root in (self.unused_root, self.raw / "行政"):
+            for pattern in ("**/*.xlsx", "*.xlsx", "報價?.xlsx", "報價[12].xlsx", "子夾/報價.xlsx", "子夾\\報價.xlsx",
+                            "../報價.xlsx", "{a,b}.xlsx", "", ".", ".."):
+                with self.subTest(root=root.name, pattern=pattern):
+                    d = self.glob(root, pattern)
+                    self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10b", "excluded_inside"), d)
+
     def test_no_pattern_still_z10b(self):
-        d = guard.decide(payload("Glob", self.raw / "行政", self.V))
+        d = guard.decide(payload("Glob", self.unused_root, self.V))
         self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10b", "excluded_inside"), d)
 
     def test_credential_looking_filename_still_denied(self):
         for pattern in ("密碼.xlsx", "password.txt", ".env"):
             with self.subTest(pattern=pattern):
-                d = self.glob(self.raw / "行政", pattern)
+                d = self.glob(self.unused_root, pattern)
                 self.assertEqual((d.decision, d.reason_code), ("deny", "credential"), d)
+                self.assertEqual(self.glob(self.raw / "行政", pattern).decision, "deny")
 
     def test_path_inside_excluded_folder_still_z10(self):
         d = self.glob(self.raw / "行政" / "薪資", "報價.xlsx")
         self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10", "excluded"), d)
+        d = self.glob(self.unused_root / "舊版", "報價.xlsx")
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10", "excluded"), d)
 
     def test_pattern_naming_excluded_folder_still_denied(self):
-        d = self.glob(self.raw / "行政", "薪資")
+        d = self.glob(self.unused_root, "舊版")
         self.assertEqual((d.decision, d.zone), ("deny", "Z10"), d)
 
 
@@ -1270,6 +1311,41 @@ class VaultRootMove(DecideBase):
                 self.assertEqual(d.decision, "deny", d)
                 self.assertEqual(d.reason, self.REASON, d)
                 self.assertEqual(len(d.ledger_rows), 1, d)
+
+    def test_destination_by_flag_or_source_last_also_gets_move_reason(self):
+        """T-11：來源在最後或目的地用旗標指定的寫法，理由句也是搬家那句。"""
+        v = self.V.as_posix()
+        for tool, command in (
+            ("Bash", f"mv -t /d/new '{v}'"),
+            ("Bash", f"mv -t /d/new {v}/"),
+            ("Bash", f"cp -r --target-directory=/d/x '{v}'"),
+            ("Bash", f"cp -r --target-directory /d/x '{v}'"),
+            ("Bash", f"mv '{v}' -t /d/new"),
+            ("PowerShell", f"Copy-Item -Destination 'D:/x' -Path '{v}' -Recurse"),
+            ("PowerShell", f"Copy-Item -Recurse -Destination D:/x -LiteralPath '{v}'"),
+            ("PowerShell", f"Move-Item '{v}' -Destination 'D:/x'"),
+            ("PowerShell", f"Move-Item -Destination D:\\x -Path '{v}'"),
+            ("PowerShell", f"Move-Item -dest D:/x '{v}'"),
+        ):
+            with self.subTest(command=command):
+                d = guard.decide({"tool_name": tool, "tool_input": {"command": command}, "cwd": str(self.V)})
+                self.assertEqual(d.decision, "deny", d)
+                self.assertEqual((d.reason_code, d.reason), ("vault_move", self.REASON), d)
+
+    def test_putting_something_into_the_root_is_not_a_move_of_it(self):
+        """目的地是知識庫根本身（放進去）不算搬家：舊的 Z8 protected 句。"""
+        v = self.V.as_posix()
+        for tool, command in (
+            ("Bash", f"cp a.txt '{v}'"),
+            ("Bash", f"cp -t '{v}' a.txt"),
+            ("Bash", f"mv --target-directory='{v}' a.txt"),
+            ("PowerShell", f"Copy-Item -Path a.txt -Destination '{v}'"),
+            ("PowerShell", f"Copy-Item -Destination '{v}' -Path a.txt"),
+        ):
+            with self.subTest(command=command):
+                d = guard.decide({"tool_name": tool, "tool_input": {"command": command}, "cwd": str(self.V)})
+                self.assertEqual(d.decision, "deny", d)
+                self.assertNotEqual(d.reason, self.REASON, d)
 
     def test_move_inside_vault_keeps_old_reason(self):
         v = self.V.as_posix()

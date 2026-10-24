@@ -41,6 +41,20 @@ def state(vault):
     return {"state": "first", "from": None, "to": now}
 
 
+def note_place(vault):
+    """first（這台與別台都沒有位置紀錄）時默默記位置、補 vault.json，回 state；其他狀態不動（換了位置、換了電腦要等 kb moved 補完才寫，
+    不然會把舊位置蓋掉）。開場與這題的指令（backup、restore apply、versions clean、moved）第一次跑時都叫它（測試 T-2）；
+    寫不了（唯讀、鎖）丟 OSError 由呼叫端決定要不要吞。不備進回合。"""
+    st = state(vault)
+    if st["state"] == "first":
+        try:
+            vault_lib.ensure_vault_id(vault)
+        except ValueError:
+            pass  # vault.json 壞了不覆寫（換編號密碼就對不上），位置照記
+        env.set_vault_path(vault, st["to"])
+    return st["state"]
+
+
 def _old_bases(vault, st):
     """舊位置（找相對來源、舊的一份用）：moved 是這台記的，new_machine 是別台記的全部。"""
     if st["state"] == "moved":

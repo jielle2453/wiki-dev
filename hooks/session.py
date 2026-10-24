@@ -9,7 +9,8 @@ B-415）：變動行改印「還有 N 份沒整理完、M 張卡要跟著搬」�
 裁定 14，D-161）；算超過開場時限就這行不印、寫 log。
 payload 的 session 在這個對話按過停止（session 檔記著 ingest_stopped，compact／resume 時）就不印整理指示（D-156、裁定 14）；
 這一步只讀 session 檔。
-換了位置、換了電腦（備份還原與換電腦，D-206、D-208）：line_moved 排在變動行前面，只讀 env.json（moved.state，不寫 vault_path，kb moved 做完才寫）；
+換了位置、換了電腦（備份還原與換電腦，D-206、D-208）：line_moved 排在變動行前面；這台與別台都沒有位置紀錄（first）時默默寫 vault_path、補 vault.json、
+不印（moved.note_place，測試 T-2：不記的話用了幾個月的知識庫永遠認不出搬家）；換了位置、換了電腦時只讀（不寫 vault_path，kb moved 做完才寫）；
 印了這行時整理指示與「找不到來源」兩行都不印（先補位置：相對位置的來源會被當成不見，找不到來源那行還會把「已報過」記號寫掉，kb moved 會逐個列出來）。
 core.md 之後接設定檔第六節的「客戶偏好（…照核心規則）：」一條一行（D-137，沒有不印；讀不到這段不印、寫 log；框住，測試後修正裁定 15）。
 任何例外寫 .system/hook-errors.log（source session），永遠 exit 0。找到知識庫之後的例外另印一行出錯的 additionalContext
@@ -58,7 +59,7 @@ def _moved_state(vault):
         try:
             from kb._lib import moved
 
-            _MOVED[key] = moved.state(vault)["state"]
+            _MOVED[key] = moved.note_place(vault)  # first 時默默記位置、補 vault.json（測試 T-2），其他狀態只讀；回 state
         except Exception as e:  # noqa: BLE001
             _MOVED[key] = None
             _log_vault(vault, e)

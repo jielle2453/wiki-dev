@@ -937,12 +937,17 @@ def _delete_outputs(vault, code, as_json, conversation=False):
 
 def _clean(vault, check, as_json, conversation):
     """kb versions clean（備份還原與換電腦 要做的事 3，D-207）：本體在 _lib/clean；清掉的回合不進回合備份（它本身就是備份）。"""
-    from kb._lib import backup, clean
+    from kb._lib import backup, clean, moved
     try:
         got = clean.run(vault, check=check)
     except backup.Refused as e:
         print(json.dumps({"ok": False, "message": str(e)}, ensure_ascii=False) if as_json else str(e))
         return 3
+    if not check:
+        try:
+            moved.note_place(vault)  # 這題的指令第一次跑成功時記位置（測試 T-2）；寫不了不擋、拒絕時不寫
+        except (OSError, ValueError):
+            pass
     sentence = clean.sentence(got)
     if not check and (got["turns_removed"] or got["snapshots_removed"]):
         journal_cli.record_program_or_warn(vault, sentence.split("；")[0], [], "versions clean", conversation)
