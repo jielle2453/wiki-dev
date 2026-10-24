@@ -308,7 +308,8 @@ def lines(result):
 
 # ---------- 動手 ----------
 
-UNDO_FAILED = "還原沒做完，有東西沒能移回去：還原前的東西放在 {where}（先別刪那個夾），請服務人員看一下"
+# 「沒做完」的句子統一寫成「沒做完：<哪一步>（原因），<怎麼補>」（第三輪 N-7）
+UNDO_FAILED = "還原沒做完：有東西沒能移回去（{why}），還原前的東西放在 {where}，先別刪那個夾、請服務人員看一下"
 GENERIC_FAILED = "還原沒有做成：{why}；什麼都沒動"
 SNAPSHOT_LINE = "已還原到 {when} 的備份；說「剛剛的還原不要了」可以回到還原前。還原後有 {n} 份要重新整理。"
 NO_SNAPSHOT_LINE = "已還原到 {when} 的備份；這次沒有還原前的快照，回不到還原前。還原後有 {n} 份要重新整理。"
@@ -404,7 +405,7 @@ def _swap_in(target, extracted, old_dir, vault_exists, need_mb=None, free_mb=Non
         bad = _undo(placed) + _undo(moved_old)
         if bad:
             where = Path(old_dir).relative_to(target).as_posix()
-            raise _Incomplete(UNDO_FAILED.format(where=where)) from e
+            raise _Incomplete(UNDO_FAILED.format(where=where, why=type(e).__name__)) from e
         if isinstance(e, OSError):
             raise backup.Refused(oserror_sentence(e, need_mb, free_mb)) from None
         if isinstance(e, Exception):
@@ -484,11 +485,11 @@ def _reapply_hidden(vault, hidden_now, keep_snapshots=()):
                 purge.mark_done(vault, alias, spec, turn_id)
             done.append(name)  # 真的清完了才算（輸出才不會一行說清了、一行說還沒）
         except folders._Undone as e:
-            left.append(f"「{name}」重清沒有成功（{e}），已經倒回；請再說一次不想讓 AI 看到這一夾")
+            left.append(f"沒做完：重清「{name}」（{e}，已經倒回），請再說一次不想讓 AI 看到這一夾")
         except purge.Blocked as b:
             left.append(f"還有綜合卡寫著「{name}」的內容：{'、'.join(b.args[0])}")
         except Exception as e:  # noqa: BLE001  換入已經成功：這一步出任何例外都照實說沒做完，不讓 apply 丟出去（N-3）
-            left.append(f"「{name}」重清沒有做完（{type(e).__name__}）；請再說一次不想讓 AI 看到這一夾")
+            left.append(f"沒做完：重清「{name}」（{type(e).__name__}），請再說一次不想讓 AI 看到這一夾")
     return done, left
 
 
@@ -568,19 +569,19 @@ def apply(cwd, source, conversation=False):
         shutil.rmtree(paths.long_path(old_dir), ignore_errors=True)
         shutil.rmtree(paths.long_path(extracted), ignore_errors=True)
         not_finished = []  # 換入已經成功：後面哪一步出例外都不再往外丟（客戶會以為還原失敗），照實說哪一步沒做完（N-3）
-        for label, fn in (("補知識庫編號（vault.json）", lambda: vault_lib.ensure_vault_id(target)),
-                          ("補骨架與遷移狀態檔，請跑 kb init", lambda: _run_init(target)),
-                          ("輪替快照", lambda: backup.rotate_snapshots(
-                              target, protect=(zip_path,) if source_is_snapshot else ()) if vault is not None else None)):
+        for label, fix, fn in (("補知識庫編號 vault.json", "請跑 kb init", lambda: vault_lib.ensure_vault_id(target)),
+                               ("補骨架與遷移狀態檔", "請跑 kb init", lambda: _run_init(target)),
+                               ("輪替快照", "下次備份或還原會再輪替，不用處理", lambda: backup.rotate_snapshots(
+                                   target, protect=(zip_path,) if source_is_snapshot else ()) if vault is not None else None)):
             try:
                 fn()
             except Exception as e:  # noqa: BLE001
-                not_finished.append(f"{label}沒做完（{type(e).__name__}）")
+                not_finished.append(f"{label}（{type(e).__name__}），{fix}")  # 「<哪一步>（原因），<怎麼補>」，restore_cli 前面接「還原好了，但有一步沒做完：」
     keep = (snapshot,) if snapshot is not None and clean_before else ()
     try:
         reapplied, left = (_reapply_hidden(target, hidden_now, keep) if hidden_now else ([], []))
     except Exception as e:  # noqa: BLE001
-        reapplied, left = [], [f"重清不想讓 AI 看到的夾沒有做完（{type(e).__name__}）；請再說一次不想讓 AI 看到那一夾"]
+        reapplied, left = [], [f"沒做完：重清不想讓 AI 看到的夾（{type(e).__name__}），請再說一次不想讓 AI 看到那一夾"]
     kept = snapshot is not None and snapshot.exists()
     n = _count_to_reorganize(target)
     when = when_text(meta.get("created"))

@@ -44,6 +44,11 @@ def _mmdd(created):
 KIND_WORD = {"backup": "備份", "snapshot": "快照"}
 
 
+def not_finished_line(step):
+    """換入成功之後某一步沒做完：「還原好了，但有一步沒做完：<哪一步>（原因），<怎麼補>」（第三輪 N-7）。"""
+    return f"還原好了，但有一步沒做完：{step}"
+
+
 def _note_place(vault):
     """這題的指令第一次跑時記位置、補 vault.json（測試 T-2）；寫不了不擋指令。"""
     from kb._lib import moved
@@ -88,8 +93,8 @@ def _apply(cwd, args, as_json):
                      + ("" if got["snapshot"] else "（還原前的快照也一起清掉了）"))
     if got["hidden_left"]:
         lines.append(f"不想讓 AI 看到的夾還沒清完：{got['hidden_left']}")
-    for why in got.get("not_finished") or []:
-        lines.append(f"還原好了，但有一步{why}")  # 換入成功之後才出錯的：照實說還原好了、哪一步沒做完（N-3）
+    for step in got.get("not_finished") or []:
+        lines.append(not_finished_line(step))  # 換入成功之後才出錯的：照實說還原好了、哪一步沒做完（N-3）
     if got["build_step"]:
         lines.append(f"建置停在「{got['build_step']}」那一步，下次打 build 從那裡接著做")
     _out(as_json, "\n".join(lines), dict(got, ok=True, message=got["sentence"]))

@@ -205,3 +205,57 @@ class CpBundledFlags(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RsyncAndSentences(unittest.TestCase):
+    """第三輪 N-7、N-8：-t 併旗標只用在 cp、mv（rsync 的 -t 是保留時間）；「沒做完」的句子統一寫成「沒做完：<哪一步>（原因），<怎麼補>」。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_guard_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def decide(self, command):
+        d = guard.decide({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(self.V),
+                          "permission_mode": "default"})
+        return d.decision, d.reason_code
+
+    def test_rsync_t_is_preserve_times_not_a_destination_flag(self):
+        v = str(self.V).replace("\\", "/")
+        decision, code = self.decide(f"rsync -rt /d/x '{v}'")  # 知識庫是最後一個＝目的地，不是搬走整個知識庫
+        self.assertNotEqual(code, "vault_move")
+        self.assertEqual(self.decide(f"rsync -r '{v}' /d/x"), ("deny", "vault_move"))
+        self.assertEqual(self.decide(f"cp -rt /d/x '{v}'"), ("deny", "vault_move"))
+        self.assertEqual(self.decide(f"mv -t /d/x '{v}'"), ("deny", "vault_move"))
+
+    def test_not_finished_sentences_follow_one_order(self):
+        from kb import restore_cli
+        got = {"sentence": "已還原到 10-15 14:05 的備份；…", "snapshot": "x.zip", "hidden_reapplied": [], "hidden_left": None,
+               "build_step": None, "not_finished": ["補骨架與遷移狀態檔（RuntimeError），請跑 kb init"]}
+        self.assertEqual(restore_cli.not_finished_line(got["not_finished"][0]),
+                         "還原好了，但有一步沒做完：補骨架與遷移狀態檔（RuntimeError），請跑 kb init")
+
+    def test_apply_not_finished_texts(self):
+        tmp, V, _raw = _backup.make_vault()
+        try:
+            z = _backup.make_zip(V, tmp / "備份")
+            with mock.patch.object(restore, "_run_init", side_effect=RuntimeError("boom")):
+                got = restore.apply(V, str(z))
+            self.assertEqual(got["not_finished"], ["補骨架與遷移狀態檔（RuntimeError），請跑 kb init"])
+            real, calls = restore.vault_lib.ensure_vault_id, {"n": 0}
+
+            def flaky(vault):
+                calls["n"] += 1
+                if calls["n"] == 1:  # 拍快照時那一次照常；換入成功之後補編號那一次才出錯
+                    return real(vault)
+                raise OSError("x")
+            with mock.patch.object(restore.vault_lib, "ensure_vault_id", flaky):
+                got = restore.apply(V, str(z))
+            self.assertEqual(got["not_finished"][0], "補知識庫編號 vault.json（OSError），請跑 kb init")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_undo_failed_and_hidden_sentences_order(self):
+        self.assertRegex(restore.UNDO_FAILED.format(where=".system/temp/restore-old-1", why="PermissionError"),
+                         r"^還原沒做完：有東西沒能移回去（PermissionError），還原前的東西放在 .system/temp/restore-old-1，先別刪那個夾、請服務人員看一下$")

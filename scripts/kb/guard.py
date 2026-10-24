@@ -876,13 +876,18 @@ def _file_tool(tool, target, cwd, vault, sources):
 
 # 目的地用旗標指定的寫法（T-11）：-t／--target-directory 只認小寫 -t（cp 的大寫 -T 是「不當夾」，意思相反）；-Destination 不分大小寫、可縮寫
 _DEST_FLAG = re.compile(r"""(?:^|\s)(?:-[A-Za-z]*t|--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+# rsync 的 -t 是保留時間、不是目的地；rsync 只認 --target-directory 以外沒有目的地旗標（N-8）：只有 cp、mv 這類才把 -t 當目的地
+_T_FLAG_VERBS = {"cp", "mv", "copy", "move", "install", "ln"}
+_DEST_FLAG_LONG = re.compile(r"""(?:^|\s)(?:--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
 # PowerShell 的參數不是短選項併寫（-Path、-Force 結尾的 t 不算 -t）：只認 -Destination
 _DEST_FLAG_PS = re.compile(r"""(?:^|\s)(?i:-Dest\w*)(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
 
 
 def _destination_by_flag(text, cwd, powershell=False):
     """寫法裡用旗標指定了目的地就回它（正規化）；沒有回 None。-t 可以併在短選項裡（cp -rt、cp -at，N-2），大寫 -T 意思相反不算。"""
-    m = (_DEST_FLAG_PS if powershell else _DEST_FLAG).search(text)
+    verb = cmdparse.verb_of(text.split())
+    pattern = _DEST_FLAG_PS if powershell else (_DEST_FLAG if verb in _T_FLAG_VERBS else _DEST_FLAG_LONG)
+    m = pattern.search(text)
     if not m:
         return None
     return normalize(m.group(1).strip("\"'"), cwd)
