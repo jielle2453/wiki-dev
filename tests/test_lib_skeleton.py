@@ -2,6 +2,7 @@
 沒改過換新、改過問、沒有紀錄對 config/skeleton_history.json；--keep／--replace。skeleton/ 與歷史都用假的，不碰真的骨架。"""
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -170,6 +171,21 @@ class Reconcile(Base):
         self.assertEqual(sorted(got["created"]), [".claude/settings.json", "CLAUDE.md"])
         self.assertEqual(self.vault_text("CLAUDE.md"), "新版身分\n")
         self.assertEqual(self.skeleton_json()["files"], skeleton.hashes())
+
+
+class HiddenAttribute(Base):
+    @unittest.skipUnless(os.name == "nt", "隱藏屬性只在 Windows")
+    def test_replacing_claude_md_keeps_it_hidden(self):
+        """換檔（os.replace 換的是新檔）之後 CLAUDE.md 的隱藏屬性要設回去，跟 kb init 一樣。"""
+        import ctypes
+        self.put_vault("CLAUDE.md", "舊版身分\n")
+        self.put_vault(".claude/settings.json", "{}\n")
+        ctypes.windll.kernel32.SetFileAttributesW(str(self.V / "CLAUDE.md"), 0x2)
+        (self.V / ".system" / "skeleton.json").write_text(json.dumps(
+            {"schema_version": 1, "version": "0.20.0",
+             "files": {"CLAUDE.md": sha("舊版身分\n"), ".claude/settings.json": sha("{}\n")}}), encoding="utf-8")
+        self.assertEqual(skeleton.reconcile(self.V, self.turn)["replaced"], ["CLAUDE.md"])
+        self.assertTrue((self.V / "CLAUDE.md").stat().st_file_attributes & 0x2)
 
 
 class KeepReplace(Base):

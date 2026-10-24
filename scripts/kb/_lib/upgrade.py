@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +44,7 @@ OFFLINE_RETRY = "現在連不上更新的地方，晚點再說一次"
 SUCCESS = "好了，開一個新對話就是新版（{version}）。"
 DOWNGRADED = "已回到 {version} 的知識庫，也換回 {version}；開一個新對話就好。"
 USE_DOWNGRADE = "這一版（{version}）撤回了；要退回先用 kb upgrade --check 看會怎樣，她說好再 kb upgrade --downgrade"
+DOWNGRADE_HALF = "知識庫已經還原回去了，只有外掛還沒換回舊版；請服務人員幫忙，不要再退回一次"  # 還原成功、換版才失敗（B-438）
 LATEST_LINE = "目前是最新版（{version}）。"
 NEWER_LINE = "現在 {plugin}；最新 {latest}（{note}），說「升級」就幫你升。"
 NEWER_LINE_NO_NOTE = "現在 {plugin}；最新 {latest}，說「升級」就幫你升。"
@@ -75,8 +77,18 @@ def _get(url, timeout):
     if not str(url).startswith("https://"):
         raise ValueError("只收 https 網址")
     req = urllib.request.Request(url, headers={"User-Agent": "wiki-with-willy"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310  上面已限定 https
+    opener = urllib.request.build_opener(_HttpsOnlyRedirect())
+    with opener.open(req, timeout=timeout) as r:
         return r.read(FETCH_MAX_BYTES).decode("utf-8")
+
+
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """轉址也只跟著 https（清單被轉到 http 的地方就當連不上）。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not str(newurl).startswith("https://"):
+            raise urllib.error.URLError("只跟著 https 的轉址")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _call(argv, timeout, env=None, cwd=None):
@@ -214,8 +226,9 @@ def fetch(vault):
     note = None
     versions = roster.get("versions") if isinstance(roster, dict) else None
     row = versions.get(latest) if isinstance(versions, dict) else None
-    if isinstance(row, dict) and isinstance(row.get("note"), str) and row["note"].strip():
-        note = row["note"].strip()
+    if isinstance(row, dict) and isinstance(row.get("note"), str):
+        note = "".join(c if c.isprintable() else " " for c in row["note"]).split()  # 會進開場的對話內容：壓成一行、去掉控制字元
+        note = " ".join(note) or None
     return {"latest": latest, "allowed": allowed(roster, latest, vid), "note": note}
 
 
@@ -499,9 +512,9 @@ def downgrade(vault, conversation=False):
         run_update(identity, config.get(vault, "update_run_seconds"))
         got = installed_version(identity)
     except UpdateError as e:
-        raise backup.Refused(str(e)) from None
+        raise backup.Refused(f"{e}\n{DOWNGRADE_HALF}") from None
     if got != latest:
-        raise backup.Refused(NOT_YET)
+        raise backup.Refused(f"{NOT_YET}\n{DOWNGRADE_HALF}")
     hist = ensure_history(vault)
     hist["current"], hist["pending"] = latest, None
     hist["history"].append({"from": info["plugin"], "to": latest, "date": _today(), "kind": "downgrade",

@@ -17,7 +17,7 @@ BODY_MAX = 3000
 REFERENCE_MAX_LINES = 150
 ABS_PATH = re.compile(r"(?<![A-Za-z$])[A-Za-z]:[\\/]|/Users/|/home/")
 DESCRIPTION = ("管資料夾、原檔位置與整個知識庫都用這個：加資料夾、不讀某夾、這份搬到 2026、報價夾搬到 E 槽、舊備忘刪掉、幫我備份、"
-               "回到上禮拜的備份、C 槽快滿了、換新電腦、換帳號、升級、有新版嗎；自己搬好、改內容、整理成卡、退回上一步、重建不用這個。")  # 備份還原與換電腦要做的事 13、升級打包 要做的事 12
+               "回到上禮拜的備份、C 槽快滿了、換新電腦、換帳號、升級、有新版嗎、退回舊版；自己搬好、改內容、整理成卡、退回上一步、重建不用這個。")  # 備份還原與換電腦要做的事 13、升級打包 要做的事 12
 SHOULD = ("報價那個資料夾我搬到 E 槽了", "合約改名叫『信義王合約_簽約版』", "舊備忘幫我刪掉，那份早就沒用了",
           "剛做好的定稿要放哪？你決定就好",
           "幫我備份一下", "回到上禮拜備份的那份", "C 槽快滿了，知識庫怎麼越來越大？", "她買了新筆電，知識庫要搬過去",
@@ -230,6 +230,19 @@ class UpgradeSection(unittest.TestCase):
                      "備份要放在這台電腦的資料夾或隨身碟", "## backup", "## restore", "## clean", "## moved"):
             with self.subTest(word=word):
                 self.assertIn(word, self.ops)
+
+    def test_ops_separates_downgrade_from_revert_and_restore(self):
+        part = self.ops[self.ops.index("## 退回與還原怎麼分"):self.ops.index("## backup")]
+        for word in ("退回舊版", "upgrade --downgrade", "不直接 `restore apply`", "退回剛剛那一步、回到某一天的備份、還是退回升級前的舊版"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+
+    def test_ops_warns_about_half_done_downgrade_and_the_undo_snapshot(self):
+        row = next(ln for ln in self.ops.splitlines() if ln.startswith("| `更新沒成功：…`"))
+        self.assertIn("知識庫已經還原", row)
+        self.assertIn("沒拍成", row)
+        restore = self.ops[self.ops.index("## restore"):self.ops.index("## clean")]
+        self.assertIn("退回舊版造成的還原前快照不走這條", restore)
 
     def test_ops_still_within_150_lines(self):
         self.assertLessEqual(len(self.ops.splitlines()), REFERENCE_MAX_LINES)
