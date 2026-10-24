@@ -68,5 +68,15 @@
   "adopt_chunk_chars": 12000,
   "_why_adopt_chunk_chars": "kb build adopt --extract 把舊 wiki 切成段，每段最多幾個字（D-193）；製卡助手一批讀四段約五萬字不會被摺疊，一段夠放一整頁舊專案頁",
   "build_disk_warn_mb": 1024,
-  "_why_build_disk_warn_mb": "kb build env 磁碟剩不到幾 MB 就提醒（D-189）：知識庫的卡、暫存與回合備份建置當天約幾百 MB，少於 1 GB 可能做到一半寫不下"
+  "_why_build_disk_warn_mb": "kb build env 磁碟剩不到幾 MB 就提醒（D-189）：知識庫的卡、暫存與回合備份建置當天約幾百 MB，少於 1 GB 可能做到一半寫不下",
+  "backup_keep": 3,
+  "_why_backup_keep": "備份夾裡最多留幾份「我們做的」備份，更舊的刪（D-204）：三份夠回到上個月、也不會把隨身碟塞滿；客戶自己放的別的檔不碰",
+  "snapshots_keep": 2,
+  "_why_snapshots_keep": "知識庫裡 .system/snapshots/ 最多留幾份快照（還原前、升級前，D-211）：只為了「剛剛的還原不要了」與升級出錯能回，留最近兩份就夠；跟備份同一種 zip",
+  "versions_keep_days": 30,
+  "_why_versions_keep_days": "回合備份留幾天（D-207、D-056）：超過就從最舊的清；30 天夠「上個月那次」退回，更久的靠客戶自己的備份",
+  "versions_keep_turns": 200,
+  "_why_versions_keep_turns": "回合備份最多留幾個回合（D-207、D-056）：超過就從最舊的清，天數沒到也清；試用庫 135 回合約 5 MB，200 個不會爆",
+  "versions_min_turns": 20,
+  "_why_versions_min_turns": "回合備份至少留最近幾個（D-207）：久沒用的知識庫天數都過了，也要留得住最近幾次可以退回"
 }

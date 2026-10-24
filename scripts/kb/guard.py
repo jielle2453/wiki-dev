@@ -54,6 +54,10 @@ OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放�
 SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
 # B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
 SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
+# 備份還原與換電腦（D-206）：AI 自己下指令搬或複製整個知識庫（寫入目標是總資料夾本身），理由句說客戶自己搬怎麼做
+VAULT_MOVE_CODE = "vault_move"
+VAULT_MOVE_REASON = "整個知識庫要搬家，請關掉這個對話、用檔案總管剪下貼上，再到新位置開對話"
+MOVE_COPY_VERBS = {"mv", "move", "move-item", "mi", "cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync"}
 WORKSPACE_POSIX = ".system/temp/office"  # kb office 的工作區：檔案工具寫放行（實作回報裁定 1）
 WORKSPACE_TOOLS = ("Write", "Edit", "MultiEdit")
 LO_PROFILE_DIR = "_lo_profile"  # kb office 固定的 LibreOffice 設定夾（office.LO_PROFILE），不算工作區
@@ -870,6 +874,24 @@ def _file_tool(tool, target, cwd, vault, sources):
     return Decision(decision, zone, code, reason, rows, vault)
 
 
+def _moves_root(flat, cwd, vault_n, powershell):
+    """搬或複製的那段，總資料夾本身是來源（不是最後一個路徑，也就不是「放進總資料夾」）：mv／Move-Item／cp -r／robocopy 整個知識庫。
+    目的地是總資料夾（cp a.txt .）不算；cd 之後才寫的 . 用原本的 cwd 算，看不出來就當不是（理由句退回 Z8 那句，照樣擋）。"""
+    for _sub, _stage, text in _stages(flat, powershell):
+        if cmdparse.verb_of(text.split()) in MOVE_COPY_VERBS:
+            paths = cmdparse.extract_paths(text, cwd, powershell=powershell)
+            if vault_n in paths[:-1]:
+                return True
+    return False
+
+
+def _single_filename(pattern):
+    """Glob 樣式是單一檔名：沒有 *?[{、沒有目錄段（/ \\ : ..）、不是 . 或 ..；這種樣式只在 path 那一層找（B-425）。"""
+    if not isinstance(pattern, str) or not pattern.strip() or pattern.strip() in (".", ".."):
+        return False
+    return not any(ch in pattern for ch in "*?[]{}/\\:")
+
+
 def _pattern_head(pattern):
     """萬用字元前的固定前綴資料夾。"""
     m = re.search(r"[*?\[]", pattern)  # 大括號已在 cmdparse.brace_expand 展開（A1）
@@ -1088,7 +1110,11 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
 
     # D-186：每個路徑照讀判斷；只有真正被寫的（導向目標、寫入那段的參數、管線後面才寫時整個子指令）套寫入欄
     # （第八輪「整條 is_write 為真全部套寫入欄」的誤擋收在這裡，B-024）。只切目錄的目標不算 Z10b（只切目錄不讀內容）
+    moves_root = _moves_root(flat, cwd, vault_n, powershell)
+
     def write_column(p, zone, alias):
+        if zone == "Z8" and p == vault_n and moves_root:
+            return deny(zone, VAULT_MOVE_CODE, VAULT_MOVE_REASON)  # 寫入目標是總資料夾本身：搬家，不是「第一層不放檔」
         for column in ("read", "shell_write" if "shell_write" in ZONES[zone] else "write"):
             decision, code, reason = _verdict(zone, column, alias)
             if decision == "deny":
@@ -1283,6 +1309,12 @@ def decide(payload):
                 d = _file_tool(tool, head, cwd, vault, sources)
                 if d.decision == "deny":
                     return d
+            # B-425 (a)：Glob 樣式是單一檔名時只在 path 那一層找、不走進底下的夾：path 含不讀夾（Z10b）不擋，
+            # 改判「path／檔名」這個檔（像密碼的檔名照走憑證那道、檔名剛好是不讀夾的名字照 Z10）；path 本身在不讀夾裡照 Z10
+            if (tool == "Glob" and _single_filename(ti.get("pattern")) and "{" not in str(target)
+                    and not cmdparse.is_wildcard(str(target))
+                    and classify(target_n, normalize(vault, None), sources)[0] == "Z10b"):
+                return _file_tool(tool, target_n + "/" + str(ti["pattern"]), cwd, vault, sources)
         return _file_tool(tool, str(target), cwd, vault, sources)
 
     return Decision("pass", "", "", "", [], vault)

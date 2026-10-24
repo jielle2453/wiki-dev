@@ -144,6 +144,9 @@
 | B-429 | 2026-10-24 | open | `kb cards redo --job … --check` 只列前 30 張卡、後面寫「……共 N 張」；超過時照資料夾或實體分組全列 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
 | B-430 | 2026-10-24 | open | 建置被另一個對話拿著時，擋下句的「最後動作 HH:MM」取的是最後一步 done 的時間（例如抽樣完成），不是那個對話真正最後一次動作（派工、批次 last_seen）；接手後被放掉的批次，舊的子代理沒記成停了 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
 | B-431 | 2026-10-24 | open | 桌面版還沒驗到的（自動測試有涵蓋）：抽樣說「案子改叫工程」後卡的待補型別跟著改、交付報告不再問；舊 wiki 記了口述之後綜合卡先更新才准收尾、`.system\temp\adopt\` 收尾清空；日程同一件事兩個日期（驗收 11-20 與改定的 11-28）都 open、沒標誰取代誰。留給 (8) 完整試跑看 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-432 | 2026-10-24 | open | 備份還原實作時留下的：還原一份比現在 hidden 排除還舊的備份時，重清（purge）會把剛拍的「還原前」快照一起刪（purge 整包刪快照，manage 第二版教訓），之後「剛剛的還原不要了」回不去；現在是程式印那句、AI 明說（`--json` 的 `snapshot` 是 null）。要不要改成重清前先講、或別的做法，等 (8) 試跑看客戶碰不碰得到 | 備份還原實作 |
+| B-433 | 2026-10-24 | open | 還原別的知識庫（`vault_id` 不同）的備份進現在這個知識庫，spec 沒列拒絕、現在放行（演練會講會不見什麼、先拍快照、說好才做）；要不要擋、或多講一句「這是另一個知識庫的備份」，等 (8) 試跑 | 備份還原實作 |
+| B-434 | 2026-10-24 | open | 備份還原的 exit code 慣例 spec 沒定，實作時：`backup --check` 一律 exit 0（`refuse` 放 JSON 與人讀第二行）、`restore check` 有 `refuse` 時 exit 3（`--json` 也印）；`moved --check`、`versions clean --check` exit 0。AI 照輸出講、不靠 exit code 分辨，先不改；(8) 試跑看有沒有 AI 因 exit 3 以為壞了 | 備份還原實作 |
 
 ## 補漏洞型延伸（落在既有位置，不加分類）
 

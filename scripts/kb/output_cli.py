@@ -1,4 +1,5 @@
-"""kb output save／link／drop-draft（produce 第 2 點，D-164、D-168、D-170）：成品進知識庫唯一的路，本體在 _lib/output。
+"""kb output save／link／drop-draft／links（produce 第 2 點，D-164、D-168、D-170；links 是備份還原與換電腦加的，D-210）：成品進知識庫唯一的路，本體在 _lib/output。
+links 只讀、不開回合：列清冊 active 的線上文件連結（換帳號時請她分享或下載）。
 
 成功句與拒絕句一字不差（拒絕 exit 3、第一行就是原因）；人讀輸出不印清冊編號，要編號取 --json。
 總資料夾只從 cwd 往上找（不收 --vault）。終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進那一句的回合。鎖等 30 秒，等不到「等不到鎖，沒有寫入」exit 3。
@@ -35,7 +36,8 @@ def add_arguments(sub):
     lk.add_argument("--basis", action="extend", nargs="+", default=[], help="依據的檔案卡編號（f-…），可以多個")
     dd = subs.add_parser("drop-draft", help="草稿不要了", description="草稿備進回合後拿掉；說退回會回來。")
     dd.add_argument("draft", help="AI 產出裡的（草稿）.md")
-    for p in (sv, lk, dd):  # 不收 --vault：同 convert，假的知識庫會讓真知識庫的檔變成「外面」被複製出去（收尾 security-review）
+    ls = subs.add_parser("links", help="列出存成連結的線上文件", description="只讀：清冊裡 kind 是 link 的條目（換帳號時請她分享或下載用）。")
+    for p in (sv, lk, dd, ls):  # 不收 --vault：同 convert，假的知識庫會讓真知識庫的檔變成「外面」被複製出去（收尾 security-review）
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
 
@@ -78,6 +80,22 @@ def _drop(vault, args, as_json, conversation, turn_id):
     return 0
 
 
+NO_LINKS = "沒有存成連結的線上文件"
+
+
+def _links(vault, as_json):
+    """換帳號（備份還原與換電腦 要做的事 5，D-210）：清冊 active 的 link 條目，只讀、不開回合。"""
+    rows = [{"title": e.get("title") or "", "url": e["locations"][0].get("uri", ""),
+             "date": str(e.get("first_seen") or "")[:10], "type": e.get("type")}
+            for e in inventory.load(vault)["entries"]
+            if e.get("kind") == inventory.LINK and e.get("status") == "active" and e.get("locations")]
+    if as_json:
+        print(json.dumps(rows, ensure_ascii=False))
+    else:
+        print("\n".join(f"{r['title']}（{r['date']}）" for r in rows) if rows else NO_LINKS)
+    return 0
+
+
 HANDLERS = {"save": _save, "link": _link, "drop-draft": _drop}
 
 
@@ -89,6 +107,8 @@ def run(args):
         return 3
     kio.LOCK_TIMEOUT = CLI_LOCK_TIMEOUT
     try:
+        if args.output_command == "links":
+            return _links(vault, as_json)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
         return HANDLERS[args.output_command](vault, args, as_json, conversation, turn_id)

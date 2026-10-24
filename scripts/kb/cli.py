@@ -16,7 +16,7 @@ NOT_THIS_TURN = "這個回合不是這個對話的：{}"
 COMMANDS = {
     "version": ("kb.version", "印 plugin 名稱與版號"),
     "guard": ("kb.guard_cli", "守門：decide 模擬一次判斷，查「為什麼擋」"),
-    "versions": ("kb.versions", "回合：list 列最近的改動，revert 退回最近一次，delete-outputs 刪已退回回合留著的成品"),
+    "versions": ("kb.versions", "回合：list 列最近的改動，revert 退回最近一次，delete-outputs 刪已退回回合留著的成品，clean 清放太久的回合備份與快照"),
     "turn": ("kb.turn_cli", "目前回合：current 看狀態，approve 解除綜合卡張數上限，note 給這一句的「做了」，redact 換掉這一句的「問」"),
     "init": ("kb.init", "建總資料夾的五區骨架；--check 只看會建什麼"),
     "folders": ("kb.folders", "來源：add 登記一個資料夾，exclude 排除裡面的夾或檔，remove 拿掉一個來源，include 取消排除，list 列出登記表，"
@@ -47,7 +47,11 @@ COMMANDS = {
                                 "unpack／pack 解開與打包，pdf 轉 PDF，recalc 重算 Excel，render 轉每頁的圖"),
     "build": ("kb.build", "建置：status 做到哪，start 開始，env 檢查這台電腦，set 記幾個人用與舊 wiki，facts 盤點，"
                           "done 這一步做完，redo 回到做過的一步，adopt 收舊 llm-wiki，report 交付報告"),
-    "output": ("kb.output_cli", "成品：save 把做好的檔放進 AI 產出（登記、退回拿得掉），link 登記線上文件，drop-draft 收掉草稿"),
+    "output": ("kb.output_cli", "成品：save 把做好的檔放進 AI 產出（登記、退回拿得掉），link 登記線上文件，drop-draft 收掉草稿，"
+                               "links 列出存成連結的線上文件"),
+    "backup": ("kb.backup_cli", "備份：把整個知識庫備份成一個 zip；--to 指定放哪（第一次要給），--check 只看不做"),
+    "restore": ("kb.restore_cli", "還原：list 列備份與快照，check 演練會回到什麼樣子，apply 還原（先拍快照）"),
+    "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
 }
 
 

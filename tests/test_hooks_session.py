@@ -750,3 +750,68 @@ class OpeningLeftAndMoved(unittest.TestCase):
         self._cards.scan_apply(self.V)
         self._cards.mark_dates_scanned(self.V)
         self.assertIn("還有 2 張卡要跟著搬", self.status())
+
+
+class OpeningMoved(unittest.TestCase):
+    """備份還原與換電腦第 4 點：line_moved（換了位置、這台電腦第一次開）排在變動行前面，只讀；印了就不印整理指示與找不到來源。"""
+    setUp, tearDown, status = OpeningInventory.setUp, OpeningInventory.tearDown, OpeningInventory.status
+    MOVED = "知識庫換了位置：先跑 kb moved 補好再做別的。"
+    NEW = "這台電腦第一次開這個知識庫：先跑 kb moved 看要補什麼。"
+
+    def put_env(self, machines):
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": machines}, ensure_ascii=False), encoding="utf-8")
+
+    def me(self):
+        import platform
+        return platform.node() or "unknown"
+
+    def here(self):
+        return Path(os.path.realpath(str(self.V))).as_posix()
+
+    def test_no_record_prints_nothing(self):
+        lines = self.status()
+        self.assertNotIn(self.MOVED, lines)
+        self.assertNotIn(self.NEW, lines)
+
+    def test_same_place_prints_nothing(self):
+        self.put_env({self.me(): {"vault_path": self.here()}})
+        lines = self.status()
+        self.assertNotIn(self.MOVED, lines)
+        self.assertNotIn(self.NEW, lines)
+
+    def test_moved_line_before_changes_line_and_no_ingest_hint(self):
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        self.put_env({self.me(): {"vault_path": "D:/lin/桌面/知識庫"}})
+        before = (self.V / ".system" / "env.json").read_bytes()
+        lines = self.status()
+        self.assertIn(self.MOVED, lines)
+        changes = [i for i, ln in enumerate(lines) if ln.startswith("變動：")]
+        self.assertTrue(changes)
+        self.assertLess(lines.index(self.MOVED), changes[0])
+        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
+        self.assertEqual((self.V / ".system" / "env.json").read_bytes(), before, "開場只讀，不寫 vault_path")
+
+    def test_without_moved_the_ingest_hint_is_still_there(self):
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        self.assertTrue([ln for ln in self.status() if ln.startswith("有變動：")])
+
+    def test_new_machine_line(self):
+        self.put_env({"OTHER-PC": {"vault_path": "D:/lin/知識庫"}})
+        lines = self.status()
+        self.assertIn(self.NEW, lines)
+        self.assertNotIn(self.MOVED, lines)
+
+    def test_missing_source_line_yields_and_mark_is_not_written(self):
+        (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
+        self.put_env({self.me(): {"vault_path": "D:/lin/桌面/知識庫"}})
+        lines = self.status()
+        self.assertFalse([ln for ln in lines if ln.startswith("這台電腦找不到來源")], lines)
+        data = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        self.assertNotIn("missing_sources_reported", data["machines"][self.me()])
+
+    def test_broken_env_file_is_quiet(self):
+        (self.V / ".system" / "env.json").write_text("{壞", encoding="utf-8")
+        lines = self.status()
+        self.assertNotIn(self.MOVED, lines)
+        self.assertNotIn(self.NEW, lines)

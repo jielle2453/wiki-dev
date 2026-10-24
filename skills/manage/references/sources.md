@@ -53,11 +53,11 @@
 - 這一句的 `turn note` 在 purge 之前記，不寫檔名、卡名（purge 之後才記的會留在日誌裡）。
 - 清的範圍：那夾裡的條目；同一份內容在那夾以外還讀得到的不清，那夾以外的副本讀不到，就一起清。
 - `有 N 份備份讀不懂編碼，沒動`：那幾份不是 UTF-8 也不是 Big5，跳過不算沒清完。
-  照念最後那句；清完的回答不提那夾的檔名與內容。
+  照念最後那句；清完的回答不提那夾的檔名與內容。成功句最後多一行 `還原用的快照也清掉了；你自己存在外面的備份我碰不到`：快照整包刪、客戶自己放在外面的備份程式不碰，照念。
 - `「X」沒有要清的`（exit 0）：那條不是「不想讓 AI 看到」或已經清過，不用再做。
 - `還沒清完：暫存 1 份；關掉開著的檔再跑一次 kb folders purge …`（exit 3）：有檔開著或鎖等不到；範圍已經記在那條排除裡，
   請她關掉 Word、預覽這類開著的檔，再照那個指令跑一次。
-- `--json`：成功 `cards`、`backups`、`temp`、`journal`、`findings`、`remaining`、`purged`、`name`；被擋或沒清完 `purged` 是 false，
+- `--json`：成功 `cards`、`backups`、`temp`、`journal`、`findings`、`snapshots`、`remaining`、`purged`、`name`；被擋或沒清完 `purged` 是 false，
   另帶 `blocked` 或 `remaining` 與 `error`（就是人讀那句）。
 - `cards todo` 的 `plan` 最前面有 `purge_synthesis` 與 `purge` 兩步時，代表上次排除後沒做完，先做這兩步。
 

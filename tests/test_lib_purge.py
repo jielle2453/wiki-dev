@@ -139,7 +139,8 @@ class Purge(unittest.TestCase):
         code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
         self.assertEqual(code, 0, out)
         self.assertRegex(out.strip(), r"^清好了：卡 1 張、備份 \d+ 份、暫存 3 份、推算 1 條、工作日誌 \d+ 段；"
-                                      r"之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；以前的回答若沒提到檔名或卡名、只是轉述，認不出來$")
+                                      r"之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；以前的回答若沒提到檔名或卡名、只是轉述，認不出來\n"
+                                      r"還原用的快照也清掉了；你自己存在外面的備份我碰不到$")
         self.assertNotEqual(self.sources_row()["purge"], "pending")
         # 第 5 點：目前的狀態檔
         self.assertEqual([i for i in pending.load(V)["items"] if self.fid in i.get("file_ids", [])], [])
@@ -182,6 +183,25 @@ class Purge(unittest.TestCase):
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("那一版因為不讀的夾清掉了，退不回", out.getvalue())
         self.assertEqual(hits(V, SECRET), [])
+
+    def test_snapshots_are_all_deleted_and_counted(self):
+        """備份還原與換電腦第 8 點、驗收 14：快照是整包 zip、裡面有那夾的卡，purge 整包全刪；客戶自己放在外面的備份不碰。"""
+        from kb._lib import backup
+        outside = Path(self.V).parent / "外面的備份"
+        snap = backup.snapshot(self.V, "restore")
+        backup.snapshot(self.V, "upgrade")
+        z = outside / "vault備份 2026-10-01.zip"
+        outside.mkdir()
+        shutil.copy(snap, z)
+        turn.start(self.V, None, "不要讀私人那夾")
+        self.exclude()
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(self.V))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list((Path(self.V) / ".system" / "snapshots").glob("*")), [])
+        self.assertTrue(out.strip().endswith("還原用的快照也清掉了；你自己存在外面的備份我碰不到"), out)
+        self.assertTrue(z.is_file(), "客戶自己的備份程式不碰")
+        self.assertEqual(hits(self.V, "王家心情"), [])
 
     def test_moves_record_masked_and_revert_refuses(self):
         turn.start(self.V, None, "")

@@ -16,12 +16,13 @@ DESC_MAX = 150
 BODY_MAX = 3000
 REFERENCE_MAX_LINES = 150
 ABS_PATH = re.compile(r"(?<![A-Za-z$])[A-Za-z]:[\\/]|/Users/|/home/")
-DESCRIPTION = ("管資料夾與原檔的位置都用這個：加資料夾、不讀某夾、拿掉、恢復讀、現在讀哪些、「報價夾搬到 E 槽了」「這份搬到 2026」"
-               "「合約改個名字」「舊備忘幫我刪掉」「定稿放到王宅那夾」「這份要放哪」；我自己搬／刪好了、改檔案內容、整理成卡、實體改名、重建不用這個。")
-DESCRIPTION = DESCRIPTION.replace("現在讀哪些、", "現在讀哪些、「不要讀私人那夾，我不想讓你看到」")  # 第二輪修：c7 試的候選
+DESCRIPTION = ("管資料夾、原檔位置與整個知識庫都用這個：加資料夾、不讀某夾、這份搬到 2026、報價夾搬到 E 槽、舊備忘刪掉、幫我備份、"
+               "回到上禮拜的備份、C 槽快滿了、換新電腦、換帳號；自己搬好、改內容、整理成卡、退回上一步、重建不用這個。")  # 備份還原與換電腦要做的事 13
 SHOULD = ("報價那個資料夾我搬到 E 槽了", "這份估價單幫我搬到 2026 那夾", "合約改名叫『信義王合約_簽約版』", "舊備忘幫我刪掉，那份早就沒用了",
-          "把信義王整個資料夾搬到 2025 封存", "剛做好的定稿要放哪？你決定就好")
-SHOULD_NOT = ("我自己把報價搬到信義王那夾了", "信義王改叫王宅", "把這份合約付款條件改 30 天", "信義王現在怎樣")
+          "剛做好的定稿要放哪？你決定就好",
+          "幫我備份一下", "回到上禮拜備份的那份", "C 槽快滿了，知識庫怎麼越來越大？", "她買了新筆電，知識庫要搬過去", "公司幫我換了一個 Claude 帳號")
+SHOULD_NOT = ("我自己把報價搬到信義王那夾了", "信義王改叫王宅", "把這份合約付款條件改 30 天", "信義王現在怎樣",
+              "昨天下午整理完東西都怪怪的，退回去", "感覺卡片都亂掉了，幫我重建知識庫好了", "有沒有要我確認的事")
 CREDENTIAL_LINE = "檔名像密碼或金鑰的預設不讀；要讓我讀哪一份跟我說「X 可以讀」"  # 密碼與守門（I-116 再查，a2 定）
 COMMANDS_ROW = "| `commands/` | 尚未。upgrade、backup、restore、relocate、migrate、account（D-028）；build 做成 `skills/build/`（D-190），沒有 manage 指令 |"
 
@@ -125,7 +126,7 @@ class Body(unittest.TestCase):
 
     def test_references_exist_and_short(self):
         refs = set(re.findall(r"references/[^\s`)）、，。]+\.md", self.body))
-        self.assertEqual(refs, {"references/sources.md", "references/files.md"})
+        self.assertEqual(refs, {"references/sources.md", "references/files.md", "references/ops.md"})
         for ref in refs:
             p = SKILL_DIR / ref
             with self.subTest(reference=ref):
@@ -135,11 +136,47 @@ class Body(unittest.TestCase):
     def test_references_cover_new_subcommands(self):
         sources = (SKILL_DIR / "references" / "sources.md").read_text(encoding="utf-8")
         files = (SKILL_DIR / "references" / "files.md").read_text(encoding="utf-8")
-        for word in ("## relocate", "## purge", "還有綜合卡寫著那夾的內容"):
+        for word in ("## relocate", "## purge", "還有綜合卡寫著那夾的內容", "還原用的快照也清掉了；你自己存在外面的備份我碰不到"):
             self.assertIn(word, sources)
         for word in ("## move", "## rename", "## trash", "## where", "## open", "OneDrive", "不同顆硬碟不代搬"):
             self.assertIn(word, files)
         self.assertNotIn("這版還沒有卡和備份要清", sources)
+
+
+class OpsReference(unittest.TestCase):
+    """備份還原與換電腦要做的事 13：整個知識庫的操作住 references/ops.md（≤150 行），本文只放分辨、原則與骨架。"""
+
+    def setUp(self):
+        self.ops = (SKILL_DIR / "references" / "ops.md").read_text(encoding="utf-8")
+        self.body = split(SKILL.read_text(encoding="utf-8"))[1]
+
+    def test_ops_covers_every_command_and_sentence(self):
+        for word in ("## backup", "## restore", "## clean", "## moved", "## 換帳號", "## 舊電腦送人", "## 常見拒絕",
+                     "還沒說備份要放哪", "備份不能放在知識庫裡面", "背景整理還在跑", "另一個備份、還原或退回正在跑",
+                     "這份不是 wiki-with-willy 的備份", "有檔案開著（X），關掉再說一次；什麼都沒動",
+                     "舊帳號處理過的資料不會因為換帳號而刪掉", "`kb unlock forget`", "versions clean --check"):
+            with self.subTest(word=word):
+                self.assertIn(word, self.ops)
+
+    def test_body_has_whole_vault_section(self):
+        part = section(self.body, "分辨")
+        for word in ("kb backup", "restore", "versions clean", "moved", "output links", "退回", "還原"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+        rules = section(self.body, "原則")
+        for word in ("restore check", "restore apply", "D-205", "D-203", "D-206", "B-074"):
+            with self.subTest(word=word):
+                self.assertIn(word, rules)
+
+    def test_description_has_the_new_trigger_words(self):
+        desc = split(SKILL.read_text(encoding="utf-8"))[0]
+        text = next(ln for ln in desc if ln.startswith("description:"))
+        for word in ("備份", "回到上禮拜的備份", "C 槽快滿了", "換新電腦", "換帳號"):
+            with self.subTest(word=word):
+                self.assertIn(word, text)
+
+    def test_ops_never_tells_client_the_turn_code(self):
+        self.assertIsNone(re.search(r"20\d{6}-\d{6}", self.ops))
 
 
 class Evals(unittest.TestCase):

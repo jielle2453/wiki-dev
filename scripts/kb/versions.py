@@ -1,4 +1,4 @@
-"""kb versions list／revert／delete-outputs：列最近的回合、退回最近一次沒退過的回合、刪已退回回合留著的成品（D-074、D-011）。
+"""kb versions list／revert／delete-outputs／clean：列最近的回合、退回最近一次沒退過的回合、刪已退回回合留著的成品、清放太久的回合備份與快照（D-074、D-011、D-207）。
 
 退回只從最近一次開始，不跳；退回前先把現況備進「退回」這句話自己的回合，退錯可再退。
 成品（清冊 created_turn 是那回合且 manifest 記 create 的）預設留著、status 改 turn_reverted，revert 只列不問；
@@ -16,6 +16,8 @@ revert、delete-outputs 成功後記一段工作日誌程式段（D-085），not
 再照相反順序全部檢查（搬過去的還在、原位沒有同名、原本的夾還在），有一項不過整個不退。過了先把 moves.jsonl 搬回去
 （一步失敗就倒回已搬的），再做 folders.jsonl 與檔案還原，最後對清冊掃一次那幾個根。trash 那行不搬回，只多印一句在資源回收筒。
 manifest 的 purged 行（不讀的夾清掉了，kb folders purge）跳過，多印一句退不回。
+B-074（備份還原與換電腦）：人讀輸出不唸回合代號，每個回合用「MM-DD HH:MM 那句「…」」描述（list、revert 成功句、只能從最近一次退、
+delete-outputs 的句子）；--json 照留代號。clean：本體在 _lib/clean，回合備份超過天數或個數就從最舊的清、至少留最近幾個。
 """
 import argparse
 import json
@@ -79,6 +81,10 @@ def add_arguments(sub):
                          description="刪「已退回的回合」裡 status 還是 turn_reverted 的成品；先備份再刪，再退一次救得回。")
     do.add_argument("code", nargs="?", help="回合代號；沒給取最近一個有可刪成品的已退回回合")
     do.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
+    cl = subs.add_parser("clean", help="清放太久的回合備份與快照（D-207）",
+                         description="回合備份超過 30 天或 200 個就從最舊的清（至少留最近 20 個），快照留最近 2 份；--check 只算。")
+    cl.add_argument("--check", action="store_true", help="只算會清什麼，不動任何東西")
+    cl.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
 
 def turns(vault):
@@ -323,6 +329,29 @@ def _fmt_time(started):
         return started
 
 
+def _short_time(started):
+    """B-074：人讀輸出不唸回合代號，用「MM-DD HH:MM」。讀不懂的時間回「那一次」。"""
+    try:
+        return datetime.strptime(started, "%Y-%m-%dT%H:%M:%S").strftime("%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
+def _describe(t):
+    """B-074：一個回合的白話描述「MM-DD HH:MM 那句「…」」；沒有那句話是「MM-DD HH:MM 那一次」；t 是 None（回合已被清掉）是「那一次」。"""
+    if t is None:
+        return "那一次"
+    when = _short_time(t.get("started")) or "那一次"
+    head = credentials.mask_secrets(" ".join(str(t.get("prompt_head") or "").split()))
+    if when == "那一次":
+        return when
+    return f"{when} 那句「{head}」" if head else f"{when} 那一次"
+
+
+def _turn_of(all_turns, code):
+    return next((x for x in all_turns if x["turn"] == code), None)
+
+
 def _list(vault, n, as_json):
     all_turns = turns(vault)
     current = (turn._read_turn(turn._current_file(vault)) or {}).get("turn")
@@ -343,8 +372,7 @@ def _list(vault, n, as_json):
         c = _counts(vault, t)
         flags = ("（已退回）" if t["reverted"] else "") + ("（這一次）" if t["turn"] == current else "")
         outputs = "" if c["outputs"] is None else f"、成品 {c['outputs']}"
-        print(f"{t['turn']}{flags}｜{_fmt_time(t['started'])}｜問：「{t['prompt_head']}」｜"
-              f"修改 {c['modify']}、新增 {c['create']}、刪除 {c['delete']}{outputs}")
+        print(f"{_describe(t)}{flags}｜修改 {c['modify']}、新增 {c['create']}、刪除 {c['delete']}{outputs}")
         for line in _folder_lines(t["folders"]):
             print(line)
         for line in _move_lines(t["moves"]):
@@ -663,7 +691,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         return 3
     target = cands[0]
     if code and code != target["turn"]:
-        print(f"只能從最近一次開始退：{target['turn']}")
+        print(f"只能從最近一次開始退：{_describe(target)}")
         return 3
     bad = _bad_path(vault, target["folders"])
     if bad is not None:  # I-111：kb 信任的根只能是 cwd 推出的知識庫
@@ -791,10 +819,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         tail = f"成品 {len(outputs)} 份留著"
     else:
         tail = "成品 0 份"
-    # R2-L3：升級前沒遮好的問會被搬進來，只把「問」那段先壓空白再遮再嵌進句子，數字留著（D-086「程式段不遮」的例外）
-    head = credentials.mask_secrets(" ".join(str(target["prompt_head"] or "").split()))
-    asked = f"（問：「{head}」）" if head else ""  # L6：守門自己開的回合問是空的
-    sentence = f"已退回 {target['turn']}{asked}：還原 {len(restored)}、移除 {len(removed)}、{tail}"
+    # R2-L3：升級前沒遮好的問會被搬進來，_describe 先壓空白再遮再嵌進句子，數字留著（D-086「程式段不遮」的例外）
+    sentence = f"已退回 {_describe(target)}：還原 {len(restored)}、移除 {len(removed)}、{tail}"  # B-074：不唸回合代號
     journal_cli.record_program_or_warn(
         vault, sentence,
         [{"path": rel, "action": "modify"} for rel in restored] + [{"path": rel, "action": "delete"} for rel in removed],
@@ -822,7 +848,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     if outputs and not delete_outputs:
         print(f"這 {len(outputs)} 份成品先留著；要刪跟我說，我用 delete-outputs 刪。")
     if target["reverted_turn"]:
-        print(f"這一次退的是「退回 {target['reverted_turn']}」本身，{target['reverted_turn']} 不再算已退回。")
+        was = _describe(_turn_of(all_turns, target["reverted_turn"]))
+        print(f"這一次退的是那次「退回」本身，{was}不再算已退回。")
     for msg in folders_kept:  # 建的夾裡有東西（D-142，取代「套用設定檔時建的資料夾還在」）
         print(msg)
     for line in _move_lines([{"op": m["op"], "from": m["to_uri"], "to": m["from_uri"]} for m in moved_back]):
@@ -856,7 +883,7 @@ def _delete_outputs(vault, code, as_json, conversation=False):
     if code:
         cands = [(t, o) for t, o in cands if t["turn"] == code]
         if not cands:
-            print(f"{code} 沒有可刪的成品")
+            print(f"{_describe(_turn_of(turns(vault), code))}沒有可刪的成品")
             return 3
     elif not cands:
         print("沒有可刪的成品")
@@ -889,7 +916,7 @@ def _delete_outputs(vault, code, as_json, conversation=False):
     if gone_ids:
         inventory.set_status(vault, gone_ids, "deleted")
     _seal(vault, conversation)
-    sentence = f"已刪 {len(deleted)} 份成品（回合 {target['turn']}）"  # 沒有「問」，不用遮
+    sentence = f"已刪 {len(deleted)} 份成品（{_describe(target)}）"  # B-074：不唸回合代號
     if deleted:  # 刪 0 份不寫段（疑義裁定 4）
         journal_cli.record_program_or_warn(vault, sentence, [{"path": rel, "action": "delete"} for rel in deleted],
                                            "versions delete-outputs", conversation)
@@ -908,6 +935,21 @@ def _delete_outputs(vault, code, as_json, conversation=False):
     return 0
 
 
+def _clean(vault, check, as_json, conversation):
+    """kb versions clean（備份還原與換電腦 要做的事 3，D-207）：本體在 _lib/clean；清掉的回合不進回合備份（它本身就是備份）。"""
+    from kb._lib import backup, clean
+    try:
+        got = clean.run(vault, check=check)
+    except backup.Refused as e:
+        print(json.dumps({"ok": False, "message": str(e)}, ensure_ascii=False) if as_json else str(e))
+        return 3
+    sentence = clean.sentence(got)
+    if not check and (got["turns_removed"] or got["snapshots_removed"]):
+        journal_cli.record_program_or_warn(vault, sentence.split("；")[0], [], "versions clean", conversation)
+    print(json.dumps(got, ensure_ascii=False) if as_json else sentence)
+    return 0
+
+
 def run(args):
     vault = guard.find_vault(os.getcwd())
     if vault is None:
@@ -920,6 +962,8 @@ def run(args):
     # 對話裡叫的（有 sid、還沒答完）在動作前判斷一次（D-085 補）：退回自己這句時會開一個帶 sid 的新回合接著那句，
     # 判斷要跟動作前一致；這個結果也決定做完要不要封住動作回合（_seal）
     conversation = journal_cli.in_conversation(vault)
+    if args.versions_command == "clean":
+        return _clean(vault, args.check, as_json, conversation)
     if args.versions_command == "delete-outputs":
         return _delete_outputs(vault, args.code, as_json, conversation)
     return _revert(vault, args.code, args.delete_outputs, as_json, conversation)

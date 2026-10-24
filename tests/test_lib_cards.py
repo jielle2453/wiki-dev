@@ -328,6 +328,23 @@ class AfterTest(Vault):
         self.assertEqual(moved["to"], "檔案索引/客戶案件/大安陳")
         self.assertEqual(todo["broken"], [])
 
+    def test_sync_rewrites_only_the_link_line_when_vault_moved(self):
+        """備份還原與換電腦要做的事 7：開原檔跟現在算的不一樣（知識庫或來源搬了位置），kb cards sync 只換那一行、備進回合。"""
+        p = self.card()
+        text = p.read_text(encoding="utf-8")
+        front = cards.parse_front(text)
+        old = "file:///C:/old/place/" + front["開原檔"].rsplit("/", 1)[-1]
+        p.write_text(text.replace(front["開原檔"], old), encoding="utf-8")
+        t = turn.start(self.V, None, "補連結")["turn"]
+        rel = p.relative_to(self.V).as_posix()
+        got = cards.sync(self.V, self.sources(), t)
+        self.assertEqual((got["moved"], got["updated"]), ([], [rel]))
+        fixed = p.read_text(encoding="utf-8")
+        self.assertEqual(cards.parse_front(fixed)["開原檔"], front["開原檔"])
+        self.assertEqual(fixed, text)  # 只換了開原檔那一行，其他行原樣
+        self.assertEqual(self.todo()["moved"], [])
+        self.assertIn(rel, {e["path"] for e in turn.entries(self.V, t)})
+
     def test_20_duplicates_keep_valid_one(self):
         item = self.item()
         good = _cards.write_card(self.V, item, "大安陳會議一")

@@ -73,7 +73,8 @@ class Revert(unittest.TestCase):
         self.assertFalse((self.V / ".system" / "versions" / later).exists(), "客戶那句沒有任何備份")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn(job, r.stdout)
+        self.assertTrue(r.stdout.startswith("已退回 "), r.stdout)  # B-074：不唸回合代號，用「MM-DD HH:MM 那句「…」」
+        self.assertNotIn(job, r.stdout)
         self.assertEqual(len(cards._scan_groups(self.V)[0]), 0)
         self.assertEqual(ent.read_bytes() if ent.exists() else None, entities_before)
         now = (self.V / cards.INDEX_POSIX).read_text(encoding="utf-8") if (self.V / cards.INDEX_POSIX).exists() else None
