@@ -478,3 +478,70 @@ class AgendaMd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpgradeRecords(unittest.TestCase):
+    """升級打包 要做的事 5：kb init 建殼與補骨架後寫 .system/skeleton.json；沒有 upgrade-history.json 就記成現在的版本。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="kbinit-")).resolve()
+        self.V = self.tmp / "知識庫"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def init(self):
+        return run_kb("init", str(self.V), cwd=self.tmp)
+
+    def sha(self, p):
+        import hashlib
+        return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+    def test_new_vault_records_skeleton_fingerprints_and_version(self):
+        self.init()
+        data = json.loads((self.V / ".system" / "skeleton.json").read_text(encoding="utf-8"))
+        manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["version"], manifest["version"])
+        self.assertEqual(data["files"], {"CLAUDE.md": self.sha(SKELETON / "CLAUDE.md"),
+                                         ".claude/settings.json": self.sha(SKELETON / ".claude" / "settings.json")})
+        hist = json.loads((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"))
+        self.assertEqual((hist["schema_version"], hist["current"], hist["pending"], hist["history"]),
+                         (1, manifest["version"], None, []))
+
+    def test_rerun_does_not_change_either_file(self):
+        self.init()
+        before = {n: (self.V / ".system" / n).read_bytes() for n in ("skeleton.json", "upgrade-history.json")}
+        self.init()
+        self.assertEqual({n: (self.V / ".system" / n).read_bytes() for n in before}, before)
+
+    def test_missing_skeleton_file_is_refilled_and_recorded_but_edited_one_is_not(self):
+        self.init()
+        claude = self.V / "CLAUDE.md"
+        with open(claude, "r+", encoding="utf-8", newline="\n") as f:
+            f.truncate()
+            f.write("客戶改過的\n")
+        (self.V / ".claude" / "settings.json").unlink()
+        sk = self.V / ".system" / "skeleton.json"
+        data = json.loads(sk.read_text(encoding="utf-8"))
+        data["files"].pop(".claude/settings.json")
+        sk.write_text(json.dumps(data), encoding="utf-8")
+        self.init()
+        got = json.loads(sk.read_text(encoding="utf-8"))["files"]
+        self.assertEqual(got[".claude/settings.json"], self.sha(SKELETON / ".claude" / "settings.json"))
+        self.assertEqual(got["CLAUDE.md"], self.sha(SKELETON / "CLAUDE.md"), "她改的那份不重記（記的是上次寫進去的指紋）")
+        self.assertEqual(claude.read_text(encoding="utf-8"), "客戶改過的\n")
+
+    def test_existing_vault_without_history_gets_current_version_only(self):
+        """第一次跑這版的既有知識庫：補 upgrade-history.json，不為既有的骨架檔編造紀錄。"""
+        self.init()
+        (self.V / ".system" / "upgrade-history.json").unlink()
+        (self.V / ".system" / "skeleton.json").unlink()
+        self.init()
+        self.assertTrue((self.V / ".system" / "upgrade-history.json").is_file())
+        self.assertFalse((self.V / ".system" / "skeleton.json").exists())
+
+    def test_check_writes_neither(self):
+        r = run_kb("init", str(self.V), "--check", cwd=self.tmp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.V.exists())

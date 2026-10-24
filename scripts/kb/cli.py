@@ -51,6 +51,8 @@ COMMANDS = {
                                "links 列出存成連結的線上文件"),
     "backup": ("kb.backup_cli", "備份：把整個知識庫備份成一個 zip；--to 指定放哪（第一次要給），--check 只看不做"),
     "restore": ("kb.restore_cli", "還原：list 列備份與快照，check 演練會回到什麼樣子，apply 還原（先拍快照）"),
+    "upgrade": ("kb.upgrade_cli", "升級：--check 查有沒有新版，直接跑是升級，--finish 換版後的新對話轉格式，--downgrade 退回舊版，"
+                                  "skeleton 骨架檔保留或換新"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
 }
 

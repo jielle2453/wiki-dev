@@ -8,6 +8,8 @@
 既有知識庫的 profile.json 是 schema 1 或 2（實體與綜合卡第 11 點、note 改規則第 1 點）：md 沒改過就寫遷移後的 schema 3、重渲染 md（補缺的節）；
 md 改過就不動，請客戶先 kb profile apply。缺 entities.json、agenda.json 不建（第一次寫時才建）；
 缺 系統/日程.md 渲染一份空的（日程第 11 點）。
+升級打包第 5 點：這次從骨架建出來的檔，把骨架指紋記進 .system/skeleton.json（skeleton.record，換版時認她有沒有改過）；
+沒有 .system/upgrade-history.json 就記成現在的版本（upgrade.ensure_history）；兩個檔都不算骨架項目、不進「建了 N 項」。
 """
 import argparse
 import json
@@ -15,7 +17,7 @@ import os
 from pathlib import Path
 
 from kb import guard, journal_cli
-from kb._lib import agenda, profile
+from kb._lib import agenda, profile, skeleton, upgrade
 from kb._lib import vault as vault_lib
 from kb._lib import sources as sources_lib
 from kb._lib.io import read_text, write_json_atomic, write_text_atomic
@@ -145,13 +147,13 @@ def run(args):
         return 3
     existed = (p / sources_lib.SOURCES_REL).is_file()
     status = [(rel, kind, (p / rel).exists()) for rel, kind in plan_items()]
-    upgrade = _profile_upgrade(p)
-    upgrade_note = UPGRADE_LINES.get(profile.stored_schema(p)) if upgrade else None
-    upgrade_line = {"upgrade": upgrade_note, "blocked": UPGRADE_BLOCKED}.get(upgrade)
+    profile_state = _profile_upgrade(p)
+    upgrade_note = UPGRADE_LINES.get(profile.stored_schema(p)) if profile_state else None
+    upgrade_line = {"upgrade": upgrade_note, "blocked": UPGRADE_BLOCKED}.get(profile_state)
     if args.check:
         if as_json:  # L8
             print(json.dumps({"vault": str(p), "would_create": [rel for rel, _k, have in status if not have],
-                              "existing": [rel for rel, _k, have in status if have], "profile_upgrade": upgrade},
+                              "existing": [rel for rel, _k, have in status if have], "profile_upgrade": profile_state},
                              ensure_ascii=False))
             return 0
         for rel, kind, have in status:
@@ -193,7 +195,15 @@ def run(args):
         vault_lib.ensure_vault_id(p)
     except (ValueError, OSError) as e:
         notes.append(f"知識庫編號沒補：{e}")
-    if upgrade == "upgrade":
+    try:  # 升級打包第 5 點：只記這次從骨架建出來的檔（既有的不編造紀錄）；歷史沒有就記現在的版本。壞檔不覆寫
+        from_skeleton = set(skeleton.files())
+        made = [rel for rel in created if rel in from_skeleton]
+        if made:
+            skeleton.record(p, made)
+        upgrade.ensure_history(p)
+    except (ValueError, OSError) as e:
+        notes.append(f"升級紀錄沒補：{e}")
+    if profile_state == "upgrade":
         _upgrade_profile(p)
         touched = [profile.PROFILE_POSIX, profile.MD_POSIX]
     for name in HIDDEN_ITEMS:
@@ -201,17 +211,17 @@ def run(args):
             why = _hide(p / name)
             if why:
                 notes.append(f"隱藏屬性沒設成：{name}，{why}")
-    if created or upgrade == "upgrade":  # 程式段（D-085）：只數骨架項目；沒有缺的、也沒升級不寫；不開回合
+    if created or profile_state == "upgrade":  # 程式段（D-085）：只數骨架項目；沒有缺的、也沒升級不寫；不開回合
         note = f"建立知識庫：建了 {len(created)} 項" if not existed else f"補齊了 {len(created)} 項"
         if not created:
             note = upgrade_note
-        elif upgrade == "upgrade":
+        elif profile_state == "upgrade":
             note += "；" + upgrade_note
         changed = [{"path": rel, "action": "create"} for rel in created] + [{"path": rel, "action": "modify"}
                                                                              for rel in touched]
         journal_cli.record_program_or_warn(p, note, changed, "init", journal_cli.in_conversation(p))
     if as_json:
-        print(json.dumps({"vault": str(p), "created": created, "existing": existing, "profile_upgrade": upgrade},
+        print(json.dumps({"vault": str(p), "created": created, "existing": existing, "profile_upgrade": profile_state},
                          ensure_ascii=False))
     elif not existed:
         print(f"已建立知識庫 {p}：建了 {len(created)} 項")

@@ -54,6 +54,15 @@ class Get(unittest.TestCase):
         self.assertEqual(config.get(self.vault, "relocate_sample_max"), 40)
         self.assertTrue(data.get("_why_relocate_sample_max"))
 
+    def test_update_keys(self):
+        """升級打包第 8 點：清單與名單網址（第一次發行才填，空字串不查）、抓 5 秒、換版 60 秒、一句話 40 字，各帶 _why。"""
+        data = json.loads((ROOT / "config" / "defaults.json").read_text(encoding="utf-8"))
+        want = {"update_manifest_url": "", "update_rollout_url": "", "update_fetch_seconds": 5,
+                "update_run_seconds": 60, "update_note_max": 40}
+        for key, value in want.items():
+            self.assertEqual(config.get(self.vault, key), value, key)
+            self.assertTrue(data.get(f"_why_{key}"), key)
+
     def test_client_override_wins(self):
         (self.vault / ".system" / "config.json").write_text(
             json.dumps({"schema_version": 1, "big_change_synthesis_max": 3}), encoding="utf-8")

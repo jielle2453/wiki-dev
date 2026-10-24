@@ -302,7 +302,7 @@ class OpeningInventory(unittest.TestCase):
         before = stamps()
         self.status()
         after = stamps()
-        self.assertEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
+        self.assertEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
 INGEST_HINT = ("有變動：先照 ingest skill 整理（開始前照 announce 說一句），整理完再完整回答客戶；"
@@ -348,7 +348,7 @@ class OpeningIngestHint(unittest.TestCase):
         self.assertEqual(self.hint_lines(lines), [])
         after = {p.relative_to(self.V).as_posix(): p.stat().st_mtime_ns
                  for p in (self.V / ".system").rglob("*") if p.is_file()}
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
         (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 1}), encoding="utf-8")
         self.assertIn(UNSORTED_HINT.format(n=1), self.status())
 
@@ -446,7 +446,7 @@ class OpeningEntityDrift(unittest.TestCase):
         i = lines.index("變動：實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
@@ -537,7 +537,7 @@ class OpeningProfile(unittest.TestCase):
             self.edit(*change)
             self.assertTrue(self.profile_lines())
             after = stamps()
-            self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json"}, set())
+            self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertEqual(self.md.read_text(encoding="utf-8").count("| 工地 | 事 |"), 1)
 
     def test_broken_profile_json_other_lines_printed(self):
@@ -632,7 +632,7 @@ class OpeningAgenda(unittest.TestCase):
         before = stamps()
         self.status()
         after = stamps()
-        self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json"}, set())
+        self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertFalse((self.V / "系統" / "日程.md").exists())
 
 
@@ -837,3 +837,155 @@ class OpeningMoved(unittest.TestCase):
         lines = self.status()
         self.assertNotIn(self.MOVED, lines)
         self.assertNotIn(self.NEW, lines)
+
+
+class OpeningUpgrade(unittest.TestCase):
+    """升級打包 要做的事 7（驗收 10、11）：line_version 三句、第一次記版本、整理指示讓位、背景子行程。"""
+    setUp, tearDown, status = OpeningInventory.setUp, OpeningInventory.tearDown, OpeningInventory.status
+
+    def plugin(self):
+        return json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+
+    def put_history(self, current, pending=None):
+        (self.V / ".system" / "upgrade-history.json").write_text(json.dumps(
+            {"schema_version": 1, "current": current, "pending": pending, "history": []}), encoding="utf-8")
+
+    def put_check(self, **kw):
+        from datetime import date
+        base = {"date": date.today().isoformat(), "latest": None, "kind": None, "allowed": False, "note": None,
+                "auto_patched": None, "error": None}
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {self.me(): {"update_check": dict(base, **kw)}}}), encoding="utf-8")
+
+    def me(self):
+        import platform
+        return platform.node() or "unknown"
+
+    def version_lines(self, lines):
+        return [ln for ln in lines if ln.startswith(("已換到", "有新版", "這一版"))]
+
+    def test_first_run_records_current_version_and_prints_nothing(self):
+        """驗收 10：沒有 upgrade-history.json → 開場不印換版那行、記成現在版本。"""
+        self.assertFalse((self.V / ".system" / "upgrade-history.json").exists())
+        self.assertEqual(self.version_lines(self.status()), [])
+        data = json.loads((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"))
+        self.assertEqual((data["current"], data["pending"], data["history"]), (self.plugin(), None, []))
+        before = (self.V / ".system" / "upgrade-history.json").read_bytes()
+        self.assertEqual(self.version_lines(self.status()), [])
+        self.assertEqual((self.V / ".system" / "upgrade-history.json").read_bytes(), before)
+
+    def test_changed_version_line_comes_right_after_the_kb_line(self):
+        """驗收 11：current 不等於 plugin 版本 → 換版那句，排在 kb 那行之後、變動那行之前。"""
+        self.put_history("0.1.0")
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        lines = self.status()
+        want = f"已換到 {self.plugin()}：先跑 kb upgrade --finish 再做別的。"
+        self.assertEqual(lines[1], want)
+        changes = [i for i, ln in enumerate(lines) if ln.startswith("變動：")]
+        self.assertTrue(changes)
+        self.assertLess(1, changes[0])
+
+    def test_changed_version_hides_the_ingest_hint_but_not_the_changes_line(self):
+        """有 --finish 要做時整理指示不印，免得轉格式前就開始整理。"""
+        self.put_history("0.1.0")
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        lines = self.status()
+        self.assertTrue([ln for ln in lines if ln.startswith("變動：")])
+        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
+
+    def test_same_version_keeps_the_ingest_hint(self):
+        self.put_history(self.plugin())
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        self.assertTrue([ln for ln in self.status() if ln.startswith("有變動：")])
+
+    def test_new_version_line_for_a_big_upgrade(self):
+        self.put_history(self.plugin())
+        self.put_check(latest="99.0.0", kind="major", allowed=True, note="日程可以匯出成 Excel")
+        lines = self.status()
+        self.assertEqual(lines[1], "有新版 99.0.0：日程可以匯出成 Excel；說「升級」我帶你做。")
+
+    def test_new_version_line_not_printed_when_not_on_the_roster_or_only_a_patch(self):
+        self.put_history(self.plugin())
+        parts = self.plugin().split(".")
+        major = f"{int(parts[0]) + 1}.0.0"
+        patch = ".".join(parts[:2] + [str(int(parts[2]) + 1)])
+        for latest, allowed in ((major, False), (patch, True)):
+            self.put_check(latest=latest, kind="x", allowed=allowed, note="x")
+            with self.subTest(latest=latest, allowed=allowed):
+                self.assertEqual(self.version_lines(self.status()), [])
+
+    def test_withdrawn_line_when_the_list_points_back(self):
+        self.put_history(self.plugin())
+        self.put_check(latest="0.0.1", kind="downgrade", allowed=True, note="x")
+        self.assertEqual(self.status()[1], f"這一版 {self.plugin()} 撤回了；用起來有問題的話說「退回舊版」。")
+
+    def test_changed_version_beats_the_new_version_line(self):
+        self.put_history("0.1.0")
+        self.put_check(latest="99.0.0", kind="major", allowed=True, note="x")
+        lines = self.version_lines(self.status())
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("已換到"))
+
+    def test_broken_history_prints_no_version_line_logs_once_and_keeps_other_lines(self):
+        (self.V / ".system" / "upgrade-history.json").write_text("{壞", encoding="utf-8")
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        lines = self.status()
+        self.assertEqual(self.version_lines(lines), [])
+        self.assertTrue([ln for ln in lines if ln.startswith("有變動：")], "壞檔不影響整理指示")
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertEqual(log.count("upgrade-history.json"), 1)
+        self.assertEqual((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"), "{壞")
+
+    def test_empty_manifest_url_never_spawns_so_black_box_runs_stay_offline(self):
+        """預設空網址：背景查新版看到空就不查；這支黑箱測試也因此不會真的開子行程、不連網。"""
+        self.put_history(self.plugin())
+        self.status()
+        env_file = self.V / ".system" / "env.json"
+        self.assertFalse(env_file.exists() and "update_check" in env_file.read_text(encoding="utf-8"))
+
+
+class OpeningSpawn(unittest.TestCase):
+    """驗收 11：日期不是今天 → 背景子行程有被叫（替身記下參數）、開場沒有等它（時間 < 1 秒）。同行程載入 hooks/session.py。"""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_under_test", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
+        (self.V / ".system" / "config.json").write_text(json.dumps(
+            {"update_manifest_url": "https://example.invalid/marketplace.json"}), encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_spawn_called_with_background_args_and_not_waited_on(self):
+        from unittest import mock
+        from kb._lib import upgrade
+        proc = mock.Mock()
+        proc.wait.side_effect = AssertionError("開場不等背景")
+        proc.communicate.side_effect = AssertionError("開場不等背景")
+        calls = []
+        started = time.monotonic()
+        with mock.patch.object(upgrade, "_popen", side_effect=lambda argv, **kw: calls.append((argv, kw)) or proc):
+            self.session.line_version(self.V)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(len(calls), 1)
+        argv, kw = calls[0]
+        self.assertEqual(argv[-2:], ["upgrade", "--background"])
+        self.assertTrue(argv[-3].endswith("kb.py"))
+        self.assertEqual(Path(kw["cwd"]).resolve(), Path(self.V).resolve())
+
+    def test_yesterday_spawns_today_does_not(self):
+        from datetime import date, timedelta
+        from unittest import mock
+        from kb._lib import env, upgrade
+        calls = []
+        with mock.patch.object(upgrade, "_popen", side_effect=lambda argv, **kw: calls.append(argv)):
+            env.set_update_check(self.V, {"date": (date.today() - timedelta(days=1)).isoformat()})
+            self.session._UPGRADE.clear()
+            self.session.line_version(self.V)
+            self.assertEqual(len(calls), 1)
+            self.session._UPGRADE.clear()
+            self.session.line_version(self.V)  # 上一次開場已經記了今天
+            self.assertEqual(len(calls), 1)

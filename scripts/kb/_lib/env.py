@@ -3,6 +3,8 @@
                                               "vault_path": "D:/知識庫", "backup_dir": "E:/備份"}}}
 vault_path、backup_dir 是備份還原與換電腦加的選填欄（D-206、D-204）：這台電腦上次記的知識庫位置（realpath、正斜線）與備份放哪；
 跟 missing_sources_reported 各管各的，改一個不動另一個。
+update_check 是升級打包加的選填欄（背景查新版的結果）：{"date","latest","kind","allowed","note","auto_patched","error"}，
+讀不到、形狀不對一律當沒查過（開場只用上一次查的結果，D-072、D-216）。
 讀改寫包 FileLock；壞 JSON 或形狀不對當空的重建（這個檔只有提示記號，別讓它拖垮開場，I-046）。
 """
 import json
@@ -133,3 +135,20 @@ def vault_paths_elsewhere(vault):
     return [rec["vault_path"] for name, rec in data["machines"].items()
             if name != machine_name() and isinstance(rec, dict) and isinstance(rec.get("vault_path"), str)
             and rec["vault_path"]]
+
+
+def update_check(vault):
+    """這台電腦上一次查新版的結果（物件）；沒查過、形狀不對回 None。只讀。"""
+    machine = _machine(_load(vault))
+    value = machine.get("update_check") if machine else None
+    return dict(value) if isinstance(value, dict) else None
+
+
+def set_update_check(vault, value):
+    """整份換掉這台電腦的查新版結果（背景查新版與開場記日期共用）。"""
+    p = _path(vault)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        data = _load(vault)
+        _machine(data, create=True)["update_check"] = dict(value)
+        write_json_atomic(p, data)

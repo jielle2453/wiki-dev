@@ -78,5 +78,15 @@
   "versions_keep_turns": 200,
   "_why_versions_keep_turns": "回合備份最多留幾個回合（D-207、D-056）：超過就從最舊的清，天數沒到也清；試用庫 135 回合約 5 MB，200 個不會爆",
   "versions_min_turns": 20,
-  "_why_versions_min_turns": "回合備份至少留最近幾個（D-207）：久沒用的知識庫天數都過了，也要留得住最近幾次可以退回"
+  "_why_versions_min_turns": "回合備份至少留最近幾個（D-207）：久沒用的知識庫天數都過了，也要留得住最近幾次可以退回",
+  "update_manifest_url": "",
+  "_why_update_manifest_url": "公開 repo 的 marketplace.json 網址（D-171、D-218）：開場每天背景查一次新版、kb upgrade 照它判斷；第一次發行才定、填進來，在那之前是空字串，背景查新版看到空就不查",
+  "update_rollout_url": "",
+  "_why_update_rollout_url": "公開 repo 的 rollout.json 網址（D-216）：哪一版先給哪些知識庫；跟 update_manifest_url 同時填，空字串不查",
+  "update_fetch_seconds": 5,
+  "_why_update_fetch_seconds": "抓清單與名單各等幾秒（D-072、D-219）：超過就當連不上、只記錯誤不出聲；背景查新版與 kb upgrade --check 共用",
+  "update_run_seconds": 60,
+  "_why_update_run_seconds": "叫內建 Claude Code 跑 plugin update 最多等幾秒（D-215）：B-409 spike 實測 2～3.5 秒，60 秒留給慢網路與防毒掃描，超過殺掉整棵行程樹",
+  "update_note_max": 40,
+  "_why_update_note_max": "開場「有新版 X：一句話」的一句話最多幾字（D-060、B-060）：整段開場在常駐預算裡，超過截掉；完整的一句話升級後由 --finish 從 CHANGELOG 讀給客戶"
 }

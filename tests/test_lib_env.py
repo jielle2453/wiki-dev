@@ -139,3 +139,46 @@ class MachineRecords(unittest.TestCase):
         self.path.write_text("{壞", encoding="utf-8")
         self.assertIsNone(env.vault_path(self.V))
         self.assertEqual(env.other_machines(self.V), [])
+
+
+class UpdateCheck(unittest.TestCase):
+    """升級打包 要做的事 6：每台電腦多 update_check（背景查新版的結果），跟其他欄各管各的。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="kbenv-"))
+        self.V = self.tmp / "vault"
+        (self.V / ".system").mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_none_when_never_checked(self):
+        self.assertIsNone(env.update_check(self.V))
+        self.assertFalse((self.V / ".system" / "env.json").exists())
+
+    def test_set_then_read_under_this_machine(self):
+        got = {"date": "2026-10-23", "latest": "0.21.0", "kind": "minor", "allowed": True,
+               "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None}
+        env.set_update_check(self.V, got)
+        self.assertEqual(env.update_check(self.V), got)
+        data = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["machines"][env.machine_name()]["update_check"], got)
+
+    def test_independent_of_other_fields(self):
+        env.set_vault_path(self.V, "D:/知識庫")
+        env.mark_missing(self.V, ["src-1"])
+        env.set_update_check(self.V, {"date": "2026-10-23"})
+        self.assertEqual(env.vault_path(self.V), "D:/知識庫")
+        self.assertTrue(env.missing_reported(self.V, "src-1"))
+        env.set_vault_path(self.V, "E:/新位置")
+        self.assertEqual(env.update_check(self.V), {"date": "2026-10-23"})
+
+    def test_other_machine_not_read(self):
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {"別台": {"update_check": {"date": "2026-10-01"}}}}), encoding="utf-8")
+        self.assertIsNone(env.update_check(self.V))
+
+    def test_garbage_value_reads_as_none(self):
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {env.machine_name(): {"update_check": "壞掉"}}}), encoding="utf-8")
+        self.assertIsNone(env.update_check(self.V))

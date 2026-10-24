@@ -27,7 +27,7 @@ SKILL_BODY_MAX_CHARS = 5000
 REFERENCE_MAX_LINES = 150
 RESIDENT_TOTAL_MAX_CHARS = 5000
 OPENING_MAX_LINES = 8
-OPENING_MAX_CHARS = 400
+OPENING_MAX_CHARS = 550  # 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
 
 SKILLS_DIR = ROOT / "skills"
 CORE = ROOT / "rules" / "core.md"
@@ -35,6 +35,9 @@ CLIENT_CLAUDE_MD = ROOT / "skeleton" / "CLAUDE.md"
 FIXTURE_TOO_LONG = ROOT / "tests" / "fixtures" / "budget" / "too_long_SKILL.md"
 SESSION_HOOK = ROOT / "hooks" / "session.py"
 FIXTURE_VAULT = ROOT / "tests" / "fixtures" / "vault"
+# B-060：開場 kb 那行要照客戶電腦上最長的合理路徑量（plugin 裝在 ~/.claude/plugins/cache/<市集>/wiki-with-willy/<版本>/ 底下，
+# 比開發機的 worktree 路徑長）：20 字的使用者名稱、20 字的市集名、9 字的版本。刻意拆開拼，讓本檔不含開發機路徑字串
+LONG_PLUGIN_ROOT = ("C:" + "/Users/" + "名" * 20 + "/.claude/plugins/cache/" + "m" * 20 + "/wiki-with-willy/99.99.999")
 
 
 def read(path):
@@ -143,7 +146,7 @@ def opening_status(source, prepare=None):
     core = read(CORE)
     tail = "\n\n" + core
     assert ctx.endswith(tail), "additionalContext 結尾不是空行加 core 全文"
-    return ctx[:-len(tail)]
+    return ctx[:-len(tail)].replace(ROOT.as_posix(), LONG_PLUGIN_ROOT)  # B-060：換成客戶電腦最長的合理路徑再量
 
 
 class OpeningBudget(unittest.TestCase):
@@ -195,6 +198,45 @@ class OpeningAllLines(unittest.TestCase):
                 self.assertTrue(next(ln for ln in lines if ln.startswith("變動：")).endswith("、實體夾有變 2"), lines)
                 self.assertLessEqual(count_lines(status), OPENING_MAX_LINES)
                 self.assertLessEqual(len(status), OPENING_MAX_CHARS, (len(status), lines))
+
+
+def version_line_vault(kind):
+    """line_version 三種句子的最壞情況（B-060、升級打包 驗收 17）：在 all_lines_vault 的六行都在之上再加一句。
+    a 換了版要 --finish（整理指示讓位）、b 有新版加最長的一句話（update_note_max 字）、c 撤回。"""
+    def prepare(vault):
+        import platform
+        all_lines_vault(vault)
+        plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+        hist = {"schema_version": 1, "current": "0.1.0" if kind == "a" else plugin, "pending": None, "history": []}
+        chk = {"date": date.today().isoformat(), "latest": None, "kind": None, "allowed": False, "note": None,
+               "auto_patched": None, "error": None}
+        if kind == "b":
+            chk.update(latest="99.99.999", kind="major", allowed=True, note="字" * 40)
+        if kind == "c":
+            chk.update(latest="0.0.1", kind="downgrade", allowed=True, note="x")
+        (vault / ".system" / "upgrade-history.json").write_text(json.dumps(hist), encoding="utf-8")
+        (vault / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {platform.node() or "unknown": {"update_check": chk}}}), encoding="utf-8")
+    return prepare
+
+
+class OpeningVersionLines(unittest.TestCase):
+    def test_each_version_line_worst_case_within_budget(self):
+        if not SESSION_HOOK.exists():
+            self.skipTest("hooks/session.py 尚未建立")
+        heads = {"a": "已換到 ", "b": "有新版 ", "c": "這一版 "}
+        for kind, head in heads.items():
+            status = opening_status("compact", version_line_vault(kind))
+            lines = status.splitlines()
+            with self.subTest(kind=kind):
+                self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, lines)
+                self.assertTrue(lines[0].startswith("【wiki-with-willy】kb 指令：python \"" + LONG_PLUGIN_ROOT), "kb 行用長路徑量")
+                self.assertLessEqual(count_lines(status), OPENING_MAX_LINES, lines)
+                self.assertLessEqual(len(status), OPENING_MAX_CHARS, (len(status), lines))
+
+    def test_finish_line_hides_the_ingest_hint_so_it_is_not_the_worst_case(self):
+        status = opening_status("compact", version_line_vault("a"))
+        self.assertFalse([ln for ln in status.splitlines() if ln.startswith("有變動：")])
 
 
 PREFERENCE_MAX = 10
