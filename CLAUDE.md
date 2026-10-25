@@ -129,4 +129,4 @@
 - 不寫 plugin 的絕對路徑進任何狀態檔或設定（D-019）；路徑一律從 `__file__` 或 `${CLAUDE_PLUGIN_ROOT}` 推。
 - 核心只用標準函式庫。
 - `hooks/*.py` 以外不動 `sys.path`（hook 不是從 `scripts/` 跑的，那是唯一例外；`test_repo_hygiene.py` 守著）。
-- 不 push、不 bump，除非設計 session 說發行。
+- 不 bump、不發行，除非設計 session 說發行。push 照 `design/process.md` 第八節：開工先 pull、做完 push、不准 force push，實作 session 不 push；寫 D、B 編號前先 pull，照那節的分段。

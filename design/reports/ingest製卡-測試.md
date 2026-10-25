@@ -1,5 +1,7 @@
 # ingest 製卡 測試報告
 
+> 代號說明（2026-10-25 補）：C1～C10 是 code-review 找到的問題，S1～S7 是 security-review 找到的問題（跟綜合卡規則 S-01 那種無關），嚴重度在表的第二欄；A1、A3 是 Excel 儲存格。裁定 N、驗收 N 指 ingest製卡 spec。
+
 日期：2026-10-18
 給誰看：設計 session（llm-wiki-j-30）與你。
 什麼時候更新：重測時另寫一段，不改舊段。

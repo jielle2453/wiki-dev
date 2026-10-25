@@ -4,215 +4,444 @@
 給誰看：你與所有 session。
 什麼時候更新：任何 session 都能新增一行；改狀態只在設計 session。
 
-格式：編號｜日期｜狀態 open／deferred／done｜一句話｜來自。
+格式：七欄：#、日期、狀態、嚴重、區域、事、來自。狀態、嚴重、區域的詞照 conventions「同一套詞」；狀態只寫一個詞，說明寫進「事」。照狀態分四區，狀態改了就換區。
 
 編號：「第一批要做的」用到 B-100 之後從 **B-400** 起（B-101～、B-201～、B-301～ 是下面三區既有的編號；2026-10-22 使用者定）。
 
-## 第一批要做的（順序）
+## 索引
 
-| # | 日期 | 狀態 | 事 | 來自 |
-|---|---|---|---|---|
-| B-001 | 2026-10-11 | done | repo 殼（v0.1.0，2026-10-12 發行；specs/2026-10-12-建殼.md）：plugin.json、LICENSE、CHANGELOG 格式、CLAUDE.md 地圖、測試 runner、.gitattributes、.gitignore、settings 放行 | 討論 |
-| B-002 | 2026-10-11 | done | 測試資料生成與 `來源.zip`：2026-10-12 完成 44 份，腳本 llm-wiki-test\生成\generate.py。.doc 是手寫 Word 97 檔未經真 Word 驗證，密碼 PDF 密碼 lin2026 | conventions 六 |
-| B-003 | 2026-10-11 | done | 事故清單 `incidents.md`：從兩邊 CHANGELOG、註解、skill 事故段採集 | 討論 |
-| B-004 | 2026-10-11 | done | 量兩邊常駐成本與規則行數，含開場 hook 注入（版本、變動清單、健檢提醒、日程窗口、規則路徑），定 U-6 的預算 | decisions 未決 |
-| B-005 | 2026-10-11 | open | 架構文件初稿審閱（本批結束前你看一次） | 討論 |
-| B-006 | 2026-10-11 | done | spike：測試 session 中途改 `.claude/settings.json` 的 additionalDirectories 或 Read 放行規則，看對工作目錄外的 Read 會不會立刻生效、要不要重開。結果決 U-8。**等你說跑才跑**。同時驗 `.claude/settings.json` 的放行規則能不能寫 `${CLAUDE_PLUGIN_ROOT}`，不能的話 `kb upgrade` 要重寫規則（I-073） | decisions U-8 |
-| B-008 | 2026-10-12 | done | 桌面版安裝與升級，方向在 D-072。spike 做完，報告 reports/B-008-spike.md，結論待設計 session 定；原題：桌面版 `/plugin marketplace add <本機路徑>` 可不可以、cache 路徑長相、換資料夾後要不要 `/plugin update`、hook 能不能聯網 | 討論 |
-| B-009 | 2026-10-12 | done | 併入 B-008 測完：桌面版 additionalDirectories 寫入即熱載入、重開也生效（跟 VS Code extension 相反）；auto mode 下 hook deny 照擋 | B-006 |
-| B-007 | 2026-10-12 | done | B-006 後續 spike：純 ASCII 路徑（`llm-wiki-test\spike-src`）重測 additionalDirectories、`Read(C:/...)`、`Read(${USERPROFILE}/...)` 三種，每種「關掉重開接回同一對話」與「全新 session」各一次；要排除中文路徑與 resume 兩個干擾。結果：ASCII 路徑下三種設定三種載入全部跳詢問，排除中文路徑與 resume；報告 reports/B-007-spike.md | B-006 |
-| B-010 | 2026-10-12 | done | CHANGELOG 的 commit 欄無法寫入自己那個 commit 的 hash（建殼第一個 commit）；定：發行時由設計 session 填實作 commit 的 hash（process 六） | B-001 建殼實作 |
-| B-011 | 2026-10-12 | deferred | 建殼測試觀察：tests/test_lib_io.py 用 sys.path.insert（驗收 15 只查 scripts/，下題統一用 subprocess 或 conftest 式匯入）；Windows 上 stdout 行尾 CRLF；Git Bash 下 unittest 的 skip 原因到 stderr 顯示亂碼（stderr 也要 reconfigure） | 建殼測試 |
-| B-012 | 2026-10-12 | deferred | `claude plugin validate` 每次都警告「根目錄 CLAUDE.md 不會被當 plugin context 載入」，在 CLAUDE.md 註明可忽略；順手把 validate 加進 CLAUDE.md「改完要做的事」 | 建殼確認 |
-| B-013 | 2026-10-12 | done（2026-10-16 manage 確認第 1 步人眼：/skills 列 wiki-with-willy:manage） | 下一題（第一個 skill 或 command）的確認情境必含「/help 或 /plugin 看得到 wiki-with-willy」，補建殼沒拿到的載入正面證據；順便弄清楚 --plugin-dir 載的 plugin 在 /plugin 裡列不列。守門確認第 1 步已給 hook 層證據（2026-10-13）；事務層確認人眼看到 /plugin Installed 列 `wiki-with-willy inline`（2026-10-13）；/help 可見留給第一個 skill | 建殼確認 |
-| B-014 | 2026-10-12 | done | spike：CLI `claude plugin update wiki-with-willy@<mp>` 能不能由 `kb upgrade` 用 subprocess 代跑、桌面版重開後吃不吃；能就 D-072 維持一句「升級」，不能就修訂成「說升級後我帶你點四步」（I-102）（2026-10-23 B-409 spike：內建 claude.exe 代跑 `plugin update` 做得到，D-215） | B-008 |
-| B-015 | 2026-10-12 | done | 守門 spec 疑義待設計 session 拍板：(1) Bash 只提到登記來源或寫 Z1／Z3 時實作回 pass 不回 allow（spec 第 2 節「其餘不表態」vs 驗收 11「allow」vs D-073）；(2) Z8 寫擋的 reason_code 表上沒有，暫用 protected；(3) `kb guard decide` 例子 `cat a.txt > b.txt` 標 Z9，但無斜線 token 不抽路徑，實作會是 unparsed 或 Z8 | 守門實作 |
-| B-016 | 2026-10-12 | open | 查 Claude Code hooks 設定有沒有「hook 失敗或逾時即 deny」的欄位（onFailure 之類）與最低版本；有就加進 hooks.json，沒有就靠開場偵測 python（I-103）。2026-10-21 查到：hook 可加 `"onFailure": "block"`（Claude Code 2.1.295 以上），PreToolUse 起不來、exit 非 0 非 2、逾時、輸出壞掉都擋；預設是放行。歸「密碼與守門」題 | 守門實作 |
-| B-017 | 2026-10-12 | deferred | 守門測試的低優先：guard-status 每次呼叫都讀改成每天一次快取；`.gitattributes` 對 tests/fixtures 的二進位檔標 binary；POSIX 上 CLAUDE.md 大小寫；型別夾根新檔理由句用 Z8；origin/HEAD 沒設讓 security-review skill 跑不起來（已設）；Z9 理由句結尾補句號；fixture a.txt 內容別用 hello；deny 在終端機顯示成「Error: PreToolUse:X hook error: <理由句>」，事務層確認已人眼看過（2026-10-13）：理由句完整但前綴嚇人，是 Claude Code 固定格式，只能靠理由句白話（併 B-110） | 守門測試、確認 |
-| B-018 | 2026-10-13 | deferred | AI 產出的指紋先用位元組 sha256，`kb convert` 出來後 Office 檔改文字指紋（D-014 補、D-076） | 事務層設計 |
-| B-020 | 2026-10-13 | done | v0.3.0 README 加「環境需求」一節（2026-10-13）。原題：發行 README 寫明只支援 Windows、Python 3.10 以上、PATH 上要有 `python`（hooks.json 是裸 python，沒有就 fail open，I-103）；plugin-dev 的 validate-hook-schema.sh 沒 jq 會誤報 Invalid JSON，不拿它當發行關卡 | 事務層 plugin-validator |
-| B-021 | 2026-10-13 | deferred | ledger.tsv 的 path_or_command_head 只留前 120 字，深路徑看不到檔名；改成保留尾端或拉長；長 TEMP 下 test_ledger 會紅 | 事務層測試第二輪 |
-| B-022 | 2026-10-13 | open（併「密碼與守門」題，D-145） | 守門：不帶磁碟代號的根路徑（`\案子\...`）normalize 後判 Z11 不表態；事務層 delete-outputs 刪前也不再查 zone。守門題補一條 | 事務層測試第三輪 |
-| B-023 | 2026-10-13 | deferred | 事務層低項：T 建成品→退回→U 重寫→退掉 U 後 T 那筆仍 superseded 刪不到；未來時間回合夾在 list 排第一且每句記 log；delete-outputs 固定取第一個候選可能卡住；revert --delete-outputs 沒比 sha；CLI 鎖 30 秒等於殘留門檻；LOCK_TIMEOUT 改模組全域；`\\?\` 加結尾點檔名未驗。細節 reports/事務層-測試.md 第三輪；工作日誌第三輪補：同一句連退三次後原回合的 `reverted.json` 沒補回；再退一次「退回 delete-outputs」那次時成品不會再刪、也沒提示 | 事務層測試第三輪 |
-| B-024 | 2026-10-13 | deferred（D-186 定做法，密碼與守門題做） | 守門誤擋：Bash heredoc 內文提到總資料夾第一層路徑（寫知識庫外的報告）被當寫入目標 deny Z8；引號內與 heredoc 內的路徑要不要算寫入目標，併 B-110 看誤擋率 | 事務層確認；B-081 spike 第 9 題再踩：唯讀的 `python - <<'EOF'` 在知識庫目錄下被擋「總資料夾第一層不直接放檔」；answer 確認又踩：Bash 裡 `awk '$0 >= "…"'` 的比較運算子 `>=` 被當成寫檔導向，擋兩次 |
-| B-019 | 2026-10-13 | deferred | `kb.py` 由模型呼叫時拿不到 session_id，CLI 用 `turns/current.json`，兩個對話同開同一知識庫時可能記到另一個 session 的回合；collab（B-206）時解；2026-10-16 工作日誌補：對話答完後在終端機跑 `folders add`／`versions revert`，sources.json 的備份仍掛在那個已結束的對話回合（`turn.current` 讀 current.json），只有日誌程式段用新代號；`kb turn note`／`redact` 也讀 current.json，兩個對話同開時會改到別的對話那句（工作日誌測試 M5），collab 題要讓模型知道自己的回合 | 事務層設計 |
-| B-025 | 2026-10-14 | deferred | 高風險子命令（restore、relocate、全部重做）的「問一句」由守門對那幾個 kb.py 呼叫回 ask，不寫 settings 的 permissions.ask：守門對 kb.py 回 allow 會蓋過 ask（D-079）；那些子命令出現的那題做 | 骨架與來源登記設計 |
-| B-026 | 2026-10-15 | deferred | 骨架與來源登記測試低項：展不開的來源（`${NAS}/…`）不參與 add 的重疊比對；`_survey` 每份檔重比每層夾名；理由句 `_original_segment` 引號黏在段尾找不回原始大小寫；guard 重用 `cmdparse._tokens`，要公開改名；第二輪 N5：走訪遇到夾名命中憑證樣式就剪掉，`folders add` 漏掉藏在底下的另一個知識庫與份數；走訪跳過排除夾用字串比對，排除根經 junction 或 8.3 短名另寫時跳不過（只多擋）；第三輪低項：`cd -`／裸 `cd` 吞下一個字、`dir /s` 不走訪、junction 指向排除夾、`ls \| grep md` 被當 unparsed 寫入（守門題舊）；第四輪：`\"` 黏住子指令、行尾 `\` 續行、`rg.exe`；第五輪程式整理：guard 與 cmdparse 兩套切字器合一、`_tokens_q` 是複製、`token_hit` 測試對不到正式碼、`folder_scan` 每次重讀 config；`glob.glob(include_hidden)` 是 3.11 起，3.10 上 PowerShell 的 `*` 展不到點開頭檔、只靠第三道；第六輪：`$HOME/.aws/credentials` 屬 `$VAR` 界線、`tar czf … 案子/信義王` 被 entity_file 擋（守門題舊）；第七輪：旗標黏值 `7z x -o"<R>/…"` 抽不到、guard `WRITE_VERBS` 與 cmdparse `WRITE_WORDS` 兩份動詞清單（第八輪已退回只剩 cmdparse 一份）；第八輪舊洞：`git -C <raw> clean`、`sed -E -i`、`mv * ../archive/`、`[IO.File]::Delete`；第十輪 A4：`$nullX`、反引號、`r\\2`、`dd of=`、`-C../r2` 三版都放行 | 骨架與來源登記測試第一～十輪 |
-| B-027 | 2026-10-15 | done | 工作日誌題：「問」那行用 `credentials.mask_secrets` 同一個函式遮值；加 AI 第二層 `kb turn redact`（客戶給帳密時 AI 把這回合的問改成它認出的遮法，補程式猜不到的寫法）；建置告知加一句「敏感帳密不要打在對話裡，Claude Code 自己的紀錄與雲端都有」（D-081） | 骨架與來源登記設計 |
-| B-028 | 2026-10-15 | deferred | 骨架與來源登記確認觀察：(1) 檔名含「帳號」「密碼」時 prompt_head 多遮（「薪轉帳號███」），「剛做了什麼」看不出是哪個檔；(2) prompt_head 截到 80 字，`folders add ..\…` 的句子看不出退的是哪個夾；(3) 對話在知識庫上層開、再移進知識庫時，任何一次專案外的 cd 都把 cwd 拉回上層，之後回合不開、守門不表態——建置告知寫「對話要開在知識庫」 | 骨架與來源登記確認 |
-| B-029 | 2026-10-16 | open | `io.FileLock`：Windows 上鎖檔剛被持有者刪掉（待刪除）時 O_EXCL 丟 PermissionError，回頭看鎖檔已不存在就當成「建不起來」直接丟（R2-1），兩個程序搶同一把鎖會偶發失敗；工作日誌在 `journal._lock` 包一層同逾時內重試繞過，`turn.backup`、`folders` 仍直接用 FileLock。io.py 該題修 | 工作日誌實作 |
-| B-030 | 2026-10-16 | deferred | 工作日誌低項：flush 鎖逾時後舊回合那行永遠 done false（lint 題清）；md 渲染不擋 `![](…)`、`<img>`、`%%`（AI 本來就能寫 AI 產出，風險有限）；守門 ledger 的指令欄沒遮值，`turn note`／`redact` 的原文被記成 unparsed 時會進帳（L7、L9）；`versions revert --json` 的 `prompt_head` 原樣輸出，升級前沒遮好的回合會帶出來；第四輪：終端機 delete-outputs 的動作回合「問」寫成「退回 T」，再退時句子誤導（該用自己的句子）；redact 掃 versions/*/turn.json 遇壞檔丟英文 traceback 只改一半 | 工作日誌測試 |
-| B-031 | 2026-10-16 | open（1、6、7、8 已在 v0.6.0 收；剩 2～5） | 工作日誌確認觀察：(1) 貼上的內容送到 UserPromptSubmit 時 prompt 是 `<pasted_content id=…>` 包住的原樣，日誌「問」會印出標籤，`prompt_head` 應剝掉包裝只留內文；(2) 「結果」保留 Markdown 記號（`##`、`**`、```` ``` ````），壓成一行後不好讀，渲染時可去掉；(3) 兩個 session 開在同一知識庫時另一個 session 的訊息也被記成客戶的一句（B-019 同根）；(4) 遮值一路遮到句尾會吃掉 AI 的說明段（D-086 接受多遮，量多再談）；(5) Esc 按得早時 Claude Code 把那句拿掉、AI 沒收到，日誌已記成中斷；(6) AI 沒拒絕代登入外部系統，R-09 等 core.md；(7) AI 不知道 kb.py 在哪，要點名完整路徑，開場注入題要給 | 工作日誌確認 |
-| B-032 | 2026-10-16 | open | 子代理讀得到知識庫 CLAUDE.md 但沒有 SessionStart 注入，拿不到 core.md；哨兵句已標「子代理不適用」，但規則怎麼給子代理（SubagentStart hook 注入同一段，或 card-maker 本文指 `${CLAUDE_PLUGIN_ROOT}/rules/core.md`）等 agent 題定（D-053） | 開場注入與核心規則測試 |
-| B-033 | 2026-10-16 | deferred | 開場注入低項：`prompt_head` 剝標籤的正規式對屬性值含 `>` 留殘渣；hook-errors.log 可能含 plugin 絕對路徑（診斷檔，不算 D-019）；session.py 的 2 秒速度測試在忙的機器可能偶發紅；test_budget 用裸 assert、不看子程序 exit code；`hooks/guard.py` 印 stdout 時 pipe 斷掉可能 exit 120（session.py 已用 os.dup2 處理，守門照做）；第二輪：session.py `emit` 吞 write 例外不記 log、devnull fd 沒關、關鍵詞被 pasted_content 標籤切開（`pass<…>word`）遮不到、第二段 try 的 BaseException 含 KeyboardInterrupt | 開場注入與核心規則測試 |
-| B-034 | 2026-10-16 | open（D-158 定了做法，answer 題實作） | `kb journal recent` 一段一行只印「做了」，不印「改了」哪些檔，AI 回答「最近改了什麼」時無法確認檔有沒有登記，又把「程式｜」標記誤讀成登記與否；answer 題定 recent 的輸出要不要帶改了與 note_by | 開場注入與核心規則確認 |
-| B-035 | 2026-10-16 | deferred | manage 低項：巢狀排除時 `folders include` 外層後說「讀得到」但內層 hidden 仍擋，反方向（取消內層、外層仍擋）也一樣，句子要講；skill 文字守的「先問再做」沒有機器保證（同 B-025，守門對高風險 kb.py 子命令回 ask） | manage 測試 |
-| B-036 | 2026-10-16 | open | skill-creator 的 `scripts/run_eval.py` 讀 evals 沒指定 encoding（cp950 讀不了中文，要 `PYTHONUTF8=1`）、用 `select.select` 讀子程序管線，Windows 上每次 query 都 WinError 10038、全部算未觸發；路由測試要用把 select 換成「永遠就緒」的 shim 跑（原檔不動）；另外預設 10 個 worker 會把同描述的暫時指令檔同時放進同一個 `.claude/commands/`，模型挑到別人那份就算沒觸發（實測該觸發只剩 10%），要 `--num-workers 1`；之後自己寫一支 `tests/evals/run.py`，D-091 的做法到時改 | manage 測試 |
-| B-037 | 2026-10-16 | deferred（形狀已定 D-105、D-106，等日程題有資料） | Obsidian 視圖（D-097：選配不必要）：`kb` 在 `系統/` 產 Bases 的 `.base` 視圖檔（專案總表、看板），吃綜合卡檔頭；日程渲染成視圖吃得到的形狀；守門補 `.obsidian/` 一條；建置時服務人員可裝可不裝。等綜合卡（ingest）與日程（note）有資料再開題 | 設計討論 |
-| B-038 | 2026-10-17 | open | 開場 scan 的 roots() 對斷線的網路磁碟做 isdir 可能卡 20 秒以上，標準函式庫沒有帶逾時的檢查；候選：按機器記上次找不到的來源、開場先跳過改由 kb changes 查，或子執行緒加逾時 | 清冊 |
-| B-039 | 2026-10-17 | open | `inventory.apply` 只把 scan 期間新增的 id 合併回去，對既有條目的並行改動（`register_output` 追加指紋、`set_status`）會被蓋掉；要並行寫才會遇到 | 清冊測試觀察 B |
-| B-040 | 2026-10-17 | open | Win32 邊角：名字結尾帶 `.` 或空白時 `long_path` 經 `abspath` 會被去掉，走訪列的名字與實際開的檔可能不同；`path_of` 不擋 `..` 與絕對路徑段（目前沒有呼叫端） | 清冊測試觀察 E |
-| B-041 | 2026-10-17 | open | `hooks/hooks.json` SessionStart 的 description 沒提快速 scan 與寫 env.json；下次碰 hook 的題一起改並跑 validate | 清冊測試觀察 F |
-| B-042 | 2026-10-17 | open | 既有測試 `test_two_processes_register_concurrently_both_kept` 偶爾因 `io.FileLock` 的 PermissionError 競態失敗（main 就有，io.py 清冊題沒動） | 清冊測試觀察 H |
-| B-043 | 2026-10-17 | deferred | 低：v1→2 遷移從磁碟補 size／mtime 等於信任期間沒改過（C）；`_migrate` 每個位置 stat 不受時間預算、`env.clear_missing` 每個來源各讀一次 env.json（G） | 清冊測試觀察 C、G |
-| B-044 | 2026-10-17 | open | 低：`content_fp` 的時間檢查「每 1000 個元素查一次」每個 zip 成員重新數，小成員很多的檔（幾千張投影片）不會停下來查；改成跨成員累計 | 清冊測試第二輪 |
-| B-045 | 2026-10-17 | open | 低：hidden 排除只拿掉重複檔其中一個位置時第二行印「清冊：0 份已拿掉」，應該數位置或另印；`versions revert`／`--delete-outputs` 在清冊讀不到時最後那句與成品數是還原前狀態 | 清冊測試第二輪 |
-| B-046 | 2026-10-17 | open | 低：`folders add` 第一行「N 份」看不出含不含憑證那幾份（AI 自己說看不懂）；`inventory scan` 的「同一份內容在多處 N 份」不列是哪份 | 清冊確認 ①② |
-| B-047 | 2026-10-17 | open（D-187 定做法，密碼與守門題做） | 工作日誌遮值碰到檔名「網銀密碼.txt」會從「密碼」起把 note 後段整段遮掉（B-031 遮太多同類）；ingest 確認 G3：「讀不到：有密碼」那句也被遮成 ███；檔名裡的關鍵詞要不要豁免，守門題與日誌題一起看 | 清冊確認 ③ |
-| B-048 | 2026-10-17 | open（第 2 件 answer 題收；第 1 件拆成 B-078） | AI 的 `kb turn note` 把上一回合的事也寫進來；建議下一步時提到還不存在的綜合卡（ingest 題定卡之前 core.md 要不要加一句） | 清冊確認 ④ |
-| B-049 | 2026-10-17 | open（D-185 定做法，密碼與守門題做） | 守門擋了對含憑證檔的來源夾只看第一層的 `ls`（D-079 資料夾走訪 fail closed 的副作用）；要不要讓「列目錄不讀內容」放行 | 清冊確認 ⑤ |
-| B-050 | 2026-10-17 | open | spike：Obsidian 三頁的假設（D-105、D-106），在 `llm-wiki-test` 總資料夾放假卡、`.base`、Mermaid gantt、`.obsidian/app.json`、CSS 片段，桌面 Obsidian 開一次驗：Bases 現在有哪些視圖、`.base` 能不能嵌進 md、巢狀清單摺疊與連結、Mermaid gantt 點 bar 開不開卡、`file:///` 中文與空白路徑與網路磁碟怎麼寫、「偵測所有副檔名」點 docx 是不是直接用 Word 開、CSS 片段藏得掉 `檔案索引/` 而 Bases 與搜尋照常、`.obsidian/` 由骨架出貨後 Obsidian 改寫會不會衝突。等你說跑才跑 | 設計討論 2026-10-17 |
-| B-051 | 2026-10-18 | done（裁定 20，v0.9.0） | 卡寫錯名被 PostToolUse 打回時錯名檔已在 `檔案索引/`（Z5 指令寫擋、AI 刪不掉），重寫正名後同編號兩張都進 `broken`、條目再也不進 new／stale；stale 換標題同樣。要不要讓 `kb cards sync` 把檔名改成 `expected_name`、同編號多張時留檔頭過的那張，或給一個 `kb cards rename`；這版只在 carding.md 叮嚀寫前先對 | ingest 製卡實作 skill-reviewer |
-| B-052 | 2026-10-18 | open | 總目錄：PostToolUse 每寫一張合法卡就整份重渲染，卡幾千張時留意 10 秒逾時（改成只在 ingest 收尾或 `kb cards index` 渲染、或增量）；`inventory scan` 程式段的 pending 兩檔第一次建檔也記 modify（低） | ingest 製卡實作回報 |
-| B-053 | 2026-10-18 | deferred | ingest 製卡測試低項：convert 路徑沒經 `paths._text_forms`（Git Bash `/c/…`、`file:///C:/…`）；用路徑指到 missing 條目但檔已放回（未 scan）回「找不到原檔」；終端機沒回合時 sync／drop／pending 先開空回合；folders exclude／remove 後 open 的 missing_file 永遠 open、拆出新條目時舊 unreadable 不 auto_done、占位檔下載回來大小時間不變不算 modified（C8）；`output_log.py` `ensure_ascii` 與 session.py 不一致；`line_ingest_hint` 出錯 log 兩次 | ingest 製卡測試第一輪 |
-| B-054 | 2026-10-19 | open | manage 路由 eval 從 10-16 的 30/30 掉到 26/30、25/30（描述與句子沒動，ingest 不在場），第一輪 0/30 是環境異常；接受發行（ingest 裁定 35）。下次動 manage 描述、或 skill 數量變時，跑三輪取中位數，仍低於 90% 才調描述；順便查 run_eval 整輪 0 觸發的環境原因 | ingest 製卡測試第二輪 |
-| B-055 | 2026-10-19 | deferred | 低：`.system/temp` 是 junction 時，成功的 `kb convert` 仍把暫存檔寫進 junction 目標夾（裁定 16 的 realpath 兩邊都解到目標）；要先能寫 `.system/` 才做得到。lint 題加一項「`.system/` 底下不准有重解析點」 | ingest 製卡測試第二輪 |
-| B-056 | 2026-10-19 | deferred | 低：`versions revert` 退掉 `cards drop` 那回合後，同一張卡同時出現在 todo 的 orphans 與 missing（G4）；AI 看到開場「變動：修改 1」會自己猜成「合約有變動」（G7，R-06）；加資料夾後收尾句與 spec 字句不同（G6，以 manage SKILL 為準） | ingest 製卡確認 |
-| B-057 | 2026-10-19 | deferred | 低：`extract.render_pages` 沒有點陣圖尺寸上限，超大頁面（海報、圖紙）轉圖可能吃數 GB 記憶體；加頁面像素上限、超過降 scale 或標「部分」。另：`tests/fixtures/inventory` 的 `報價_v2.pdf` 是假 PDF，convert 會回「檔案壞了」，不能當可讀 PDF 用 | ingest 製卡測試第三輪 |
-| B-058 | 2026-10-19 | open（D-156 定了做法：先整理再完整回答，不用 Stop hook；待實作） | 開場有變動時「先答客戶這句再整理」靠開場指示行做不到（三種寫法都被模型跳過答案直接整理，確認第 4 步三次）；「不問直接整理」有效。候選：Stop hook 在清冊有待製卡且這回合沒整理時 `decision: block` 一次，模型答完被擋才整理（程式保證、不靠指示）；或 answer 題定回答格式後再看。answer 題接 | ingest 製卡確認 G9 |
-| B-059 | 2026-10-19 | open | `cards todo` 的 orphans 不分「條目 excluded（客戶說不讀）」與「編號不在清冊」，AI 把排除夾的孤兒卡說成「原檔不見了要確認是不是刪了」誤導客戶；todo 的 orphans 帶原因、SKILL 寫「排除夾的卡不跟客戶提」；manage 第二版清殘留時一起收。另：AI 對客戶用「您」（R-10 語氣，低） | ingest 製卡確認 G11 |
-| B-060 | 2026-10-19 | done（v0.21.0 升級打包：開場用客戶機路徑量、上限 550 字） | `test_budget` 的開場 8 行 400 字量的是開發機 worktree 路徑下的 kb 那行；客戶機 plugin 裝在 `~/.claude/plugins/cache/...` 路徑更長（六行都在時開發機 356 字）。upgrade 題定下安裝路徑後，用那個長度重量一次，或讓 test_budget 用最長合理路徑算 kb 行 | 客戶設定檔與型別實作回報 C |
-| B-061 | 2026-10-19 | deferred | 低：`profile apply` 建夾失敗那句把 OS 的 strerror 原樣接進去，句尾「存取被拒。；設定檔沒有套用」標點疊用；接 OS 錯誤字串的句子一律先去尾端句號（convert 的「讀不到」同類檢查一次） | 客戶設定檔與型別測試第二輪 |
-| B-062 | 2026-10-19 | open（note 改規則題修，D-142） | 低：`versions revert` 退掉 `kb entity rename` 那回合時，程式改名的實體夾（裡面有客戶原檔）不會改回來，清冊退回舊 uri，下次 scan 把那份原檔當搬動；夾的改名不在回合備份裡（同 profile apply 建的夾）。真要退得乾淨要讓回合記資料夾動作 | 實體與綜合卡實作疑義 12 |
-| B-063 | 2026-10-19 | deferred | 實體與綜合卡測試第二輪低項 L1～L7：同回合新建後被打回重寫的綜合卡也算進 ai_synthesis；`_Undo.rollback` 沒逐步 try；改型別失敗時先建的空型別夾不拿掉；apply 補登記關於你時 `--json` 的 applied 仍 false；commands.md 那處 rules/synthesis.md 沒帶 ${CLAUDE_PLUGIN_ROOT}（已滿 150 行）；`modified_synthesis_count` 只剩測試在叫；clean 對含 .. 的一律拒（比裁定 14 嚴）。細節 reports/實體與綜合卡-測試.md 第二輪 | 實體與綜合卡測試第二輪 |
-| B-064 | 2026-10-19 | open | 中：AI 在工具之間寫英文自言自語給客戶看（「Step 1 is to write out the answer…」「All 35 cards are done. Step 9: …」），ingest 製卡確認 G10 起就有，步驟多時更常出現；R-10 已寫仍被違反。候選：skeleton CLAUDE.md 加一句「工具之間的過場也是給客戶看的，一律繁體中文、不唸步驟編號」（語言這種身分級的事放客戶端 CLAUDE.md 才收得住，manage 題的經驗）、SKILL.md 的順序不用「第 N 步」編號；日程第一題（note skill）一起處理，既有知識庫要等升級才拿得到新 CLAUDE.md | 實體與綜合卡確認 I1；整理 ingest 確認補：中文旁白露出 `cards todo --json`、`plan` 這類內部用語也算；日程確認重跑：補了 CLAUDE.md 那句後仍漏一行「I'll read the agenda reference first.」、把「多下了一次切換資料夾」這種內部操作講給客戶；note 改知識確認（10-21）重開對話的 ingest 回合又出現「Announce 要先說一句」「Plan 空了。記工作日誌。」：英文來自 SKILL 與 todo 的鍵名，再加一句規則多半沒效，要另想辦法；answer 測試第一、二輪再現：本文把「過場一律繁中」移到最前面仍有英文過場（G-2）；answer 確認 2 次（確認 session 自己 1 次、新對話「Announce 要先說一句。」1 次）；produce 確認：整理段 2 句英文過場 |
-| B-065 | 2026-10-19 | deferred | 實體與綜合卡確認低項：carding.md 第七節補「實體、待補型別、範本版本同一次 Edit 改完」（分兩次會被 PostToolUse 擋一次，I2）；回答末尾的「綜合卡：新寫 X、更新 Y」沒出現（I3）；profile check／apply 不報程式補的每類段落預設列（I5）；AI 把 drift 問句改寫成像要客戶自己動手（I6）；問題上限 3 個要寫明含 AI 自己加的（裁定 20）；整理 ingest 確認補：`tell` 的句子被 AI 改寫（「Word／Excel」變「Word」）、選項後面被加句 | 實體與綜合卡確認；note 改規則確認重跑 H-2：退回前的說明把前一個被擋的回合也講進去，偏長 |
-| B-066 | 2026-10-19 | open | 「實體夾有變」在客戶回答前每次開場都印、AI 每次都問（I-045／I-059 同類：客戶不想答就變成天天出現的訊號）；要有「先不管」的路，例如答「先不管」記進 env 或實體條目、同一個變化不再問，夾又變了才再問 | 實體與綜合卡結案查核 |
-| B-067 | 2026-10-20 | deferred | 整理 ingest 的 skill-reviewer 沒改的 minor：本文共通節與 core.md R-10／R-14 重複；commands.md 已滿 150 行放不下 turn note／turn approve 小節；carding.md 第一節與 commands.md convert 節對 convert 輸出各寫一份（去重要動 convert 輸出格式的敘述）。日程題動 commands.md 前先騰空間 | 整理 ingest 實作回報 |
-| B-068 | 2026-10-20 | 重現不出來（2026-10-22 manage 第二版 b4：fixture、ingest-check 整包複製、別的 cwd 加小寫 --vault 三種都 moved 0；猜是當時跑 sync 的不是同一份複本，開原檔是絕對路徑又全對不上；回歸測試 tests/test_b068_b069.py 留著；manage 第二版確認 session 照確認步驟再看一次，再出現才重開） | 疑似 v0.11.0 的問題：ingest-check 複本跑 `cards sync` 之後，只要來源多一份新檔再 `inventory scan`，`cards todo` 又列 moved 36（整理 ingest 測試順帶發現）；要查是 sync 沒把檔頭的原檔清單或開原檔寫成跟清冊一致，還是 scan 改了主位置的順序 | 整理 ingest 測試 |
-| B-069 | 2026-10-20 | open | 原檔不見、客戶還沒答「是不是刪了」時，`entities.mounts` 只算條目 active 的卡，那張卡就從實體的掛載消失，`synthesis_stale` 列它為 removed，AI 提前從綜合卡拿掉它的內容（與「卡先留著」不一致）。missing 的條目在客戶答之前應該照算掛載 | 整理 ingest 確認 (4) |
-| B-070 | 2026-10-20 | deferred | 低：寫檔案卡通過後 PostToolUse 重渲染相關綜合卡的檔頭快取，AI 若之前讀過那張綜合卡、接著要改它，Claude Code 會擋「讀過之後被改動」，要重讀再寫，多一輪 | 整理 ingest 確認 (5) |
-| B-071 | 2026-10-20 | open（D-157 定了做法，answer 題實作） | 卡型合併後（D-138）舊卡的卡型欄留舊名，同一種卡有兩個卡型名並存；answer 題若要按卡型找卡（「列出所有報價」），要認得併掉的舊名（設定檔記併入關係，或 answer 時改檔頭） | note 改規則設計 |
-| B-072 | 2026-10-20 | open | `系統/日程.md` 甘特圖在 Obsidian 顯示得出來但不好看（日程確認，使用者截圖）：milestone 標籤在菱形左邊斜體、跟別的標籤擠在一起；結案的 bar 灰色、截在今天；沒掛實體的落在「其他」；時間軸只有週刻度。日程第二題或 B-050 spike 時一起看樣式（Mermaid gantt 能調的有限，Obsidian CSS 片段另議） | 日程確認人眼 |
-| B-073 | 2026-10-20 | deferred | 日程第一題測試 code-review 低項：條目有自己的 `lead_days` 時開場「7 天內」與日程.md「接下來 7 天」標籤仍寫全域天數；`agenda edit` 清不掉 `entities`、`lead_days`（取消再加）；`kb asks` 註解寫只讀但跑整個 `cards.todo`（可能 auto_done、寫 log）；只差大小寫或全半形的改名日程不跟、卡跟；`_fill_progress` 每次 load 重讀設定檔；`cards.todo` 為日程多掃檔案索引；`close` 待處理去重只比第一個 file_ids；`_line` 沒用到的變數；確認後修正的 skill-reviewer 低項：commands.md 第 49 行過長、`agenda scanned` 的說明散在 carding 第九節與 note agenda.md 兩處、`suggest-close` 拒絕句沒列、`agenda_unscanned` 算進門檻沒寫進 commands.md；測試第二輪：期間在開始日之前被 done 時 `ended` 早於 `start`，甘特圖畫壞（取今天與開始日較晚的）、`pending.json` 壞檔時 `entity remove` 被擋、`agenda_unscanned` 沒排除 stale／moved 的卡（plan 先重寫卡，無害） | 日程測試 |
-| B-074 | 2026-10-20 | open | `versions revert`／`versions list` 的人讀輸出帶回合編號（20261020-…），AI 照念給客戶（日程確認重跑第 8 步）；照日程確認後裁定 6 的做法，人讀輸出改用時間與那句話描述回合、編號只留 `--json` | 日程確認重跑 |
-| B-075 | 2026-10-21 | deferred | note 改規則測試低項：型別操作失敗在最後一步 `render_index` 時 `檔案索引/…` 留兩層空夾（F-8）；`profile add` 成功句回顯輸入原文而不是存入值（`a|b  c` vs `a｜b c`，F-10）；md 表格外的文字與來源／日期欄的手改（沒有內容差異）在 `add` 時被整份重渲染洗掉、回合備份裡也不是客戶原文（F-11） | note 改規則測試 |
-| B-076 | 2026-10-21 | open（D-161 定了做法，answer 題實作） | 門檻 5→20 之後（D-100 修訂），已入冊、待製卡 6～20 份、開場沒有變動的狀態（客戶按停止、整理中途失敗）沒有任何一步提醒或整理；舊版 `kb asks` 會問 batch。交 answer 題的 D-156「之後的回答說還有幾份沒整理」一起看 | note 改規則測試觀察 B |
-| B-077 | 2026-10-21 | open | 客戶的偏好（與之後的口述事實）會被 AI 寫進 Claude Code 自己的自動記憶（`~/.claude/projects/…/memory/`），不進知識庫：客戶看不到、退不回、換電腦就沒了，跟設定檔第六節、口述清單重疊（note 改規則確認 G-1）。候選：知識庫的專案設定 `autoMemoryEnabled: false`（只影響知識庫資料夾，桌面版要實測）、守門擋寫記憶夾轉 note、或偏好交給自動記憶並拿掉第六節。使用者定先不關，等其他題做完測過再決定；討論紀錄在 note 改規則 spec「確認後待決」 | note 改規則確認 |
-| B-078 | 2026-10-21 | open | AI 的 `kb turn note` 把上一回合的事也寫進這回合（從 B-048 拆出；後果只是工作日誌多一句，主要在 note、ingest、manage）；候選：`turn note` 成功時印回這回合程式記到的改了哪些檔讓 AI 對照（仍靠 AI）；等碰工作日誌的題再看 | 清冊確認 ④、answer 設計 |
-| B-079 | 2026-10-21 | deferred | note 改規則測試第二輪低項：同一句話裡「加型別乙→乙改名丙→再加型別乙」之後退回被擋（「乙」已有東西），而且只能從最近一次退、更早的也退不了（N-2）；偏好擋密碼是關鍵字黑名單，漏擋「hunter2 是我的密碼」「ＰＩＮ 是 4821」、全形與 token 樣式，誤擋「銀行帳號只顯示後四碼」「請節省 tokens」（N-3a，併「密碼與守門」題與 B-047 一起改）；只讀碼未實跑：型別操作 `_move` 回滾後上層空夾沒記帳、revert 鎖過期可被搶、`_bad_path` 用 resolve 會拒合法 junction 的夾帳、remove 還原的 PermissionError 也印「檔案正開著」；第四輪回報：`profile apply` 的 `record_folder` 迴圈在寫入保護外、這條路徑沒寫工作日誌程式段 | note 改規則測試第二輪 |
-| B-080 | 2026-10-21 | deferred | 狀態檔完整性：有人在 plugin 之外改了 `.system/versions/*/manifest.jsonl`、`folders.jsonl`、`inventory.json`，`versions revert` 能刪改知識庫裡的檔（收件匣原檔、設定檔、清冊）、`folders` 的 move 能把狀態檔當目的地、保留名比對在根不存在時可用結尾加點繞過（note 改規則測試第三輪 S-1、S-2）。AI 寫 `.system` 被守門擋，能改的人本來就能直接動檔，所以現在不擋；還原、搬家、移轉題要匯入別處來的知識庫時，要先決定狀態檔怎麼驗（雜湊、簽章或匯入時重建） | note 改規則測試第三輪 |
-| B-081 | 2026-10-21 | done（報告 reports/B-081-spike.md、B-081-spike-守門.md） | produce spike（D-162）：在這台用 Claude Code 桌面版開一個測試知識庫，驗：(1) 看不看得到 `anthropic-skills:docx`、`anthropic-skills:xlsx`；(2) docx 技能要的 node docx 套件裝在哪、裝不裝得起來；(3) 技能附的工具（soffice.py、recalc.py、validate.py、pandoc、pdftoppm）哪些在 Windows 能用；(4) 轉 PDF 與 Excel 重算走 LibreOffice（這台有）做不做得成、沒有 Office 時怎麼降級；(5) 實做一份新 Word、改一份既有 Word（追蹤修訂）、改一份既有 Excel（只改輸入格），看結果與守門有沒有擋；(6) 改一份既有 PowerPoint 的文字（D-165）；(7) 桌面版看不看得到 Claude Docs、Slides 與網頁 artifact；Docs 匯出（base64）由 AI 轉寫成檔放進 `AI 產出/` 做不做得到、多大的檔吃不消；Slides 能不能由 AI 下載、還是只能她在網頁按下載（D-165）；(8) 改完的 PowerPoint 用 LibreOffice 轉成圖片，AI 看不看得出字超出框這類問題（D-165）；(9) 本機新做一份 PowerPoint（`anthropic-skills:pptx`）在 Windows 跑不跑得起來。報告 `design/reports/B-081-spike.md`。舊 plugin `rules/office.md` 是對照 | produce 設計 |
-| B-082 | 2026-10-21 | open | `statements.json`、`rulings.json` 壞了會擋 `cards todo`／`kb asks`（exit 3），`agenda.json` 壞了卻不擋；要一致（照日程那樣只記 log、該兩塊當空） | note 改知識測試第一輪 F-5 |
-| B-083 | 2026-10-21 | open | 收回「取代了別條的口述」時，被它取代的舊口述不會變回 active；要不要復活、還是叫 AI 重記一條，answer 或 lint 時再定（2026-10-23 定 D-224：收回當下問，lint 那份做） | note 改知識測試第一輪 F-6 |
-| B-084 | 2026-10-21 | open | spec 驗收環境「三張檔案卡、兩張綜合卡」撐不起門檻 2；fixture `inventory/vault/案子/信義王/信義王.md` 檔頭是壞的，要先刪。寫下一份用這個 fixture 的 spec 時修驗收前置 | note 改知識測試第一輪 F-9 |
-| B-085 | 2026-10-21 | open | 測試子代理讀碼列的未驗疑點：重複編號卡取 group[0]、`cards redo`／`mount` 沒走 `_guarded`、`sync_self` 不跟換口述裡的名稱、口述與裁示兩檔寫入不原子；`cards mount` 先寫卡再 `follow_redo` 寫清冊、`sync` 中途失敗記號不換，沒有倒回（每步有備份，revert 救得回；第二輪） | note 改知識測試第一輪 F-10 |
-| B-087 | 2026-10-21 | open（D-187 定做法，密碼與守門題做） | 擋密碼是 `mask_secrets` 的啟發式：值在關鍵字前面（「hunter2 是他的密碼」）、全形或空白拆字（「ｐａｓｓｗｏｒｄ：…」「密 碼 …」）會收，偏好、口述、裁示都一樣；另外修正前留下的含密碼舊口述被 `--replaces`／`withdraw` 時原文會進日誌，且對「密碼檔不能讀，已提醒客戶」這類句子會誤擋。併進「密碼與守門」題（同 B-022、B-024、B-047）決定要不要 NFKC、去空白、值在前 | note 改知識測試第二輪 R2-1、R2-2 |
-| B-088 | 2026-10-21 | deferred（併「密碼與守門」題，D-145） | 守門的資料夾範圍掃描把 python 套件夾裡的 CA 憑證包（`certifi/cacert.pem`）當成密碼檔，非遞迴的 `ls` 上層也被擋；produce 要裝套件，套件放哪要避開或豁免（B-081 spike 第 9 題擋 1） | B-081 spike |
-| B-086 | 2026-10-21 | deferred | 日程匯出成行事曆檔（.ics，匯進 Google／Outlook）與其他匯出格式：produce 這版只做印出來的 Word／PDF（例句 6）；同步到手機行事曆會兩邊各改，牽涉日程第二題的排程設計（D-107），到那題再看 | produce 設計 |
-| B-089 | 2026-10-21 | open | 中：ingest 整理完的回答把綜合卡的出處標記〔f-…〕〔r-…〕原樣貼給客戶（note 改知識確認第 6 步，2 則）；口述與裁示讓出處變多，會更常見。候選：ingest 原則加「回答不帶〔…〕，要講出處就說檔名或哪天說的」，或 Stop hook 掃回答裡的編號。ingest 下一版或 answer 題一起看 | note 改知識確認落差 1 |
-| B-090 | 2026-10-21 | open | 低（note 改知識確認落差 4～9）：改既有的事 AI 只查口述清單、沒看卡上原本寫的（第 2 步）；口述句尾 AI 自己加「（日期（週三）客戶口述）」跟日期欄重複；登記新實體的問法沒照「<名稱> 是新的案子／對象嗎？」、登記後仍待確認；`cards mount` 後 removed 項 `title` 是 null；憑證那題 AI 先 Glob 找含「密碼」的檔名（沒讀）；原檔寫的名稱跟實體不同時先問再 mount（合理，多一回合） | note 改知識確認 |
-| B-091 | 2026-10-21 | open | 推算清單（`findings.json`）掛的實體名稱不跟著 `entity rename`／`merge` 換（answer 題 `entities.py` 不能動）；現在查的時候照 `entities.find` 轉到現名（舊名進別名、合併轉址）。下一次動 `entities.py` 的題目在 rename／merge 裡跟換（同口述與裁示的做法） | answer 實作回報裁定 5 |
-| B-092 | 2026-10-21 | deferred | answer 測試第一輪讀碼低項（未重現）：多視窗共用 `current.json` 時 A 的 `cards todo` 可能把 `ingest` 標到 B 的回合；`lookup` 的 `mentions` 讀卡正文沒有大小上限、不帶 ruled_out／stale；`findings.stale` 不看清冊狀態（依據卡被排除時不判過期）；`journal.changed_text` 遇壞行 AttributeError；`check_text` 不擋控制字元與 markdown（口述同）；`turn.mark` 有鎖但 Stop 的 `set_done`（`_set`）沒拿同一把，同時寫仍可能互蓋 | answer 測試 F-9、F-10、第二輪疑義 1；第二輪 G-7：按停止後沒新句就 compact 指示照印（ingest_stopped 要等下一句才寫）、寫入失敗也印讀不到、tally 前導零 16 位誤判太大、很小的平均顯示 0、回顯沒濾控制字元；answer 確認：AI 說「這件已在待處理」但沒有這筆（模型編的；候選 verify.md 加「沒看到 pending add 成功句不說已記」）、`journal recent --find` 先取 n 段再篩（今天的句子擠掉要找的，要先篩再取）、確認環境資料落差待查（2 張卡在檔案索引清冊沒有、信義王報價第四版掛在內湖李、請款單不整理卻有卡、lookup 大安陳 null 但 todo 有、手寫推算與推算清單並存無重複偵測） | answer 測試 F-9、F-10、第二輪疑義 1、確認 |
-| B-093 | 2026-10-22 | done（報告 reports/B-093-spike.md、B-093-官方文件.md） | spike：桌面版用網址加 marketplace 裝假 plugin（archive zip，D-171、D-172），看有新版怎麼顯示、自動更新開關；真 plugin 用本機 marketplace 在桌面版跑全部 hook（開場、回合、守門、驗卡、工作日誌、摺疊）；移除再裝回知識庫照留。任務檔 llm-wiki-test 的 install-spike 夾 B-093-任務.md；公開測試 repo jielle2453/wiki-with-willy-spike 驗完由設計 session 刪 | 桌面版安裝與發行 |
-| B-094 | 2026-10-22 | open | 低：repo `CLAUDE.md` 地圖第 27、35、59 列（entity.py、profile_cli.py、_lib/profile.py）說明裡有沒跳脫的直線 `|`，會把表格切壞（answer 測試第三輪 H-3，早就存在）；下一個動 CLAUDE.md 的題順手改 | answer 測試 H-3 |
-| B-095 | 2026-10-22 | done（報告 reports/B-095-spike.md） | spike：OneDrive「只在雲端」的檔：開場快速比對與 `inventory scan` 算指紋會不會把檔下載下來；同一個 OneDrive 裡搬夾、改檔名會不會下載；丟資源回收筒進哪個回收筒、會不會連別台一起刪（D-173、D-175、D-176）。用使用者個人 OneDrive 的測試夾、亂數假檔，做完刪 | manage 第二版 |
-| B-096 | 2026-10-22 | open | 客戶在檔案總管搬 OneDrive「只在雲端」的檔（沒有指紋），`kb changes` 報成「新增＋不見」，卡會被問「是不是刪了」再重做；候選：檔名＋大小＋修改時間配對、或在開場把同時出現的新增與不見同名同大小的配成搬動 | B-095 spike |
-| B-097 | 2026-10-22 | open | 低：Python 看到的 OneDrive 占位檔屬性是偽裝過的（預設模式 1）；模式變成露出時 `inventory.walk` 遇到 REPARSE 的夾不往下走、檔跳過，會把整個 OneDrive 來源當成不見（`convert._is_reparse` 同樣假設）；候選：kb 啟動時固定設偽裝模式，或 walk 分辨雲端重解析點與連結 | B-095 spike |
-| B-098 | 2026-10-22 | deferred | 刪整個夾（manage 第二版先不收，使用者 10-22）：做法已想好——先算影響（份數、卡、綜合卡、只在雲端幾份、不讀的子夾、大小）、strict 確認、整夾丟回收筒當一個項目；刪前把夾改名再改回試有沒有檔開著（刪夾不是全有或全無）、回收筒放不下就拒絕（不跳視窗的呼叫會直接永久刪）；不收實體夾本身、來源根、系統夾；退回照常還原卡與清冊、說在回收筒 | manage 第二版 |
-| B-099 | 2026-10-22 | open | 中：開場有新檔時照 D-156 先整理，整理完的回答由 ingest 給、沒回到 answer：回答貼〔f-…〕〔s-…〕內部編號（B-089 在這條路徑復發，2／2）、也沒走粗估核對。停止後下一句有載入 answer 就沒問題。候選：A ingest 本文回答那步改「問資料的照 answer 回答」並加「不貼內部編號」原則（改 ingest 本文要新舊版對照）；B Stop hook 掃最終回答有沒有 `[aefsrcp]-[0-9a-f]{8}`，有就擋一次請它改短標（程式保證、所有 skill 一次收，但客戶會先看到有編號那版）。使用者 10-22：先記下來 | answer 確認第 9 步 |
-| B-100 | 2026-10-22 | open | 中低：過期的推算被直接用（`lookup` 標 stale 仍給結果文字，AI 照寫舊數字加一句「還沒重算」，2／2）。候選：`lookup` 對 stale 的推算不給結果文字，只給「依據變了，要用就重算：<算法>」 | answer 確認第 9 步 |
-| B-400 | 2026-10-22 | open | 低：`versions list` 的成品數把掃描補登記的 AI 產出（unbacked，腳本寫死路徑放進去的、升級前的舊成品）算進掃描那個回合（`_counts` 只看 created_turn 與 origin）；revert 不受影響（只收 manifest 記 create 的）。候選：`_counts` 跳過 unbacked | produce 實作回報裁定 6 |
-| B-401 | 2026-10-22 | open | 中（接受的風險）：`kb office run` 守門照單一 kb 呼叫 allow，AI 在工作區寫的腳本跑起來不跳權限，腳本讀寫哪裡守門管不到（原檔、排除夾、AI 產出都碰得到）。使用者 10-22 選維持免問（客戶不被打擾），produce 本文要求腳本只碰副本與 `OUT_DIR`。候選：「密碼與守門」題再看要不要改 pass、或跑完比對原檔指紋 | produce 實作疑義 A、裁定 7；測試第二輪 N-1：LibreOffice profile 放 `%TEMP%\wiki-with-willy\lo` 後守門不保護（pass），`recalc` 會寫巨集進去，同類 |
-| B-402 | 2026-10-22 | open | 低：`versions revert --delete-outputs` 刪到 link 條目掛的下載檔時，`_reconcile` 把整筆 link（含網址位置）改 deleted；應只拿掉檔案那個位置（versions.py 不在 produce 可動範圍） | produce 實作疑義 I |
-| B-403 | 2026-10-22 | open | 低：`kb output save` 算同名加 (2) 到複製之間沒鎖，兩個對話同時存同名檔可能互蓋 | produce security-review |
-| B-404 | 2026-10-22 | open | 低：produce 測試第一輪 skill-reviewer 與 code-review 剩下的：note 沒有「以後報價單照這份做」（設範本）的路，客戶這樣說要靠 produce 自己判；新建 `AI 產出/<型別>/` 夾沒記資料夾帳（空夾會被 delete-outputs 收掉，目前沒有後果） | produce 測試第一輪、裁定 19、21 |
-| B-405 | 2026-10-22 | open | 低：produce 測試第二輪剩下的：修訂作者實跑寫成「AI」（規定「AI 助理」、第一輪是 Claude），驗修訂仍先試 `python -c` 被擋（N-5）；`_why` 不看用了誰，Office 失敗也說 LibreOffice 沒有執行成功（N-2）；`to_pdf` 先刪舊 PDF 才檢查有沒有轉換器（N-3）；`output link` 的備份在清冊鎖外（N-4）；重裝前沒清 `ready.json`（N-7）；`unpack`／`run` 的範圍仍是整個 `.system/temp`、`_URL` 用 `$` 可能放過結尾換行（N-8，未實跑） | produce 測試第二輪 |
-| B-406 | 2026-10-22 | deferred | 解加密的 Word、Excel、PowerPoint（D-182 這版只解 PDF）：候選純 Python 寫 AES 與 OLE 拆檔、或選配 msoffcrypto-tool 跟 produce 的工具一起裝（要驗智慧型應用程式控制擋不擋） | 密碼與守門 |
-| B-407 | 2026-10-22 | open | 中：answer 統計題（「今年報價總共多少」）走 `cards list` 逐份加，看不到客戶口述的更正（10/21「第五版 124 萬、原檔 142 萬不對」），合計用錯（726 萬，應 708 萬），之後 AI 自己更正。候選：`cards list` 對有口述或裁示的實體帶一句、或 verify.md 寫「合計前對每個實體查 `lookup` 的口述」 | produce 確認第 4 步 |
-| B-408 | 2026-10-22 | open | 低：produce 確認看到的：模型兩次叫 `cards todo --json --brief`（沒有這個旗標，repo 也沒有任何文件寫到，模型自己編的），被 argparse 拒後自己改；線上文件 link 還沒做卡時 `lookup` 只說「還沒整理 1 份」沒有標題，問「剛才那份在哪」要靠 `cards todo`、`journal recent` 找 | produce 確認第 2 步重跑 |
-| B-409 | 2026-10-22 | done | 第 (6) 題（備份、還原、升級與換電腦）寫 spec 時先讀 `reports/B-093-spike.md`「升級那題要知道的」：App 不會自己發現新版、檢查更新藏在市集名後的「⋯」、約 7 下加「會覆寫本機變更」假警報（`.in_use` 標記造成）、畫面沒有自動更新開關、更新不用重開；user 範圍 uninstall 刪 data 留 cache、畫面移除相反。**寫 spec 前先 spike 兩條讓客戶不用自己按的路**（使用者 10-22）：(1) AI 在對話裡用桌面版內建的 Claude Code 跑 `claude plugin update`（客戶電腦多半沒有 PATH 上的 CLI，要找得到內建那支；桌面版吃不吃；R-07「升級只說明不代跑」要不要改，同 B-014）；(2) 設定檔打開那個市集的 `autoUpdate`（畫面沒有開關；桌面版認不認；自動換版後新版第一次開場要自動快照、遷移）。兩條都不通才寫成客戶自己按那 7 步、由 AI 或開場那行講清楚（2026-10-23 做完，`reports/B-409-spike.md`；升級定 D-215） | B-093 spike |
-| B-410 | 2026-10-22 | open | `versions revert` 只退最新一回合，最新那回合退不了（例：搬回的原位有同名檔）整串就卡住；manage 第二版只讓拒絕句說怎麼解開，要不要能跳過或標記被擋的回合另談 | manage 第二版測試 |
-| B-411 | 2026-10-22 | open | produce 會接走糾正句「那份報價寫錯了，總價是 128 萬」（run_eval sonnet：manage 第二版前 1/3、後 3/3，描述沒動，是邊界句取樣擺動）；下次調 produce 描述或 lint 時一起看 | manage 第二版測試 |
-| B-412 | 2026-10-22 | open | 桌面版開新對話時開場知道還有 19 份沒整理完（門檻內），AI 卻回「份數比較少，這次還沒動手」等客戶開口，沒照 D-161 直接整理；查開場指示行在「還有 N 份沒整理完」時的寫法與模型為什麼不照做 | card-maker spike 桌面版 D6；併進 card-maker 與整批製卡（開場整理那段本來就要重談） |
-| B-413 | 2026-10-22 | open | 知識庫、AI 產出、收件匣裡的夾（例：`知識庫/案子/信義王/私人`）不能設成不讀（manage 第二版只拒絕並請她先搬到來源夾）；要不要讓三區底下的子夾也能 hidden 排除（守門、清冊、purge 都要跟） | manage 第二版測試 |
-| B-414 | 2026-10-22 | open | manage 第二版第三輪測試的低風險項：短別名的遮罩會過度遮（子字串）、`folders find` 比對沒做 NFKC、走訪上限只數夾、ledger 追加等鎖滿 2 秒、退回倒回時先 rename 再還原 sources.json 的順序 | manage 第二版測試 |
-| B-415 | 2026-10-22 | open | produce 的連結型條目（claude.ai 線上文件）讀不到時（換帳號 404、沒分享），ingest 沒說怎麼辦，卡一直做不出來，每次開場都算進「還有 N 份沒整理完」；要嘛 produce 登記時就做卡、要嘛讀不到記 unreadable 不再算 | manage 第二版確認第 0 步；併進 card-maker（開場數字只算派得出去的、讀不到記 unreadable 不再算） |
-| B-416 | 2026-10-22 | open | 從資源回收筒還原的檔，掃描認成新增、重做一張新卡（同指紋，編號換了），刪之前那張卡與它在綜合卡、推算的依據不會回來；要不要讓掃描遇到同指紋的 deleted 條目時接回原編號、從備份還原卡 | manage 第二版確認第 5 步 |
-| B-417 | 2026-10-22 | open | purge 認不出「讀過那夾的卡或原檔、回答卻沒提到檔名卡名」的回合：ledger 只記 deny 與出錯、沒有回合代號，放行的 Read、`kb convert` 都不記。要能認，守門放行讀卡、原檔、暫存時把編號記進那一回合的回合檔（不記內容），purge 照它清 `result`。使用者 2026-10-22 說先不做（轉述在雲端與對話紀錄本來就清不掉，多清日誌一處收穫小；讀了很久才排除的情況少；每次讀都要多記一筆）；等真的有客戶讀過很久才排除、又在意日誌裡的轉述再談 | manage 第二版確認第 7 步、b4 |
-| B-418 | 2026-10-22 | deferred | 家裡、公司兩台電腦同時用同一個知識庫（不是單向換電腦）：第 (6) 題不收，要等多人共用那類一起想（同步夾衝突、回合與鎖跨機器） | 第 (6) 題例句 19 |
-| B-419 | 2026-10-23 | open | Claude Code 桌面版在使用者送出一句話時，會重讀它讀寫過的檔；那份檔若在 OneDrive 而且設成只在雲端，就被抓回本機（manage 第二版補確認第 9 步；kb 的指令與 hook 都沒讀）。真實使用時 AI 讀原檔走 `kb convert`（只在雲端的不讀），影響小；要不要在 README 或 manage 的 OneDrive 說明講一句，等 B-095 一帶再看 | manage 第二版補確認 |
-| B-420 | 2026-10-23 | open | manage 第二版第八輪測試的低風險項：路徑遮罩左邊沒邊界（「舊客戶案件/私人」也整欄換）；purge-pending.json 型別錯會噴未攔截的 traceback；turns/*.json 的鎖只有 purge 拿；推算先拿掉才記編號，被殺掉會漏；只有 c- 編號的綜合卡舊版不在清理範圍，退回 purge 那回合可能還原出懸空 c- 行 | manage 第二版測試 |
-| B-421 | 2026-10-23 | open | D-075 大改動攔截（一句話改到第 10 張既有綜合卡就擋）使用者想改成只提醒、不擋：擋的時候前 10 張已經改了、也防不住誤會範圍；大批更新已有口述由程式算範圍（D-146）與 card-maker 派工前先問（D-198）。使用者之後自己修，不在第 (6) 題 | 第 (6) 題討論 |
-| B-422 | 2026-10-23 | open | 守門照語法拆之後仍在的舊洞（原守門 eba223d 也放行，不是這題的退步）：殼的 -c 程式碼裡的相對路徑（`bash -c "rm 系統/x" /tmp/y`）、已知只讀指令帶輸出參數（`sort -o`、`uniq 入 出`、`tree -o`、`xxd -r 入 出`）、程式碼混淆的寫檔（`getattr(__import__('os'),'remo'+'ve')`）；可考慮殼的 -c 內容遞迴當指令判、只讀清單收窄 | 密碼與守門（實作收尾自查） |
-| B-423 | 2026-10-23 | open | 守門對直譯器程式碼（`python -c`、`node -e`、`ruby -e`、`awk`、`python x.py <路徑>`）的寫檔偵測是字串樣式，繞法多（`m='w'; open(p,m)`、`__import__('os').remove`），底版就沒擋；要不要改成「直譯器碰到知識庫保護區的路徑一律擋」。同類（第二輪 N3）：附著寫法 `sort -o<路徑>`、`find -fprint*`（對 AI 產出是退步）、`sdiff -o`、sed 的 `w`、awk 寫檔、動詞加引號（`"rm" x`、`$'rm' x`）、PowerShell `& 'Remove-Item'`、`[scriptblock]::Create`；執行一份看不到內容的腳本（`cat 檔 | sh`、`bash 腳本.sh`、`python x.py`）同一族；第三輪 N6 的 `kb … | python -c "…os.remove…"`、N7 的 `su -c`、`runuser -c`、`flock -c`、`script -c`、`at`、`unshare`、`nsenter`、`entr`（Linux 專用）與 PowerShell `Invoke-Item`、`& $x`、`Remove-ItemProperty` ；第四輪 R1（變數內容不是同句字面賦值：`c=$(cat f); bash -c "$c"`、read、`$SHELL -c`）、R2（直譯器從 stdin 或檔案讀到要刪的）、R3（`bash < file`、`source`、`cat f | bash`） | 密碼與守門測試 F8、N3、N6、N7、R1～R3 |
-| B-424 | 2026-10-23 | open | 密碼與守門第六輪的小事：「認不出而 ask」的固定句被 mask_secrets 誤遮（「可能」被當值）、應只遮代入的名稱；「找不到這份檔」沒提示怎麼寫才對（完整路徑、file://別名/相對路徑或清冊編號）；檔在清冊但名字不像密碼時 `ruling add --kind 可以讀` 仍 ask（多按一次）；清冊檔不存在時 deny 的字面 | 密碼與守門測試 |
-| B-425 | 2026-10-24 | done（v0.21.0 備份還原與換電腦） | 守門誤擋 AI 正常的兩個動作（build 桌面版確認 A 段落差 6、8，實作用 guard decide 重現）：Glob 的 path 指到含「不讀」夾的上層時，不管樣式是不是單一檔名都判 Z10b excluded_inside；Bash 的 `python -c` 程式碼裡有字面的 `/`，被抽成絕對路徑，Git Bash 的根是 `C:/Program Files/Git`，判成 credential_inside（.pem）。服務人員找自己放的檔、AI 用一行 python 統計都會卡 | card-maker 與 build 桌面版確認 |
-| B-426 | 2026-10-24 | open | 建置抽樣做好的卡，全量整理時又被派一次（10 份裡 9 份進了全量的批次）：份數題說「有 60 份要整理」，`todo` 的新檔只有 51；要查是整張重寫（白花額度）還是只補抽日程，修到抽樣做過的不再派、問句照實際份數 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-427 | 2026-10-24 | open | 綜合卡比它掛的檔案卡先派：整批重做時檔案卡被別的視窗佔著，dispatch 先派了 13 張綜合卡，照舊卡更新一次、檔案卡重寫後又更新一次；第一輪 4 張「製卡助手沒做成」，failed 沒帶原因。改成依據卡還在新、要更新、重做或別的批次裡時不派那張綜合卡，failed 帶回報的原因 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-428 | 2026-10-24 | open | 整理進度的份數口徑不一：「還在做 26 份」對不上 3 批 30 項；停下時只講檔案卡、繼續後又冒出「還沒輪到的 9 份」綜合卡；59＋1＋1＝61 不是 60。另外被別的視窗認領而派不出去時 `say` 是空的、`status` 不說原因，客戶不知道在等上一個視窗 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-429 | 2026-10-24 | open | `kb cards redo --job … --check` 只列前 30 張卡、後面寫「……共 N 張」；超過時照資料夾或實體分組全列 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-430 | 2026-10-24 | open | 建置被另一個對話拿著時，擋下句的「最後動作 HH:MM」取的是最後一步 done 的時間（例如抽樣完成），不是那個對話真正最後一次動作（派工、批次 last_seen）；接手後被放掉的批次，舊的子代理沒記成停了 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-431 | 2026-10-24 | open | 桌面版還沒驗到的（自動測試有涵蓋）：抽樣說「案子改叫工程」後卡的待補型別跟著改、交付報告不再問；舊 wiki 記了口述之後綜合卡先更新才准收尾、`.system\temp\adopt\` 收尾清空；日程同一件事兩個日期（驗收 11-20 與改定的 11-28）都 open、沒標誰取代誰。留給 (8) 完整試跑看 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
-| B-432 | 2026-10-24 | done（v0.21.0：還原前快照在 hidden 都清完時留著） | 備份還原實作時留下的：還原一份比現在 hidden 排除還舊的備份時，重清（purge）會把剛拍的「還原前」快照一起刪（purge 整包刪快照，manage 第二版教訓），之後「剛剛的還原不要了」回不去；現在是程式印那句、AI 明說（`--json` 的 `snapshot` 是 null）。要不要改成重清前先講、或別的做法，等 (8) 試跑看客戶碰不碰得到 | 備份還原實作 |
-| B-433 | 2026-10-24 | done（v0.21.0：演練標出另一個知識庫） | 還原別的知識庫（`vault_id` 不同）的備份進現在這個知識庫，spec 沒列拒絕、現在放行（演練會講會不見什麼、先拍快照、說好才做）；要不要擋、或多講一句「這是另一個知識庫的備份」，等 (8) 試跑 | 備份還原實作 |
-| B-434 | 2026-10-24 | open | 備份還原的 exit code 慣例 spec 沒定，實作時：`backup --check` 一律 exit 0（`refuse` 放 JSON 與人讀第二行）、`restore check` 有 `refuse` 時 exit 3（`--json` 也印）；`moved --check`、`versions clean --check` exit 0。AI 照輸出講、不靠 exit code 分辨，先不改；(8) 試跑看有沒有 AI 因 exit 3 以為壞了 | 備份還原實作 |
-| B-435 | 2026-10-24 | open | 備份走訪知識庫三次（`check`、拒絕與空間檢查、`write_zip`），中間檔案有變時估的大小與實際不同；現在 `write_zip` 的 meta 用真的寫進去的份數，估算只影響空間檢查，先不改（測試 T-13） | 備份還原測試 |
-| B-436 | 2026-10-24 | open | 觀察（測試 T-15）：`restore apply` 把 zip 裡的 `.claude/settings.json`、`env.json`（位置紀錄會被 `kb moved` 拿來改寫來源 spec）原樣放回，信任的前提是備份是客戶自己做的；別個知識庫的備份已改成演練時多說一句（B-433 做法），不擋 | 備份還原測試 |
-| B-437 | 2026-10-24 | done | 實作回報：B-432（還原前快照在重清 hidden 時留著，條件是拍時現在的 hidden 都清完）與 B-433（別個知識庫的備份 `check` 回 `other_vault`、多一行、放行）已照使用者定的做法實作；請設計把 B-432、B-433 改 done（實作 session 只能新增行） | 備份還原實作 |
-| B-438 | 2026-10-24 | open | 升級打包實作時留下的：`kb upgrade --downgrade` 還原升級前快照成功、但接著換版失敗（網路、claude 掛了）時，知識庫已是舊版、plugin 還是新版；下個對話開場會說「已換到 X」、`--finish` 又把知識庫升上去（會拍快照，不丟資料）。要不要在 `upgrade-history.json` 記一個 `downgrading`，讓重跑 `--downgrade` 直接接著換版、開場不叫 `--finish`？目前沒做 | 升級打包實作 |
-| B-439 | 2026-10-24 | open | 升級打包實作時 spec 沒寫、實作自己定的（請確認或改）：(1) 清單版本比現在舊時，直接跑 `kb upgrade`（沒帶 `--downgrade`）拒絕並指向 `--check`／`--downgrade`，這句不在 spec 的拒絕句清單；(2) 不在名單時 `kb upgrade` 回「目前是最新版（X）」（D-216），跟已經最新同一句；(3) `--finish` 的順序改成先遷移狀態檔、再 `kb init` 補骨架、再骨架對帳（spec 寫補骨架在前；init 自己也會升設定檔 schema 但不備進回合，先遷移才退得回，驗收 8）；(4) 連不上時背景查新版保留上一次查到的版本與一句話，只換日期與 error | 升級打包實作 |
-| B-440 | 2026-10-24 | open | 升級打包：`kb upgrade --background` 的小修換版與 `kb upgrade` 共用鎖，但背景子行程沒有「正在換版」的旗標給開場看；兩個對話同時開場、日期都不是今天時，只有第一個會開子行程（先記今天），第二個看不到結果要等下一次開場。可接受，記著 | 升級打包實作 |
-| B-441 | 2026-10-25 | open | 連退兩步做不到：`versions revert` 把「退回」本身算最近一句，第二次說退回會取消前一次（D-074 原本的設計，D-228 因此改問重做或不讀）；確認時 AI 先答應「一次退一步就行」講錯了。要在說明裡寫明，(8) 試跑看客戶常不常這樣說 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-442 | 2026-10-25 | open | 搬家後開場說「還有 N 張卡要跟著搬」（114）跟 `kb moved` 實際補的（6）對不上：開場那時相對來源還沒補，算法把每張都當成要搬 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-443 | 2026-10-25 | open | 「舊位置還有一份」只在第一次 `kb moved` 提醒，補好後 `old_copy` 變 null 就不再講；她沒刪的話之後沒人提 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-444 | 2026-10-25 | open | 檔名含「密碼」的設計文件（`密碼與守門-確認.md`）被守門當成憑證檔擋；只有開發與確認時會遇到 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-445 | 2026-10-25 | open | 還原會把 `.claude\settings.local.json` 換成備份裡那份（local 範圍的 plugin 設定跟著回去）；客戶是 user 範圍、通常沒有這個檔 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-446 | 2026-10-25 | open | 退回舊版（還原快照）的當下，hook 讀 `.system\batches.json.lock` 碰到 PermissionError 寫了一筆 hook-errors.log；一次性、之後沒再增加 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-447 | 2026-10-25 | open | B-425 只放行單一檔名的 Glob；AI 很自然會寫 `**/檔名`，在有「不讀」子夾的來源底下仍被擋 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-448 | 2026-10-25 | open | 升級打包測試第二輪 I-4、I-5：小修規則整檔掃字面 `"schema_version"`，docstring 裡多寫一句也會被擋（誤擋）；市集名的字元檢查放過 `.`、`..`（無害） | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
-| B-449 | 2026-10-25 | open | 第一層的型別夾前面加編號（`01 案子`、`02 業主`），在檔案總管與 Obsidian 排在一起、跟程式的區（收件匣、檔案索引、AI 產出、系統）分開。三條路：A 資料夾帶編號、型別名稱不帶（照型別表順序自動給，要加「型別↔資料夾」對照，綜合卡路徑、實體、設定檔建夾與對帳、型別改名、守門、where 都要改；舊知識庫升級時改名，算大升級）；B 型別直接取名「01 案子」（不用改程式，但對話與卡片都出現編號、只改那一個知識庫、調順序要改名）；C 讓程式的區排到後面（比 A 大）。設計 session 推薦 A、排在 lint 之後 (8) 之前；使用者 10-25 選 A，排期未定（開題時寫 D） | 使用者 10-25 |
-| B-450 | 2026-10-25 | open | lint 測試 T-12：`renders.json` 只留 20 個程式寫過的指紋，一個回合寫總目錄或工作日誌超過 20 次再退回，下一次重寫會把退回的那份當手改存進 handedits、報告多一句錯的「你改過」。不丟資料。 |
-| B-451 | 2026-10-25 | open | lint 測試 T-17、T-18：本月第一次若前台 `kb lint` 先跑，背景不補「上個月的報告出來了」那件；背景健檢的回合是 `versions list` 第一行，開場後她說「退回」先列到的是健檢做的事（R-05 會先列出、不會悄悄退）。 |
-| B-452 | 2026-10-25 | open | lint 測試 T-21：開原檔連結壞的卡（來源碟拔掉）每週重標它的綜合卡，重寫綜合卡修不了；要嘛不標、要嘛改報檔案卡。 |
-| B-453 | 2026-10-25 | open | lint 測試 T-23：終端機跑 `kb asks` 讀全庫唯一的 `current.json`，拿到最後一個對話的 `asks_told` 與 `touched`；兩個對話同時開同一個庫會互相影響。 |
-| B-454 | 2026-10-25 | open | lint 測試 code review #11、#12、#17：`statements.restore` 先寫封存檔後寫清單，中間出錯兩邊都沒有（回合備份救得回）；`withdraw` 成功後讀壞的封存檔仍 exit 3「狀態檔讀不到」；健檢報告不備進回合，退回健檢回合時報告留著。 |
-| B-455 | 2026-10-25 | open | lint 測試 T-38：purge 的 derived_masker 對檔名、推測日程原文整串取代（3 字以上），原文很普通（如「給報價」）時，健檢報告與手改副本裡不相干的同樣字也被換成「（已排除）」。可讀性問題，不是外洩。 |
-| B-456 | 2026-10-25 | open | lint 確認步驟 3：沒有急事時「看待處理」前 3 件總是草稿與名字確認（程式排序在 pending 類前），她一直不答就一直佔名額；她比較在意的健檢件（升格、推測日程、重做）要多說一次才看得到。排序要不要讓沒答過幾次的往後、或健檢件插進前 3。 |
-| B-457 | 2026-10-25 | open | lint 確認步驟 7：她說「舊報價單那份我晚點補新版」這類沒日期的承諾，沒有指令可以記（不是日程、pending add 只收 conflict），AI 猜成先放著。要不要給「讀不到」那件記一句她的打算，或照 R-06 先問。 |
-| B-458 | 2026-10-25 | open | lint 確認步驟 9：補寫上個月月報時，一句話、要你決定的、數字寫的是跑的當下（不是那個月底）的狀況；正常是月初第一次背景健檢就寫，差距小，但隔很久才開的庫會對不上標題。另：名字確認題「跟已有的另一個是同一個」沒提示候選；`done` 空時 lint skill 沒說怎麼講替她做了什麼。 |
+只列還沒做完的（要做、待決、延後），照區域分；不做與做完的在最下面。新增一條時在這裡對應的區加一行，換區時跟著改。
 
-## 補漏洞型延伸（落在既有位置，不加分類）
+| 區域 | 包含 | 條數 |
+|---|---|---|
+| 清冊與來源 | 登記來源、不讀、清冊、搬、改名、刪、purge（manage） | 18 |
+| 整理成卡 | 檔案卡、綜合卡、實體、card-maker（ingest） | 22 |
+| 設定與知識 | 客戶設定檔、型別、偏好、口述、裁示、別名、糾正（note） | 7 |
+| 日程 | 日程、事類狀態、從卡抽日期、逾期 | 3 |
+| 回答 | 查資料、數字、出處、推算（answer） | 6 |
+| 做文件 | kb office、草稿與定稿、範本（produce） | 7 |
+| 守門與密碼 | 守門、憑證檔、密碼、遮值、留痕 | 16 |
+| 回合與日誌 | 回合備份、退回、大改動攔截、工作日誌 | 15 |
+| 建置 | build：環境、訪談、抽樣、建置報告 | 3 |
+| 備份與搬家 | backup、restore、moved、清理、換電腦、換帳號 | 8 |
+| 升級與發行 | 安裝、升級、小修、發行程式、名單 | 4 |
+| 健檢與待處理 | lint、待處理、回答末尾怎麼問 | 8 |
+| hooks | hooks/ 與 hooks.json（橫跨多題） | 1 |
+| 核心規則與開場 | rules/core.md、開場注入、總資料夾 CLAUDE.md、AI 怎麼說話（橫跨多題） | 2 |
+| 架構與共通 | 總資料夾的分區、kb 指令入口、共用程式庫、Windows 邊角 | 3 |
+| 流程與文件 | repo 自己：流程、文件、命名、測試、排題順序 | 8 |
+| 延伸 | 還沒有程式的想法：新來源、新輸出、團隊、Mac 等 | 23 |
 
-| # | 日期 | 狀態 | 事 | 落在哪 |
-|---|---|---|---|---|
-| B-101 | 2026-10-11 | deferred | 掃描 PDF 做 OCR、圖片與照片製卡 | ingest/formats、kb convert |
-| B-102 | 2026-10-11 | deferred | `.doc` `.ppt` 用客戶的 Office 自動轉、Excel 重算與轉 PDF；第一版 `kb office` 只偵測與讀，不開 COM（I-013） | ingest/formats、kb office |
-| B-103 | 2026-10-11 | deferred | Google 文件捷徑、NAS、隨身碟路徑 | ingest/local |
-| B-104 | 2026-10-11 | deferred | 規模大了之後的本地搜尋索引，索引是可拋棄衍生物 | kb search、answer |
-| B-105 | 2026-10-11 | deferred | 索引過大拆年份 | kb reindex |
-| B-106 | 2026-10-11 | deferred | 客戶設定檔加了格式調整後，舊卡補欄位 | lint 檢查項、kb batch 標重做 |
-| B-107 | 2026-10-11 | deferred | API 製卡執行器：到時才加 config 鍵與 kb/executors/，規則檔不動（D-053） | kb/executors/ |
-| B-108 | 2026-10-11 | deferred | 額度與時間估算更準、建置分天（時間照 spike 改、用量一句話、不另設計分天，D-199；剩「用量講得更準」等讀得到方案用量再說） | kb inventory、build-cards |
-| B-109 | 2026-10-11 | deferred | 回答末尾建議問題、交付速查卡 | rules/next-step.md、build-finish |
-| B-110 | 2026-10-11 | deferred | 守門誤擋率、失敗訊息白話化。骨架與來源登記第八輪起已知誤擋：整條指令被判寫入就全部路徑套寫入欄，`grep -r X . \| tee /tmp/h`、`cat CLAUDE.md > /tmp/c.md`、`curl … > /tmp/x`（網址當路徑）、`tar czf` 在總資料夾裡都被擋；憑證走訪的「範圍太大」；`ls C:/` 沒排除夾時被擋 | guard.py、rules/core.md |
-| B-111 | 2026-10-11 | deferred | Mac | _lib/paths、envcheck |
+**清冊與來源**
 
-## 選取型延伸（依客戶特質開關）
+- B-018（延後、－）AI 產出的指紋先用位元組 sha256，kb convert 出來後 Off…
+- B-026（延後、－）cd -／裸 cd 吞下一個字、dir /s 不走訪、junction 指向排…
+- B-035（延後、－）巢狀排除時 folders include 外層後說「讀得到」但內層 hidd…
+- B-038（要做、－）開場 scan 的 roots() 對斷線的網路磁碟做 isdir 可能卡 2…
+- B-039（要做、－）inventory.apply 只把 scan 期間新增的 id 合併回去，對…
+- B-043（延後、低）v1→2 遷移從磁碟補 size／mtime 等於信任期間沒改過（C）
+- B-044（要做、低）content_fp 的時間檢查「每 1000 個元素查一次」每個 zip 成…
+- B-045（要做、低）hidden 排除只拿掉重複檔其中一個位置時第二行印「清冊：0 份已拿掉」，應…
+- B-046（要做、低）folders add 第一行「N 份」看不出含不含憑證那幾份（AI 自己說看…
+- B-096（要做、－）客戶在檔案總管搬 OneDrive「只在雲端」的檔（沒有指紋），kb chan…
+- B-097（要做、低）Python 看到的 OneDrive 占位檔屬性是偽裝過的（預設模式 1）
+- B-098（延後、－）刪整個夾（manage 第二版先不收，使用者 10-22）：做法已想好——先算…
+- B-413（要做、－）知識庫、AI 產出、收件匣裡的夾（例：知識庫/案子/信義王/私人）不能設成不讀…
+- B-414（要做、－）manage 第二版第三輪測試的低風險項：短別名的遮罩會過度遮（子字串）、fo…
+- B-416（要做、－）從資源回收筒還原的檔，掃描認成新增、重做一張新卡（同指紋，編號換了），刪之前那…
+- B-417（要做、－）purge 認不出「讀過那夾的卡或原檔、回答卻沒提到檔名卡名」的回合：ledg…
+- B-420（要做、－）manage 第二版第八輪測試的低風險項：路徑遮罩左邊沒邊界（「舊客戶案件/私…
+- B-455（要做、－）purge 的 derived_masker 對檔名、推測日程原文整串取代（3…
 
-| # | 日期 | 狀態 | 事 | 槽位 |
-|---|---|---|---|---|
-| B-201 | 2026-10-11 | deferred | Email（Gmail、Outlook）來源，Claude 取腳本記 | 來源型別 |
-| B-202 | 2026-10-11 | deferred | 行事曆讀寫 | 來源加輸出 |
-| B-203 | 2026-10-11 | deferred | Line，做法待定 | 來源加輸出 |
-| B-204 | 2026-10-11 | deferred | 線上版雲端硬碟、Notion | 來源型別 |
-| B-205 | 2026-10-11 | deferred | 會議錄音轉文字 | 來源型別 |
-| B-206 | 2026-10-11 | deferred | collab：多 session 主管制、佔用偵測、角色卡 | 模式 |
-| B-207 | 2026-10-11 | deferred | 團隊共享、個人與團隊空間分開：一個知識庫當另一個的唯讀來源 `kb://`；對方的綜合卡不重 ingest，只建指標卡回正本讀 | 模式加來源型別 |
-| B-208 | 2026-10-11 | deferred | 主動推送：會前背景、逾期承諾，外部排程跑 `kb agenda brief` | 模式加輸出 |
-| B-209 | 2026-10-11 | deferred | 排程健檢 | 模式 |
-| B-210 | 2026-10-11 | deferred | 起草 PowerPoint、輸出 Google 文件 | 輸出去處 |
-| B-211 | 2026-10-11 | deferred | 既有 wiki 接入（舊 llm-wiki vault 併進 build 題，D-193；其他種類的 wiki 照舊延後） | build-setup 分支 |
+**整理成卡**
 
-## 從 llm-wiki 延後的想法
+- B-032（要做、－）子代理讀得到知識庫 CLAUDE.md 但沒有 SessionStart 注入…
+- B-052（要做、－）PostToolUse 每寫一張合法卡就整份重渲染，卡幾千張時留意 10 秒逾…
+- B-053（延後、－）convert 路徑沒經 paths._text_forms（Git Bash…
+- B-055（延後、低）.system/temp 是 junction 時，成功的 kb conver…
+- B-057（延後、低）extract.render_pages 沒有點陣圖尺寸上限，超大頁面（海報、…
+- B-058（要做、－）開場有變動時「先答客戶這句再整理」靠開場指示行做不到（三種寫法都被模型跳過答案…
+- B-059（要做、－）cards todo 的 orphans 不分「條目 excluded（客戶說…
+- B-063（延後、－）同回合新建後被打回重寫的綜合卡也算進 ai_synthesis
+- B-065（延後、－）carding.md 第七節補「實體、待補型別、範本版本同一次 Edit 改完…
+- B-066（要做、－）「實體夾有變」在客戶回答前每次開場都印、AI 每次都問（I-045／I-059…
+- B-067（延後、－）本文共通節與 core.md R-10／R-14 重複
+- B-068（延後、－）ingest-check 複本跑 cards sync 之後，只要來源多一份新…
+- B-069（要做、－）原檔不見、客戶還沒答「是不是刪了」時，entities.mounts 只算條目…
+- B-070（延後、低）寫檔案卡通過後 PostToolUse 重渲染相關綜合卡的檔頭快取，AI 若之…
+- B-076（要做、－）門檻 5→20 之後（D-100 修訂），已入冊、待製卡 6～20 份、開場沒…
+- B-085（要做、－）重複編號卡取 group[0]、cards redo／mount 沒走 _gu…
+- B-089（要做、中）ingest 整理完的回答把綜合卡的出處標記〔f-…〕〔r-…〕原樣貼給客戶（…
+- B-099（要做、中）開場有新檔時照 D-156 先整理，整理完的回答由 ingest 給、沒回到 …
+- B-412（要做、－）桌面版開新對話時開場知道還有 19 份沒整理完（門檻內），AI 卻回「份數比較…
+- B-427（要做、－）綜合卡比它掛的檔案卡先派：整批重做時檔案卡被別的視窗佔著，dispatch 先…
+- B-428（要做、－）整理進度的份數口徑不一：「還在做 26 份」對不上 3 批 30 項
+- B-429（要做、－）kb cards redo --job … --check 只列前 30 張卡…
 
-| # | 日期 | 狀態 | 事 | 歸哪 |
-|---|---|---|---|---|
-| B-301 | 2026-10-11 | deferred | 開工與收工儀式 | collab，單人不需要 |
-| B-303 | 2026-10-11 | deferred | 取用副本夾一致性檢查 | lint 檢查項 |
-| B-304 | 2026-10-11 | deferred | 像素辦公室 | 獨立 plugin，不進本架構 |
-| B-305 | 2026-10-11 | deferred | 教練開關設定 | 不做，見 D-007 |
+**設定與知識**
+
+- B-061（延後、低）profile apply 建夾失敗那句把 OS 的 strerror 原樣接…
+- B-075（延後、－）型別操作失敗在最後一步 render_index 時 檔案索引/… 留兩層空夾…
+- B-079（延後、－）型別操作 _move 回滾後上層空夾沒記帳、revert 鎖過期可被搶、_ba…
+- B-082（要做、－）statements.json、rulings.json 壞了會擋 cards…
+- B-083（要做、－）收回「取代了別條的口述」時，被它取代的舊口述不會變回 active
+- B-090（要做、－）改既有的事 AI 只查口述清單、沒看卡上原本寫的（第 2 步）
+- B-449（待決、－）第一層的型別夾前面加編號（01 案子、02 業主），在檔案總管與 Obsidi…
+
+**日程**
+
+- B-072（要做、－）系統/日程.md 甘特圖在 Obsidian 顯示得出來但不好看（日程確認，使…
+- B-073（延後、－）期間在開始日之前被 done 時 ended 早於 start，甘特圖畫壞（取…
+- B-086（延後、－）日程匯出成行事曆檔（.ics，匯進 Google／Outlook）與其他匯出格…
+
+**回答**
+
+- B-034（要做、－）kb journal recent 一段一行只印「做了」，不印「改了」哪些檔，…
+- B-071（要做、－）卡型合併後（D-138）舊卡的卡型欄留舊名，同一種卡有兩個卡型名並存
+- B-091（要做、－）推算清單（findings.json）掛的實體名稱不跟著 entity ren…
+- B-092（延後、－）多視窗共用 current.json 時 A 的 cards todo 可能把…
+- B-100（要做、低）過期的推算被直接用（lookup 標 stale 仍給結果文字，AI 照寫舊數…
+- B-407（要做、中）answer 統計題（「今年報價總共多少」）走 cards list 逐份加，…
+
+**做文件**
+
+- B-401（要做、－）kb office run 守門照單一 kb 呼叫 allow，AI 在工作區…
+- B-403（要做、低）kb output save 算同名加 (2) 到複製之間沒鎖，兩個對話同時存…
+- B-404（要做、低）note 沒有「以後報價單照這份做」（設範本）的路，客戶這樣說要靠 produ…
+- B-405（要做、低）修訂作者實跑寫成「AI」（規定「AI 助理」、第一輪是 Claude），驗修訂…
+- B-408（要做、低）produce 確認看到的：模型兩次叫 cards todo --json -…
+- B-411（要做、－）produce 會接走糾正句「那份報價寫錯了，總價是 128 萬」（run_e…
+- B-415（要做、－）produce 的連結型條目（claude.ai 線上文件）讀不到時（換帳號 …
+
+**守門與密碼**
+
+- B-016（要做、－）查 Claude Code hooks 設定有沒有「hook 失敗或逾時即 d…
+- B-017（延後、－）守門測試的低優先：guard-status 每次呼叫都讀改成每天一次快取
+- B-021（延後、－）ledger.tsv 的 path_or_command_head 只留前 1…
+- B-022（要做、－）不帶磁碟代號的根路徑（\案子\...）normalize 後判 Z11 不表態
+- B-024（延後、－）守門誤擋：Bash heredoc 內文提到總資料夾第一層路徑（寫知識庫外的報…
+- B-028（延後、－）(1) 檔名含「帳號」「密碼」時 prompt_head 多遮（「薪轉帳號██…
+- B-047（要做、－）工作日誌遮值碰到檔名「網銀密碼.txt」會從「密碼」起把 note 後段整段遮…
+- B-049（要做、－）守門擋了對含憑證檔的來源夾只看第一層的 ls（D-079 資料夾走訪 fail…
+- B-087（要做、－）擋密碼是 mask_secrets 的啟發式：值在關鍵字前面（「hunter2…
+- B-088（延後、－）守門的資料夾範圍掃描把 python 套件夾裡的 CA 憑證包（certifi…
+- B-406（延後、－）解加密的 Word、Excel、PowerPoint（D-182 這版只解 P…
+- B-422（要做、－）守門照語法拆之後仍在的舊洞（原守門 eba223d 也放行，不是這題的退步）：…
+- B-423（要做、－）守門對直譯器程式碼（python -c、node -e、ruby -e、awk…
+- B-424（要做、－）「認不出而 ask」的固定句被 mask_secrets 誤遮（「可能」被當值…
+- B-444（要做、－）檔名含「密碼」的設計文件（密碼與守門-確認.md）被守門當成憑證檔擋
+- B-447（要做、－）B-425 只放行單一檔名的 Glob
+
+**回合與日誌**
+
+- B-019（延後、－）kb.py 由模型呼叫時拿不到 session_id，CLI 用 turns/…
+- B-023（延後、－）T 建成品→退回→U 重寫→退掉 U 後 T 那筆仍 superseded 刪…
+- B-030（延後、－）flush 鎖逾時後舊回合那行永遠 done false（lint 題清）
+- B-031（要做、－）(1) 貼上的內容送到 UserPromptSubmit 時 prompt 是…
+- B-048（要做、－）AI 的 kb turn note 把上一回合的事也寫進來
+- B-056（延後、低）versions revert 退掉 cards drop 那回合後，同一張卡…
+- B-062（要做、低）versions revert 退掉 kb entity rename 那回合…
+- B-074（要做、－）versions revert／versions list 的人讀輸出帶回合編…
+- B-078（要做、－）AI 的 kb turn note 把上一回合的事也寫進這回合（從 B-048…
+- B-080（延後、－）狀態檔完整性：有人在 plugin 之外改了 .system/versions…
+- B-400（要做、低）versions list 的成品數把掃描補登記的 AI 產出（unbacke…
+- B-402（要做、低）versions revert --delete-outputs 刪到 lin…
+- B-410（要做、－）versions revert 只退最新一回合，最新那回合退不了（例：搬回的原…
+- B-421（待決、－）D-075 大改動攔截（一句話改到第 10 張既有綜合卡就擋）使用者想改成只提…
+- B-441（要做、－）連退兩步做不到：versions revert 把「退回」本身算最近一句，第二…
+
+**建置**
+
+- B-426（要做、－）建置抽樣做好的卡，全量整理時又被派一次（10 份裡 9 份進了全量的批次）：份…
+- B-430（要做、－）建置被另一個對話拿著時，擋下句的「最後動作 HH:MM」取的是最後一步 don…
+- B-431（要做、－）桌面版還沒驗到的（自動測試有涵蓋）：抽樣說「案子改叫工程」後卡的待補型別跟著改…
+
+**備份與搬家**
+
+- B-025（延後、－）高風險子命令（restore、relocate、全部重做）的「問一句」由守門對…
+- B-434（要做、－）備份還原的 exit code 慣例 spec 沒定，實作時：backup -…
+- B-435（要做、－）備份走訪知識庫三次（check、拒絕與空間檢查、write_zip），中間檔案…
+- B-436（要做、－）restore apply 把 zip 裡的 .claude/settings…
+- B-442（要做、－）搬家後開場說「還有 N 張卡要跟著搬」（114）跟 kb moved 實際補的…
+- B-443（要做、－）「舊位置還有一份」只在第一次 kb moved 提醒，補好後 old_copy…
+- B-445（要做、－）還原會把 .claude\settings.local.json 換成備份裡那…
+- B-446（要做、－）退回舊版（還原快照）的當下，hook 讀 .system\batches.js…
+
+**升級與發行**
+
+- B-438（要做、－）升級打包實作時留下的：kb upgrade --downgrade 還原升級前…
+- B-439（待決、－）升級打包實作時 spec 沒寫、實作自己定的（請確認或改）：(1) 清單版本比…
+- B-440（要做、－）升級打包：kb upgrade --background 的小修換版與 kb …
+- B-448（要做、－）小修規則整檔掃字面 "schema_version"，docstring 裡多…
+
+**健檢與待處理**
+
+- B-450（要做、－）renders.json 只留 20 個程式寫過的指紋，一個回合寫總目錄或工作…
+- B-451（要做、－）本月第一次若前台 kb lint 先跑，背景不補「上個月的報告出來了」那件
+- B-452（要做、－）開原檔連結壞的卡（來源碟拔掉）每週重標它的綜合卡，重寫綜合卡修不了
+- B-453（要做、－）終端機跑 kb asks 讀全庫唯一的 current.json，拿到最後一個…
+- B-454（要做、－）statements.restore 先寫封存檔後寫清單，中間出錯兩邊都沒有（…
+- B-456（要做、－）沒有急事時「看待處理」前 3 件總是草稿與名字確認（程式排序在 pending…
+- B-457（要做、－）她說「舊報價單那份我晚點補新版」這類沒日期的承諾，沒有指令可以記（不是日程、p…
+- B-458（要做、－）補寫上個月月報時，一句話、要你決定的、數字寫的是跑的當下（不是那個月底）的狀況
+
+**hooks**
+
+- B-041（要做、－）hooks/hooks.json SessionStart 的 descrip…
+
+**核心規則與開場**
+
+- B-033（延後、－）prompt_head 剝標籤的正規式對屬性值含 > 留殘渣
+- B-064（要做、中）AI 在工具之間寫英文自言自語給客戶看（「Step 1 is to write…
+
+**架構與共通**
+
+- B-029（要做、－）io.FileLock：Windows 上鎖檔剛被持有者刪掉（待刪除）時 O_…
+- B-040（要做、－）Win32 邊角：名字結尾帶 . 或空白時 long_path 經 abspa…
+- B-419（要做、－）Claude Code 桌面版在使用者送出一句話時，會重讀它讀寫過的檔
+
+**流程與文件**
+
+- B-005（待決、－）架構文件初稿審閱（本批結束前你看一次）
+- B-011（延後、－）tests/test_lib_io.py 用 sys.path.insert（…
+- B-012（延後、－）claude plugin validate 每次都警告「根目錄 CLAUDE…
+- B-036（要做、－）skill-creator 的 scripts/run_eval.py 讀 e…
+- B-042（要做、－）既有測試 test_two_processes_register_concur…
+- B-054（要做、－）manage 路由 eval 從 10-16 的 30/30 掉到 26/30…
+- B-084（要做、－）spec 驗收環境「三張檔案卡、兩張綜合卡」撐不起門檻 2
+- B-094（要做、低）repo CLAUDE.md 地圖第 27、35、59 列（entity.py…
+
+**延伸**
+
+- B-037（延後、－）Obsidian 視圖（D-097：選配不必要）：kb 在 系統/ 產 Bas…
+- B-050（要做、－）spike：Obsidian 三頁的假設（D-105、D-106），在 llm…
+- B-101（延後、－）掃描 PDF 做 OCR、圖片與照片製卡
+- B-102（延後、－）.doc .ppt 用客戶的 Office 自動轉、Excel 重算與轉 PDF
+- B-103（延後、－）Google 文件捷徑、NAS、隨身碟路徑
+- B-104（延後、－）規模大了之後的本地搜尋索引，索引是可拋棄衍生物
+- B-105（延後、－）索引過大拆年份
+- B-106（延後、－）客戶設定檔加了格式調整後，舊卡補欄位
+- B-107（延後、－）API 製卡執行器：到時才加 config 鍵與 kb/executors/，…
+- B-108（延後、－）額度與時間估算更準、建置分天（時間照 spike 改、用量一句話、不另設計分天…
+- B-109（延後、－）回答末尾建議問題、交付速查卡
+- B-110（延後、－）守門誤擋率、失敗訊息白話化
+- B-201（延後、－）Email（Gmail、Outlook）來源，Claude 取腳本記
+- B-202（延後、－）行事曆讀寫
+- B-203（延後、－）Line，做法待定
+- B-204（延後、－）線上版雲端硬碟、Notion
+- B-205（延後、－）會議錄音轉文字
+- B-208（延後、－）主動推送：會前背景、逾期承諾，外部排程跑 kb agenda brief
+- B-209（延後、－）排程健檢
+- B-210（延後、－）起草 PowerPoint、輸出 Google 文件
+- B-211（延後、－）既有 wiki 接入（舊 llm-wiki vault 併進 build 題，…
+- B-301（延後、－）開工與收工儀式
+- B-303（延後、－）取用副本夾一致性檢查
+
+<!-- 索引到這裡 -->
+
+## 要處理的
+
+| # | 日期 | 狀態 | 嚴重 | 區域 | 事 | 來自 |
+|---|---|---|---|---|---|---|
+| B-005 | 2026-10-11 | 待決 | － | 流程與文件 | 架構文件初稿審閱（本批結束前你看一次） | 討論 |
+| B-016 | 2026-10-12 | 要做 | － | 守門與密碼 | 查 Claude Code hooks 設定有沒有「hook 失敗或逾時即 deny」的欄位（onFailure 之類）與最低版本；有就加進 hooks.json，沒有就靠開場偵測 python（I-103）。2026-10-21 查到：hook 可加 `"onFailure": "block"`（Claude Code 2.1.295 以上），PreToolUse 起不來、exit 非 0 非 2、逾時、輸出壞掉都擋；預設是放行。歸「密碼與守門」題 | 守門實作 |
+| B-022 | 2026-10-13 | 要做 | － | 守門與密碼 | 守門：不帶磁碟代號的根路徑（`\案子\...`）normalize 後判 Z11 不表態；事務層 delete-outputs 刪前也不再查 zone。守門題補一條（狀態說明：併「密碼與守門」題，D-145） | 事務層測試第三輪 |
+| B-029 | 2026-10-16 | 要做 | － | 架構與共通 | `io.FileLock`：Windows 上鎖檔剛被持有者刪掉（待刪除）時 O_EXCL 丟 PermissionError，回頭看鎖檔已不存在就當成「建不起來」直接丟（R2-1），兩個程序搶同一把鎖會偶發失敗；工作日誌在 `journal._lock` 包一層同逾時內重試繞過，`turn.backup`、`folders` 仍直接用 FileLock。io.py 該題修 | 工作日誌實作 |
+| B-031 | 2026-10-16 | 要做 | － | 回合與日誌 | 工作日誌確認觀察：(1) 貼上的內容送到 UserPromptSubmit 時 prompt 是 `<pasted_content id=…>` 包住的原樣，日誌「問」會印出標籤，`prompt_head` 應剝掉包裝只留內文；(2) 「結果」保留 Markdown 記號（`##`、`**`、```` ``` ````），壓成一行後不好讀，渲染時可去掉；(3) 兩個 session 開在同一知識庫時另一個 session 的訊息也被記成客戶的一句（B-019 同根）；(4) 遮值一路遮到句尾會吃掉 AI 的說明段（D-086 接受多遮，量多再談）；(5) Esc 按得早時 Claude Code 把那句拿掉、AI 沒收到，日誌已記成中斷；(6) AI 沒拒絕代登入外部系統，R-09 等 core.md；(7) AI 不知道 kb.py 在哪，要點名完整路徑，開場注入題要給（狀態說明：1、6、7、8 已在 v0.6.0 收；剩 2～5） | 工作日誌確認 |
+| B-032 | 2026-10-16 | 要做 | － | 整理成卡 | 子代理讀得到知識庫 CLAUDE.md 但沒有 SessionStart 注入，拿不到 core.md；哨兵句已標「子代理不適用」，但規則怎麼給子代理（SubagentStart hook 注入同一段，或 card-maker 本文指 `${CLAUDE_PLUGIN_ROOT}/rules/core.md`）等 agent 題定（D-053） | 開場注入與核心規則測試 |
+| B-034 | 2026-10-16 | 要做 | － | 回答 | `kb journal recent` 一段一行只印「做了」，不印「改了」哪些檔，AI 回答「最近改了什麼」時無法確認檔有沒有登記，又把「程式｜」標記誤讀成登記與否；answer 題定 recent 的輸出要不要帶改了與 note_by（狀態說明：D-158 定了做法，answer 題實作） | 開場注入與核心規則確認 |
+| B-036 | 2026-10-16 | 要做 | － | 流程與文件 | skill-creator 的 `scripts/run_eval.py` 讀 evals 沒指定 encoding（cp950 讀不了中文，要 `PYTHONUTF8=1`）、用 `select.select` 讀子程序管線，Windows 上每次 query 都 WinError 10038、全部算未觸發；路由測試要用把 select 換成「永遠就緒」的 shim 跑（原檔不動）；另外預設 10 個 worker 會把同描述的暫時指令檔同時放進同一個 `.claude/commands/`，模型挑到別人那份就算沒觸發（實測該觸發只剩 10%），要 `--num-workers 1`；之後自己寫一支 `tests/evals/run.py`，D-091 的做法到時改 | manage 測試 |
+| B-038 | 2026-10-17 | 要做 | － | 清冊與來源 | 開場 scan 的 roots() 對斷線的網路磁碟做 isdir 可能卡 20 秒以上，標準函式庫沒有帶逾時的檢查；候選：按機器記上次找不到的來源、開場先跳過改由 kb changes 查，或子執行緒加逾時 | 清冊 |
+| B-039 | 2026-10-17 | 要做 | － | 清冊與來源 | `inventory.apply` 只把 scan 期間新增的 id 合併回去，對既有條目的並行改動（`register_output` 追加指紋、`set_status`）會被蓋掉；要並行寫才會遇到 | 清冊測試觀察 B |
+| B-040 | 2026-10-17 | 要做 | － | 架構與共通 | Win32 邊角：名字結尾帶 `.` 或空白時 `long_path` 經 `abspath` 會被去掉，走訪列的名字與實際開的檔可能不同；`path_of` 不擋 `..` 與絕對路徑段（目前沒有呼叫端） | 清冊測試觀察 E |
+| B-041 | 2026-10-17 | 要做 | － | hooks | `hooks/hooks.json` SessionStart 的 description 沒提快速 scan 與寫 env.json；下次碰 hook 的題一起改並跑 validate | 清冊測試觀察 F |
+| B-042 | 2026-10-17 | 要做 | － | 流程與文件 | 既有測試 `test_two_processes_register_concurrently_both_kept` 偶爾因 `io.FileLock` 的 PermissionError 競態失敗（main 就有，io.py 清冊題沒動） | 清冊測試觀察 H |
+| B-044 | 2026-10-17 | 要做 | 低 | 清冊與來源 | `content_fp` 的時間檢查「每 1000 個元素查一次」每個 zip 成員重新數，小成員很多的檔（幾千張投影片）不會停下來查；改成跨成員累計 | 清冊測試第二輪 |
+| B-045 | 2026-10-17 | 要做 | 低 | 清冊與來源 | hidden 排除只拿掉重複檔其中一個位置時第二行印「清冊：0 份已拿掉」，應該數位置或另印；`versions revert`／`--delete-outputs` 在清冊讀不到時最後那句與成品數是還原前狀態 | 清冊測試第二輪 |
+| B-046 | 2026-10-17 | 要做 | 低 | 清冊與來源 | `folders add` 第一行「N 份」看不出含不含憑證那幾份（AI 自己說看不懂）；`inventory scan` 的「同一份內容在多處 N 份」不列是哪份 | 清冊確認 ①② |
+| B-047 | 2026-10-17 | 要做 | － | 守門與密碼 | 工作日誌遮值碰到檔名「網銀密碼.txt」會從「密碼」起把 note 後段整段遮掉（B-031 遮太多同類）；ingest 確認 G3：「讀不到：有密碼」那句也被遮成 ███；檔名裡的關鍵詞要不要豁免，守門題與日誌題一起看（狀態說明：D-187 定做法，密碼與守門題做） | 清冊確認 ③ |
+| B-048 | 2026-10-17 | 要做 | － | 回合與日誌 | AI 的 `kb turn note` 把上一回合的事也寫進來；建議下一步時提到還不存在的綜合卡（ingest 題定卡之前 core.md 要不要加一句）（狀態說明：第 2 件 answer 題收；第 1 件拆成 B-078） | 清冊確認 ④ |
+| B-049 | 2026-10-17 | 要做 | － | 守門與密碼 | 守門擋了對含憑證檔的來源夾只看第一層的 `ls`（D-079 資料夾走訪 fail closed 的副作用）；要不要讓「列目錄不讀內容」放行（狀態說明：D-185 定做法，密碼與守門題做） | 清冊確認 ⑤ |
+| B-050 | 2026-10-17 | 要做 | － | 延伸 | spike：Obsidian 三頁的假設（D-105、D-106），在 `llm-wiki-test` 總資料夾放假卡、`.base`、Mermaid gantt、`.obsidian/app.json`、CSS 片段，桌面 Obsidian 開一次驗：Bases 現在有哪些視圖、`.base` 能不能嵌進 md、巢狀清單摺疊與連結、Mermaid gantt 點 bar 開不開卡、`file:///` 中文與空白路徑與網路磁碟怎麼寫、「偵測所有副檔名」點 docx 是不是直接用 Word 開、CSS 片段藏得掉 `檔案索引/` 而 Bases 與搜尋照常、`.obsidian/` 由骨架出貨後 Obsidian 改寫會不會衝突。等你說跑才跑 | 設計討論 2026-10-17 |
+| B-052 | 2026-10-18 | 要做 | － | 整理成卡 | 總目錄：PostToolUse 每寫一張合法卡就整份重渲染，卡幾千張時留意 10 秒逾時（改成只在 ingest 收尾或 `kb cards index` 渲染、或增量）；`inventory scan` 程式段的 pending 兩檔第一次建檔也記 modify（低） | ingest 製卡實作回報 |
+| B-054 | 2026-10-19 | 要做 | － | 流程與文件 | manage 路由 eval 從 10-16 的 30/30 掉到 26/30、25/30（描述與句子沒動，ingest 不在場），第一輪 0/30 是環境異常；接受發行（ingest 裁定 35）。下次動 manage 描述、或 skill 數量變時，跑三輪取中位數，仍低於 90% 才調描述；順便查 run_eval 整輪 0 觸發的環境原因 | ingest 製卡測試第二輪 |
+| B-058 | 2026-10-19 | 要做 | － | 整理成卡 | 開場有變動時「先答客戶這句再整理」靠開場指示行做不到（三種寫法都被模型跳過答案直接整理，確認第 4 步三次）；「不問直接整理」有效。候選：Stop hook 在清冊有待製卡且這回合沒整理時 `decision: block` 一次，模型答完被擋才整理（程式保證、不靠指示）；或 answer 題定回答格式後再看。answer 題接（狀態說明：D-156 定了做法：先整理再完整回答，不用 Stop hook；待實作） | ingest 製卡確認 G9 |
+| B-059 | 2026-10-19 | 要做 | － | 整理成卡 | `cards todo` 的 orphans 不分「條目 excluded（客戶說不讀）」與「編號不在清冊」，AI 把排除夾的孤兒卡說成「原檔不見了要確認是不是刪了」誤導客戶；todo 的 orphans 帶原因、SKILL 寫「排除夾的卡不跟客戶提」；manage 第二版清殘留時一起收。另：AI 對客戶用「您」（R-10 語氣，低） | ingest 製卡確認 G11 |
+| B-062 | 2026-10-19 | 要做 | 低 | 回合與日誌 | `versions revert` 退掉 `kb entity rename` 那回合時，程式改名的實體夾（裡面有客戶原檔）不會改回來，清冊退回舊 uri，下次 scan 把那份原檔當搬動；夾的改名不在回合備份裡（同 profile apply 建的夾）。真要退得乾淨要讓回合記資料夾動作（狀態說明：note 改規則題修，D-142） | 實體與綜合卡實作疑義 12 |
+| B-064 | 2026-10-19 | 要做 | 中 | 核心規則與開場 | AI 在工具之間寫英文自言自語給客戶看（「Step 1 is to write out the answer…」「All 35 cards are done. Step 9: …」），ingest 製卡確認 G10 起就有，步驟多時更常出現；R-10 已寫仍被違反。候選：skeleton CLAUDE.md 加一句「工具之間的過場也是給客戶看的，一律繁體中文、不唸步驟編號」（語言這種身分級的事放客戶端 CLAUDE.md 才收得住，manage 題的經驗）、SKILL.md 的順序不用「第 N 步」編號；日程第一題（note skill）一起處理，既有知識庫要等升級才拿得到新 CLAUDE.md | 實體與綜合卡確認 I1；整理 ingest 確認補：中文旁白露出 `cards todo --json`、`plan` 這類內部用語也算；日程確認重跑：補了 CLAUDE.md 那句後仍漏一行「I'll read the agenda reference first.」、把「多下了一次切換資料夾」這種內部操作講給客戶；note 改知識確認（10-21）重開對話的 ingest 回合又出現「Announce 要先說一句」「Plan 空了。記工作日誌。」：英文來自 SKILL 與 todo 的鍵名，再加一句規則多半沒效，要另想辦法；answer 測試第一、二輪再現：本文把「過場一律繁中」移到最前面仍有英文過場（answer 測試第二輪 G-2）；answer 確認 2 次（確認 session 自己 1 次、新對話「Announce 要先說一句。」1 次）；produce 確認：整理段 2 句英文過場 |
+| B-066 | 2026-10-19 | 要做 | － | 整理成卡 | 「實體夾有變」在客戶回答前每次開場都印、AI 每次都問（I-045／I-059 同類：客戶不想答就變成天天出現的訊號）；要有「先不管」的路，例如答「先不管」記進 env 或實體條目、同一個變化不再問，夾又變了才再問 | 實體與綜合卡結案查核 |
+| B-069 | 2026-10-20 | 要做 | － | 整理成卡 | 原檔不見、客戶還沒答「是不是刪了」時，`entities.mounts` 只算條目 active 的卡，那張卡就從實體的掛載消失，`synthesis_stale` 列它為 removed，AI 提前從綜合卡拿掉它的內容（與「卡先留著」不一致）。missing 的條目在客戶答之前應該照算掛載 | 整理 ingest 確認 (4) |
+| B-071 | 2026-10-20 | 要做 | － | 回答 | 卡型合併後（D-138）舊卡的卡型欄留舊名，同一種卡有兩個卡型名並存；answer 題若要按卡型找卡（「列出所有報價」），要認得併掉的舊名（設定檔記併入關係，或 answer 時改檔頭）（狀態說明：D-157 定了做法，answer 題實作） | note 改規則設計 |
+| B-072 | 2026-10-20 | 要做 | － | 日程 | `系統/日程.md` 甘特圖在 Obsidian 顯示得出來但不好看（日程確認，使用者截圖）：milestone 標籤在菱形左邊斜體、跟別的標籤擠在一起；結案的 bar 灰色、截在今天；沒掛實體的落在「其他」；時間軸只有週刻度。日程第二題或 B-050 spike 時一起看樣式（Mermaid gantt 能調的有限，Obsidian CSS 片段另議） | 日程確認人眼 |
+| B-074 | 2026-10-20 | 要做 | － | 回合與日誌 | `versions revert`／`versions list` 的人讀輸出帶回合編號（20261020-…），AI 照念給客戶（日程確認重跑第 8 步）；照日程確認後裁定 6 的做法，人讀輸出改用時間與那句話描述回合、編號只留 `--json` | 日程確認重跑 |
+| B-076 | 2026-10-21 | 要做 | － | 整理成卡 | 門檻 5→20 之後（D-100 修訂），已入冊、待製卡 6～20 份、開場沒有變動的狀態（客戶按停止、整理中途失敗）沒有任何一步提醒或整理；舊版 `kb asks` 會問 batch。交 answer 題的 D-156「之後的回答說還有幾份沒整理」一起看（狀態說明：D-161 定了做法，answer 題實作） | note 改規則測試觀察 B |
+| B-078 | 2026-10-21 | 要做 | － | 回合與日誌 | AI 的 `kb turn note` 把上一回合的事也寫進這回合（從 B-048 拆出；後果只是工作日誌多一句，主要在 note、ingest、manage）；候選：`turn note` 成功時印回這回合程式記到的改了哪些檔讓 AI 對照（仍靠 AI）；等碰工作日誌的題再看 | 清冊確認 ④、answer 設計 |
+| B-082 | 2026-10-21 | 要做 | － | 設定與知識 | `statements.json`、`rulings.json` 壞了會擋 `cards todo`／`kb asks`（exit 3），`agenda.json` 壞了卻不擋；要一致（照日程那樣只記 log、該兩塊當空） | note 改知識測試第一輪 F-5 |
+| B-083 | 2026-10-21 | 要做 | － | 設定與知識 | 收回「取代了別條的口述」時，被它取代的舊口述不會變回 active；要不要復活、還是叫 AI 重記一條，answer 或 lint 時再定（2026-10-23 定 D-224：收回當下問，lint 那份做） | note 改知識測試第一輪 F-6 |
+| B-084 | 2026-10-21 | 要做 | － | 流程與文件 | spec 驗收環境「三張檔案卡、兩張綜合卡」撐不起門檻 2；fixture `inventory/vault/案子/信義王/信義王.md` 檔頭是壞的，要先刪。寫下一份用這個 fixture 的 spec 時修驗收前置 | note 改知識測試第一輪 F-9 |
+| B-085 | 2026-10-21 | 要做 | － | 整理成卡 | 測試子代理讀碼列的未驗疑點：重複編號卡取 group[0]、`cards redo`／`mount` 沒走 `_guarded`、`sync_self` 不跟換口述裡的名稱、口述與裁示兩檔寫入不原子；`cards mount` 先寫卡再 `follow_redo` 寫清冊、`sync` 中途失敗記號不換，沒有倒回（每步有備份，revert 救得回；第二輪） | note 改知識測試第一輪 F-10 |
+| B-087 | 2026-10-21 | 要做 | － | 守門與密碼 | 擋密碼是 `mask_secrets` 的啟發式：值在關鍵字前面（「hunter2 是他的密碼」）、全形或空白拆字（「ｐａｓｓｗｏｒｄ：…」「密 碼 …」）會收，偏好、口述、裁示都一樣；另外修正前留下的含密碼舊口述被 `--replaces`／`withdraw` 時原文會進日誌，且對「密碼檔不能讀，已提醒客戶」這類句子會誤擋。併進「密碼與守門」題（同 B-022、B-024、B-047）決定要不要 NFKC、去空白、值在前（狀態說明：D-187 定做法，密碼與守門題做） | note 改知識測試第二輪 R2-1、R2-2 |
+| B-089 | 2026-10-21 | 要做 | 中 | 整理成卡 | ingest 整理完的回答把綜合卡的出處標記〔f-…〕〔r-…〕原樣貼給客戶（note 改知識確認第 6 步，2 則）；口述與裁示讓出處變多，會更常見。候選：ingest 原則加「回答不帶〔…〕，要講出處就說檔名或哪天說的」，或 Stop hook 掃回答裡的編號。ingest 下一版或 answer 題一起看 | note 改知識確認落差 1 |
+| B-090 | 2026-10-21 | 要做 | － | 設定與知識 | 低（note 改知識確認落差 4～9）：改既有的事 AI 只查口述清單、沒看卡上原本寫的（第 2 步）；口述句尾 AI 自己加「（日期（週三）客戶口述）」跟日期欄重複；登記新實體的問法沒照「<名稱> 是新的案子／對象嗎？」、登記後仍待確認；`cards mount` 後 removed 項 `title` 是 null；憑證那題 AI 先 Glob 找含「密碼」的檔名（沒讀）；原檔寫的名稱跟實體不同時先問再 mount（合理，多一回合） | note 改知識確認 |
+| B-091 | 2026-10-21 | 要做 | － | 回答 | 推算清單（`findings.json`）掛的實體名稱不跟著 `entity rename`／`merge` 換（answer 題 `entities.py` 不能動）；現在查的時候照 `entities.find` 轉到現名（舊名進別名、合併轉址）。下一次動 `entities.py` 的題目在 rename／merge 裡跟換（同口述與裁示的做法） | answer 實作回報裁定 5 |
+| B-094 | 2026-10-22 | 要做 | 低 | 流程與文件 | repo `CLAUDE.md` 地圖第 27、35、59 列（entity.py、profile_cli.py、_lib/profile.py）說明裡有沒跳脫的直線 `|`，會把表格切壞（answer 測試第三輪 H-3，早就存在）；下一個動 CLAUDE.md 的題順手改 | answer 測試 H-3 |
+| B-096 | 2026-10-22 | 要做 | － | 清冊與來源 | 客戶在檔案總管搬 OneDrive「只在雲端」的檔（沒有指紋），`kb changes` 報成「新增＋不見」，卡會被問「是不是刪了」再重做；候選：檔名＋大小＋修改時間配對、或在開場把同時出現的新增與不見同名同大小的配成搬動 | B-095 spike |
+| B-097 | 2026-10-22 | 要做 | 低 | 清冊與來源 | Python 看到的 OneDrive 占位檔屬性是偽裝過的（預設模式 1）；模式變成露出時 `inventory.walk` 遇到 REPARSE 的夾不往下走、檔跳過，會把整個 OneDrive 來源當成不見（`convert._is_reparse` 同樣假設）；候選：kb 啟動時固定設偽裝模式，或 walk 分辨雲端重解析點與連結 | B-095 spike |
+| B-099 | 2026-10-22 | 要做 | 中 | 整理成卡 | 開場有新檔時照 D-156 先整理，整理完的回答由 ingest 給、沒回到 answer：回答貼〔f-…〕〔s-…〕內部編號（B-089 在這條路徑復發，2／2）、也沒走粗估核對。停止後下一句有載入 answer 就沒問題。候選：A ingest 本文回答那步改「問資料的照 answer 回答」並加「不貼內部編號」原則（改 ingest 本文要新舊版對照）；B Stop hook 掃最終回答有沒有 `[aefsrcp]-[0-9a-f]{8}`，有就擋一次請它改短標（程式保證、所有 skill 一次收，但客戶會先看到有編號那版）。使用者 10-22：先記下來 | answer 確認第 9 步 |
+| B-100 | 2026-10-22 | 要做 | 低 | 回答 | 過期的推算被直接用（`lookup` 標 stale 仍給結果文字，AI 照寫舊數字加一句「還沒重算」，2／2）。候選：`lookup` 對 stale 的推算不給結果文字，只給「依據變了，要用就重算：<算法>」 | answer 確認第 9 步 |
+| B-400 | 2026-10-22 | 要做 | 低 | 回合與日誌 | `versions list` 的成品數把掃描補登記的 AI 產出（unbacked，腳本寫死路徑放進去的、升級前的舊成品）算進掃描那個回合（`_counts` 只看 created_turn 與 origin）；revert 不受影響（只收 manifest 記 create 的）。候選：`_counts` 跳過 unbacked | produce 實作回報裁定 6 |
+| B-401 | 2026-10-22 | 要做 | － | 做文件 | 中（接受的風險）：`kb office run` 守門照單一 kb 呼叫 allow，AI 在工作區寫的腳本跑起來不跳權限，腳本讀寫哪裡守門管不到（原檔、排除夾、AI 產出都碰得到）。使用者 10-22 選維持免問（客戶不被打擾），produce 本文要求腳本只碰副本與 `OUT_DIR`。候選：「密碼與守門」題再看要不要改 pass、或跑完比對原檔指紋 | produce 實作疑義 A、裁定 7；produce 測試第二輪 N-1：LibreOffice profile 放 `%TEMP%\wiki-with-willy\lo` 後守門不保護（pass），`recalc` 會寫巨集進去，同類 |
+| B-402 | 2026-10-22 | 要做 | 低 | 回合與日誌 | `versions revert --delete-outputs` 刪到 link 條目掛的下載檔時，`_reconcile` 把整筆 link（含網址位置）改 deleted；應只拿掉檔案那個位置（versions.py 不在 produce 可動範圍） | produce 實作疑義 I |
+| B-403 | 2026-10-22 | 要做 | 低 | 做文件 | `kb output save` 算同名加 (2) 到複製之間沒鎖，兩個對話同時存同名檔可能互蓋 | produce security-review |
+| B-404 | 2026-10-22 | 要做 | 低 | 做文件 | produce 測試第一輪 skill-reviewer 與 code-review 剩下的：note 沒有「以後報價單照這份做」（設範本）的路，客戶這樣說要靠 produce 自己判；新建 `AI 產出/<型別>/` 夾沒記資料夾帳（空夾會被 delete-outputs 收掉，目前沒有後果） | produce 測試第一輪、裁定 19、21 |
+| B-405 | 2026-10-22 | 要做 | 低 | 做文件 | produce 測試第二輪剩下的：修訂作者實跑寫成「AI」（規定「AI 助理」、第一輪是 Claude），驗修訂仍先試 `python -c` 被擋（produce 測試第二輪 N-5）；`_why` 不看用了誰，Office 失敗也說 LibreOffice 沒有執行成功（produce 測試第二輪 N-2）；`to_pdf` 先刪舊 PDF 才檢查有沒有轉換器（produce 測試第二輪 N-3）；`output link` 的備份在清冊鎖外（produce 測試第二輪 N-4）；重裝前沒清 `ready.json`（produce 測試第二輪 N-7）；`unpack`／`run` 的範圍仍是整個 `.system/temp`、`_URL` 用 `$` 可能放過結尾換行（produce 測試第二輪 N-8，未實跑） | produce 測試第二輪 |
+| B-407 | 2026-10-22 | 要做 | 中 | 回答 | answer 統計題（「今年報價總共多少」）走 `cards list` 逐份加，看不到客戶口述的更正（10/21「第五版 124 萬、原檔 142 萬不對」），合計用錯（726 萬，應 708 萬），之後 AI 自己更正。候選：`cards list` 對有口述或裁示的實體帶一句、或 verify.md 寫「合計前對每個實體查 `lookup` 的口述」 | produce 確認第 4 步 |
+| B-408 | 2026-10-22 | 要做 | 低 | 做文件 | produce 確認看到的：模型兩次叫 `cards todo --json --brief`（沒有這個旗標，repo 也沒有任何文件寫到，模型自己編的），被 argparse 拒後自己改；線上文件 link 還沒做卡時 `lookup` 只說「還沒整理 1 份」沒有標題，問「剛才那份在哪」要靠 `cards todo`、`journal recent` 找 | produce 確認第 2 步重跑 |
+| B-410 | 2026-10-22 | 要做 | － | 回合與日誌 | `versions revert` 只退最新一回合，最新那回合退不了（例：搬回的原位有同名檔）整串就卡住；manage 第二版只讓拒絕句說怎麼解開，要不要能跳過或標記被擋的回合另談 | manage 第二版測試 |
+| B-411 | 2026-10-22 | 要做 | － | 做文件 | produce 會接走糾正句「那份報價寫錯了，總價是 128 萬」（run_eval sonnet：manage 第二版前 1/3、後 3/3，描述沒動，是邊界句取樣擺動）；下次調 produce 描述或 lint 時一起看 | manage 第二版測試 |
+| B-412 | 2026-10-22 | 要做 | － | 整理成卡 | 桌面版開新對話時開場知道還有 19 份沒整理完（門檻內），AI 卻回「份數比較少，這次還沒動手」等客戶開口，沒照 D-161 直接整理；查開場指示行在「還有 N 份沒整理完」時的寫法與模型為什麼不照做 | card-maker spike 桌面版 D6；併進 card-maker 與整批製卡（開場整理那段本來就要重談） |
+| B-413 | 2026-10-22 | 要做 | － | 清冊與來源 | 知識庫、AI 產出、收件匣裡的夾（例：`知識庫/案子/信義王/私人`）不能設成不讀（manage 第二版只拒絕並請她先搬到來源夾）；要不要讓三區底下的子夾也能 hidden 排除（守門、清冊、purge 都要跟） | manage 第二版測試 |
+| B-414 | 2026-10-22 | 要做 | － | 清冊與來源 | manage 第二版第三輪測試的低風險項：短別名的遮罩會過度遮（子字串）、`folders find` 比對沒做 NFKC、走訪上限只數夾、ledger 追加等鎖滿 2 秒、退回倒回時先 rename 再還原 sources.json 的順序 | manage 第二版測試 |
+| B-415 | 2026-10-22 | 要做 | － | 做文件 | produce 的連結型條目（claude.ai 線上文件）讀不到時（換帳號 404、沒分享），ingest 沒說怎麼辦，卡一直做不出來，每次開場都算進「還有 N 份沒整理完」；要嘛 produce 登記時就做卡、要嘛讀不到記 unreadable 不再算 | manage 第二版確認第 0 步；併進 card-maker（開場數字只算派得出去的、讀不到記 unreadable 不再算） |
+| B-416 | 2026-10-22 | 要做 | － | 清冊與來源 | 從資源回收筒還原的檔，掃描認成新增、重做一張新卡（同指紋，編號換了），刪之前那張卡與它在綜合卡、推算的依據不會回來；要不要讓掃描遇到同指紋的 deleted 條目時接回原編號、從備份還原卡 | manage 第二版確認第 5 步 |
+| B-417 | 2026-10-22 | 要做 | － | 清冊與來源 | purge 認不出「讀過那夾的卡或原檔、回答卻沒提到檔名卡名」的回合：ledger 只記 deny 與出錯、沒有回合代號，放行的 Read、`kb convert` 都不記。要能認，守門放行讀卡、原檔、暫存時把編號記進那一回合的回合檔（不記內容），purge 照它清 `result`。使用者 2026-10-22 說先不做（轉述在雲端與對話紀錄本來就清不掉，多清日誌一處收穫小；讀了很久才排除的情況少；每次讀都要多記一筆）；等真的有客戶讀過很久才排除、又在意日誌裡的轉述再談 | manage 第二版確認第 7 步、b4 |
+| B-419 | 2026-10-23 | 要做 | － | 架構與共通 | Claude Code 桌面版在使用者送出一句話時，會重讀它讀寫過的檔；那份檔若在 OneDrive 而且設成只在雲端，就被抓回本機（manage 第二版補確認第 9 步；kb 的指令與 hook 都沒讀）。真實使用時 AI 讀原檔走 `kb convert`（只在雲端的不讀），影響小；要不要在 README 或 manage 的 OneDrive 說明講一句，等 B-095 一帶再看 | manage 第二版補確認 |
+| B-420 | 2026-10-23 | 要做 | － | 清冊與來源 | manage 第二版第八輪測試的低風險項：路徑遮罩左邊沒邊界（「舊客戶案件/私人」也整欄換）；purge-pending.json 型別錯會噴未攔截的 traceback；turns/*.json 的鎖只有 purge 拿；推算先拿掉才記編號，被殺掉會漏；只有 c- 編號的綜合卡舊版不在清理範圍，退回 purge 那回合可能還原出懸空 c- 行 | manage 第二版測試 |
+| B-421 | 2026-10-23 | 待決 | － | 回合與日誌 | D-075 大改動攔截（一句話改到第 10 張既有綜合卡就擋）使用者想改成只提醒、不擋：擋的時候前 10 張已經改了、也防不住誤會範圍；大批更新已有口述由程式算範圍（D-146）與 card-maker 派工前先問（D-198）。使用者之後自己修，不在第 (6) 題 | 第 (6) 題討論 |
+| B-422 | 2026-10-23 | 要做 | － | 守門與密碼 | 守門照語法拆之後仍在的舊洞（原守門 eba223d 也放行，不是這題的退步）：殼的 -c 程式碼裡的相對路徑（`bash -c "rm 系統/x" /tmp/y`）、已知只讀指令帶輸出參數（`sort -o`、`uniq 入 出`、`tree -o`、`xxd -r 入 出`）、程式碼混淆的寫檔（`getattr(__import__('os'),'remo'+'ve')`）；可考慮殼的 -c 內容遞迴當指令判、只讀清單收窄 | 密碼與守門（實作收尾自查） |
+| B-423 | 2026-10-23 | 要做 | － | 守門與密碼 | 守門對直譯器程式碼（`python -c`、`node -e`、`ruby -e`、`awk`、`python x.py <路徑>`）的寫檔偵測是字串樣式，繞法多（`m='w'; open(p,m)`、`__import__('os').remove`），底版就沒擋；要不要改成「直譯器碰到知識庫保護區的路徑一律擋」。同類（第二輪 N3）：附著寫法 `sort -o<路徑>`、`find -fprint*`（對 AI 產出是退步）、`sdiff -o`、sed 的 `w`、awk 寫檔、動詞加引號（`"rm" x`、`$'rm' x`）、PowerShell `& 'Remove-Item'`、`[scriptblock]::Create`；執行一份看不到內容的腳本（`cat 檔 | sh`、`bash 腳本.sh`、`python x.py`）同一族；第三輪 N6 的 `kb … | python -c "…os.remove…"`、N7 的 `su -c`、`runuser -c`、`flock -c`、`script -c`、`at`、`unshare`、`nsenter`、`entr`（Linux 專用）與 PowerShell `Invoke-Item`、`& $x`、`Remove-ItemProperty` ；第四輪 R1（變數內容不是同句字面賦值：`c=$(cat f); bash -c "$c"`、read、`$SHELL -c`）、R2（直譯器從 stdin 或檔案讀到要刪的）、R3（`bash < file`、`source`、`cat f | bash`） | 密碼與守門測試 F8、N3、N6、N7、R1～R3 |
+| B-424 | 2026-10-23 | 要做 | － | 守門與密碼 | 密碼與守門第六輪的小事：「認不出而 ask」的固定句被 mask_secrets 誤遮（「可能」被當值）、應只遮代入的名稱；「找不到這份檔」沒提示怎麼寫才對（完整路徑、file://別名/相對路徑或清冊編號）；檔在清冊但名字不像密碼時 `ruling add --kind 可以讀` 仍 ask（多按一次）；清冊檔不存在時 deny 的字面 | 密碼與守門測試 |
+| B-426 | 2026-10-24 | 要做 | － | 建置 | 建置抽樣做好的卡，全量整理時又被派一次（10 份裡 9 份進了全量的批次）：份數題說「有 60 份要整理」，`todo` 的新檔只有 51；要查是整張重寫（白花額度）還是只補抽日程，修到抽樣做過的不再派、問句照實際份數 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-427 | 2026-10-24 | 要做 | － | 整理成卡 | 綜合卡比它掛的檔案卡先派：整批重做時檔案卡被別的視窗佔著，dispatch 先派了 13 張綜合卡，照舊卡更新一次、檔案卡重寫後又更新一次；第一輪 4 張「製卡助手沒做成」，failed 沒帶原因。改成依據卡還在新、要更新、重做或別的批次裡時不派那張綜合卡，failed 帶回報的原因 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-428 | 2026-10-24 | 要做 | － | 整理成卡 | 整理進度的份數口徑不一：「還在做 26 份」對不上 3 批 30 項；停下時只講檔案卡、繼續後又冒出「還沒輪到的 9 份」綜合卡；59＋1＋1＝61 不是 60。另外被別的視窗認領而派不出去時 `say` 是空的、`status` 不說原因，客戶不知道在等上一個視窗 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-429 | 2026-10-24 | 要做 | － | 整理成卡 | `kb cards redo --job … --check` 只列前 30 張卡、後面寫「……共 N 張」；超過時照資料夾或實體分組全列 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-430 | 2026-10-24 | 要做 | － | 建置 | 建置被另一個對話拿著時，擋下句的「最後動作 HH:MM」取的是最後一步 done 的時間（例如抽樣完成），不是那個對話真正最後一次動作（派工、批次 last_seen）；接手後被放掉的批次，舊的子代理沒記成停了 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-431 | 2026-10-24 | 要做 | － | 建置 | 桌面版還沒驗到的（自動測試有涵蓋）：抽樣說「案子改叫工程」後卡的待補型別跟著改、交付報告不再問；舊 wiki 記了口述之後綜合卡先更新才准收尾、`.system\temp\adopt\` 收尾清空；日程同一件事兩個日期（驗收 11-20 與改定的 11-28）都 open、沒標誰取代誰。留給 (8) 完整試跑看 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-434 | 2026-10-24 | 要做 | － | 備份與搬家 | 備份還原的 exit code 慣例 spec 沒定，實作時：`backup --check` 一律 exit 0（`refuse` 放 JSON 與人讀第二行）、`restore check` 有 `refuse` 時 exit 3（`--json` 也印）；`moved --check`、`versions clean --check` exit 0。AI 照輸出講、不靠 exit code 分辨，先不改；(8) 試跑看有沒有 AI 因 exit 3 以為壞了 | 備份還原實作 |
+| B-435 | 2026-10-24 | 要做 | － | 備份與搬家 | 備份走訪知識庫三次（`check`、拒絕與空間檢查、`write_zip`），中間檔案有變時估的大小與實際不同；現在 `write_zip` 的 meta 用真的寫進去的份數，估算只影響空間檢查，先不改（備份還原與換電腦測試 T-13） | 備份還原測試 |
+| B-436 | 2026-10-24 | 要做 | － | 備份與搬家 | 觀察（備份還原與換電腦測試 T-15）：`restore apply` 把 zip 裡的 `.claude/settings.json`、`env.json`（位置紀錄會被 `kb moved` 拿來改寫來源 spec）原樣放回，信任的前提是備份是客戶自己做的；別個知識庫的備份已改成演練時多說一句（B-433 做法），不擋 | 備份還原測試 |
+| B-438 | 2026-10-24 | 要做 | － | 升級與發行 | 升級打包實作時留下的：`kb upgrade --downgrade` 還原升級前快照成功、但接著換版失敗（網路、claude 掛了）時，知識庫已是舊版、plugin 還是新版；下個對話開場會說「已換到 X」、`--finish` 又把知識庫升上去（會拍快照，不丟資料）。要不要在 `upgrade-history.json` 記一個 `downgrading`，讓重跑 `--downgrade` 直接接著換版、開場不叫 `--finish`？目前沒做 | 升級打包實作 |
+| B-439 | 2026-10-24 | 待決 | － | 升級與發行 | 升級打包實作時 spec 沒寫、實作自己定的（請確認或改）：(1) 清單版本比現在舊時，直接跑 `kb upgrade`（沒帶 `--downgrade`）拒絕並指向 `--check`／`--downgrade`，這句不在 spec 的拒絕句清單；(2) 不在名單時 `kb upgrade` 回「目前是最新版（X）」（D-216），跟已經最新同一句；(3) `--finish` 的順序改成先遷移狀態檔、再 `kb init` 補骨架、再骨架對帳（spec 寫補骨架在前；init 自己也會升設定檔 schema 但不備進回合，先遷移才退得回，驗收 8）；(4) 連不上時背景查新版保留上一次查到的版本與一句話，只換日期與 error | 升級打包實作 |
+| B-440 | 2026-10-24 | 要做 | － | 升級與發行 | 升級打包：`kb upgrade --background` 的小修換版與 `kb upgrade` 共用鎖，但背景子行程沒有「正在換版」的旗標給開場看；兩個對話同時開場、日期都不是今天時，只有第一個會開子行程（先記今天），第二個看不到結果要等下一次開場。可接受，記著 | 升級打包實作 |
+| B-441 | 2026-10-25 | 要做 | － | 回合與日誌 | 連退兩步做不到：`versions revert` 把「退回」本身算最近一句，第二次說退回會取消前一次（D-074 原本的設計，D-228 因此改問重做或不讀）；確認時 AI 先答應「一次退一步就行」講錯了。要在說明裡寫明，(8) 試跑看客戶常不常這樣說 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-442 | 2026-10-25 | 要做 | － | 備份與搬家 | 搬家後開場說「還有 N 張卡要跟著搬」（114）跟 `kb moved` 實際補的（6）對不上：開場那時相對來源還沒補，算法把每張都當成要搬 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-443 | 2026-10-25 | 要做 | － | 備份與搬家 | 「舊位置還有一份」只在第一次 `kb moved` 提醒，補好後 `old_copy` 變 null 就不再講；她沒刪的話之後沒人提 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-444 | 2026-10-25 | 要做 | － | 守門與密碼 | 檔名含「密碼」的設計文件（`密碼與守門-確認.md`）被守門當成憑證檔擋；只有開發與確認時會遇到 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-445 | 2026-10-25 | 要做 | － | 備份與搬家 | 還原會把 `.claude\settings.local.json` 換成備份裡那份（local 範圍的 plugin 設定跟著回去）；客戶是 user 範圍、通常沒有這個檔 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-446 | 2026-10-25 | 要做 | － | 備份與搬家 | 退回舊版（還原快照）的當下，hook 讀 `.system\batches.json.lock` 碰到 PermissionError 寫了一筆 hook-errors.log；一次性、之後沒再增加 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-447 | 2026-10-25 | 要做 | － | 守門與密碼 | B-425 只放行單一檔名的 Glob；AI 很自然會寫 `**/檔名`，在有「不讀」子夾的來源底下仍被擋 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-448 | 2026-10-25 | 要做 | － | 升級與發行 | 升級打包測試第二輪 I-4、I-5：小修規則整檔掃字面 `"schema_version"`，docstring 裡多寫一句也會被擋（誤擋）；市集名的字元檢查放過 `.`、`..`（無害） | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-449 | 2026-10-25 | 待決 | － | 設定與知識 | 第一層的型別夾前面加編號（`01 案子`、`02 業主`），在檔案總管與 Obsidian 排在一起、跟程式的區（收件匣、檔案索引、AI 產出、系統）分開。三條路：A 資料夾帶編號、型別名稱不帶（照型別表順序自動給，要加「型別↔資料夾」對照，綜合卡路徑、實體、設定檔建夾與對帳、型別改名、守門、where 都要改；舊知識庫升級時改名，算大升級）；B 型別直接取名「01 案子」（不用改程式，但對話與卡片都出現編號、只改那一個知識庫、調順序要改名）；C 讓程式的區排到後面（比 A 大）。設計 session 推薦 A、排在 lint 之後 (8) 之前；使用者 10-25 選 A，排期未定（開題時寫 D） | 使用者 10-25 |
+| B-450 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 測試 T-12：`renders.json` 只留 20 個程式寫過的指紋，一個回合寫總目錄或工作日誌超過 20 次再退回，下一次重寫會把退回的那份當手改存進 handedits、報告多一句錯的「你改過」。不丟資料。 | lint 測試 |
+| B-451 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 測試 T-17、T-18：本月第一次若前台 `kb lint` 先跑，背景不補「上個月的報告出來了」那件；背景健檢的回合是 `versions list` 第一行，開場後她說「退回」先列到的是健檢做的事（R-05 會先列出、不會悄悄退）。 | lint 測試 |
+| B-452 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 測試 T-21：開原檔連結壞的卡（來源碟拔掉）每週重標它的綜合卡，重寫綜合卡修不了；要嘛不標、要嘛改報檔案卡。 | lint 測試 |
+| B-453 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 測試 T-23：終端機跑 `kb asks` 讀全庫唯一的 `current.json`，拿到最後一個對話的 `asks_told` 與 `touched`；兩個對話同時開同一個庫會互相影響。 | lint 測試 |
+| B-454 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 測試 code review #11、#12、#17：`statements.restore` 先寫封存檔後寫清單，中間出錯兩邊都沒有（回合備份救得回）；`withdraw` 成功後讀壞的封存檔仍 exit 3「狀態檔讀不到」；健檢報告不備進回合，退回健檢回合時報告留著。 | lint 測試 |
+| B-455 | 2026-10-25 | 要做 | － | 清冊與來源 | lint 測試 T-38：purge 的 derived_masker 對檔名、推測日程原文整串取代（3 字以上），原文很普通（如「給報價」）時，健檢報告與手改副本裡不相干的同樣字也被換成「（已排除）」。可讀性問題，不是外洩。 | lint 測試 |
+| B-456 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 確認步驟 3：沒有急事時「看待處理」前 3 件總是草稿與名字確認（程式排序在 pending 類前），她一直不答就一直佔名額；她比較在意的健檢件（升格、推測日程、重做）要多說一次才看得到。排序要不要讓沒答過幾次的往後、或健檢件插進前 3。 | lint 確認 |
+| B-457 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 確認步驟 7：她說「舊報價單那份我晚點補新版」這類沒日期的承諾，沒有指令可以記（不是日程、pending add 只收 conflict），AI 猜成先放著。要不要給「讀不到」那件記一句她的打算，或照 R-06 先問。 | lint 確認 |
+| B-458 | 2026-10-25 | 要做 | － | 健檢與待處理 | lint 確認步驟 9：補寫上個月月報時，一句話、要你決定的、數字寫的是跑的當下（不是那個月底）的狀況；正常是月初第一次背景健檢就寫，差距小，但隔很久才開的庫會對不上標題。另：名字確認題「跟已有的另一個是同一個」沒提示候選；`done` 空時 lint skill 沒說怎麼講替她做了什麼。 | lint 確認 |
+
+## 延後的
+
+| # | 日期 | 狀態 | 嚴重 | 區域 | 事 | 來自 |
+|---|---|---|---|---|---|---|
+| B-011 | 2026-10-12 | 延後 | － | 流程與文件 | 建殼測試觀察：tests/test_lib_io.py 用 sys.path.insert（驗收 15 只查 scripts/，下題統一用 subprocess 或 conftest 式匯入）；Windows 上 stdout 行尾 CRLF；Git Bash 下 unittest 的 skip 原因到 stderr 顯示亂碼（stderr 也要 reconfigure） | 建殼測試 |
+| B-012 | 2026-10-12 | 延後 | － | 流程與文件 | `claude plugin validate` 每次都警告「根目錄 CLAUDE.md 不會被當 plugin context 載入」，在 CLAUDE.md 註明可忽略；順手把 validate 加進 CLAUDE.md「改完要做的事」 | 建殼確認 |
+| B-017 | 2026-10-12 | 延後 | － | 守門與密碼 | 守門測試的低優先：guard-status 每次呼叫都讀改成每天一次快取；`.gitattributes` 對 tests/fixtures 的二進位檔標 binary；POSIX 上 CLAUDE.md 大小寫；型別夾根新檔理由句用 Z8；origin/HEAD 沒設讓 security-review skill 跑不起來（已設）；Z9 理由句結尾補句號；fixture a.txt 內容別用 hello；deny 在終端機顯示成「Error: PreToolUse:X hook error: <理由句>」，事務層確認已人眼看過（2026-10-13）：理由句完整但前綴嚇人，是 Claude Code 固定格式，只能靠理由句白話（併 B-110） | 守門測試、確認 |
+| B-018 | 2026-10-13 | 延後 | － | 清冊與來源 | AI 產出的指紋先用位元組 sha256，`kb convert` 出來後 Office 檔改文字指紋（D-014 補、D-076） | 事務層設計 |
+| B-019 | 2026-10-13 | 延後 | － | 回合與日誌 | `kb.py` 由模型呼叫時拿不到 session_id，CLI 用 `turns/current.json`，兩個對話同開同一知識庫時可能記到另一個 session 的回合；collab（B-206）時解；2026-10-16 工作日誌補：對話答完後在終端機跑 `folders add`／`versions revert`，sources.json 的備份仍掛在那個已結束的對話回合（`turn.current` 讀 current.json），只有日誌程式段用新代號；`kb turn note`／`redact` 也讀 current.json，兩個對話同開時會改到別的對話那句（工作日誌測試 M5），collab 題要讓模型知道自己的回合 | 事務層設計 |
+| B-021 | 2026-10-13 | 延後 | － | 守門與密碼 | ledger.tsv 的 path_or_command_head 只留前 120 字，深路徑看不到檔名；改成保留尾端或拉長；長 TEMP 下 test_ledger 會紅 | 事務層測試第二輪 |
+| B-023 | 2026-10-13 | 延後 | － | 回合與日誌 | 事務層低項：T 建成品→退回→U 重寫→退掉 U 後 T 那筆仍 superseded 刪不到；未來時間回合夾在 list 排第一且每句記 log；delete-outputs 固定取第一個候選可能卡住；revert --delete-outputs 沒比 sha；CLI 鎖 30 秒等於殘留門檻；LOCK_TIMEOUT 改模組全域；`\\?\` 加結尾點檔名未驗。細節 reports/事務層-測試.md 第三輪；工作日誌第三輪補：同一句連退三次後原回合的 `reverted.json` 沒補回；再退一次「退回 delete-outputs」那次時成品不會再刪、也沒提示 | 事務層測試第三輪 |
+| B-024 | 2026-10-13 | 延後 | － | 守門與密碼 | 守門誤擋：Bash heredoc 內文提到總資料夾第一層路徑（寫知識庫外的報告）被當寫入目標 deny Z8；引號內與 heredoc 內的路徑要不要算寫入目標，併 B-110 看誤擋率（狀態說明：D-186 定做法，密碼與守門題做） | 事務層確認；B-081 spike 第 9 題再踩：唯讀的 `python - <<'EOF'` 在知識庫目錄下被擋「總資料夾第一層不直接放檔」；answer 確認又踩：Bash 裡 `awk '$0 >= "…"'` 的比較運算子 `>=` 被當成寫檔導向，擋兩次 |
+| B-025 | 2026-10-14 | 延後 | － | 備份與搬家 | 高風險子命令（restore、relocate、全部重做）的「問一句」由守門對那幾個 kb.py 呼叫回 ask，不寫 settings 的 permissions.ask：守門對 kb.py 回 allow 會蓋過 ask（D-079）；那些子命令出現的那題做 | 骨架與來源登記設計 |
+| B-026 | 2026-10-15 | 延後 | － | 清冊與來源 | 骨架與來源登記測試低項：展不開的來源（`${NAS}/…`）不參與 add 的重疊比對；`_survey` 每份檔重比每層夾名；理由句 `_original_segment` 引號黏在段尾找不回原始大小寫；guard 重用 `cmdparse._tokens`，要公開改名；骨架與來源登記測試第二輪 N5：走訪遇到夾名命中憑證樣式就剪掉，`folders add` 漏掉藏在底下的另一個知識庫與份數；走訪跳過排除夾用字串比對，排除根經 junction 或 8.3 短名另寫時跳不過（只多擋）；第三輪低項：`cd -`／裸 `cd` 吞下一個字、`dir /s` 不走訪、junction 指向排除夾、`ls \| grep md` 被當 unparsed 寫入（守門題舊）；第四輪：`\"` 黏住子指令、行尾 `\` 續行、`rg.exe`；第五輪程式整理：guard 與 cmdparse 兩套切字器合一、`_tokens_q` 是複製、`token_hit` 測試對不到正式碼、`folder_scan` 每次重讀 config；`glob.glob(include_hidden)` 是 3.11 起，3.10 上 PowerShell 的 `*` 展不到點開頭檔、只靠第三道；第六輪：`$HOME/.aws/credentials` 屬 `$VAR` 界線、`tar czf … 案子/信義王` 被 entity_file 擋（守門題舊）；第七輪：旗標黏值 `7z x -o"<R>/…"` 抽不到、guard `WRITE_VERBS` 與 cmdparse `WRITE_WORDS` 兩份動詞清單（第八輪已退回只剩 cmdparse 一份）；第八輪舊洞：`git -C <raw> clean`、`sed -E -i`、`mv * ../archive/`、`[IO.File]::Delete`；骨架與來源登記測試第十輪 A4：`$nullX`、反引號、`r\\2`、`dd of=`、`-C../r2` 三版都放行 | 骨架與來源登記測試第一～十輪 |
+| B-028 | 2026-10-15 | 延後 | － | 守門與密碼 | 骨架與來源登記確認觀察：(1) 檔名含「帳號」「密碼」時 prompt_head 多遮（「薪轉帳號███」），「剛做了什麼」看不出是哪個檔；(2) prompt_head 截到 80 字，`folders add ..\…` 的句子看不出退的是哪個夾；(3) 對話在知識庫上層開、再移進知識庫時，任何一次專案外的 cd 都把 cwd 拉回上層，之後回合不開、守門不表態——建置告知寫「對話要開在知識庫」 | 骨架與來源登記確認 |
+| B-030 | 2026-10-16 | 延後 | － | 回合與日誌 | 工作日誌低項：flush 鎖逾時後舊回合那行永遠 done false（lint 題清）；md 渲染不擋 `![](…)`、`<img>`、`%%`（AI 本來就能寫 AI 產出，風險有限）；守門 ledger 的指令欄沒遮值，`turn note`／`redact` 的原文被記成 unparsed 時會進帳（工作日誌測試 L7、L9）；`versions revert --json` 的 `prompt_head` 原樣輸出，升級前沒遮好的回合會帶出來；第四輪：終端機 delete-outputs 的動作回合「問」寫成「退回 T」，再退時句子誤導（該用自己的句子）；redact 掃 versions/*/turn.json 遇壞檔丟英文 traceback 只改一半 | 工作日誌測試 |
+| B-033 | 2026-10-16 | 延後 | － | 核心規則與開場 | 開場注入低項：`prompt_head` 剝標籤的正規式對屬性值含 `>` 留殘渣；hook-errors.log 可能含 plugin 絕對路徑（診斷檔，不算 D-019）；session.py 的 2 秒速度測試在忙的機器可能偶發紅；test_budget 用裸 assert、不看子程序 exit code；`hooks/guard.py` 印 stdout 時 pipe 斷掉可能 exit 120（session.py 已用 os.dup2 處理，守門照做）；第二輪：session.py `emit` 吞 write 例外不記 log、devnull fd 沒關、關鍵詞被 pasted_content 標籤切開（`pass<…>word`）遮不到、第二段 try 的 BaseException 含 KeyboardInterrupt | 開場注入與核心規則測試 |
+| B-035 | 2026-10-16 | 延後 | － | 清冊與來源 | manage 低項：巢狀排除時 `folders include` 外層後說「讀得到」但內層 hidden 仍擋，反方向（取消內層、外層仍擋）也一樣，句子要講；skill 文字守的「先問再做」沒有機器保證（同 B-025，守門對高風險 kb.py 子命令回 ask） | manage 測試 |
+| B-037 | 2026-10-16 | 延後 | － | 延伸 | Obsidian 視圖（D-097：選配不必要）：`kb` 在 `系統/` 產 Bases 的 `.base` 視圖檔（專案總表、看板），吃綜合卡檔頭；日程渲染成視圖吃得到的形狀；守門補 `.obsidian/` 一條；建置時服務人員可裝可不裝。等綜合卡（ingest）與日程（note）有資料再開題（狀態說明：形狀已定 D-105、D-106，等日程題有資料） | 設計討論 |
+| B-043 | 2026-10-17 | 延後 | 低 | 清冊與來源 | v1→2 遷移從磁碟補 size／mtime 等於信任期間沒改過（C）；`_migrate` 每個位置 stat 不受時間預算、`env.clear_missing` 每個來源各讀一次 env.json（G） | 清冊測試觀察 C、G |
+| B-053 | 2026-10-18 | 延後 | － | 整理成卡 | ingest 製卡測試低項：convert 路徑沒經 `paths._text_forms`（Git Bash `/c/…`、`file:///C:/…`）；用路徑指到 missing 條目但檔已放回（未 scan）回「找不到原檔」；終端機沒回合時 sync／drop／pending 先開空回合；folders exclude／remove 後 open 的 missing_file 永遠 open、拆出新條目時舊 unreadable 不 auto_done、占位檔下載回來大小時間不變不算 modified（ingest 製卡測試 C8）；`output_log.py` `ensure_ascii` 與 session.py 不一致；`line_ingest_hint` 出錯 log 兩次 | ingest 製卡測試第一輪 |
+| B-055 | 2026-10-19 | 延後 | 低 | 整理成卡 | `.system/temp` 是 junction 時，成功的 `kb convert` 仍把暫存檔寫進 junction 目標夾（ingest 製卡 spec 裁定 16 的 realpath 兩邊都解到目標）；要先能寫 `.system/` 才做得到。lint 題加一項「`.system/` 底下不准有重解析點」 | ingest 製卡測試第二輪 |
+| B-056 | 2026-10-19 | 延後 | 低 | 回合與日誌 | `versions revert` 退掉 `cards drop` 那回合後，同一張卡同時出現在 todo 的 orphans 與 missing（ingest 製卡確認 G4）；AI 看到開場「變動：修改 1」會自己猜成「合約有變動」（ingest 製卡確認 G7，R-06）；加資料夾後收尾句與 spec 字句不同（ingest 製卡確認 G6，以 manage SKILL 為準） | ingest 製卡確認 |
+| B-057 | 2026-10-19 | 延後 | 低 | 整理成卡 | `extract.render_pages` 沒有點陣圖尺寸上限，超大頁面（海報、圖紙）轉圖可能吃數 GB 記憶體；加頁面像素上限、超過降 scale 或標「部分」。另：`tests/fixtures/inventory` 的 `報價_v2.pdf` 是假 PDF，convert 會回「檔案壞了」，不能當可讀 PDF 用 | ingest 製卡測試第三輪 |
+| B-061 | 2026-10-19 | 延後 | 低 | 設定與知識 | `profile apply` 建夾失敗那句把 OS 的 strerror 原樣接進去，句尾「存取被拒。；設定檔沒有套用」標點疊用；接 OS 錯誤字串的句子一律先去尾端句號（convert 的「讀不到」同類檢查一次） | 客戶設定檔與型別測試第二輪 |
+| B-063 | 2026-10-19 | 延後 | － | 整理成卡 | 實體與綜合卡測試第二輪低項 L1～L7：同回合新建後被打回重寫的綜合卡也算進 ai_synthesis；`_Undo.rollback` 沒逐步 try；改型別失敗時先建的空型別夾不拿掉；apply 補登記關於你時 `--json` 的 applied 仍 false；commands.md 那處 rules/synthesis.md 沒帶 ${CLAUDE_PLUGIN_ROOT}（已滿 150 行）；`modified_synthesis_count` 只剩測試在叫；clean 對含 .. 的一律拒（比實體與綜合卡 spec 裁定 14 嚴）。細節 reports/實體與綜合卡-測試.md 第二輪 | 實體與綜合卡測試第二輪 |
+| B-065 | 2026-10-19 | 延後 | － | 整理成卡 | 實體與綜合卡確認低項：carding.md 第七節補「實體、待補型別、範本版本同一次 Edit 改完」（分兩次會被 PostToolUse 擋一次，I2）；回答末尾的「綜合卡：新寫 X、更新 Y」沒出現（I3）；profile check／apply 不報程式補的每類段落預設列（I5）；AI 把 drift 問句改寫成像要客戶自己動手（I6）；問題上限 3 個要寫明含 AI 自己加的（實體與綜合卡 spec 裁定 20）；整理 ingest 確認補：`tell` 的句子被 AI 改寫（「Word／Excel」變「Word」）、選項後面被加句 | 實體與綜合卡確認；note 改規則確認重跑 H-2：退回前的說明把前一個被擋的回合也講進去，偏長 |
+| B-067 | 2026-10-20 | 延後 | － | 整理成卡 | 整理 ingest 的 skill-reviewer 沒改的 minor：本文共通節與 core.md R-10／R-14 重複；commands.md 已滿 150 行放不下 turn note／turn approve 小節；carding.md 第一節與 commands.md convert 節對 convert 輸出各寫一份（去重要動 convert 輸出格式的敘述）。日程題動 commands.md 前先騰空間 | 整理 ingest 實作回報 |
+| B-068 | 2026-10-20 | 延後 | － | 整理成卡 | 疑似 v0.11.0 的問題：ingest-check 複本跑 `cards sync` 之後，只要來源多一份新檔再 `inventory scan`，`cards todo` 又列 moved 36（整理 ingest 測試順帶發現）；要查是 sync 沒把檔頭的原檔清單或開原檔寫成跟清冊一致，還是 scan 改了主位置的順序（狀態說明：重現不出來（2026-10-22 manage 第二版 b4：fixture、ingest-check 整包複製、別的 cwd 加小寫 --vault 三種都 moved 0；猜是當時跑 sync 的不是同一份複本，開原檔是絕對路徑又全對不上；回歸測試 tests/test_b068_b069.py 留著；manage 第二版確認 session 照確認步驟再看一次，再出現才重開）） | 整理 ingest 測試 |
+| B-070 | 2026-10-20 | 延後 | 低 | 整理成卡 | 寫檔案卡通過後 PostToolUse 重渲染相關綜合卡的檔頭快取，AI 若之前讀過那張綜合卡、接著要改它，Claude Code 會擋「讀過之後被改動」，要重讀再寫，多一輪 | 整理 ingest 確認 (5) |
+| B-073 | 2026-10-20 | 延後 | － | 日程 | 日程第一題測試 code-review 低項：條目有自己的 `lead_days` 時開場「7 天內」與日程.md「接下來 7 天」標籤仍寫全域天數；`agenda edit` 清不掉 `entities`、`lead_days`（取消再加）；`kb asks` 註解寫只讀但跑整個 `cards.todo`（可能 auto_done、寫 log）；只差大小寫或全半形的改名日程不跟、卡跟；`_fill_progress` 每次 load 重讀設定檔；`cards.todo` 為日程多掃檔案索引；`close` 待處理去重只比第一個 file_ids；`_line` 沒用到的變數；確認後修正的 skill-reviewer 低項：commands.md 第 49 行過長、`agenda scanned` 的說明散在 carding 第九節與 note agenda.md 兩處、`suggest-close` 拒絕句沒列、`agenda_unscanned` 算進門檻沒寫進 commands.md；測試第二輪：期間在開始日之前被 done 時 `ended` 早於 `start`，甘特圖畫壞（取今天與開始日較晚的）、`pending.json` 壞檔時 `entity remove` 被擋、`agenda_unscanned` 沒排除 stale／moved 的卡（plan 先重寫卡，無害） | 日程測試 |
+| B-075 | 2026-10-21 | 延後 | － | 設定與知識 | note 改規則測試低項：型別操作失敗在最後一步 `render_index` 時 `檔案索引/…` 留兩層空夾（note 改規則測試 F-8）；`profile add` 成功句回顯輸入原文而不是存入值（`a|b  c` vs `a｜b c`，note 改規則測試 F-10）；md 表格外的文字與來源／日期欄的手改（沒有內容差異）在 `add` 時被整份重渲染洗掉、回合備份裡也不是客戶原文（note 改規則測試 F-11） | note 改規則測試 |
+| B-079 | 2026-10-21 | 延後 | － | 設定與知識 | note 改規則測試第二輪低項：同一句話裡「加型別乙→乙改名丙→再加型別乙」之後退回被擋（「乙」已有東西），而且只能從最近一次退、更早的也退不了（note 改規則測試第二輪 N-2）；偏好擋密碼是關鍵字黑名單，漏擋「hunter2 是我的密碼」「ＰＩＮ 是 4821」、全形與 token 樣式，誤擋「銀行帳號只顯示後四碼」「請節省 tokens」（note 改規則測試第二輪 N-3a，併「密碼與守門」題與 B-047 一起改）；只讀碼未實跑：型別操作 `_move` 回滾後上層空夾沒記帳、revert 鎖過期可被搶、`_bad_path` 用 resolve 會拒合法 junction 的夾帳、remove 還原的 PermissionError 也印「檔案正開著」；第四輪回報：`profile apply` 的 `record_folder` 迴圈在寫入保護外、這條路徑沒寫工作日誌程式段 | note 改規則測試第二輪 |
+| B-080 | 2026-10-21 | 延後 | － | 回合與日誌 | 狀態檔完整性：有人在 plugin 之外改了 `.system/versions/*/manifest.jsonl`、`folders.jsonl`、`inventory.json`，`versions revert` 能刪改知識庫裡的檔（收件匣原檔、設定檔、清冊）、`folders` 的 move 能把狀態檔當目的地、保留名比對在根不存在時可用結尾加點繞過（note 改規則測試第三輪 S-1、S-2）。AI 寫 `.system` 被守門擋，能改的人本來就能直接動檔，所以現在不擋；還原、搬家、移轉題要匯入別處來的知識庫時，要先決定狀態檔怎麼驗（雜湊、簽章或匯入時重建） | note 改規則測試第三輪 |
+| B-086 | 2026-10-21 | 延後 | － | 日程 | 日程匯出成行事曆檔（.ics，匯進 Google／Outlook）與其他匯出格式：produce 這版只做印出來的 Word／PDF（例句 6）；同步到手機行事曆會兩邊各改，牽涉日程第二題的排程設計（D-107），到那題再看 | produce 設計 |
+| B-088 | 2026-10-21 | 延後 | － | 守門與密碼 | 守門的資料夾範圍掃描把 python 套件夾裡的 CA 憑證包（`certifi/cacert.pem`）當成密碼檔，非遞迴的 `ls` 上層也被擋；produce 要裝套件，套件放哪要避開或豁免（B-081 spike 第 9 題擋 1）（狀態說明：併「密碼與守門」題，D-145） | B-081 spike |
+| B-092 | 2026-10-21 | 延後 | － | 回答 | answer 測試第一輪讀碼低項（未重現）：多視窗共用 `current.json` 時 A 的 `cards todo` 可能把 `ingest` 標到 B 的回合；`lookup` 的 `mentions` 讀卡正文沒有大小上限、不帶 ruled_out／stale；`findings.stale` 不看清冊狀態（依據卡被排除時不判過期）；`journal.changed_text` 遇壞行 AttributeError；`check_text` 不擋控制字元與 markdown（口述同）；`turn.mark` 有鎖但 Stop 的 `set_done`（`_set`）沒拿同一把，同時寫仍可能互蓋 | answer 測試 F-9、F-10、第二輪疑義 1；第二輪 G-7：按停止後沒新句就 compact 指示照印（ingest_stopped 要等下一句才寫）、寫入失敗也印讀不到、tally 前導零 16 位誤判太大、很小的平均顯示 0、回顯沒濾控制字元；answer 確認：AI 說「這件已在待處理」但沒有這筆（模型編的；候選 verify.md 加「沒看到 pending add 成功句不說已記」）、`journal recent --find` 先取 n 段再篩（今天的句子擠掉要找的，要先篩再取）、確認環境資料落差待查（2 張卡在檔案索引清冊沒有、信義王報價第四版掛在內湖李、請款單不整理卻有卡、lookup 大安陳 null 但 todo 有、手寫推算與推算清單並存無重複偵測） | answer 測試 F-9、F-10、第二輪疑義 1、確認 |
+| B-098 | 2026-10-22 | 延後 | － | 清冊與來源 | 刪整個夾（manage 第二版先不收，使用者 10-22）：做法已想好——先算影響（份數、卡、綜合卡、只在雲端幾份、不讀的子夾、大小）、strict 確認、整夾丟回收筒當一個項目；刪前把夾改名再改回試有沒有檔開著（刪夾不是全有或全無）、回收筒放不下就拒絕（不跳視窗的呼叫會直接永久刪）；不收實體夾本身、來源根、系統夾；退回照常還原卡與清冊、說在回收筒 | manage 第二版 |
+| B-101 | 2026-10-11 | 延後 | － | 延伸 | 掃描 PDF 做 OCR、圖片與照片製卡（落在哪：ingest/formats、kb convert） | architecture 第八節延伸 |
+| B-102 | 2026-10-11 | 延後 | － | 延伸 | `.doc` `.ppt` 用客戶的 Office 自動轉、Excel 重算與轉 PDF；第一版 `kb office` 只偵測與讀，不開 COM（I-013）（落在哪：ingest/formats、kb office） | architecture 第八節延伸 |
+| B-103 | 2026-10-11 | 延後 | － | 延伸 | Google 文件捷徑、NAS、隨身碟路徑（落在哪：ingest/local） | architecture 第八節延伸 |
+| B-104 | 2026-10-11 | 延後 | － | 延伸 | 規模大了之後的本地搜尋索引，索引是可拋棄衍生物（落在哪：kb search、answer） | architecture 第八節延伸 |
+| B-105 | 2026-10-11 | 延後 | － | 延伸 | 索引過大拆年份（落在哪：kb reindex） | architecture 第八節延伸 |
+| B-106 | 2026-10-11 | 延後 | － | 延伸 | 客戶設定檔加了格式調整後，舊卡補欄位（落在哪：lint 檢查項、kb batch 標重做） | architecture 第八節延伸 |
+| B-107 | 2026-10-11 | 延後 | － | 延伸 | API 製卡執行器：到時才加 config 鍵與 kb/executors/，規則檔不動（D-053）（落在哪：kb/executors/） | architecture 第八節延伸 |
+| B-108 | 2026-10-11 | 延後 | － | 延伸 | 額度與時間估算更準、建置分天（時間照 spike 改、用量一句話、不另設計分天，D-199；剩「用量講得更準」等讀得到方案用量再說）（落在哪：kb inventory、build-cards） | architecture 第八節延伸 |
+| B-109 | 2026-10-11 | 延後 | － | 延伸 | 回答末尾建議問題、交付速查卡（落在哪：rules/next-step.md、build-finish） | architecture 第八節延伸 |
+| B-110 | 2026-10-11 | 延後 | － | 延伸 | 守門誤擋率、失敗訊息白話化。骨架與來源登記第八輪起已知誤擋：整條指令被判寫入就全部路徑套寫入欄，`grep -r X . \| tee /tmp/h`、`cat CLAUDE.md > /tmp/c.md`、`curl … > /tmp/x`（網址當路徑）、`tar czf` 在總資料夾裡都被擋；憑證走訪的「範圍太大」；`ls C:/` 沒排除夾時被擋（落在哪：guard.py、rules/core.md） | architecture 第八節延伸 |
+| B-201 | 2026-10-11 | 延後 | － | 延伸 | Email（Gmail、Outlook）來源，Claude 取腳本記（槽位：來源型別） | architecture 第八節延伸 |
+| B-202 | 2026-10-11 | 延後 | － | 延伸 | 行事曆讀寫（槽位：來源加輸出） | architecture 第八節延伸 |
+| B-203 | 2026-10-11 | 延後 | － | 延伸 | Line，做法待定（槽位：來源加輸出） | architecture 第八節延伸 |
+| B-204 | 2026-10-11 | 延後 | － | 延伸 | 線上版雲端硬碟、Notion（槽位：來源型別） | architecture 第八節延伸 |
+| B-205 | 2026-10-11 | 延後 | － | 延伸 | 會議錄音轉文字（槽位：來源型別） | architecture 第八節延伸 |
+| B-208 | 2026-10-11 | 延後 | － | 延伸 | 主動推送：會前背景、逾期承諾，外部排程跑 `kb agenda brief`（槽位：模式加輸出） | architecture 第八節延伸 |
+| B-209 | 2026-10-11 | 延後 | － | 延伸 | 排程健檢（槽位：模式） | architecture 第八節延伸 |
+| B-210 | 2026-10-11 | 延後 | － | 延伸 | 起草 PowerPoint、輸出 Google 文件（槽位：輸出去處） | architecture 第八節延伸 |
+| B-211 | 2026-10-11 | 延後 | － | 延伸 | 既有 wiki 接入（舊 llm-wiki vault 併進 build 題，D-193；其他種類的 wiki 照舊延後）（槽位：build-setup 分支） | architecture 第八節延伸 |
+| B-301 | 2026-10-11 | 延後 | － | 延伸 | 開工與收工儀式（歸哪：collab，單人不需要） | llm-wiki 延後的想法 |
+| B-303 | 2026-10-11 | 延後 | － | 延伸 | 取用副本夾一致性檢查（歸哪：lint 檢查項） | llm-wiki 延後的想法 |
+| B-406 | 2026-10-22 | 延後 | － | 守門與密碼 | 解加密的 Word、Excel、PowerPoint（D-182 這版只解 PDF）：候選純 Python 寫 AES 與 OLE 拆檔、或選配 msoffcrypto-tool 跟 produce 的工具一起裝（要驗智慧型應用程式控制擋不擋） | 密碼與守門 |
 
 ## 不做
 
 自建桌面應用、本機模型版本、知識圖譜視覺化。來自競品分析的決定。行業預設包（原 B-212，D-040）。日誌摺疊（原 B-302，D-065）。
+
+| # | 日期 | 狀態 | 嚴重 | 區域 | 事 | 來自 |
+|---|---|---|---|---|---|---|
+| B-304 | 2026-10-11 | 不做 | － | － | 像素辦公室（歸哪：獨立 plugin，不進本架構） | llm-wiki 延後的想法 |
+| B-305 | 2026-10-11 | 不做 | － | － | 教練開關設定（歸哪：不做，見 D-007） | llm-wiki 延後的想法 |
+
+## 做完的
+
+| # | 日期 | 狀態 | 嚴重 | 區域 | 事 | 來自 |
+|---|---|---|---|---|---|---|
+| B-001 | 2026-10-11 | 做完 | － | － | repo 殼（v0.1.0，2026-10-12 發行；specs/2026-10-12-建殼.md）：plugin.json、LICENSE、CHANGELOG 格式、CLAUDE.md 地圖、測試 runner、.gitattributes、.gitignore、settings 放行 | 討論 |
+| B-002 | 2026-10-11 | 做完 | － | － | 測試資料生成與 `來源.zip`：2026-10-12 完成 44 份，腳本 llm-wiki-test\生成\generate.py。.doc 是手寫 Word 97 檔未經真 Word 驗證，密碼 PDF 密碼 lin2026 | conventions 六 |
+| B-003 | 2026-10-11 | 做完 | － | － | 事故清單 `incidents.md`：從兩邊 CHANGELOG、註解、skill 事故段採集 | 討論 |
+| B-004 | 2026-10-11 | 做完 | － | － | 量兩邊常駐成本與規則行數，含開場 hook 注入（版本、變動清單、健檢提醒、日程窗口、規則路徑），定 U-6 的預算 | decisions 未決 |
+| B-006 | 2026-10-11 | 做完 | － | － | spike：測試 session 中途改 `.claude/settings.json` 的 additionalDirectories 或 Read 放行規則，看對工作目錄外的 Read 會不會立刻生效、要不要重開。結果決 U-8。**等你說跑才跑**。同時驗 `.claude/settings.json` 的放行規則能不能寫 `${CLAUDE_PLUGIN_ROOT}`，不能的話 `kb upgrade` 要重寫規則（I-073） | decisions U-8 |
+| B-007 | 2026-10-12 | 做完 | － | － | B-006 後續 spike：純 ASCII 路徑（`llm-wiki-test\spike-src`）重測 additionalDirectories、`Read(C:/...)`、`Read(${USERPROFILE}/...)` 三種，每種「關掉重開接回同一對話」與「全新 session」各一次；要排除中文路徑與 resume 兩個干擾。結果：ASCII 路徑下三種設定三種載入全部跳詢問，排除中文路徑與 resume；報告 reports/B-007-spike.md | B-006 |
+| B-008 | 2026-10-12 | 做完 | － | － | 桌面版安裝與升級，方向在 D-072。spike 做完，報告 reports/B-008-spike.md，結論待設計 session 定；原題：桌面版 `/plugin marketplace add <本機路徑>` 可不可以、cache 路徑長相、換資料夾後要不要 `/plugin update`、hook 能不能聯網 | 討論 |
+| B-009 | 2026-10-12 | 做完 | － | － | 併入 B-008 測完：桌面版 additionalDirectories 寫入即熱載入、重開也生效（跟 VS Code extension 相反）；auto mode 下 hook deny 照擋 | B-006 |
+| B-010 | 2026-10-12 | 做完 | － | － | CHANGELOG 的 commit 欄無法寫入自己那個 commit 的 hash（建殼第一個 commit）；定：發行時由設計 session 填實作 commit 的 hash（process 六） | B-001 建殼實作 |
+| B-013 | 2026-10-12 | 做完 | － | － | 下一題（第一個 skill 或 command）的確認情境必含「/help 或 /plugin 看得到 wiki-with-willy」，補建殼沒拿到的載入正面證據；順便弄清楚 --plugin-dir 載的 plugin 在 /plugin 裡列不列。守門確認第 1 步已給 hook 層證據（2026-10-13）；事務層確認人眼看到 /plugin Installed 列 `wiki-with-willy inline`（2026-10-13）；/help 可見留給第一個 skill（狀態說明：2026-10-16 manage 確認第 1 步人眼：/skills 列 wiki-with-willy:manage） | 建殼確認 |
+| B-014 | 2026-10-12 | 做完 | － | － | spike：CLI `claude plugin update wiki-with-willy@<mp>` 能不能由 `kb upgrade` 用 subprocess 代跑、桌面版重開後吃不吃；能就 D-072 維持一句「升級」，不能就修訂成「說升級後我帶你點四步」（I-102）（2026-10-23 B-409 spike：內建 claude.exe 代跑 `plugin update` 做得到，D-215） | B-008 |
+| B-015 | 2026-10-12 | 做完 | － | － | 守門 spec 疑義待設計 session 拍板：(1) Bash 只提到登記來源或寫 Z1／Z3 時實作回 pass 不回 allow（spec 第 2 節「其餘不表態」vs 驗收 11「allow」vs D-073）；(2) Z8 寫擋的 reason_code 表上沒有，暫用 protected；(3) `kb guard decide` 例子 `cat a.txt > b.txt` 標 Z9，但無斜線 token 不抽路徑，實作會是 unparsed 或 Z8 | 守門實作 |
+| B-020 | 2026-10-13 | 做完 | － | － | v0.3.0 README 加「環境需求」一節（2026-10-13）。原題：發行 README 寫明只支援 Windows、Python 3.10 以上、PATH 上要有 `python`（hooks.json 是裸 python，沒有就 fail open，I-103）；plugin-dev 的 validate-hook-schema.sh 沒 jq 會誤報 Invalid JSON，不拿它當發行關卡 | 事務層 plugin-validator |
+| B-027 | 2026-10-15 | 做完 | － | － | 工作日誌題：「問」那行用 `credentials.mask_secrets` 同一個函式遮值；加 AI 第二層 `kb turn redact`（客戶給帳密時 AI 把這回合的問改成它認出的遮法，補程式猜不到的寫法）；建置告知加一句「敏感帳密不要打在對話裡，Claude Code 自己的紀錄與雲端都有」（D-081） | 骨架與來源登記設計 |
+| B-051 | 2026-10-18 | 做完 | － | － | 卡寫錯名被 PostToolUse 打回時錯名檔已在 `檔案索引/`（Z5 指令寫擋、AI 刪不掉），重寫正名後同編號兩張都進 `broken`、條目再也不進 new／stale；stale 換標題同樣。要不要讓 `kb cards sync` 把檔名改成 `expected_name`、同編號多張時留檔頭過的那張，或給一個 `kb cards rename`；這版只在 carding.md 叮嚀寫前先對（狀態說明：ingest 製卡 spec 裁定 20，v0.9.0） | ingest 製卡實作 skill-reviewer |
+| B-060 | 2026-10-19 | 做完 | － | － | `test_budget` 的開場 8 行 400 字量的是開發機 worktree 路徑下的 kb 那行；客戶機 plugin 裝在 `~/.claude/plugins/cache/...` 路徑更長（六行都在時開發機 356 字）。upgrade 題定下安裝路徑後，用那個長度重量一次，或讓 test_budget 用最長合理路徑算 kb 行（狀態說明：v0.21.0 升級打包：開場用客戶機路徑量、上限 550 字） | 客戶設定檔與型別實作回報 C |
+| B-077 | 2026-10-21 | 做完 | － | － | 客戶的偏好（與之後的口述事實）會被 AI 寫進 Claude Code 自己的自動記憶（`~/.claude/projects/…/memory/`），不進知識庫：客戶看不到、退不回、換電腦就沒了，跟設定檔第六節、口述清單重疊（note 改規則確認 G-1）。候選：知識庫的專案設定 `autoMemoryEnabled: false`（只影響知識庫資料夾，桌面版要實測）、守門擋寫記憶夾轉 note、或偏好交給自動記憶並拿掉第六節。使用者定先不關，等其他題做完測過再決定；討論紀錄在 note 改規則 spec「確認後待決」（轉成 issue #6，之後只看 issue） | note 改規則確認 |
+| B-081 | 2026-10-21 | 做完 | － | － | produce spike（D-162）：在這台用 Claude Code 桌面版開一個測試知識庫，驗：(1) 看不看得到 `anthropic-skills:docx`、`anthropic-skills:xlsx`；(2) docx 技能要的 node docx 套件裝在哪、裝不裝得起來；(3) 技能附的工具（soffice.py、recalc.py、validate.py、pandoc、pdftoppm）哪些在 Windows 能用；(4) 轉 PDF 與 Excel 重算走 LibreOffice（這台有）做不做得成、沒有 Office 時怎麼降級；(5) 實做一份新 Word、改一份既有 Word（追蹤修訂）、改一份既有 Excel（只改輸入格），看結果與守門有沒有擋；(6) 改一份既有 PowerPoint 的文字（D-165）；(7) 桌面版看不看得到 Claude Docs、Slides 與網頁 artifact；Docs 匯出（base64）由 AI 轉寫成檔放進 `AI 產出/` 做不做得到、多大的檔吃不消；Slides 能不能由 AI 下載、還是只能她在網頁按下載（D-165）；(8) 改完的 PowerPoint 用 LibreOffice 轉成圖片，AI 看不看得出字超出框這類問題（D-165）；(9) 本機新做一份 PowerPoint（`anthropic-skills:pptx`）在 Windows 跑不跑得起來。報告 `design/reports/B-081-spike.md`。舊 plugin `rules/office.md` 是對照（狀態說明：報告 reports/B-081-spike.md、B-081-spike-守門.md） | produce 設計 |
+| B-093 | 2026-10-22 | 做完 | － | － | spike：桌面版用網址加 marketplace 裝假 plugin（archive zip，D-171、D-172），看有新版怎麼顯示、自動更新開關；真 plugin 用本機 marketplace 在桌面版跑全部 hook（開場、回合、守門、驗卡、工作日誌、摺疊）；移除再裝回知識庫照留。任務檔 llm-wiki-test 的 install-spike 夾 B-093-任務.md；公開測試 repo jielle2453/wiki-with-willy-spike 驗完由設計 session 刪（狀態說明：報告 reports/B-093-spike.md、B-093-官方文件.md） | 桌面版安裝與發行 |
+| B-095 | 2026-10-22 | 做完 | － | － | spike：OneDrive「只在雲端」的檔：開場快速比對與 `inventory scan` 算指紋會不會把檔下載下來；同一個 OneDrive 裡搬夾、改檔名會不會下載；丟資源回收筒進哪個回收筒、會不會連別台一起刪（D-173、D-175、D-176）。用使用者個人 OneDrive 的測試夾、亂數假檔，做完刪（狀態說明：報告 reports/B-095-spike.md） | manage 第二版 |
+| B-111 | 2026-10-11 | 做完 | － | － | Mac（落在哪：_lib/paths、envcheck）（轉成 issue #2，之後只看 issue） | architecture 第八節延伸 |
+| B-206 | 2026-10-11 | 做完 | － | － | collab：多 session 主管制、佔用偵測、角色卡（槽位：模式）（轉成 issue #5，之後只看 issue） | architecture 第八節延伸 |
+| B-207 | 2026-10-11 | 做完 | － | － | 團隊共享、個人與團隊空間分開：一個知識庫當另一個的唯讀來源 `kb://`；對方的綜合卡不重 ingest，只建指標卡回正本讀（槽位：模式加來源型別）（轉成 issue #5，之後只看 issue） | architecture 第八節延伸 |
+| B-409 | 2026-10-22 | 做完 | － | － | 第 (6) 題（備份、還原、升級與換電腦）寫 spec 時先讀 `reports/B-093-spike.md`「升級那題要知道的」：App 不會自己發現新版、檢查更新藏在市集名後的「⋯」、約 7 下加「會覆寫本機變更」假警報（`.in_use` 標記造成）、畫面沒有自動更新開關、更新不用重開；user 範圍 uninstall 刪 data 留 cache、畫面移除相反。**寫 spec 前先 spike 兩條讓客戶不用自己按的路**（使用者 10-22）：(1) AI 在對話裡用桌面版內建的 Claude Code 跑 `claude plugin update`（客戶電腦多半沒有 PATH 上的 CLI，要找得到內建那支；桌面版吃不吃；R-07「升級只說明不代跑」要不要改，同 B-014）；(2) 設定檔打開那個市集的 `autoUpdate`（畫面沒有開關；桌面版認不認；自動換版後新版第一次開場要自動快照、遷移）。兩條都不通才寫成客戶自己按那 7 步、由 AI 或開場那行講清楚（2026-10-23 做完，`reports/B-409-spike.md`；升級定 D-215） | B-093 spike |
+| B-418 | 2026-10-22 | 做完 | － | － | 家裡、公司兩台電腦同時用同一個知識庫（不是單向換電腦）：第 (6) 題不收，要等多人共用那類一起想（同步夾衝突、回合與鎖跨機器）（轉成 issue #5，之後只看 issue） | 第 (6) 題例句 19 |
+| B-425 | 2026-10-24 | 做完 | － | － | 守門誤擋 AI 正常的兩個動作（build 桌面版確認 A 段落差 6、8，實作用 guard decide 重現）：Glob 的 path 指到含「不讀」夾的上層時，不管樣式是不是單一檔名都判 Z10b excluded_inside；Bash 的 `python -c` 程式碼裡有字面的 `/`，被抽成絕對路徑，Git Bash 的根是 `C:/Program Files/Git`，判成 credential_inside（.pem）。服務人員找自己放的檔、AI 用一行 python 統計都會卡（狀態說明：v0.21.0 備份還原與換電腦） | card-maker 與 build 桌面版確認 |
+| B-432 | 2026-10-24 | 做完 | － | － | 備份還原實作時留下的：還原一份比現在 hidden 排除還舊的備份時，重清（purge）會把剛拍的「還原前」快照一起刪（purge 整包刪快照，manage 第二版教訓），之後「剛剛的還原不要了」回不去；現在是程式印那句、AI 明說（`--json` 的 `snapshot` 是 null）。要不要改成重清前先講、或別的做法，等 (8) 試跑看客戶碰不碰得到（狀態說明：v0.21.0：還原前快照在 hidden 都清完時留著） | 備份還原實作 |
+| B-433 | 2026-10-24 | 做完 | － | － | 還原別的知識庫（`vault_id` 不同）的備份進現在這個知識庫，spec 沒列拒絕、現在放行（演練會講會不見什麼、先拍快照、說好才做）；要不要擋、或多講一句「這是另一個知識庫的備份」，等 (8) 試跑（狀態說明：v0.21.0：演練標出另一個知識庫） | 備份還原實作 |
+| B-437 | 2026-10-24 | 做完 | － | － | 實作回報：B-432（還原前快照在重清 hidden 時留著，條件是拍時現在的 hidden 都清完）與 B-433（別個知識庫的備份 `check` 回 `other_vault`、多一行、放行）已照使用者定的做法實作；請設計把 B-432、B-433 改 done（實作 session 只能新增行） | 備份還原實作 |

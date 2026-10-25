@@ -1,5 +1,7 @@
 # card-maker 與整批製卡：測試報告
 
+> 代號說明（2026-10-25 補）：S1～S5 是第一輪的重大發現（嚴重度寫在標題括號），R1～R3 是回測第一輪的新發現，R4、R5 是回測第二輪的新發現；T9 是測試時故意帶的假回合代號。驗收 N 指 card-maker spec。
+
 日期：2026-10-23
 測的版本：`spec/card-maker` 的 60b909b（worktree `C:\Users\Jie\Desktop\llm-wiki-j-cardmaker`，跑前 `git status --short` 空）
 spec：`design/specs/2026-10-22-card-maker.md`（驗收準則 1～16）

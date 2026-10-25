@@ -1,5 +1,7 @@
 # manage 第二版 測試報告
 
+> 代號說明（2026-10-25 補）：第一輪 code-review 與 security-review 的問題分別用 1～7、1～9 編號；第二輪起的 F1、F4、F7～F9 是審查子代理自己列的發現編號；Q3 是測試用的資料夾名稱。驗收 N 指 manage第二版 spec。
+
 日期：2026-10-22
 測試 session：llm-wiki-j-c7（a2 派工）
 對象：worktree `C:\Users\Jie\Desktop\llm-wiki-j-manage2`，分支 `spec/manage第二版`，最後 commit `460df19`（樹乾淨）
