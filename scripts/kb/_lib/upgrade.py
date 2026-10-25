@@ -32,6 +32,7 @@ HISTORY_REL = ".system/upgrade-history.json"
 HISTORY_SCHEMA = 1
 PLUGIN_NAME = "wiki-with-willy"
 FETCH_MAX_BYTES = 1_000_000
+NOTE_MAX_CHARS = 200  # 遠端那句話的硬上限（--check、--json、env.json 都用這份）；開場另截 update_note_max
 KINDS = ("patch", "minor", "major", "downgrade")
 
 UP_TO_DATE = "目前是最新版（{version}）"
@@ -151,12 +152,13 @@ def _changelog():
 
 # ---------- 版本 ----------
 
-_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+_VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", re.ASCII)
 
 
 def parse_version(text):
-    """"0.20.1" → (0, 20, 1)；不是剛好三段整數回 None。"""
-    m = _VERSION.match(str(text)) if isinstance(text, str) else None
+    """"0.20.1" → (0, 20, 1)；不是剛好三段 ASCII 整數（沒有前導零、結尾不帶換行）回 None。
+    整串比對：$ 會放過結尾換行（會帶進開場那行），\\d 會放過全形與阿拉伯數字，前導零跟安裝紀錄的版本字串永遠對不上。"""
+    m = _VERSION.fullmatch(text) if isinstance(text, str) else None
     return tuple(int(x) for x in m.groups()) if m else None
 
 
@@ -228,7 +230,7 @@ def fetch(vault):
     row = versions.get(latest) if isinstance(versions, dict) else None
     if isinstance(row, dict) and isinstance(row.get("note"), str):
         note = "".join(c if c.isprintable() else " " for c in row["note"]).split()  # 會進開場的對話內容：壓成一行、去掉控制字元
-        note = " ".join(note) or None
+        note = " ".join(note)[:NOTE_MAX_CHARS].strip() or None
     return {"latest": latest, "allowed": allowed(roster, latest, vid), "note": note}
 
 

@@ -125,6 +125,15 @@ class Versions(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(release.ReleaseError):
                 release.tag_version(bad)
 
+    def test_versions_are_strict_like_the_client(self):
+        """跟客戶端 parse_version 同一套：結尾換行、非 ASCII 數字、前導零都不收。"""
+        for bad in ("v0.21.0\n", "0.21.0\n", "v٠.٢١.٠", "v0.21.00", "v00.21.0"):
+            with self.subTest(bad=bad), self.assertRaises(release.ReleaseError):
+                release.tag_version(bad)
+        for bad in ("0.21.0\n", "٠.٢١.٠", "0.21.00"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(release.parse_version(bad))
+
     def test_kind_matches_the_clients_rule(self):
         self.assertEqual(release.kind("0.20.0", "0.20.1"), "patch")
         self.assertEqual(release.kind("0.20.1", "0.21.0"), "minor")
@@ -365,6 +374,8 @@ class Publish(Base):
         git(self.public, "commit", "-q", "-m", "init")
         git(self.public, "push", "-q", "origin", "main")
         self.gh_calls = []
+        self.releases = set()  # gh 這邊已經建好的 release（tag）
+        self.fail_push = 0  # 接下來幾次 git push 要失敗
         self.fetches = []
         self.served = ["0.20.0"]  # 每次抓回的版本；用完維持最後一個
         self.sleeps = []
@@ -374,7 +385,16 @@ class Publish(Base):
         def run(argv, cwd=None, **kw):
             if argv[0] == "gh":
                 self.gh_calls.append((list(argv), cwd))
+                if argv[1:3] == ["release", "view"]:
+                    if argv[3] not in self.releases:
+                        raise release.ReleaseError("gh release view 失敗：release not found")
+                    return "{}"
+                if argv[1:3] == ["release", "create"]:
+                    self.releases.add(argv[3])
                 return ""
+            if argv[:2] == ["git", "push"] and self.fail_push:
+                self.fail_push -= 1
+                raise release.ReleaseError("git push 失敗：連不上")
             return real_run(argv, cwd=cwd, **kw)
 
         def fetch(url, timeout):
@@ -428,10 +448,47 @@ class Publish(Base):
     def test_gh_release_create_with_the_zip_and_run_in_the_public_clone(self):
         self.served = ["0.21.0"]
         got = self.publish()
-        argv, cwd = self.gh_calls[0]
+        argv, cwd = next(c for c in self.gh_calls if c[0][1:3] == ["release", "create"])
         self.assertEqual(argv[:4], ["gh", "release", "create", "v0.21.0"])
         self.assertIn(str(got["zip"]), argv)
         self.assertEqual(Path(cwd), self.public)
+
+    def test_rerun_after_a_failed_push_finishes_without_recreating_the_release(self):
+        """gh release 建好之後推清單失敗：重跑 publish 不再建 release（會撞「已經存在」），改成把同一個 zip 補傳上去，
+        本機那個還沒推的清單 commit 也要推上去，接著等清單、改名單。"""
+        self.served = ["0.21.0"]
+        self.fail_push = 1
+        with self.assertRaises(release.ReleaseError):
+            self.publish()
+        self.assertIsNone(self.remote_file("marketplace.json"))
+        got = self.publish()
+        creates = [a for a, _c in self.gh_calls if a[1:3] == ["release", "create"]]
+        uploads = [a for a, _c in self.gh_calls if a[1:3] == ["release", "upload"]]
+        self.assertEqual(len(creates), 1, "release 只建一次")
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(uploads[0][3], "v0.21.0")
+        self.assertIn(str(got["zip"]), uploads[0])
+        self.assertIn("--clobber", uploads[0])
+        entry = next(p for p in self.remote_file("marketplace.json")["plugins"] if p["name"] == "wiki-with-willy")
+        self.assertEqual((entry["version"], entry["source"]["sha256"]), ("0.21.0", got["sha256"]))
+        self.assertEqual(self.remote_file("rollout.json")["versions"]["0.21.0"]["for"], "all")
+
+    def test_dirty_public_clone_refuses_before_anything_is_published(self):
+        """公開 repo 的 clone 有沒 commit 的改動（已暫存或改了追蹤的檔）：什麼都不做，免得那些改動被一起 commit 推出去。"""
+        write(self.public, "雜物.txt", "不該推\n")
+        git(self.public, "add", "雜物.txt")
+        self.served = ["0.21.0"]
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("沒 commit 的改動", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
+        self.assertIsNone(self.remote_file("marketplace.json"))
+
+    def test_untracked_files_in_the_public_clone_do_not_block(self):
+        write(self.public, "筆記.txt", "沒加進 git\n")
+        self.served = ["0.21.0"]
+        self.publish()
+        self.assertFalse((self.fresh_clone() / "筆記.txt").exists())
 
     def test_order_is_zip_then_list_then_roster(self):
         """D-218：先推 zip 與清單、確認抓得到新版，才改名單。"""
@@ -440,6 +497,8 @@ class Publish(Base):
 
         def run(argv, cwd=None, **kw):
             if argv[0] == "gh":
+                if argv[1:3] == ["release", "view"]:  # 還沒有這個 release
+                    raise release.ReleaseError("gh release view 失敗：release not found")
                 events.append("gh")
                 return ""
             if argv[:2] == ["git", "push"]:
@@ -549,6 +608,14 @@ class Rollout(Base):
         self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], "all")
         release.rollout(self.repo, "0.21.0", self.public, [ID1, ID2])
         self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], [ID1, ID2])
+
+    def test_dirty_public_clone_refuses(self):
+        write(self.public, "README.md", "改了沒 commit\n")
+        git(self.public, "add", "README.md")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.rollout(self.repo, "0.21.0", self.public, "none")
+        self.assertIn("沒 commit 的改動", str(cm.exception))
+        self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], [ID1])
 
     def test_other_versions_are_left_alone(self):
         write(self.public, "rollout.json", json.dumps({"schema_version": 1, "versions": {

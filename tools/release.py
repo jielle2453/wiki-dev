@@ -10,7 +10,8 @@ config/skeleton_history.json 有這一版且跟 tag 裡的骨架一致；小修�
 _lib/migrate.py。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
 publish：build → gh release create 傳 zip → 更新公開 repo 的 marketplace.json（版本、網址、sha256）並推 → 每 30 秒從外面抓清單，
 抓到新版（最多等 --wait 分鐘）才改 rollout.json 並推（D-218：名單不能比清單先更新）；超過停下來、名單沒改，清單與 zip 已經推了，之後用 rollout 補。
-rollout：只改名單（rollout.json 那一版的 for）並推；撤回就是 --none（D-217）。公開 repo 的 clone 要先是最新的。
+中途失敗（例如推清單時斷線）直接重跑 publish：release 已經有了就補傳同一個 zip，不重建。
+rollout：只改名單（rollout.json 那一版的 for）並推；撤回就是 --none（D-217）。公開 repo 的 clone 要先是最新的，而且不能有沒 commit 的改動。
 失敗印原因、exit 1。外部的東西都經 _run（git、gh）、_fetch（抓清單）、_sleep、_clock，測試換替身。只用標準函式庫，不碰 plugin 的程式。
 """
 import argparse
@@ -38,7 +39,9 @@ SCHEMA_LINE = re.compile(r"^\s*(\w*(?:SCHEMA_VERSION|TEMPLATE_VERSION))\s*=\s*(.
 CHANGELOG_HEAD = re.compile(r"^## (\d+\.\d+\.\d+) — .*$", re.MULTILINE)
 NOTE_LINE = re.compile(r"^- \*\*給客戶的一句話\*\*：(.+)$", re.MULTILINE)
 VAULT_ID = re.compile(r"^kb-[0-9a-f]{8}$")
-TAG = re.compile(r"^v?(\d+\.\d+\.\d+)$")
+_NUM = r"(?:0|[1-9]\d*)"
+VERSION = re.compile(rf"({_NUM})\.({_NUM})\.({_NUM})", re.ASCII)  # 跟客戶端 _lib/upgrade.parse_version 同一套，整串比對
+TAG = re.compile(rf"v?({_NUM}\.{_NUM}\.{_NUM})", re.ASCII)
 
 
 class ReleaseError(Exception):
@@ -81,12 +84,12 @@ _clock = time.monotonic
 # ---------- 版本 ----------
 
 def parse_version(text):
-    m = re.match(r"^(\d+)\.(\d+)\.(\d+)$", str(text))
+    m = VERSION.fullmatch(text) if isinstance(text, str) else None
     return tuple(int(x) for x in m.groups()) if m else None
 
 
 def tag_version(tag):
-    m = TAG.match(str(tag))
+    m = TAG.fullmatch(tag) if isinstance(tag, str) else None
     if not m:
         raise ReleaseError(f"tag 要像 v0.21.0：{tag!r}")
     return m.group(1)
@@ -108,7 +111,7 @@ def previous_tag(repo, version):
     """比 version 小的 X.Y.Z tag 裡最大的（回 tag 名）；沒有回 None。不是 X.Y.Z 的 tag 不看。"""
     best = None
     for name in _run(["git", "tag", "--list"], cwd=repo).split():
-        m = TAG.match(name)
+        m = TAG.fullmatch(name)
         v = parse_version(m.group(1)) if m else None
         if v and v < parse_version(version) and (best is None or v > best[0]):
             best = (v, name)
@@ -315,12 +318,19 @@ def _git(public, *args):
     return _run(["git", *args], cwd=public)
 
 
+def _require_clean(public):
+    """公開 repo 的 clone 有沒 commit 的改動（已暫存、或改了追蹤的檔）就停：不然那些改動會跟清單或名單一起 commit 推出去。
+    沒加進 git 的檔不算（git add 只加清單與名單）。本機還沒推的 commit 不算（上一次推失敗留下的，這次一起推）。"""
+    dirty = _git(public, "status", "--porcelain", "--untracked-files=no").strip()
+    if dirty:
+        raise ReleaseError(f"公開 repo 的 clone 有沒 commit 的改動，先清乾淨再跑：\n{dirty}")
+
+
 def _commit_and_push(public, message, *paths):
-    """有改動才 commit、push；沒有改動什麼都不做。"""
+    """有改動才 commit（只 commit 這幾個檔）；push 每次都跑：上一次 commit 了卻推失敗的，這次一起推上去。"""
     _git(public, "add", *paths)
-    if not _git(public, "status", "--porcelain").strip():
-        return
-    _git(public, "commit", "-q", "-m", message)
+    if _git(public, "status", "--porcelain", "--", *paths).strip():
+        _git(public, "commit", "-q", "-m", message, "--", *paths)
     _git(public, "push", "-q", "origin", "HEAD")
 
 
@@ -410,14 +420,29 @@ def set_rollout(public, version, who, note):
     return path
 
 
+def _release_exists(public, tag):
+    """gh 那邊已經有這個 tag 的 release（上一次 publish 建好之後才失敗）；查不到（含沒登入、連不上）當沒有，
+    接著 gh release create 會把真正的原因講出來。"""
+    try:
+        _run(["gh", "release", "view", tag, "--json", "tagName"], cwd=public)
+    except ReleaseError:
+        return False
+    return True
+
+
 def publish(repo, tag, public, who, wait=15):
-    """build → gh release → 清單 → 等外面抓得到 → 名單。回 build 的結果。"""
+    """build → gh release → 清單 → 等外面抓得到 → 名單。回 build 的結果。
+    中途失敗可以直接重跑：release 已經有了就把同一個 zip 補傳上去（--clobber，zip 位元組可重現），上次沒推的清單 commit 這次一起推。"""
     who = _check_who(who)
     manifest_url = _manifest_url(repo)
+    _require_clean(public)
     got = build(repo, tag)
     version, zip_path = got["version"], Path(got["zip"])
     note = changelog_note(repo, version) or ""
-    _run(["gh", "release", "create", tag, str(zip_path), "--title", tag, "--notes", note or tag], cwd=public)
+    if _release_exists(public, tag):
+        _run(["gh", "release", "upload", tag, str(zip_path), "--clobber"], cwd=public)
+    else:
+        _run(["gh", "release", "create", tag, str(zip_path), "--title", tag, "--notes", note or tag], cwd=public)
     url = f"{_release_base(public)}/releases/download/{tag}/{zip_path.name}"
     market = _update_marketplace(public, version, url, got["sha256"])
     _commit_and_push(public, f"marketplace: {version}", market.name)
@@ -430,6 +455,7 @@ def publish(repo, tag, public, who, wait=15):
 def rollout(repo, version, public, who):
     """只改名單那一版的 for 並推；那一版已有的 note 保留，沒有就從 CHANGELOG 取。"""
     who = _check_who(who)
+    _require_clean(public)
     row = (_read_json(Path(public) / "rollout.json", {}).get("versions") or {}).get(version)
     note = row.get("note") if isinstance(row, dict) and row.get("note") else None
     if note is None:

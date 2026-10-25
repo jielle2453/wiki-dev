@@ -131,6 +131,17 @@ class Classify(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNone(upgrade.parse_version(bad))
 
+    def test_parse_version_is_strict(self):
+        """結尾換行（$ 會放過）、非 ASCII 數字（\\d 會放過）、前導零都不算版本：不然換行會帶進開場那行，
+        前導零的 latest 跟 installed_plugins.json 的版本字串永遠對不上，一直說「新版剛出來」。"""
+        for bad in ("0.21.0\n", "0.21.0\r\n", "٠.٢١.٠", "０.21.0", "0.21.00", "00.21.0", "0.021.0", " 0.21.0"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(upgrade.parse_version(bad))
+                self.assertEqual(upgrade.kind("0.20.0", bad), "none")
+        for good in ("0.0.0", "0.21.0", "10.200.3000"):
+            with self.subTest(good=good):
+                self.assertIsNotNone(upgrade.parse_version(good))
+
     def test_kinds(self):
         """驗收 1：0.20.0→0.20.1 patch、0.20.1→0.21.0 minor、1.2.3→2.0.0 major、0.21.0→0.20.1 downgrade、同版 none。"""
         for cur, latest, want in (("0.20.0", "0.20.1", "patch"), ("0.20.1", "0.21.0", "minor"),
@@ -383,6 +394,20 @@ class Fetch(Base):
         long = "字" * 80
         self.serve("0.21.0", mine=True, note=long)
         self.assertEqual(upgrade.fetch(self.V)["note"], long)
+
+    def test_manifest_version_with_trailing_newline_is_offline(self):
+        """清單的版本號結尾帶換行：當看不懂（Offline），不進 update_check、不進開場。"""
+        self.serve("0.21.0\n", mine=True)
+        with self.assertRaises(upgrade.Offline):
+            upgrade.fetch(self.V)
+
+    def test_note_has_a_hard_cap(self):
+        """遠端的一句話有硬上限（200 字）：--check 的人讀輸出、--json、env.json 都不會被超長字串塞爆；開場另截 update_note_max。"""
+        self.serve("0.21.0", mine=True, note="字" * 5000)
+        got = upgrade.fetch(self.V)
+        self.assertEqual(got["note"], "字" * 200)
+        line = upgrade.check_lines(dict(upgrade.check(self.V)))[0]
+        self.assertLess(len(line), 260)
 
 
 class Check(Base):
