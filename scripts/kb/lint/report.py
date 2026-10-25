@@ -84,6 +84,9 @@ def _numbers(ctx, got, numbers, ingest, notes, failed):
     left = _ingest_text(ingest)
     if left:
         lines.append("整理還有：" + left)
+    asked = _decide_text(ingest)
+    if asked:
+        lines.append("要你決定的另有：" + asked)
     lines += notes
     lines += [f"{name}這項這次沒查成" for name in failed]
     return lines
@@ -93,13 +96,19 @@ def _mb(n):
     return f"{max(1, round(n / (1024 * 1024))) if n else 0} MB"
 
 
+# 整理做得了的（交 ingest）與要她決定的（已經在待處理）分開講（lint 桌面版確認後）
 INGEST_TEXT = (("unsorted", "待整理 {n} 份"), ("unlinked", "沒掛實體的卡 {n} 張"), ("synthesis_stale", "綜合卡待更新 {n} 張"),
-               ("missing", "原檔不見 {n} 份"), ("duplicates", "同一份檔在兩處 {n} 份"), ("unreadable", "讀不到 {n} 份"),
-               ("overdue", "日期過了沒銷 {n} 條"), ("conflicts", "兩份寫法不同 {n} 件"))
+               ("duplicates", "同一份檔在兩處 {n} 份"))
+DECIDE_TEXT = (("missing", "原檔不見 {n} 份"), ("unreadable", "讀不到 {n} 份"), ("overdue", "日期過了沒銷 {n} 條"),
+               ("conflicts", "兩份寫法不同 {n} 件"))
 
 
 def _ingest_text(ingest):
     return "、".join(t.format(n=ingest[k]) for k, t in INGEST_TEXT if ingest.get(k))
+
+
+def _decide_text(ingest):
+    return "、".join(t.format(n=ingest[k]) for k, t in DECIDE_TEXT if ingest.get(k))
 
 
 def _aside_lines(ctx):

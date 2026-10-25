@@ -28,6 +28,7 @@ PASSING = ("meeting", "reminder")  # 過了就算已過去
 STATUSES = ("open", "done", "cancelled")
 SOURCES = ("interview", "inferred", "confirmed", "corrected")
 EDITABLE = ("date", "start", "time", "text", "entities", "lead_days")
+CONFIRM_CHANGE = "source inferred → confirmed"  # 推測的那條她說對（kb agenda edit 不帶欄位，lint 桌面版確認後）
 STATUS_TEXT = {"done": "完成", "cancelled": "已取消"}
 PAST_OPEN = "已過去"
 WEEKDAYS = "一二三四五六日"
@@ -250,7 +251,8 @@ def show(value):
 
 def edit(vault, aid, turn_id, by="ai", card=None, **fields):
     """改 date、start、time、text、entities、lead_days（None 當沒給）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
-    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。"""
+    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。
+    來源是 inferred、沒有改任何欄（她說推測的那條是對的）→ 記成 confirmed、歷程記一筆（lint 桌面版確認後）。"""
     unknown = set(fields) - set(EDITABLE)
     if unknown:
         raise ValueError(f"edit 不收這些欄位：{sorted(unknown)}")
@@ -290,6 +292,10 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
             if it.get("source") == "inferred" and not card:
                 it["source"] = "corrected"
             _log(it, "；".join(changes), by, turn_id)
+        elif it.get("source") == "inferred" and not card:
+            it["source"] = "confirmed"
+            _log(it, CONFIRM_CHANGE, by, turn_id)
+            dirty = True
         if fp is not None and it["origin"].get("fp") != fp:
             it["origin"]["fp"] = fp
             dirty = True

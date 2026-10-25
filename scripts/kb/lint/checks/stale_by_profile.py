@@ -16,9 +16,10 @@ def _old_cards(ctx, row):
     if not day:
         return []
     redo = {e.get("id") for e in ctx.inventory() if e.get("redo")}
+    active = {e.get("id") for e in ctx.inventory() if e.get("status") == "active"}  # 排除夾裡的卡 cards redo 標不了（桌面版確認後）
     return sorted(cid for cid, c in ctx.cards().items()
                   if entities.key(str(c["front"].get("卡型") or "")) == entities.key(row["name"])
-                  and str(c["front"].get("製卡日期") or "9999") < day and cid not in redo)
+                  and str(c["front"].get("製卡日期") or "9999") < day and cid not in redo and cid in active)
 
 
 def run(ctx):

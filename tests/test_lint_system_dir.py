@@ -39,7 +39,7 @@ class SystemDir(unittest.TestCase):
         (d / "2026-10.jsonl").write_text(json.dumps(old) + "\n" + json.dumps(new) + "\n", encoding="utf-8")
         (fix,) = L.by_kind(system_dir.run(L.ctx(self.V, today="2026-10-25")), "fix")
         text = fix["apply"](L.ctx(self.V, today="2026-10-25"))
-        self.assertEqual(text, "補完 1 段卡住的工作日誌")
+        self.assertEqual(text, "補完 1 句沒記完的工作日誌")  # 桌面版確認後改白話
         rows = {r["turn"]: r for r in journal.read_lines(self.V, "2026-10")}
         self.assertTrue(rows["20261023-100000-abcd"]["done"])
         self.assertEqual(rows["20261023-100000-abcd"]["note"], journal.NO_CHANGES)

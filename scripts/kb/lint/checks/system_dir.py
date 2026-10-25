@@ -63,7 +63,7 @@ def _complete(rows):
                                    note=journal.floor_note(ctx.vault, r["turn"]), note_by="program", changed=changed,
                                    ended=_now(ctx).strftime("%Y-%m-%dT%H:%M:%S")):
                 n += 1
-        return f"補完 {n} 段卡住的工作日誌" if n else None
+        return f"補完 {n} 句沒記完的工作日誌" if n else None
     return apply
 
 

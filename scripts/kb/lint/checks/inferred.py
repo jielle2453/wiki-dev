@@ -55,8 +55,8 @@ def run(ctx):
             "inferred", "decide", "inferred:agenda",
             f"日程有 {len(old)} 條是我從檔案推測的，放了超過 {limit} 天還沒確認：{_names(texts)}",
             items=texts, data={"dates": sorted({it["date"] for it in old if it.get("date")}),
-                               "results": [{"label": "一條一條看", "note": "kb agenda list 唸出推測的那幾條，對的照原樣 kb agenda edit "
-                                                                         "（記成確認），不對的照她說的改"}]}))
+                               "results": [{"label": "一條一條看", "note": "kb agenda list 唸出推測的那幾條，對的跑 kb agenda edit <編號>（不帶欄位，"
+                                                                         "記成確認），不對的照她說的改"}]}))
     ents = [e for e in ctx.entities()["entities"] if e.get("status") == "active" and e.get("source") == "inferred"
             and _old(ctx, e.get("date") or "", limit)]
     if ents:

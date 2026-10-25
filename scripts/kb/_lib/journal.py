@@ -39,6 +39,13 @@ HEADER_LINES = (
     "由程式產生，改了會被覆蓋。",
 )
 RECENT_MONTHS = 12
+# 不是她在終端機跑的程式段：照這個說法寫（lint 桌面版確認後；versions list 的「（背景健檢）」同一個意思）
+AUTO_LABELS = {"lint --background": "每週健檢（自動）"}
+
+
+def program_label(command):
+    """程式段的抬頭：自動跑的照 AUTO_LABELS，其他是「程式 <指令>」。"""
+    return AUTO_LABELS.get(str(command or ""), f"程式 {command or ''}".rstrip())
 
 # 地板句（D-084）：區 → [(action, 動詞)], 單位；Z7 不數，其他區數總檔數
 _FLOOR_COUNTED = (
@@ -523,7 +530,7 @@ def _changed_lines(row):
 def _block(row):
     when = str(row.get("time", "")).replace("T", " ")
     if row.get("kind") == "program":
-        return [f"## {when}　程式 {row.get('command', '')}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+        return [f"## {when}　{program_label(row.get('command'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
     lines = [f"## {when}　回合 {row.get('turn', '')}", f"- 問：{_flat(row.get('prompt'))}"]
     if not row.get("done"):
         return lines + [f"- 結果：{IN_PROGRESS}"]

@@ -27,6 +27,6 @@ def run(ctx):
             f"你說過 {len(rows)} 次「{card_type}」{KIND_TEXT[kind]}，要不要改成一條規則？",
             data={"kind": kind, "card_type": card_type, "rulings": [r["id"] for r in rows], "texts": [r.get("text") for r in rows],
                   "results": [{"label": "好，改成規則",
-                               "note": "照 lint skill 擬一句偏好給她看，她說好就 kb profile add 偏好 文字=<那句>，"
+                               "note": "照 lint skill 擬一句偏好給她看，她說好就 kb profile add 偏好 偏好=<那句>，"
                                        "再照 data.rulings 逐條 kb ruling remove"}]}))
     return out

@@ -22,7 +22,7 @@ DONE_HOW = "照她改的做完了"
 NO_HANDEDIT = "沒有你手改過還沒處理的檔"
 DIFF_KINDS = (("checked", "打勾 {n} 條"), ("removed", "刪掉 {n} 條"), ("changed_date", "改日期 {n} 條"), ("other", "其他 {n} 行"))
 INGEST_TEXT = (("unsorted", "待整理 {n} 份"), ("unlinked", "沒掛實體 {n} 張"), ("synthesis_stale", "綜合卡待更新 {n} 張"),
-               ("missing", "原檔不見 {n} 份"))
+               ("duplicates", "同一份檔在兩處 {n} 份"))  # 整理做得了的才講；讀不到、寫法不同這類在待處理（桌面版確認後）
 
 
 def add_arguments(sub):
