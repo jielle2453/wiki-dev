@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -59,6 +60,7 @@ NEW_VERSION_LINE = "有新版 {version}：{note}；說「升級」我帶你做�
 NEW_VERSION_LINE_NO_NOTE = "有新版 {version}；說「升級」我帶你做。"
 WITHDRAWN_OPENING = "這一版 {version} 撤回了；用起來有問題的話說「退回舊版」。"
 PENDING_OPENING = "上次升級到 {version} 還沒換好；說「升級」我再試一次。"
+REUSE_SNAPSHOT_SECONDS = 24 * 3600  # 沿用上次沒換成的升級前快照，只限一天內拍的
 
 
 class UpdateError(Exception):
@@ -98,6 +100,7 @@ def _call(argv, timeout, env=None, cwd=None):
     """跑外部程式，回 (結束碼, 輸出文字)；stdout 與 stderr 合併、一律用 UTF-8 解。找不到程式丟 FileNotFoundError，
     逾時殺整棵行程樹再丟 subprocess.TimeoutExpired（照 _lib/office 的做法）。不在對話的目錄跑。"""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    env = dict(env if env is not None else os.environ, NoDefaultCurrentDirectoryInExePath="1")  # 在專案夾跑時，子行程不先找那個夾
     p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=cwd or tempfile.gettempdir(),
                          creationflags=flags, stdin=subprocess.DEVNULL)
     try:
@@ -522,16 +525,19 @@ def upgrade(vault):
                 hist = ensure_history(vault)
             except (OSError, ValueError):
                 raise backup.Refused(HISTORY_BROKEN) from None
-            prev = hist.get("pending") or {}
-            kept = Path(vault) / backup.SNAPSHOT_REL / str(prev.get("snapshot") or "")
-            if prev.get("to") == latest and prev.get("snapshot") and kept.is_file():
-                snapshot = kept  # 上次升級到同一版、快照還在：不再拍一份（確認 B-3）
+            prev = hist.get("pending") if isinstance(hist.get("pending"), dict) else {}
+            kept = _snapshot_file(vault, prev.get("snapshot")) if prev.get("to") == latest else None
+            if kept is not None and time.time() - kept.stat().st_mtime < REUSE_SNAPSHOT_SECONDS:
+                snapshot = kept  # 上次升級到同一版、快照還在而且是一天內拍的：不再拍一份（確認 B-3）
             else:
+                kept = None
                 _room_for_snapshot(vault)
         try:
             if k in ("minor", "major"):
                 snapshot = snapshot or backup.snapshot(vault, "upgrade")
-                hist["pending"] = {"to": latest, "snapshot": snapshot.name, "started": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+                started = prev.get("started") if kept is not None else None
+                hist["pending"] = {"to": latest, "snapshot": snapshot.name,
+                                   "started": started or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
                 write_history(vault, hist)
         except backup.Refused:
             raise
@@ -591,12 +597,19 @@ def _run_init(vault):
         init.run(argparse.Namespace(path=str(vault), check=False, json=False))
 
 
+def _snapshot_file(vault, name):
+    """pending 記的快照名 → 快照夾裡那個 .zip（只收單純的檔名，../ 這類一律不認）；不在回 None。"""
+    if not isinstance(name, str) or not name.endswith(".zip") or Path(name).name != name or name in (".", ".."):
+        return None
+    p = Path(vault) / backup.SNAPSHOT_REL / name
+    return p if p.is_file() else None
+
+
 def _pending_snapshot(vault, hist, plugin):
     """對得上這次換版（pending.to 等於現在版本）而且快照檔還在的 pending；回快照名，否則 None。"""
     pending = hist.get("pending")
-    if isinstance(pending, dict) and pending.get("to") == plugin and pending.get("snapshot"):
-        if (Path(vault) / backup.SNAPSHOT_REL / pending["snapshot"]).is_file():
-            return pending["snapshot"]
+    if isinstance(pending, dict) and pending.get("to") == plugin and _snapshot_file(vault, pending.get("snapshot")):
+        return pending["snapshot"]
     return None
 
 
@@ -743,7 +756,10 @@ def opening(vault):
     finish_needed = hist["current"] != plugin
     chk = env.update_check(vault)
     line = None
-    pending_to = (hist.get("pending") or {}).get("to")
+    pending = hist.get("pending") if isinstance(hist.get("pending"), dict) else {}
+    pending_to = pending.get("to") if isinstance(pending.get("to"), str) and parse_version(pending.get("to")) else None
+    if pending_to and kind(plugin, pending_to) not in ("minor", "major"):
+        pending_to = None  # 只有比現在新的大升級才講「還沒換好」（本機檔被改過也不印怪字）
     if finish_needed:
         line = FINISH_LINE.format(version=plugin)
     elif pending_to and pending_to != plugin:

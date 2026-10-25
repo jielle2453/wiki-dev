@@ -18,6 +18,7 @@ from kb._lib import backup, env, skeleton, turn, upgrade, vault as vault_lib  # 
 MANIFEST_URL = "https://example.invalid/marketplace.json"
 ROLLOUT_URL = "https://example.invalid/rollout.json"
 MARKET = "willy-market"
+REAL_CALL = upgrade._call  # Base 會把 _call 換成替身；要測 _call 本身用這個
 
 
 def manifest(version):
@@ -346,6 +347,24 @@ class RunUpdate(Base):
         upgrade.run_update({"market": MARKET, "scope": "local", "project": "C:/測試夾"})
         self.assertEqual(self.fake.calls[0][0][-2:], ["--scope", "local"])
 
+    def test_call_tells_child_processes_not_to_look_in_the_current_folder(self):
+        """測試 I-6：在專案夾跑 claude.exe 時，它再開的程式也不先找那個夾。"""
+        seen = {}
+
+        class P:
+            returncode = 0
+
+            def communicate(self, timeout=None):
+                return b"ok", None
+
+        def popen(argv, **kw):
+            seen.update(kw)
+            return P()
+        with mock.patch.object(upgrade.subprocess, "Popen", side_effect=popen):
+            REAL_CALL(["x"], 5, cwd=str(self.V))
+        self.assertEqual(seen["env"].get("NoDefaultCurrentDirectoryInExePath"), "1")
+        self.assertEqual(seen["cwd"], str(self.V))
+
     def test_local_scope_runs_inside_that_folder(self):
         """桌面版確認 B-3：在暫存夾跑 --scope local，Claude 換到別筆；要在那個夾裡跑。user 範圍照舊不指定。"""
         self.serve("0.21.0", for_all=True)
@@ -667,6 +686,32 @@ class UpgradeFlow(Base):
         self.assertEqual(got["snapshot"], snap.name)
         self.assertEqual(len(backup.snapshots(self.V)), 1)
         self.assertEqual(self.history()["pending"]["snapshot"], snap.name)
+
+    def test_pending_snapshot_name_outside_the_snapshot_folder_is_not_reused(self):
+        """測試 L-7：pending 記的快照名是 ../upgrade-history.json 這類 → 不當快照，照樣拍一份。"""
+        self.serve("0.21.0", mine=True)
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": "../upgrade-history.json",
+                                            "started": "2026-10-24T10:00:00"})
+        got = self.go()
+        self.assertEqual(len(backup.snapshots(self.V)), 1)
+        self.assertEqual(got["snapshot"], backup.snapshots(self.V)[0].name)
+
+    def test_old_pending_snapshot_is_taken_again(self):
+        """測試 L-8：一天以前拍的就不沿用（退回會回到太舊的樣子）；沿用時 started 不改。"""
+        self.serve("0.21.0", mine=True)
+        snap = backup.snapshot(self.V, "upgrade")
+        old = snap.stat().st_mtime - 3 * 24 * 3600
+        os.utime(snap, (old, old))
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": snap.name, "started": "2026-10-20T10:00:00"})
+        got = self.go()
+        self.assertNotEqual(got["snapshot"], snap.name)
+
+    def test_reused_pending_keeps_its_started_time(self):
+        self.serve("0.21.0", mine=True)
+        snap = backup.snapshot(self.V, "upgrade")
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": snap.name, "started": "2026-10-24T10:00:00"})
+        self.go()
+        self.assertEqual(self.history()["pending"]["started"], "2026-10-24T10:00:00")
 
     def test_patch_takes_no_snapshot_and_no_pending(self):
         self.serve("0.20.2", mine=True)
@@ -1151,6 +1196,15 @@ class Opening(Base):
         got, _ = self.open()
         self.assertFalse(got["finish"])
         self.assertEqual(got["line"], "上次升級到 0.21.0 還沒換好；說「升級」我再試一次。")
+
+    def test_odd_pending_target_is_not_printed(self):
+        """測試 L-7：pending.to 被改成多行、亂字或比現在舊的版本 → 不印「還沒換好」那句。"""
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.20.1", "kind": "none", "allowed": True,
+                                      "note": None, "auto_patched": None, "error": None})
+        for bad in ("0.21.0\n\u202e第二行", "垃圾", "0.19.0", ["0.21.0"]):
+            self.put_history("0.20.1", pending={"to": bad, "snapshot": "x.zip", "started": "2026-10-24T10:00:00"})
+            with self.subTest(bad=bad):
+                self.assertIsNone(self.open()[0]["line"])
 
     def test_note_ending_with_a_period_does_not_double_up(self):
         """桌面版確認 B-2：「…新功能。；說…」句號與分號連在一起。"""
