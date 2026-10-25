@@ -16,12 +16,14 @@ DESC_MAX = 150
 BODY_MAX = 3000
 REFERENCE_MAX_LINES = 150
 ABS_PATH = re.compile(r"(?<![A-Za-z$])[A-Za-z]:[\\/]|/Users/|/home/")
-DESCRIPTION = ("管資料夾與原檔的位置都用這個：加資料夾、不讀某夾、拿掉、恢復讀、現在讀哪些、「報價夾搬到 E 槽了」「這份搬到 2026」"
-               "「合約改個名字」「舊備忘幫我刪掉」「定稿放到王宅那夾」「這份要放哪」；我自己搬／刪好了、改檔案內容、整理成卡、實體改名、重建不用這個。")
-DESCRIPTION = DESCRIPTION.replace("現在讀哪些、", "現在讀哪些、「不要讀私人那夾，我不想讓你看到」")  # 第二輪修：c7 試的候選
-SHOULD = ("報價那個資料夾我搬到 E 槽了", "這份估價單幫我搬到 2026 那夾", "合約改名叫『信義王合約_簽約版』", "舊備忘幫我刪掉，那份早就沒用了",
-          "把信義王整個資料夾搬到 2025 封存", "剛做好的定稿要放哪？你決定就好")
-SHOULD_NOT = ("我自己把報價搬到信義王那夾了", "信義王改叫王宅", "把這份合約付款條件改 30 天", "信義王現在怎樣")
+DESCRIPTION = ("管資料夾、原檔位置與整個知識庫都用這個：加資料夾、不讀某夾、這份搬到 2026、報價夾搬到 E 槽、舊備忘刪掉、幫我備份、"
+               "回到上禮拜的備份、C 槽快滿了、換新電腦、換帳號、升級、有新版嗎、退回舊版；自己搬好、改內容、整理成卡、退回上一步、重建不用這個。")  # 備份還原與換電腦要做的事 13、升級打包 要做的事 12
+SHOULD = ("報價那個資料夾我搬到 E 槽了", "合約改名叫『信義王合約_簽約版』", "舊備忘幫我刪掉，那份早就沒用了",
+          "剛做好的定稿要放哪？你決定就好",
+          "幫我備份一下", "回到上禮拜備份的那份", "C 槽快滿了，知識庫怎麼越來越大？", "她買了新筆電，知識庫要搬過去",
+          "好，升級", "有新版嗎？")  # 升級打包 要做的事 12：換進「升級」「有新版嗎」兩句（換掉搬到 2026 與換 Claude 帳號兩句，描述裡還有）
+SHOULD_NOT = ("我自己把報價搬到信義王那夾了", "信義王改叫王宅", "把這份合約付款條件改 30 天", "信義王現在怎樣",
+              "昨天下午整理完東西都怪怪的，退回去", "感覺卡片都亂掉了，幫我重建知識庫好了", "有沒有要我確認的事")
 CREDENTIAL_LINE = "檔名像密碼或金鑰的預設不讀；要讓我讀哪一份跟我說「X 可以讀」"  # 密碼與守門（I-116 再查，a2 定）
 COMMANDS_ROW = "| `commands/` | 尚未。upgrade、backup、restore、relocate、migrate、account（D-028）；build 做成 `skills/build/`（D-190），沒有 manage 指令 |"
 
@@ -125,7 +127,7 @@ class Body(unittest.TestCase):
 
     def test_references_exist_and_short(self):
         refs = set(re.findall(r"references/[^\s`)）、，。]+\.md", self.body))
-        self.assertEqual(refs, {"references/sources.md", "references/files.md"})
+        self.assertEqual(refs, {"references/sources.md", "references/files.md", "references/ops.md"})
         for ref in refs:
             p = SKILL_DIR / ref
             with self.subTest(reference=ref):
@@ -135,11 +137,120 @@ class Body(unittest.TestCase):
     def test_references_cover_new_subcommands(self):
         sources = (SKILL_DIR / "references" / "sources.md").read_text(encoding="utf-8")
         files = (SKILL_DIR / "references" / "files.md").read_text(encoding="utf-8")
-        for word in ("## relocate", "## purge", "還有綜合卡寫著那夾的內容"):
+        for word in ("## relocate", "## purge", "還有綜合卡寫著那夾的內容", "還原用的快照也清掉了；你自己存在外面的備份我碰不到"):
             self.assertIn(word, sources)
         for word in ("## move", "## rename", "## trash", "## where", "## open", "OneDrive", "不同顆硬碟不代搬"):
             self.assertIn(word, files)
         self.assertNotIn("這版還沒有卡和備份要清", sources)
+
+
+class OpsReference(unittest.TestCase):
+    """備份還原與換電腦要做的事 13：整個知識庫的操作住 references/ops.md（≤150 行），本文只放分辨、原則與骨架。"""
+
+    def setUp(self):
+        self.ops = (SKILL_DIR / "references" / "ops.md").read_text(encoding="utf-8")
+        self.body = split(SKILL.read_text(encoding="utf-8"))[1]
+
+    def test_ops_covers_every_command_and_sentence(self):
+        for word in ("## backup", "## restore", "## clean", "## moved", "## 換帳號", "## 舊電腦送人", "## 常見拒絕",
+                     "還沒說備份要放哪", "備份不能放在知識庫裡面", "背景整理還在跑", "另一個備份、還原或退回正在跑",
+                     "這份不是 wiki-with-willy 的備份", "有檔案開著（X），關掉再說一次；什麼都沒動",
+                     "舊帳號處理過的資料不會因為換帳號而刪掉", "`kb unlock forget`", "versions clean --check"):
+            with self.subTest(word=word):
+                self.assertIn(word, self.ops)
+
+    def test_body_has_whole_vault_section(self):
+        part = section(self.body, "分辨")
+        for word in ("kb backup", "restore", "versions clean", "moved", "output links", "退回", "還原"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+        rules = section(self.body, "原則")
+        for word in ("restore check", "restore apply", "D-205", "D-203", "D-206", "B-074"):
+            with self.subTest(word=word):
+                self.assertIn(word, rules)
+
+    def test_description_has_the_new_trigger_words(self):
+        desc = split(SKILL.read_text(encoding="utf-8"))[0]
+        text = next(ln for ln in desc if ln.startswith("description:"))
+        for word in ("備份", "回到上禮拜的備份", "C 槽快滿了", "換新電腦", "換帳號"):
+            with self.subTest(word=word):
+                self.assertIn(word, text)
+
+    def test_ops_never_tells_client_the_turn_code(self):
+        self.assertIsNone(re.search(r"20\d{6}-\d{6}", self.ops))
+
+
+class UpgradeSection(unittest.TestCase):
+    """升級打包 要做的事 12：描述加升級、本文加分辨與原則、ops.md 加 kb upgrade 各參數與說法；備份、還原的句子沒被擠掉。"""
+
+    def setUp(self):
+        self.ops = (SKILL_DIR / "references" / "ops.md").read_text(encoding="utf-8")
+        front, self.body = split(SKILL.read_text(encoding="utf-8"))
+        self.desc = next(ln for ln in front if ln.startswith("description:"))
+
+    def test_description_has_upgrade_and_keeps_backup_and_restore(self):
+        for word in ("升級", "有新版嗎", "幫我備份", "回到上禮拜的備份", "C 槽快滿了", "換新電腦", "換帳號", "加資料夾", "不讀某夾"):
+            with self.subTest(word=word):
+                self.assertIn(word, self.desc)
+
+    def test_body_distinguishes_and_has_the_principle(self):
+        part = section(self.body, "分辨")
+        for word in ("upgrade", "退回舊版", "升級"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+        rules = section(self.body, "原則")
+        for word in ("upgrade --check", "--downgrade", "小修不問", "D-215", "D-217"):
+            with self.subTest(word=word):
+                self.assertIn(word, rules)
+        self.assertIn("references/ops.md", self.body)
+
+    def test_body_skeleton_points_at_finish_and_check(self):
+        part = section(self.body, "骨架")
+        for word in ("upgrade --finish", "upgrade --check", "restore check", "moved"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+
+    def test_ops_has_an_upgrade_section_with_every_mode(self):
+        self.assertIn("## upgrade", self.ops)
+        part = self.ops[self.ops.index("## upgrade"):self.ops.index("## 常見拒絕")]
+        for word in ("--check", "--finish", "--downgrade", "kb upgrade skeleton", "--keep", "--replace", "--json",
+                     "skeleton_ask", "snapshot_for_downgrade", "已升到", "已自動套用小修正", "新對話", "/reload-plugins"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+
+    def test_ops_has_every_upgrade_sentence(self):
+        for word in ("好了，開一個新對話就是新版", "已回到", "目前是最新版", "新版剛出來，幾分鐘後再說一次",
+                     "這台找不到 Claude 的更新程式，請服務人員幫忙", "更新沒成功：", "升級前的快照已經不在，不能退回；請服務人員幫忙",
+                     "現在連不上更新的地方，晚點再說一次", "背景整理還在跑，先停掉再升級"):
+            with self.subTest(word=word):
+                self.assertIn(word, self.ops)
+
+    def test_ops_keeps_every_backup_and_restore_sentence(self):
+        for word in ("還沒說備份要放哪", "備份不能放在知識庫裡面", "這份不是 wiki-with-willy 的備份", "還原沒做完：有東西沒能移回去",
+                     "備份要放在這台電腦的資料夾或隨身碟", "## backup", "## restore", "## clean", "## moved"):
+            with self.subTest(word=word):
+                self.assertIn(word, self.ops)
+
+    def test_ops_separates_downgrade_from_revert_and_restore(self):
+        part = self.ops[self.ops.index("## 退回與還原怎麼分"):self.ops.index("## backup")]
+        for word in ("退回舊版", "upgrade --downgrade", "不直接 `restore apply`", "退回剛剛那一步、回到某一天的備份、還是退回升級前的舊版"):
+            with self.subTest(word=word):
+                self.assertIn(word, part)
+
+    def test_ops_warns_about_half_done_downgrade_and_the_undo_snapshot(self):
+        row = next(ln for ln in self.ops.splitlines() if ln.startswith("| `更新沒成功：…`"))
+        self.assertIn("知識庫已經還原", row)
+        self.assertIn("沒拍成", row)
+        restore = self.ops[self.ops.index("## restore"):self.ops.index("## clean")]
+        self.assertIn("退回舊版造成的還原前快照不走這條", restore)
+
+    def test_ops_still_within_150_lines(self):
+        self.assertLessEqual(len(self.ops.splitlines()), REFERENCE_MAX_LINES)
+
+    def test_ops_tells_her_only_version_numbers(self):
+        """給客戶唸的只有版號與一句話；快照檔名、回合代號是程式的事。"""
+        part = self.ops[self.ops.index("## upgrade"):self.ops.index("## 常見拒絕")]
+        self.assertIn("不唸", part)
 
 
 class Evals(unittest.TestCase):

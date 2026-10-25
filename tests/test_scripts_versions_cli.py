@@ -7,11 +7,20 @@ import shutil
 import subprocess
 import sys
 import unittest
+from datetime import datetime
 
 from tests._guard_fixture import KB, ROOT, make_vault
 from kb._lib import inventory, turn  # noqa: E402
 
 SID = "test-sid"
+
+
+def said(V, turn_id):
+    """B-074：人讀輸出描述一個回合的寫法「MM-DD HH:MM 那句「…」」（沒有那句話是「MM-DD HH:MM 那一次」）；不印回合代號。"""
+    meta = json.loads((V / ".system" / "versions" / turn_id / "turn.json").read_text(encoding="utf-8"))
+    when = datetime.strptime(meta["started"], "%Y-%m-%dT%H:%M:%S").strftime("%m-%d %H:%M")
+    head = meta.get("prompt_head")
+    return f"{when} 那句「{head}」" if head else f"{when} 那一次"
 
 
 def run_kb(*args, cwd):
@@ -68,8 +77,9 @@ class List(Base):
         r = run_kb("versions", "list", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.splitlines()
-        self.assertTrue(lines[0].startswith(f"{t['turn']}（這一次）｜"), lines[0])
-        self.assertIn("問：「改一下」", lines[0])
+        self.assertTrue(lines[0].startswith(f"{said(self.V, t['turn'])}（這一次）｜"), lines[0])
+        self.assertNotRegex(r.stdout, r"20\d{6}-\d{6}")  # B-074：不唸回合代號
+        self.assertIn("那句「改一下」", lines[0])
         self.assertIn("修改 1、新增 0、刪除 0、成品 0", lines[0])
         self.assertEqual(lines[1], f"    modify：{self.card_rel}")
 
@@ -91,7 +101,7 @@ class List(Base):
         r = run_kb("versions", "list", "--n", "2", cwd=self.V)
         heads = [ln for ln in r.stdout.splitlines() if not ln.startswith("    ")]
         self.assertEqual(len(heads), 2)
-        self.assertIn("問：「三」", heads[0])
+        self.assertIn("那句「三」", heads[0])
 
     def test_bad_manifest_line_does_not_break_list(self):
         """第一輪 L4（驗收 25）：manifest 半截行，list 照常印。"""
@@ -110,7 +120,7 @@ class List(Base):
         r = run_kb("versions", "list", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         lines = r.stdout.splitlines()
-        self.assertTrue(lines[0].startswith(t["turn"]), lines[0])
+        self.assertTrue(lines[0].startswith(said(self.V, t["turn"])), lines[0])
         self.assertTrue(lines[0].endswith("修改 1、新增 0、刪除 0"), lines[0])
         self.assertIn("清冊讀不到：清冊版本 3 比這版 plugin 新", lines)
         data = json.loads(run_kb("versions", "list", "--json", cwd=self.V).stdout)
@@ -163,12 +173,12 @@ class Revert(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.card.read_bytes(), self.original)
-        self.assertEqual(r.stdout.strip(), f"已退回 {t['turn']}（問：「改一下」）：還原 1、移除 0、成品 0 份")
+        self.assertEqual(r.stdout.strip(), f"已退回 {said(self.V, t['turn'])}：還原 1、移除 0、成品 0 份")
         self.assertTrue((self.versions_dir(t["turn"]) / "reverted.json").is_file())
         rv = json.loads((self.versions_dir(t["turn"]) / "reverted.json").read_text(encoding="utf-8"))
         self.assertEqual(set(rv), {"time", "by_turn"})
         r = run_kb("versions", "list", cwd=self.V)
-        self.assertIn(f"{t['turn']}（已退回）", r.stdout)
+        self.assertIn(f"{said(self.V, t['turn'])}（已退回）", r.stdout)
 
     def test_revert_then_revert_again_brings_change_back(self):
         """D-074：退回前先把現況備進「退回」這句話的回合，退錯可再退。"""
@@ -181,7 +191,7 @@ class Revert(Base):
         self.new_turn("再退一次")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"已退回 {rt['turn']}", r.stdout)
+        self.assertIn(f"已退回 {said(self.V, rt['turn'])}", r.stdout)
         self.assertEqual(self.card.read_text(encoding="utf-8"), "改過了\n")
 
     def test_removes_created_file_and_empty_entity_folder(self):
@@ -217,7 +227,7 @@ class Revert(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.splitlines()
-        self.assertEqual(lines[0], f"已退回 {t['turn']}（問：「寫草稿」）：還原 0、移除 0、成品 1 份留著")
+        self.assertEqual(lines[0], f"已退回 {said(self.V, t['turn'])}：還原 0、移除 0、成品 1 份留著")
         self.assertEqual(lines[1], f"    {rel}")
         self.assertEqual(lines[2], "這 1 份成品先留著；要刪跟我說，我用 delete-outputs 刪。")
         self.assertEqual(len(lines), 3)
@@ -296,7 +306,7 @@ class Revert(Base):
         self.new_turn()
         r = run_kb("versions", "revert", a["turn"], cwd=self.V)
         self.assertEqual(r.returncode, 3)
-        self.assertEqual(r.stdout.strip(), f"只能從最近一次開始退：{rt['turn']}")
+        self.assertEqual(r.stdout.strip(), f"只能從最近一次開始退：{said(self.V, rt['turn'])}")
         self.assertEqual(self.status_of(entry["id"]), "turn_reverted")
 
     def test_nothing_left_after_undoing_a_revert_chain_is_reported(self):
@@ -312,7 +322,7 @@ class Revert(Base):
         self.new_turn()
         r = run_kb("versions", "revert", old["turn"], cwd=self.V)
         self.assertEqual(r.returncode, 3)
-        self.assertEqual(r.stdout.strip(), f"只能從最近一次開始退：{new['turn']}")
+        self.assertEqual(r.stdout.strip(), f"只能從最近一次開始退：{said(self.V, new['turn'])}")
         self.assertEqual(self.card.read_text(encoding="utf-8"), "二\n")
         self.assertFalse((self.versions_dir(old["turn"]) / "reverted.json").exists())
         self.assertFalse((self.versions_dir(new["turn"]) / "reverted.json").exists())
@@ -374,7 +384,7 @@ class Revert(Base):
         self.new_turn()
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"已退回 {ids[2]}（問：「第2句」）", r.stdout)
+        self.assertIn(f"已退回 {said(self.V, ids[2])}：", r.stdout)
         self.assertEqual((self.V / cards[2]).read_text(encoding="utf-8"), "原 2\n")
         self.assertEqual((self.V / cards[0]).read_text(encoding="utf-8"), "改 0\n")
         self.assertEqual((self.V / cards[1]).read_text(encoding="utf-8"), "改 1\n")
@@ -405,7 +415,7 @@ class DeleteOutputs(Base):
         r = run_kb("versions", "delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.splitlines()
-        self.assertEqual(lines[0], f"已刪 1 份成品（回合 {t['turn']}）：")
+        self.assertEqual(lines[0], f"已刪 1 份成品（{said(self.V, t['turn'])}）：")
         self.assertEqual(lines[1], f"    {rel}")
         self.assertFalse((self.V / rel).exists())
         self.assertEqual(self.status_of(entry["id"]), "deleted")
@@ -479,7 +489,7 @@ class DeleteOutputs(Base):
         self.new_turn()
         r = run_kb("versions", "delete-outputs", t["turn"], cwd=self.V)
         self.assertEqual(r.returncode, 3)
-        self.assertEqual(r.stdout.strip(), f"{t['turn']} 沒有可刪的成品")
+        self.assertEqual(r.stdout.strip(), f"{said(self.V, t['turn'])}沒有可刪的成品")
         self.assertTrue((self.V / rel).is_file())
         self.assertEqual(self.status_of(entry["id"]), "active")
 
@@ -582,12 +592,12 @@ class DeleteOutputs(Base):
         self.new_turn("退掉退回")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f"已退回 {rt['turn']}", r.stdout)
+        self.assertIn(f"已退回 {said(self.V, rt['turn'])}", r.stdout)
         self.assertFalse((self.versions_dir(a["turn"]) / "reverted.json").exists())
         self.assertEqual(self.status_of(entry["id"]), "active")
         r = run_kb("versions", "list", cwd=self.V)
-        self.assertNotIn(f"{a['turn']}（已退回）", r.stdout)
-        self.assertIn(f"{rt['turn']}（已退回）", r.stdout)
+        self.assertNotIn(f"{said(self.V, a['turn'])}（已退回）", r.stdout)
+        self.assertIn(f"{said(self.V, rt['turn'])}（已退回）", r.stdout)
         self.new_turn("刪掉")
         r = run_kb("versions", "delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 3)
@@ -602,13 +612,13 @@ class DeleteOutputs(Base):
         self.assertEqual(self.card.read_bytes(), self.original)
         rt2 = self.new_turn("退掉退回")
         r = run_kb("versions", "revert", cwd=self.V)
-        self.assertIn(f"已退回 {rt['turn']}", r.stdout)
-        self.assertIn(f"{t['turn']} 不再算已退回", r.stdout)
+        self.assertIn(f"已退回 {said(self.V, rt['turn'])}", r.stdout)
+        self.assertIn(f"{said(self.V, t['turn'])}不再算已退回", r.stdout)
         self.assertEqual(self.card.read_text(encoding="utf-8"), "改過了\n")
         self.assertFalse((self.versions_dir(t["turn"]) / "reverted.json").exists())
         self.new_turn("再退")
         r = run_kb("versions", "revert", cwd=self.V)
-        self.assertIn(f"已退回 {rt2['turn']}", r.stdout)
+        self.assertIn(f"已退回 {said(self.V, rt2['turn'])}", r.stdout)
         self.assertEqual(self.card.read_bytes(), self.original)
 
     def test_second_revert_after_revert_does_not_touch_earlier_turn(self):
@@ -666,7 +676,7 @@ class VersionsJournal(Base):
         rows = self.program_rows()
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1]["command"], "versions delete-outputs")
-        self.assertEqual(rows[1]["note"], f"已刪 1 份成品（回合 {t['turn']}）")
+        self.assertEqual(rows[1]["note"], f"已刪 1 份成品（{said(self.V, t['turn'])}）")
         self.assertEqual(rows[1]["changed"], [{"path": "AI 產出/y.md", "action": "delete"}])
 
     def test_delete_outputs_of_zero_writes_nothing(self):
@@ -823,7 +833,7 @@ class VersionsJournal(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("abc123", r.stdout)
         line = r.stdout.splitlines()[0]
-        self.assertTrue(line.endswith("（問：「帳號 ███ 密碼 ███」）：還原 1、移除 0、成品 0 份"), line)  # 只遮問那段，數字留著
+        self.assertTrue(line.endswith("那句「帳號 ███ 密碼 ███」：還原 1、移除 0、成品 0 份"), line)  # 只遮問那段，數字留著
         notes = [x["note"] for x in self.program_rows()]
         self.assertEqual(notes, [line])
 
@@ -934,7 +944,7 @@ class VersionsJournal(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         line = r.stdout.splitlines()[0]
-        self.assertEqual(line, f"已退回 {t['turn']}：還原 1、移除 0、成品 0 份")
+        self.assertEqual(line, f"已退回 {said(self.V, t['turn'])}：還原 1、移除 0、成品 0 份")
         self.assertEqual(self.program_rows()[0]["note"], line)
 
     def test_finished_conversation_turn_writes_program_line_with_new_turn(self):
@@ -1004,7 +1014,7 @@ class FolderLedger(Base):
         (self.V / "空的").rmdir()
         turn.record_folder(self.V, t, "remove", "空的")
         lines = run_kb("versions", "list", cwd=self.V).stdout.splitlines()
-        head = next(i for i, ln in enumerate(lines) if ln.startswith(t))
+        head = next(i for i, ln in enumerate(lines) if ln.startswith(said(self.V, t)))
         self.assertEqual(lines[head + 1:head + 4],
                          ["    資料夾：案子 → 工程", "    建了資料夾：設計師", "    拿掉了空夾：空的"])
         got = json.loads(run_kb("versions", "list", "--json", cwd=self.V).stdout)

@@ -17,6 +17,7 @@ from kb._lib import sources as sources_lib  # noqa: E402
 
 TAIL = ("之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；"
         "以前的回答若沒提到檔名或卡名、只是轉述，認不出來")
+SNAPSHOTS = "還原用的快照也清掉了；你自己存在外面的備份我碰不到"  # 備份還原與換電腦第 8 點：purge 成功句最後多這一句
 
 
 def kb(*args):
@@ -64,7 +65,7 @@ class PurgeJournal(Base):
     def test_mentions_scrubbed_and_tail(self):
         code, out = kb("folders", "exclude", str(self.private), "--kind", "hidden", "--vault", str(self.V))
         self.assertEqual(code, 0, out)
-        self.assertTrue(out.strip().endswith(TAIL), out)
+        self.assertTrue(out.strip().endswith(TAIL + "\n" + SNAPSHOTS), out)
         rows = journal.read_lines(self.V, journal.month_of(turn.current(self.V)["turn"]))
         results = [r.get("result") for r in rows if r.get("kind") == "turn"]
         self.assertIn("跟那夾無關的回答", results)

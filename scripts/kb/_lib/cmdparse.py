@@ -716,16 +716,25 @@ def _relative_resolves(cand, path):
 CODE_FLAGS = {"-c", "-e", "--eval", "-p", "--print", "-r", "-command", "/c", "/k"}
 
 
+_LONE_DRIVE_DIR = re.compile(r"^/[A-Za-z]/$")
+_OPERAND_BEFORE = re.compile(r"[\w)\]]\s*$")
+_OPERAND_AFTER = re.compile(r"^\s*[\w(]")
+
+
 def code_paths(text):
     """程式碼或 heredoc 內文裡的絕對路徑（D-186 (c)(d)）：引號裡的整段（路徑可含空白），與引號外的 C:\\…、C:/…、/c/…。
-    相對路徑不抽（程式碼裡的字串多半不是路徑；以前整段程式碼被當成相對路徑，會分到實體夾，B-093 3-2d、card-maker (f)）。"""
+    相對路徑不抽（程式碼裡的字串多半不是路徑；以前整段程式碼被當成相對路徑，會分到實體夾，B-093 3-2d、card-maker (f)）。
+    B-425：單獨的 /（'/'.join、s='/'）與算式的 /（5 /c/ 2：前後都是數字、括號、變數名）不是路徑，不抽；真的路徑照抽。"""
     found = []
     for m in re.finditer(r"([\"'])([^\"'\n]+)\1", text):
         s = m.group(2).strip()
-        if _ABS_START.match(s) and not s.startswith("~") and not _URL.match(s):
+        if s != "/" and _ABS_START.match(s) and not s.startswith("~") and not _URL.match(s):
             found.append(s)
     for m in ABS_PATH.finditer(text):
         s = m.group(0).rstrip(",;:)'\"")
+        if (_LONE_DRIVE_DIR.match(s) and _OPERAND_BEFORE.search(text[:m.start()])
+                and _OPERAND_AFTER.match(text[m.start() + len(s):])):
+            continue  # 算式：x /c/ 2
         if not any(s in f for f in found):
             found.append(s)
     return [f for f in found if "$" not in f and "%" not in f]

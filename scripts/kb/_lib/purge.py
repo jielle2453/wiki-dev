@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -31,7 +32,7 @@ from pathlib import Path
 from kb._lib import agenda, cards, entities, findings, inventory, journal, ledger, pending, rulings, synthesis, turn
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
-from kb._lib.paths import normalize
+from kb._lib.paths import long_path, normalize
 
 PURGED = journal.PURGED_TEXT
 TEMP_POSIX = ".system/temp"
@@ -899,17 +900,55 @@ def word_masker(path_mask, ids, titles):
 
 
 LEFT_WORDS = (("state", "狀態檔 {n} 個"), ("backups", "備份 {n} 份"), ("temp", "暫存 {n} 份"),
-              ("journal", "工作日誌 {n} 個月"), ("logs", "留痕 {n} 個"))
+              ("journal", "工作日誌 {n} 個月"), ("logs", "留痕 {n} 個"), ("snapshots", "還原用的快照 {n} 份"),
+              ("active", "清冊裡還有 {n} 份那夾的檔是讀得到的"))
+
+
+def _snapshots(vault, counts, keep=()):
+    """備份還原與換電腦第 8 點：快照是整包 zip、裡面有那夾的卡，整包全刪（不對 zip 做文字遮罩）；客戶自己放在外面的備份程式不碰。
+    keep 是這次還原拍的還原前快照（呼叫端確認拍的時候現在的 hidden 排除都已清完，裡面沒有那夾的東西）：跳過、不算刪。
+    回刪掉幾份；刪不掉的算進 left（沒清完）。"""
+    folder = Path(vault) / ".system" / "snapshots"
+    keep_names = {Path(k).name for k in keep}
+    n = 0
+    for p in sorted(folder.iterdir()) if folder.is_dir() else []:
+        if p.name in keep_names:
+            continue
+        try:
+            if p.is_dir():
+                shutil.rmtree(long_path(p))
+            else:
+                p.unlink()
+            n += 1
+        except OSError:
+            counts["left"]["snapshots"] += 1
+    return n
 
 
 def remaining_text(left):
     return "還沒清完：" + "、".join(w.format(n=left[k]) for k, w in LEFT_WORDS if left.get(k))
 
 
-def purge(vault, alias, spec, root, turn_id):
+def _active_inside(vault, alias, spec):
+    """清冊裡位置全在那夾裡、卻還是 active 的條目數（排除對帳應該已經把它們拿掉或標 excluded；還有就不能說清完了，測試 T-1）。
+    同一份內容在那夾以外還讀得到的（有別處的位置）不算。清冊讀不到當 0（別的步驟會報）。"""
+    prefix = folder_uri(alias, spec)
+    try:
+        entries = inventory.load(vault)["entries"]
+    except ValueError:
+        return 0
+    n = 0
+    for e in entries:
+        locs = [loc.get("uri", "") for loc in e.get("locations") or [] if isinstance(loc, dict)]
+        if e.get("status") == "active" and locs and all(_in_folder(u, prefix) for u in locs):
+            n += 1
+    return n
+
+
+def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     """清那夾的殘留（呼叫端持 sources.json 的鎖、已確認是 pending 的 hidden 排除）。還有綜合卡引用就丟 Blocked。
     先把範圍記進那條排除，再清；回 {"cards","backups","temp","journal","findings","remaining"}，remaining 有東西就是沒清完
-    （呼叫端不標完成）。"""
+    （呼叫端不標完成）；清冊裡那夾還有 active 的條目也算沒清完（active）。keep_snapshots：刪快照時跳過的（還原前快照）。"""
     sc = scope(vault, alias, spec)
     ids = sc["ids"]
     names_blocking = blocking(vault, ids)
@@ -944,8 +983,11 @@ def purge(vault, alias, spec, root, turn_id):
     for rel in (ledger.LEDGER_REL, ledger.ERROR_LOG_REL):
         if not _scrub_text(vault, rel, mask):
             counts["left"]["logs"] += 1
+    counts["left"]["active"] += _active_inside(vault, alias, spec)
+    snapshots = _snapshots(vault, counts, keep_snapshots)
     return {"cards": len(counts["card_ids"]), "backups": counts["backups"], "temp": counts["temp"],
             "journal": counts["journal"], "findings": counts["findings"], "undecodable": counts["undecodable"],
+            "snapshots": snapshots,
             "remaining": {k: v for k, v in counts["left"].items() if v}}
 
 

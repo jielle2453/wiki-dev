@@ -54,6 +54,10 @@ OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放�
 SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
 # B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
 SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
+# 備份還原與換電腦（D-206）：AI 自己下指令搬或複製整個知識庫（寫入目標是總資料夾本身），理由句說客戶自己搬怎麼做
+VAULT_MOVE_CODE = "vault_move"
+VAULT_MOVE_REASON = "整個知識庫要搬家，請關掉這個對話、用檔案總管剪下貼上，再到新位置開對話"
+MOVE_COPY_VERBS = {"mv", "move", "move-item", "mi", "cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync"}
 WORKSPACE_POSIX = ".system/temp/office"  # kb office 的工作區：檔案工具寫放行（實作回報裁定 1）
 WORKSPACE_TOOLS = ("Write", "Edit", "MultiEdit")
 LO_PROFILE_DIR = "_lo_profile"  # kb office 固定的 LibreOffice 設定夾（office.LO_PROFILE），不算工作區
@@ -870,6 +874,58 @@ def _file_tool(tool, target, cwd, vault, sources):
     return Decision(decision, zone, code, reason, rows, vault)
 
 
+# 目的地用旗標指定的寫法（T-11）：-t／--target-directory 只認小寫 -t（cp 的大寫 -T 是「不當夾」，意思相反）；-Destination 不分大小寫、可縮寫
+_DEST_FLAG = re.compile(r"""(?:^|\s)(?:-[A-Za-z]*t|--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+# rsync 的 -t 是保留時間、不是目的地；rsync 只認 --target-directory 以外沒有目的地旗標（N-8）：只有 cp、mv 這類才把 -t 當目的地
+_T_FLAG_VERBS = {"cp", "mv", "copy", "move", "install", "ln"}
+_DEST_FLAG_LONG = re.compile(r"""(?:^|\s)(?:--target-directory|(?i:-Dest\w*))(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+# PowerShell 的參數不是短選項併寫（-Path、-Force 結尾的 t 不算 -t）：只認 -Destination
+_DEST_FLAG_PS = re.compile(r"""(?:^|\s)(?i:-Dest\w*)(?:=|\s+)("[^"]*"|'[^']*'|\S+)""")
+
+
+def _destination_by_flag(text, cwd, powershell=False):
+    """寫法裡用旗標指定了目的地就回它（正規化）；沒有回 None。-t 可以併在短選項裡（cp -rt、cp -at，N-2），大寫 -T 意思相反不算。"""
+    verb = cmdparse.verb_of(text.split())
+    pattern = _DEST_FLAG_PS if powershell else (_DEST_FLAG if verb in _T_FLAG_VERBS else _DEST_FLAG_LONG)
+    m = pattern.search(text)
+    if not m:
+        return None
+    return normalize(m.group(1).strip("\"'"), cwd)
+
+
+def _moves_root(flat, cwd, vault_n, powershell):
+    """搬或複製的那段，總資料夾本身是來源（不是目的地，也就不是「放進總資料夾」）：mv／Move-Item／cp -r／robocopy 整個知識庫。
+    目的地用旗標指定（mv -t、cp --target-directory、-Destination）時，其餘路徑都是來源（來源可以排在最後，T-11）；
+    沒有旗標時最後一個路徑是目的地。目的地是總資料夾（cp a.txt .）不算；cd 之後才寫的 . 用原本的 cwd 算，
+    看不出來就當不是（理由句退回 Z8 那句，照樣擋）。"""
+    for _sub, _stage, text in _stages(flat, powershell):
+        if cmdparse.verb_of(text.split()) in MOVE_COPY_VERBS:
+            paths = cmdparse.extract_paths(text, cwd, powershell=powershell)
+            dest = _destination_by_flag(text, cwd, powershell)
+            if dest is not None:
+                sources = list(paths)
+                if dest in sources:
+                    sources.remove(dest)
+            else:
+                sources = paths[:-1]
+            if vault_n in sources:
+                return True
+    return False
+
+
+def _hidden_exclude_under(sources, path_n):
+    """path 底下（含自己）有沒有「不想讓 AI 看到」的排除（kind hidden，不管清完了沒；沒寫 kind 當 hidden，跟 sources 讀法一致）。"""
+    return any(ex.get("kind", "hidden") == "hidden" and inside(ex["root"], path_n)
+               for src in sources.entries for ex in src["excludes"])
+
+
+def _single_filename(pattern):
+    """Glob 樣式是單一檔名：沒有 *?[{、沒有目錄段（/ \\ : ..）、不是 . 或 ..；這種樣式只在 path 那一層找（B-425）。"""
+    if not isinstance(pattern, str) or not pattern.strip() or pattern.strip() in (".", ".."):
+        return False
+    return not any(ch in pattern for ch in "*?[]{}/\\:")
+
+
 def _pattern_head(pattern):
     """萬用字元前的固定前綴資料夾。"""
     m = re.search(r"[*?\[]", pattern)  # 大括號已在 cmdparse.brace_expand 展開（A1）
@@ -1088,7 +1144,11 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
 
     # D-186：每個路徑照讀判斷；只有真正被寫的（導向目標、寫入那段的參數、管線後面才寫時整個子指令）套寫入欄
     # （第八輪「整條 is_write 為真全部套寫入欄」的誤擋收在這裡，B-024）。只切目錄的目標不算 Z10b（只切目錄不讀內容）
+    moves_root = _moves_root(flat, cwd, vault_n, powershell)
+
     def write_column(p, zone, alias):
+        if zone == "Z8" and p == vault_n and moves_root:
+            return deny(zone, VAULT_MOVE_CODE, VAULT_MOVE_REASON)  # 寫入目標是總資料夾本身：搬家，不是「第一層不放檔」
         for column in ("read", "shell_write" if "shell_write" in ZONES[zone] else "write"):
             decision, code, reason = _verdict(zone, column, alias)
             if decision == "deny":
@@ -1283,6 +1343,14 @@ def decide(payload):
                 d = _file_tool(tool, head, cwd, vault, sources)
                 if d.decision == "deny":
                     return d
+            # B-425 (a)（T-7 後）：Glob 樣式是單一檔名、而且 path 底下的排除夾全是 unused 時，不判 Z10b，
+            # 改判「path／檔名」這個檔（像密碼的檔名照走憑證那道、檔名剛好是不讀夾的名字照 Z10）；path 本身在不讀夾裡照 Z10。
+            # Glob 的單一檔名實測也會往下找、列出不讀夾裡同名檔的路徑：unused 可以接受，hidden 連檔名都算要清的（D-174），照舊擋 Z10b
+            if (tool == "Glob" and _single_filename(ti.get("pattern")) and "{" not in str(target)
+                    and not cmdparse.is_wildcard(str(target))
+                    and classify(target_n, normalize(vault, None), sources)[0] == "Z10b"
+                    and not _hidden_exclude_under(sources, target_n)):
+                return _file_tool(tool, target_n + "/" + str(ti["pattern"]), cwd, vault, sources)
         return _file_tool(tool, str(target), cwd, vault, sources)
 
     return Decision("pass", "", "", "", [], vault)

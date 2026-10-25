@@ -9,6 +9,12 @@ B-415）：變動行改印「還有 N 份沒整理完、M 張卡要跟著搬」�
 裁定 14，D-161）；算超過開場時限就這行不印、寫 log。
 payload 的 session 在這個對話按過停止（session 檔記著 ingest_stopped，compact／resume 時）就不印整理指示（D-156、裁定 14）；
 這一步只讀 session 檔。
+換了位置、換了電腦（備份還原與換電腦，D-206、D-208）：line_moved 排在變動行前面；這台與別台都沒有位置紀錄（first）時默默寫 vault_path、補 vault.json、
+不印（moved.note_place，測試 T-2：不記的話用了幾個月的知識庫永遠認不出搬家）；換了位置、換了電腦時只讀（不寫 vault_path，kb moved 做完才寫）；
+印了這行時整理指示與「找不到來源」兩行都不印（先補位置：相對位置的來源會被當成不見，找不到來源那行還會把「已報過」記號寫掉，kb moved 會逐個列出來）。
+升級打包（D-215、D-217）：line_version 排在 kb 行之後、line_moved 前面，只用上一次查的結果（env.json 的 update_check），不連網；
+日期不是今天（且清單網址有填）就背景開一個 kb upgrade --background 的子行程、不等它；沒有 upgrade-history.json 就記成現在版本、不印；
+換了版要 kb upgrade --finish 時整理指示不印（跟 line_moved 同一處判斷）。這支多寫 .system/upgrade-history.json（第一次）與 env.json 的 update_check（日期）。
 core.md 之後接設定檔第六節的「客戶偏好（…照核心規則）：」一條一行（D-137，沒有不印；讀不到這段不印、寫 log；框住，測試後修正裁定 15）。
 任何例外寫 .system/hook-errors.log（source session），永遠 exit 0。找到知識庫之後的例外另印一行出錯的 additionalContext
 （失敗明講，開場注入測試後修正 D2）；找不到知識庫、stdin 壞掉不輸出。write／flush 也包住：pipe 斷掉照樣 exit 0。
@@ -40,9 +46,53 @@ def line_kb(vault):
     return f'【wiki-with-willy】kb 指令：python "{paths.plugin_root().as_posix()}/scripts/kb.py" <子命令>'
 
 
+_UPGRADE = {}  # vault → upgrade.opening 的結果或 None（出錯）；line_version 與整理指示讓位共用，log 只記一行
+
+
+def _upgrade_state(vault):
+    """升級打包第 7 點：upgrade.opening 不連網、不等背景（日期不是今天才開 kb upgrade --background 的子行程）；
+    沒有 upgrade-history.json 就記成現在版本。歷史壞了或出任何錯回 None、記一行 log，其他行照印。"""
+    key = str(vault)
+    if key not in _UPGRADE:
+        try:
+            from kb._lib import upgrade
+
+            _UPGRADE[key] = upgrade.opening(vault)
+        except Exception as e:  # noqa: BLE001
+            _UPGRADE[key] = None
+            _log_vault(vault, e)
+    return _UPGRADE[key]
+
+
 def line_version(vault):
-    """等 upgrade 題。"""
-    return None
+    """升級打包第 7 點（D-060、D-215、D-217）：(a) 換了版要 --finish、(b) 上次查到她可以拿的大升級、(c) 清單被指回舊版；其他不印。
+    排在 kb 那行之後、變動那行之前。"""
+    state = _upgrade_state(vault)
+    return state["line"] if state else None
+
+
+MOVED_LINE_TEXT = "知識庫換了位置：先跑 kb moved 補好再做別的。"
+NEW_MACHINE_LINE = "這台電腦第一次開這個知識庫：先跑 kb moved 看要補什麼。"
+_MOVED = {}  # vault → state（moved｜new_machine｜same｜first）或 None（出錯）；line_moved 與兩條讓位的行共用，log 只記一行
+
+
+def _moved_state(vault):
+    key = str(vault)
+    if key not in _MOVED:
+        try:
+            from kb._lib import moved
+
+            _MOVED[key] = moved.note_place(vault)  # first 時默默記位置、補 vault.json（測試 T-2），其他狀態只讀；回 state
+        except Exception as e:  # noqa: BLE001
+            _MOVED[key] = None
+            _log_vault(vault, e)
+    return _MOVED[key]
+
+
+def line_moved(vault):
+    """備份還原與換電腦第 4 點：env.json 這台電腦記的位置跟現在不同 → 換了位置；這台沒有紀錄、但有別台的 → 第一次開。只讀。"""
+    state = _moved_state(vault)
+    return {"moved": MOVED_LINE_TEXT, "new_machine": NEW_MACHINE_LINE}.get(state)
 
 
 CHANGES_LINE = "變動：新增 {added}、修改 {modified}、不見 {missing}"
@@ -158,7 +208,9 @@ def line_ingest_hint(vault, session_id=None):
     """ingest 製卡第 7 點：變動行（含還沒比完）印出來時緊接著一行，叫 AI 先照 ingest skill 整理、整理完再回答（D-156）；n 讀 ingest_auto_max。
     接在「還有 N 份沒整理完」後面時開頭不寫「有變動：」；這個 session 按過停止就不印（answer 裁定 14）。"""
     line = line_changes(vault)
-    if line is None or _stopped(vault, session_id):
+    state = _upgrade_state(vault)
+    if (line is None or _stopped(vault, session_id) or line_moved(vault)  # 先補位置，免得相對位置的來源被當成不見
+            or (state and state["finish"])):  # 先 kb upgrade --finish 轉格式，免得轉格式前就開始整理
         return None
     from kb._lib import config
 
@@ -168,6 +220,8 @@ def line_ingest_hint(vault, session_id=None):
 
 def line_missing_sources(vault):
     """清冊題：這台電腦找不到的來源，每台電腦只報一次（env.json 記號）；又找得到就清掉記號，之後再失蹤再報。"""
+    if line_moved(vault):  # kb moved 會列這台找不到的來源；這裡報了就把「已報過」記號寫掉
+        return None
     got = _quick_scan(vault)
     if got is None:
         return None
@@ -255,7 +309,7 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_agenda, line_backup,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_agenda, line_backup,
                line_health,
                lambda v: line_compact(v, source)):
         try:

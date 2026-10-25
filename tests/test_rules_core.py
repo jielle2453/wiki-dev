@@ -40,6 +40,11 @@ class RulesCore(unittest.TestCase):
         self.assertEqual(line, "- R-04 不改客戶原檔。改內容一律另存新檔；搬動、改名走 kb 程式；"
                                "刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
 
+    def test_r07_restore_and_upgrade_after_yes(self):
+        """備份還原與換電腦要做的事 12（D-205、D-215）：R-07 這一句跟「升級與打包發行」共用、一字不差。"""
+        line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-07 "))
+        self.assertEqual(line, "- R-07 整個知識庫的重建、搬家只說明指令與後果，不代跑；還原、升級先講清楚會發生什麼，客戶說好才做。")
+
     def test_utf8_lf_single_trailing_newline(self):
         raw = CORE.read_bytes()
         self.assertNotIn(b"\r", raw)
@@ -56,3 +61,11 @@ class SkeletonSentinel(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuildReportTemplate(unittest.TestCase):
+    def test_backup_hint_in_how_to_start_section(self):
+        """備份還原與換電腦要做的事 14（D-209）：交付報告「怎麼開始問」段有備份那句。"""
+        text = (ROOT / "templates" / "build-report.md").read_text(encoding="utf-8")
+        section = text.split("## 怎麼開始問", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("建議偶爾備份：說「幫我備份」就好", section)

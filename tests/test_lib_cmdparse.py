@@ -378,5 +378,24 @@ class Round2(unittest.TestCase):
         self.assertIn(n("C:/x/vault/AI 產出"), got)
 
 
+class CodePaths(unittest.TestCase):
+    """B-425 (b)：程式碼裡單獨的 / 與算式的 / 不抽成路徑；真的絕對路徑照抽。"""
+
+    def test_lone_slash_and_arithmetic_not_paths(self):
+        for text in ("s='/'", "print('/'.join(x))", 'print("/".join(x))', "print(540000/12)", "x=(1+2)/3; y=5 /c/ 2",
+                     "print(a / b / c)", "print(len(x) /c/ (n))", "print(n /c/ 2)"):
+            with self.subTest(text=text):
+                self.assertEqual(cmdparse.code_paths(text), [])
+
+    def test_real_absolute_paths_still_found(self):
+        self.assertEqual(cmdparse.code_paths("open('C:/x/a.txt')"), ["C:/x/a.txt"])
+        self.assertEqual(cmdparse.code_paths("open('/c/Users/x/a.txt')"), ["/c/Users/x/a.txt"])
+        self.assertEqual(cmdparse.code_paths("open('//server/share/a.txt')"), ["//server/share/a.txt"])
+        unc = "\\\\server\\share\\a.txt"
+        self.assertEqual(cmdparse.code_paths("open('" + unc + "')"), [unc])
+        self.assertEqual(cmdparse.code_paths("open(\"/c/\")"), ["/c/"])
+        self.assertEqual(cmdparse.code_paths("p = C:/x/a.txt"), ["C:/x/a.txt"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10301,6 +10301,296 @@
    ],
    "來源": "build-測試.md 回測第一輪 R1（22 第二輪派工）",
    "note": "PowerShell 列檔名照放"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "信義王報價.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "T-7：path 底下有 hidden 排除（行政/薪資），單一檔名 Glob 實測也會往下找 → 照舊 Z10b（只有 path 底下的排除全是 unused 才放行，見 test_guard_decide.GlobSingleFilename）"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "報價.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "T-7：path 底下有 hidden 排除（行政/薪資），單一檔名 Glob 實測也會往下找 → 照舊 Z10b（只有 path 底下的排除全是 unused 才放行，見 test_guard_decide.GlobSingleFilename）"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "**/*.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：樣式會往下走 → 照舊 Z10b"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "*.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：有萬用字元 → 照舊 Z10b"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "子夾/報價.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：樣式有目錄段 → 照舊 Z10b"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "密碼.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：單一檔名但像密碼 → 走憑證那道，仍擋"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "password.txt"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：單一檔名像密碼（英文）→ 仍擋"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政/薪資",
+    "pattern": "報價.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：path 在不讀夾裡 → 照舊 Z10"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "薪資"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (a) 對照：檔名剛好是不讀夾的名字 → Z10"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"s='/'; print(s)\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b)：程式碼裡單獨的 / 不抽成路徑（誤擋，Z10b credential_inside）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"print('/'.join(['a', 'b']))\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b)：'/'.join 不是路徑"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"x=(1+2)/3; y=5 /c/ 2; print(x/y)\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b)：算式裡的 /（前後是數字、括號、變數名）不是路徑"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"print(540000/12)\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b)：算式 540000/12"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"open('<RAW>/客戶案件/密碼.xlsx').read()\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b) 對照：程式碼裡指到憑證檔的絕對路徑 → 仍擋"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"open('/c/Users/x/密碼.txt').read()\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b) 對照：Git Bash 路徑的憑證檔 → 仍擋"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"open('<RAW>/行政/薪資/a.txt').read()\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 B-425（守門誤擋 Glob 單一檔名與 python -c 的 /）",
+   "note": "B-425 (b) 對照：程式碼裡指到不讀夾的絕對路徑 → 仍擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Move-Item -Path '<V>' -Destination 'D:/x'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 D-206",
+   "note": "備份還原 要做的事 10：整個知識庫搬家 → 擋、理由是搬家那句"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Copy-Item -Recurse '<V>' 'D:/x'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 D-206",
+   "note": "同上：Copy-Item -Recurse"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "robocopy '<V>' 'D:/x' /E"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 D-206",
+   "note": "同上：robocopy"
+  },
+  {
+   "tool": "Glob",
+   "input": {
+    "path": "<RAW>/行政",
+    "pattern": "v1.2.xlsx"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-7：hidden 排除在 path 底下，另一個單一檔名 → 仍 Z10b"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "mv -t /d/new '<V>'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：mv -t 指定目的地、來源在最後 → 擋（理由句是搬家那句，test_guard_decide 驗）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cp -r --target-directory=/d/x '<V>'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：cp --target-directory=… 來源在最後"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cp -r --target-directory /d/x '<V>'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：cp --target-directory …（空白分隔）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Copy-Item -Destination 'D:/x' -Path '<V>' -Recurse"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：-Destination 在前、-Path 在後"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Move-Item '<V>' -Destination 'D:/x'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：位置參數的來源加 -Destination"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Move-Item -Dest D:/x '<V>'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11：-Dest 縮寫"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cp -t '<V>' a.txt"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11 對照：目的地是知識庫根（放進去）→ 照舊擋（Z8 protected，不是搬家句）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Copy-Item -Destination '<V>' -Path a.txt"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
+   "note": "T-11 對照：PowerShell 放進知識庫根 → 照舊擋"
   }
  ]
 }
