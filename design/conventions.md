@@ -6,15 +6,22 @@
 
 ## 一、資料夾
 
-| 資料夾 | 放什麼 | git |
+| 代號 | 放什麼 | git |
 |---|---|---|
-| `C:\Users\Jie\Desktop\llm-wiki-j\` | repo：plugin 根目錄、程式、測試、設計文件 | 是 |
-| `design\reference\` | 舊程式：`plugin.zip`（舊 llm-wiki v0.13.1）、`llm-wiki-plugin-1.13.0.zip`（llm-wiki-plugin），加上 Karpathy 原文。唯讀，spec 的來源對照解壓到 repo 外再看，不解壓進 repo | 是 |
-| `C:\Users\Jie\Desktop\llm-wiki-test\` | 確認環境：假來源、總資料夾（結構見第六節） | 否 |
+| `<repo>` | repo：plugin 根目錄、程式、測試、設計文件 | 是 |
+| `<worktree>` | 一題的實作與測試：`<repo>` 旁邊的 `<repo 夾名>-<題目>`，分支 `spec/<題目>`（第三節） | 是 |
+| `<測試環境>` | 確認環境：假來源、各題確認用的總資料夾（結構見第六節） | 否 |
+| `<repo>\design\reference\` | 舊程式：`plugin.zip`（舊 llm-wiki v0.13.1）、`llm-wiki-plugin-1.13.0.zip`（llm-wiki-plugin），加上 Karpathy 原文。唯讀，spec 的來源對照解壓到 repo 外再看，不解壓進 repo | 是 |
+| `<repo>\tools\testdata\` | 假來源 `來源.zip` 與產生它的 `generate.py`（第六節） | 是 |
 
-路徑是開發機的；另一台電腦換成自己的位置，`design\reference\` 跟著 repo 走。
+process 與本檔的路徑一律寫代號；開場訊息貼出去之前換成自己電腦的位置：
 
-plugin 名稱 `wiki-with-willy`（D-069），指令前綴 `/wiki-with-willy:`；repo 資料夾仍叫 `llm-wiki-j`。不能叫 `llm-wiki`，會跟已安裝的撞。
+| 誰的電腦 | `<repo>` | `<測試環境>` |
+|---|---|---|
+| jielle2453 | `%USERPROFILE%\Desktop\llm-wiki-j` | `%USERPROFILE%\Desktop\llm-wiki-test` |
+| jacky | （自己填） | （自己填） |
+
+plugin 名稱 `wiki-with-willy`（D-069），指令前綴 `/wiki-with-willy:`；repo 資料夾在 jielle2453 的電腦叫 `llm-wiki-j`，從 GitHub clone 預設叫 `wiki-with-willy`，兩個都可以。不能叫 `llm-wiki`，會跟已安裝的撞。
 
 ## 二、文件
 
@@ -62,26 +69,26 @@ llm-wiki-j/
 | session | 能寫 | 不能寫 |
 |---|---|---|
 | 設計 | 全部 | — |
-| 實作 | 程式、測試、`backlog.md` 只能新增 | spec、decisions、architecture、README |
-| 測試 | `reports/<題目>-測試.md` | 程式、spec |
-| 確認 | `reports/<題目>-確認.md` | 程式、spec |
+| 實作 | 程式、測試 | spec、decisions、architecture、README、backlog（發現寫在回報） |
+| 測試 | `reports/<題目>-測試.md`（只 commit 這份） | 程式、spec、backlog（發現寫在報告） |
+| 確認 | `reports/<題目>-確認.md`（只 commit 這份） | 程式、spec、backlog（發現寫在報告） |
 
 **格式：** `decisions.md` 一條一段，編號 `D-nnn`，五行：日期、選了什麼、為什麼、放棄了什麼、重談條件。`incidents.md` 一條一段 `I-nnn`，四行：來源、發生過什麼、合併版會不會踩、客戶會不會遇到。`backlog.md` 一行一條 `B-nnn`，七欄：#、日期、狀態、嚴重、區域、事、來自；狀態只寫一個詞，說明寫進「事」；照狀態分四區：要處理的（要做、待決）、延後的、不做、做完的，狀態改了就換區。
 
 **狀態與索引：** 決策被後來的決策改到時，在原條第一行加「狀態：作廢／部分修訂／有補充，見 D-nnn」，原文不刪；還沒定的事開成 backlog 的「待決」，不另設未決區、不再用 U 編號。`decisions.md`、`backlog.md`、`incidents.md` 最前面各有索引，新增一條時在對應的區加一行；backlog 換區時索引跟著改。編號不重編。
 
-**同一套詞（索引、backlog、spec、issue、團隊總表都用這些）：**
+**同一套詞（索引、backlog、spec、issue、團隊 repo 的開發表都用這些）：**
 
 | 詞 | 值 | 用在 |
 |---|---|---|
 | 區域 | 清冊與來源、整理成卡、設定與知識、日程、回答、做文件、守門與密碼、回合與日誌、建置、備份與搬家、升級與發行、健檢與待處理、hooks、核心規則與開場、狀態檔格式、skill 文字、架構與共通、流程與文件、延伸（可以寫好幾個；hooks、核心規則與開場、狀態檔格式、skill 文字是最容易撞的） | 索引的分類、backlog 的區域欄、spec 檔頭、issue 的 label |
-| 狀態 | 想法、待決、延後、要做、設計中、定稿、開發中、測試中、確認中、發行中、做完、不做 | backlog 用：要做、待決、延後、不做、做完；spec 用：設計中、定稿、開發中、測試中、確認中、發行中、做完；issue 用：待決、設計中、開發中、測試中、確認中、發行中（做完或不做就關掉 issue）；團隊總表的客製用：想法、待決、延後、設計中、開發中、測試中、確認中、做完、不做 |
+| 狀態 | 想法、待決、延後、要做、設計中、定稿、開發中、測試中、確認中、發行中、做完、不做 | backlog 用：要做、待決、延後、不做、做完；spec 用：設計中、定稿、開發中、測試中、確認中、發行中、做完；issue 用：待決、設計中、開發中、測試中、確認中、發行中（做完或不做就關掉 issue）；團隊 repo 客製表用：想法、待決、延後、設計中、開發中、測試中、確認中、做完、不做 |
 | 嚴重 | 高、中、低；不知道寫「－」 | backlog 的嚴重欄、測試與確認報告的發現表 |
-| 急迫 | 高、中、低 | issue 的 label、團隊總表的客製 |
-| 類型 | 補強、客製、bug | issue 的 label（補強、bug）、團隊總表 |
+| 急迫 | 高、中、低 | issue 的 label、團隊 repo 客製表 |
+| 類型 | 補強、客製、bug | issue 的 label（補強、bug）、團隊 repo 開發表 |
 | 引用 | 「報告檔名 #N」、「issue #n」、「B-nnn」、「D-nnn」 | spec、backlog、決策、程式註解、commit 提到時一律這樣寫，後面加一句說是什麼 |
 
-**issue 與 backlog：** GitHub issue 放客戶或團隊要的功能（要排先後、要討論；開之前先給人看；不寫客戶名，哪位客戶要寫在團隊總表）；`backlog.md` 放開發過程自己發現的事（bug、測試低項、技術債、延後的小事），任何 session 都能新增。一件事只住一個地方：backlog 的某條變成要做的功能時開 issue，那條改做完、說明寫「轉成 issue #n」；issue 寫成 spec 時，把同一區的相關 backlog 併進那題一起做、做完一起關。
+**issue 與 backlog：** GitHub issue 放客戶或團隊要的功能（要排先後、要討論；開之前先給人看；不寫客戶名，哪位客戶要寫在團隊 repo `wiki-studio` 的 `開發/README.md` 補強表）；`backlog.md` 放開發過程自己發現的事（bug、測試低項、技術債、延後的小事），由設計 session 記、給編號（其他 session 的發現寫在回報或報告，見 process 第三節步驟 7）。一件事只住一個地方：backlog 的某條變成要做的功能時開 issue，那條改做完、說明寫「轉成 issue #n」；issue 寫成 spec 時，把同一區的相關 backlog 併進那題一起做、做完一起關。
 
 **issue 的寫法：** 內文照這六段：一句話、為什麼（客戶會遇到什麼）、要的行為、驗收、需要決定的、相關（B-、D-、其他 issue）。label 四種：類型、急迫、狀態、區域（可以好幾個）。誰在做用負責人（assignee）、哪一版做用 milestone，不另設 label。兩個 issue 有同一個區域時，認領前比對各自 spec 的「可以動」，重疊就排先後。
 
@@ -104,12 +111,12 @@ llm-wiki-j/
 | 項目 | 約定 |
 |---|---|
 | 初始化 | 第一個 commit 只有殼 |
-| 分支 | `main` 的程式只在發行時動；設計 session 可隨時在 `main` commit 純 `design/` 的改動，訊息開頭「設計:」。一題一個分支 `spec/<題目>`，實作與測試都在分支上。**實作與測試 session 用 git worktree**：`git worktree add ..\llm-wiki-j-<題目> -b spec/<題目>`，開在那個夾；主 checkout 永遠停在 `main` 給設計 session。發行 merge 後 `git worktree remove`（2026-10-12 改，I-093 實際踩到） |
+| 分支 | `main` 的程式只在發行時動；設計 session 可隨時在 `main` commit 純 `design/` 的改動，訊息開頭「設計:」。一題一個分支 `spec/<題目>`，實作與測試都在分支上。**實作與測試 session 用 git worktree**：`git worktree add <worktree> -b spec/<題目>`，開在那個夾；主 checkout 永遠停在 `main` 給設計 session。發行 merge 後 `git worktree remove`（2026-10-12 改，I-093 實際踩到） |
 | 發行 | 只在決策者說「發行」之後；步驟見 process 第三節第 6 步，一次只一個發行（process 第八節） |
 | push | 開工先 pull，做完 push；`design/` 改完當下就 push；不准 force push。實作 session 不 push，分支在發行時併回 |
 | 版號 | semver。首位客戶試跑前停在 `0.x`；功能加 minor，修 bug 加 patch |
 | commit | 第一行 `<題目>: <一句話>`；結尾 `Spec: design/specs/<檔名>` 加各 session 自己的 Co-Authored-By；用 `git commit -- <檔>` 只提交自己改的檔，不 `-a`（I-093） |
-| author | email 用這台機器的 global 設定（2026-10-12 已設）。實作 session `git -c user.name="實作:<題目>" commit`，設計 session `git -c user.name="設計" commit`，都只改 user.name。測試與確認 session 不 commit |
+| author | email 用這台機器的 global 設定（2026-10-12 已設）。實作 session `git -c user.name="實作:<題目>" commit`，設計 session `git -c user.name="設計" commit`，都只改 user.name。測試與確認 session 只 commit 自己的報告，user.name 用「<題目>測試」「<題目>確認」。另一台電腦 email 用自己的 |
 | 行尾 | `.gitattributes`：`* text=auto eol=lf` |
 | 不進 repo | `__pycache__/`、`*.pyc`、`.claude/settings.local.json`、`*.tmp`、測試環境、任何客戶資料 |
 | 版號對齊 | 測試檢查 `plugin.json` 與 CHANGELOG 最新一段一致 |
@@ -137,10 +144,10 @@ llm-wiki-j/
 
 ## 六、測試資料
 
-位置 `llm-wiki-test\來源\`，全假，程式生成，腳本放 `llm-wiki-test\生成\`，生完打包 `來源.zip`。假客戶沿用接案流程演練的「林小姐，接案室內設計師」。
+位置 `<測試環境>\來源\`，全假，程式生成。正本是 repo 的 `tools\testdata\來源.zip`：第一次把它複製到 `<測試環境>` 再解開，每次確認前用它還原。要改假資料才跑 `python tools/testdata/generate.py <測試環境>`（要 python-docx、openpyxl、reportlab、pikepdf、pillow 與 Windows 的標楷體），再把新的 `來源.zip` 放回 `tools\testdata\` commit。假客戶沿用接案流程演練的「林小姐，接案室內設計師」。
 
 ```
-llm-wiki-test\
+<測試環境>\
 ├─ 來源\            假客戶資料夾
 ├─ 來源.zip         乾淨備份，每次確認前還原
 └─ 總資料夾\        由 plugin 建出來，名字建置時取

@@ -2,7 +2,7 @@
 
 日期：2026-10-12
 給誰看：設計 session 判斷架構與寫 spec；實作與測試 session 從這裡取測試案例（architecture 六、維運層）。
-什麼時候更新：只在設計 session 改。新事故加一段、判斷改了就改該段；其他 session 發現的先寫 backlog。
+什麼時候更新：只在設計 session 改。新事故加一段、判斷改了就改該段，寫之前先 pull（編號不分段，process 第八節）；其他 session 發現的寫在回報或報告。
 
 **來源縮寫：** `llm-wiki` 指 `third party\llm-wiki-plugin-main\llm-wiki-plugin-main\`，現況 1.8.0；`plugin` 指 `third party\plugin\plugin\`，現況 0.13.1，沒有 CHANGELOG，修正版號取自程式註解。行號是採集當天（2026-10-12）的行號。2026-10-26 起舊程式改放 `design/reference/` 的 zip：`plugin.zip` 就是這裡的 `plugin`；`llm-wiki` 換成 1.13.0（`llm-wiki-plugin-1.13.0.zip`），1.8.0 的行號對不上時以檔名與函式找。
 
