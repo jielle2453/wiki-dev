@@ -705,18 +705,20 @@ def _key_of(vault, ask):
     return f"{ask['id']}@{_digest(ask['question'] + extra)}"
 
 
-def _urgent(ask, ctx, limit):
-    """有時間性（D-225、D-129）：逾期一律算；日程有出入的條目或新日期離今天剩 set_aside_wake_days 天以內；待處理的 data.dates 同。"""
+def _urgent(ask, ctx, limit, today=None):
+    """有時間性（D-225、D-129）：逾期一律算；日程有出入的條目或新日期、待處理的 data.dates 落在今天到 set_aside_wake_days 天後之間
+    （過了的日期不算：逾期的日程另有逾期題，測試 T-3）。"""
+    today = today or agenda._today()
     kind, _sep, target = str(ask["id"]).partition(":")
     if ask["kind"] == "overdue":
         return True
     if kind == "conflict":
         item = ctx.agenda_item(target) or {}
         days = [item.get("date"), (item.get("proposal") or {}).get("date")]
-        return any(isinstance(d, str) and d <= limit for d in days)
+        return any(isinstance(d, str) and today <= d <= limit for d in days)
     if kind == "pending":
         item = ctx.pending_item(target) or {}
-        return any(str(d) <= limit for d in (item.get("data") or {}).get("dates") or [])
+        return any(today <= str(d) <= limit for d in (item.get("data") or {}).get("dates") or [])
     return False
 
 

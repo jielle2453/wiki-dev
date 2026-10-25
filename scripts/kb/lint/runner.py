@@ -12,6 +12,8 @@ decide：寫進待處理（kind lint，同 key 合成一件、已在的不重複
 （同月重寫）。第一次跑（沒有 lint.json）不補報告。
 opening 給開場 hook：距上次健檢超過 lint_background_days 天、今天還沒開過，就背景開 kb lint --background、不等它。
 """
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -27,7 +29,11 @@ LOCK_WAIT = 1
 LOCK_STALE = 3600
 BUSY = "另一個健檢正在跑，等它做完"
 FAILED_LINE = "{name}這項這次沒查成"
-NOT_TRUE_HOW = "健檢確認已不成立"
+NOT_TRUE_HOW = pending.LINT_GONE_HOW
+# 舊版開的 lint 件沒記 check：照 key 的開頭認是哪一項開的（條件消失時關，測試 T-1）
+KEY_CHECKS = (("guard_stale", "guard"), ("versions_unwritable", "backup"), ("system_link", "system_dir"),
+              ("inferred:", "inferred"), ("skeleton:", "versions"), ("synthesis_big:", "sizes"),
+              ("redo_by_profile:", "stale_by_profile"), ("promote:", "rulings_promote"))
 CLOSED_TEXT = "關掉 {n} 件已經不成立的待處理"
 ASIDE_TEXT = "收起 {n} 件放超過 {days} 天沒動的待處理（先放著，有變化會再拿出來）"
 OPENING_LOCK_WAIT = 0.5  # 開場記「今天開過了」只等這麼久，等不到這次不開（開場 hook 有時限）
@@ -180,21 +186,16 @@ def _run(vault, background, today):
     turn_id = _program_turn(vault) if background else turn.current(vault)["turn"]
     ctx = Context(vault, today=today, turn_id=turn_id, background=background)
     done, notes, failed, numbers, ingest, decided = [], [], [], {}, {}, []
-    for mod in checks.CHECKS:
-        try:
-            found = mod.run(ctx)
-        except Exception as e:  # noqa: BLE001  一項出錯不影響其他（D-221）
-            failed.append(mod.NAME)
-            ledger.log_error(vault, f"健檢「{mod.NAME}」出錯：{type(e).__name__}: {e}", source="lint")
-            continue
-        for f in found:
-            try:
-                _handle(ctx, f, done, notes, numbers, ingest, decided)
-            except Exception as e:  # noqa: BLE001
-                if mod.NAME not in failed:
-                    failed.append(mod.NAME)
-                ledger.log_error(vault, f"健檢「{mod.NAME}」處理結果出錯：{type(e).__name__}: {e}", source="lint")
-    _upkeep(ctx, done, failed)
+    ran, keys = set(), set()
+    early = [m for m in checks.CHECKS if not getattr(m, "AFTER_UPKEEP", False)]
+    late = [m for m in checks.CHECKS if getattr(m, "AFTER_UPKEEP", False)]  # 件數在關件之後算（測試 T-24）
+    for mod in early:
+        _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys)
+    closed = _close_gone(ctx, ran, keys)
+    _upkeep(ctx, done, failed, closed)
+    ctx.forget("collect")
+    for mod in late:
+        _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys)
     try:
         state.prune(vault, turn_id)
     except Exception as e:  # noqa: BLE001
@@ -204,28 +205,82 @@ def _run(vault, background, today):
     st = state.load(vault)
     st["month_done"] = st["month_done"] + [{"date": ctx.today, "text": t} for t in done]
     counts = {"decide": got["decide"], "set_aside": got["set_aside"]}
+    n_failed = len(failed)
     if background:
         prev = _prev_month(month)
         if first_time or not st.get("last_report"):
             st["last_report"] = prev
         elif st["last_report"] < prev:
             month_done = [d["text"] for d in st["month_done"] if str(d.get("date", ""))[:7] == prev]
-            report.write(ctx, prev, month_done, got, numbers, ingest, notes, failed, st.get("last_counts"))
+            report.write(ctx, prev, month_done, got, numbers, ingest, notes, failed, _counts(st.get("last_counts")))
             pending.add_report(vault, prev, turn_id)
             st["last_counts"] = dict(counts, done=len(month_done))
             st["last_report"] = prev
             st["month_done"] = [d for d in st["month_done"] if str(d.get("date", ""))[:7] > prev]
     this_month = [d["text"] for d in st["month_done"] if str(d.get("date", ""))[:7] == month]
-    summary = report.summary(got["decide"], len(this_month), st.get("last_counts"))
+    summary = report.summary(got["decide"], len(this_month), _counts(st.get("last_counts")), failed=n_failed)
     rel = None
     if not background:
-        rel = report.write(ctx, month, this_month, got, numbers, ingest, notes, failed, st.get("last_counts"))
+        rel = report.write(ctx, month, this_month, got, numbers, ingest, notes, failed, _counts(st.get("last_counts")))
     st["last_background"] = ctx.today
     state.save(vault, st, turn_id)
     _journal(vault, background, done)
     return {"month": month, "report": rel, "summary": summary, "done": done, "decide": got["decide"],
             "most_urgent": got["most_urgent"], "set_aside": got["set_aside"], "ingest": ingest, "failed_checks": failed,
             "numbers": numbers, "notes": notes}
+
+
+def _counts(last):
+    return last if isinstance(last, dict) else None
+
+
+def _check_id(mod):
+    """這一項的名字（finding 的 check 就是它）：模組檔名。"""
+    return str(getattr(mod, "__name__", mod.NAME)).rsplit(".", 1)[-1]
+
+
+def _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys):
+    """跑一項、處理它的結果；跑成功、結果也都處理成功才算進 ran（只有 ran 的才關它沒再回的件，測試 T-1）。"""
+    try:
+        found = mod.run(ctx)
+    except Exception as e:  # noqa: BLE001  一項出錯不影響其他（D-221）
+        failed.append(mod.NAME)
+        ledger.log_error(ctx.vault, f"健檢「{mod.NAME}」出錯：{type(e).__name__}: {e}", source="lint")
+        return
+    ok = True
+    for f in found:
+        try:
+            _handle(ctx, f, done, notes, numbers, ingest, decided)
+            if f["kind"] == "decide":
+                keys.add(f["key"])
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            if mod.NAME not in failed:
+                failed.append(mod.NAME)
+            ledger.log_error(ctx.vault, f"健檢「{mod.NAME}」處理結果出錯：{type(e).__name__}: {e}", source="lint")
+    if ok:
+        ran.add(_check_id(mod))
+
+
+def _owner(item):
+    if item.get("check"):
+        return item["check"]
+    key = str(item.get("key") or "")
+    return next((check for head, check in KEY_CHECKS if key.startswith(head)), None)
+
+
+def _close_gone(ctx, ran, keys):
+    """這次跑成功的檢查沒再回的 lint 件關掉；回關掉幾件（併進「關掉不成立的待處理」那句）。"""
+    try:
+        return pending.close_lint_gone(ctx.vault, _owner, ran, keys, ctx.turn_id)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(ctx.vault, f"健檢「關掉不成立的待處理」出錯：{type(e).__name__}: {e}", source="lint")
+        return 0
+
+
+def _fp(items):
+    """對象指紋：這件列的項目（她答過、項目沒變就不重開，測試 T-2）。"""
+    return hashlib.sha256(json.dumps(sorted(str(x) for x in items), ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
 
 
 def _handle(ctx, f, done, notes, numbers, ingest, decided):
@@ -240,7 +295,7 @@ def _handle(ctx, f, done, notes, numbers, ingest, decided):
             done.append(text)
     elif kind == "decide":
         pid, _created = pending.add_lint(ctx.vault, f["key"], f["text"], f["data"], ctx.turn_id, file_ids=f["file_ids"],
-                                         entity_ids=f["entity_ids"], once=f["once"])
+                                         entity_ids=f["entity_ids"], once=f["once"], check=f["check"], fp=_fp(f["items"]))
         decided.append(pid)
     elif kind == "number":
         numbers[f["key"]] = f["data"]
@@ -248,10 +303,11 @@ def _handle(ctx, f, done, notes, numbers, ingest, decided):
         ingest.update(f["data"])
 
 
-def _upkeep(ctx, done, failed):
-    """待處理的整理：關掉不成立的、收起放太久的、該回來的拿回前面、換掉「整理時要問你的」。各自 try。"""
+def _upkeep(ctx, done, failed, closed=0):
+    """待處理的整理：關掉不成立的（closed 是剛才關掉的 lint 件，一起算進那句）、收起放太久的、該回來的拿回前面、
+    換掉「整理時要問你的」。各自 try。"""
     vault = ctx.vault
-    steps = (("關掉不成立的待處理", lambda: _close_untrue(ctx, done)),
+    steps = (("關掉不成立的待處理", lambda: _close_untrue(ctx, done, closed)),
              ("收起放太久的待處理", lambda: _aside_old(ctx, done)),
              ("先放著的拿回前面", lambda: pending.wake_due(vault, ctx.turn_id, ctx.today)),
              ("整理時要問你的", lambda: _refresh_asks(ctx)))
@@ -269,7 +325,11 @@ def _untrue(ctx, item):
     by_id = {e.get("id"): e for e in ctx.inventory()}
     if kind == "unreadable":
         e = by_id.get((item.get("file_ids") or [None])[0])
-        return e is None or e.get("status") != "active" or e["id"] in ctx.cards()
+        if e is None or e.get("status") != "active":
+            return True
+        card = ctx.cards().get(e["id"])  # 卡追上現在的檔才算讀得到（舊卡還在等重做的不算，測試 T-5）
+        from kb._lib import cards as cards_lib
+        return card is not None and cards_lib.card_state(ctx.vault, e, card) is None
     if kind == "conflict":
         return any(f not in ctx.cards() for f in item.get("file_ids") or [])
     if kind == "close":
@@ -282,10 +342,10 @@ def _untrue(ctx, item):
     return False
 
 
-def _close_untrue(ctx, done):
+def _close_untrue(ctx, done, closed=0):
     items = pending.load(ctx.vault)["items"]
     ids = [i["id"] for i in items if i.get("status") == "open" and _untrue(ctx, i)]
-    n = pending.close_ids(ctx.vault, ids, NOT_TRUE_HOW, ctx.turn_id) if ids else 0
+    n = (pending.close_ids(ctx.vault, ids, NOT_TRUE_HOW, ctx.turn_id) if ids else 0) + closed
     if n:
         done.append(CLOSED_TEXT.format(n=n))
 
@@ -308,7 +368,7 @@ def _decisions(ctx):
     try:
         got = plan.build(ctx.collect(), ctx.vault, config, tell_all=False)
         extra, hidden = plan.pending_asks(ctx.vault)
-        asks = plan.order(got["asks"] + extra)
+        asks = [a for a in plan.order(got["asks"] + extra) if a["kind"] != "pending_report"]  # 報告那件不算（測試 T-20）
         return {"decide": len(asks), "most_urgent": asks[0]["question"] if asks else None,
                 "set_aside": got.get("set_aside", 0) + hidden, "asks": asks}
     except Exception as e:  # noqa: BLE001
@@ -363,7 +423,8 @@ def opening(vault, today=None):
     last = st.get("last_background")
     if last:
         try:
-            if (date.fromisoformat(today) - date.fromisoformat(str(last)[:10])).days <= config.get(vault, "lint_background_days"):
+            days = (date.fromisoformat(today) - date.fromisoformat(str(last)[:10])).days
+            if 0 <= days <= config.get(vault, "lint_background_days"):  # 未來的日期（時鐘曾經錯）當過期（測試 T-15）
                 return False
         except ValueError:
             pass

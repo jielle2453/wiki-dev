@@ -19,10 +19,12 @@ def template():
     return (paths.plugin_root() / "templates" / "health-report.md").read_text(encoding="utf-8")
 
 
-def summary(decide, done, last):
-    """一句話：先講整體（沒有要決定的「一切正常」、FEW 件以內「大致正常」、更多講件數），再跟上一份定稿報告比
-    要她決定的件數與替她做了幾件（一樣的不講）；沒有上一份就講這個月做了幾件。"""
+def summary(decide, done, last, failed=0):
+    """一句話：先講整體（沒有要決定的「一切正常」、FEW 件以內「大致正常」、更多講件數；有項目沒查成就不說一切正常，測試 T-16），
+    再跟上一份定稿報告比要她決定的件數與替她做了幾件（一樣的不講）；沒有上一份就講這個月做了幾件。"""
     head = "一切正常" if decide == 0 else ("大致正常" if decide <= FEW else f"有 {decide} 件要你決定")
+    if failed:
+        head = f"有 {failed} 項這次沒查成" if decide == 0 else f"{head}，有 {failed} 項這次沒查成"
     parts = []
     if last and isinstance(last.get("decide"), int):
         diff = decide - last["decide"]
@@ -130,7 +132,7 @@ def _suggest(numbers, ingest):
 def write(ctx, month, done, got, numbers, ingest, notes, failed, last_counts):
     """寫 系統/健檢報告/<month>.md（同月重寫）；回相對路徑。"""
     decide = [a["question"] for a in got.get("asks") or []]
-    body = text(month, summary(got["decide"], len(done), last_counts), done, decide, _aside_lines(ctx),
+    body = text(month, summary(got["decide"], len(done), last_counts, failed=len(failed)), done, decide, _aside_lines(ctx),
                 _suggest(numbers, ingest), _numbers(ctx, got, numbers, ingest, notes, failed))
     rel = f"{REPORT_DIR}/{month}.md"
     p = Path(ctx.vault) / rel

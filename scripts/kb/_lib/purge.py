@@ -372,6 +372,81 @@ def _current_state(vault, ids, turn_id, counts):
             counts["card_ids"].add(cid)
 
 
+def _lint_files(vault, ids, words, turn_id, counts):
+    """lint 題（測試 T-8）：健檢與問法的新檔。推算封存檔拿掉掛那些卡的；口述封存檔、lint.json 的「替你做了」、set_aside.json 的問句、
+    renders.json 的整理問題照字詞遮（編號、卡標題、那夾的路徑）；lint.json 的 synthesis_fix 拿掉那些卡的編號；她手改留下的那份
+    （.system/handedits/）與健檢報告（系統/健檢報告/）整份照字詞遮。照字詞遮的不備進回合（清掉的本來就退不回，備了反而留下原文）；
+    推算封存檔照狀態檔的做法備份，回合夾的舊版照 JSON_DROPS 拿掉。各自 try，寫不了的算進還剩的狀態檔。"""
+    from kb._lib import renders, statements
+    from kb.lint import state as lint_state
+
+    def f_archive():
+        p = Path(vault) / findings.ARCHIVE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            data = findings.load_archive(vault)
+            n = drop_findings(data, ids)
+            if n:
+                turn.backup(vault, findings.ARCHIVE_POSIX, turn_id)
+                write_json_atomic(p, data)
+                counts["findings"] += n
+
+    def s_archive():
+        p = Path(vault) / statements.ARCHIVE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            data = statements.load_archive(vault)
+            new = [dict(s, text=words(s.get("text"))) for s in data["statements"]]
+            if new != data["statements"]:
+                write_json_atomic(p, dict(data, statements=new))
+
+    def lint_json():
+        if not lint_state.exists(vault):
+            return
+
+        def change(d):
+            fixes = [dict(f, ids=[i for i in f.get("ids") or [] if i not in ids]) for f in d["synthesis_fix"]]
+            done = [dict(x, text=words(x.get("text"))) for x in d["month_done"]]
+            if (fixes, done) == (d["synthesis_fix"], d["month_done"]):
+                return False
+            d["synthesis_fix"], d["month_done"] = fixes, done
+            return True
+        lint_state.change(vault, change)
+
+    def set_aside():
+        from kb._lib import plan
+        p = Path(vault) / plan.SET_ASIDE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            keys = plan.set_aside_keys(vault)
+            new = {k: dict(v, question=words(v.get("question"))) for k, v in keys.items()}
+            if new != keys:
+                write_json_atomic(p, {"schema_version": 1, "keys": new})
+
+    def renders_json():
+        if not (Path(vault) / renders.RENDERS_POSIX).exists():
+            return
+        before = renders.stored_asks(vault)
+        renders._edit(vault, lambda d: d.update(asks=[words(q) for q in d["asks"]]))
+        if renders.stored_asks(vault) != before and (Path(vault) / pending.PENDING_POSIX).exists():
+            with FileLock(Path(vault) / pending.PENDING_POSIX):
+                pending.render(vault)  # 待處理.md 的「整理時要問你的」照遮過的重寫（剛才清狀態檔時才寫過，不會是她手改的）
+
+    def texts():
+        for folder in (Path(vault) / renders.HANDEDITS_POSIX, Path(vault) / "系統" / "健檢報告"):
+            for f in sorted(folder.glob("*")) if folder.is_dir() else []:
+                if f.is_file() and not _is_link(f):
+                    _mask_file(f, words, counts)
+    for step in (f_archive, s_archive, lint_json, set_aside, renders_json, texts):
+        try:
+            step()
+        except (OSError, ValueError):
+            counts["left"]["state"] += 1
+
+
 def _drop_synced(vault, gone, turn_id, counts):
     """目前的綜合卡檔頭「整理到」拿掉指到清掉的卡與推算的行（第七輪：AI 照 todo 重寫時推算還在，清完就成了懸空的行）；
     改前備進回合（程式改的）。改不了算進還剩的狀態檔。"""
@@ -447,6 +522,7 @@ JSON_DROPS = {
     agenda.AGENDA_POSIX: lambda data, ids, prefix: drop_agenda(data, ids),
     rulings.RULINGS_POSIX: lambda data, ids, prefix: drop_rulings(data, ids),
     findings.FINDINGS_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),
+    findings.ARCHIVE_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),  # lint 題：推算封存檔（T-8）
 }
 
 
@@ -966,6 +1042,7 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     mask = masker(vault, alias, spec, root)  # 備份、ledger、hook-errors 只換路徑（第六輪）
     words = word_masker(mask, ids, word_titles(vault, titles))  # 工作日誌與回合檔的「問」、result、note 另比編號與標題
     _current_state(vault, ids, turn_id, counts)
+    _lint_files(vault, ids, words, turn_id, counts)
     record(vault, alias, spec, "findings", counts["finding_ids"], turn_id)
     _drop_synced(vault, set(ids) | recorded(vault, alias, spec, "findings"), turn_id, counts)
     for vdir in _version_dirs(vault):

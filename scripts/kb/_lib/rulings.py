@@ -40,7 +40,7 @@ MISSING_CARD = "（找不到這張卡）"
 MISSING_FILE = "（找不到這份檔）"
 HEADER = ("# 裁示\n"
           "這是什麼：你說過「只有這件這樣」的個案，程式從 .system/rulings.json 整理出來。\n"
-          "怎麼用：要改跟我說；直接改這個檔不會生效。\n"
+          "怎麼用：要改跟我說，或在這裡刪掉一行。\n"
           "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。\n")  # D-223：照她刪掉的收回
 EMPTY_SENTENCE = "目前沒有裁示"
 
@@ -411,7 +411,9 @@ def render(vault, turn_id=None, data=None, base=None):
     hers = renders.check(vault, MD_POSIX)
     if hers is not None:
         base = base if base is not None else data
-        renders.handle_list(vault, MD_POSIX, hers, render_text(base, titles, names), item_lines(base, titles, names), turn_id)
+        if renders.handle_list(vault, MD_POSIX, hers, render_text(base, titles, names), item_lines(base, titles, names),
+                               turn_id) == renders.KEEP_FAILED:
+            return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
             renders.record(vault, MD_POSIX, text)

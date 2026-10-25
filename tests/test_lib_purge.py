@@ -255,5 +255,50 @@ class Purge(unittest.TestCase):
         self.assertFalse((Path(self.V) / self.card_rel).exists())
 
 
+class LintFiles(unittest.TestCase):
+    """lint 題 T-8：健檢與問法的新檔也清——封存檔（推算掛那夾的卡、口述提到那夾的路徑）、lint.json 的 synthesis_fix 與 month_done、
+    set_aside.json 的問句、renders.json 的整理問題、她手改留下的那份、健檢報告；真的 exclude --kind hidden 再 purge。"""
+    setUp, tearDown = Purge.setUp, Purge.tearDown
+    write_synthesis, exclude = Purge.write_synthesis, Purge.exclude
+
+    def test_lint_files_cleaned(self):
+        from kb._lib import renders, statements
+        from kb.lint import state
+        V = self.V
+        t = turn.start(V, None, "")["turn"]
+        diary_finding = next(c for c in findings.load(V)["findings"] if c["text"] == "日記推出來的")
+        findings.withdraw(V, diary_finding["id"], t)
+        findings.archive(V, [diary_finding["id"]], t)
+        st = statements.add(V, f"日記放在 客戶案件/私人/{DIARY}", ["信義王"], t)[0]
+        statements.withdraw(V, st["id"], t)
+        statements.archive(V, [st["id"]], t)
+        state.add_fix(V, self.syn_rel, "出處點不開", [self.fid, "f-00000000"], t)
+        state.change(V, lambda d: d["month_done"].append({"date": "2026-10-20", "text": "標了「王家心情」那張"}) or True)
+        (Path(V) / ".system" / "set_aside.json").write_text(json.dumps(
+            {"schema_version": 1, "keys": {"name:x@1": {"at": "2026-10-20", "by": "customer", "question": "「王家心情」名字對嗎？"}}},
+            ensure_ascii=False), encoding="utf-8")
+        renders.set_asks(V, ["「王家心情」改過了，現在可以信了嗎？"])
+        saved = renders.keep(V, "系統/待處理.md", f"- 「王家心情」客戶案件/私人/{DIARY} 讀不到\n")
+        report = Path(V) / "系統" / "健檢報告" / "2026-10.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(f"# 健檢報告 2026-10\n- 「王家心情」在 客戶案件/私人/{DIARY}\n", encoding="utf-8")
+        turn.start(V, None, "不要讀私人那夾")
+        code, out = self.exclude()
+        self.assertEqual(code, 0, out)
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
+        self.assertEqual(code, 0, out)
+        self.assertEqual([c["text"] for c in findings.load_archive(V)["findings"]], [])
+        self.assertNotIn("私人", json.dumps(statements.load_archive(V), ensure_ascii=False))
+        st_data = state.load(V)
+        self.assertEqual([f["ids"] for f in st_data["synthesis_fix"]], [["f-00000000"]])
+        self.assertEqual(hits(V, "王家心情"), [])
+        def allowed(h):
+            return (h.endswith(".system/sources.json") or h.startswith((".system/journal/", "系統/工作日誌/", ".system/turns/"))
+                    or (h.startswith(".system/versions/") and h.endswith("/turn.json")))
+        self.assertEqual([h for h in hits(V, "私人") if not allowed(h)], [])
+        self.assertTrue((Path(V) / saved).is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,7 +28,7 @@ class Inferred(unittest.TestCase):
         self.put_agenda("2026-10-16")
         found = inferred.run(L.ctx(self.V, today="2026-11-25"))
         by_key = {f["key"]: f for f in found}
-        self.assertEqual(set(by_key), {"inferred:agenda", "inferred:entity", "inferred:profile"})
+        self.assertEqual(set(by_key), {"inferred:agenda", "inferred:entity"})  # 設定檔的預設列不算（T-22，test_lint_round1）
         self.assertTrue(all(f["kind"] == "decide" for f in found))
         self.assertEqual(by_key["inferred:agenda"]["data"]["dates"], ["2026-12-05"])
         self.assertIn("王宅", by_key["inferred:entity"]["text"])

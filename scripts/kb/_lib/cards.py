@@ -1220,7 +1220,8 @@ def _render_index(vault, turn_id):
     body = "\n".join(lines) if lines else INDEX_EMPTY
     text = f"{INDEX_HEAD}\n{body}\n\n共 {count} 張卡\n"
     from kb._lib import renders
-    renders.keep_only(vault, INDEX_POSIX)  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
+    if renders.keep_only(vault, INDEX_POSIX) == renders.KEEP_FAILED:  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
+        return count  # 她那份沒存成就不蓋掉（測試 T-10）
     if turn_id:
         from kb._lib import turn
         turn.backup(vault, INDEX_POSIX, turn_id)

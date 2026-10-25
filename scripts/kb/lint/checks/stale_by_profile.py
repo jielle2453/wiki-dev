@@ -11,12 +11,14 @@ REDO_SHOWN = 200  # 一件最多帶幾張的編號（一次重做太多交 card-
 
 
 def _old_cards(ctx, row):
+    """這類、製卡日期比那列的日期早、還沒標重做的卡（標了重做的整理時就會照新設定重寫，T-2）。"""
     day = str(row.get("date") or "")
     if not day:
         return []
+    redo = {e.get("id") for e in ctx.inventory() if e.get("redo")}
     return sorted(cid for cid, c in ctx.cards().items()
                   if entities.key(str(c["front"].get("卡型") or "")) == entities.key(row["name"])
-                  and str(c["front"].get("製卡日期") or "9999") < day)
+                  and str(c["front"].get("製卡日期") or "9999") < day and cid not in redo)
 
 
 def run(ctx):

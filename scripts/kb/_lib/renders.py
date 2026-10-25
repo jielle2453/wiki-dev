@@ -36,19 +36,25 @@ def _path(vault):
     return Path(vault) / RENDERS_POSIX
 
 
+def _str_map(value):
+    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(value, dict) else {}
+
+
 def load(vault):
-    """壞檔、形狀不對當空的（不擋重新產生）。"""
+    """壞檔、形狀不對當空的（不擋重新產生）；內層型別不對的那幾筆也丟掉（測試 T-14）。"""
     try:
         data = read_json(_path(vault))
     except (ValueError, OSError):
         data = None
-    if not isinstance(data, dict) or not isinstance(data.get("files"), dict):
-        return {"schema_version": SCHEMA_VERSION, "files": {}, "history": {}, "dates": {}, "saved": [], "asks": []}
-    return {"schema_version": SCHEMA_VERSION, "files": data["files"],
-            "history": data.get("history") if isinstance(data.get("history"), dict) else {},
-            "dates": data.get("dates") if isinstance(data.get("dates"), dict) else {},
-            "saved": [s for s in data.get("saved") or [] if isinstance(s, dict)],
-            "asks": data.get("asks") if isinstance(data.get("asks"), list) else []}
+    if not isinstance(data, dict):
+        data = {}
+    history = data.get("history") if isinstance(data.get("history"), dict) else {}
+    return {"schema_version": SCHEMA_VERSION, "files": _str_map(data.get("files")),
+            "history": {k: [h for h in v if isinstance(h, str)] for k, v in history.items()
+                        if isinstance(k, str) and isinstance(v, list)},
+            "dates": _str_map(data.get("dates")),
+            "saved": [s for s in data.get("saved") or [] if isinstance(s, dict)] if isinstance(data.get("saved"), list) else [],
+            "asks": [q for q in data.get("asks") if isinstance(q, str)] if isinstance(data.get("asks"), list) else []}
 
 
 def check(vault, rel):
@@ -57,7 +63,7 @@ def check(vault, rel):
     try:
         if not p.is_file():
             return None
-        text = p.read_text(encoding="utf-8")
+        text = p.read_text(encoding="utf-8").lstrip("\ufeff")  # 記事本另存會加 BOM，字沒改不算手改（測試 T-11）
     except (OSError, UnicodeDecodeError):
         return None
     data = load(vault)
@@ -110,8 +116,18 @@ def set_asks(vault, questions):
     _edit(vault, change)
 
 
+KEEP_FAILED = "keep_failed"  # 她那份沒存成：這次不重寫，免得蓋掉（測試 T-10）
+
+
+def masked(vault, text):
+    """存她那份與差異之前先遮值（她可能在檔裡寫了密碼）。"""
+    from kb._lib import credentials
+    return credentials.mask_secrets(str(text), credentials.known_names(vault))
+
+
 def keep(vault, rel, text):
-    """她那份存到 .system/handedits/<時間>-<檔名>（同名加 -2…），記進 saved；回總資料夾相對路徑。"""
+    """她那份（遮過值）存到 .system/handedits/<時間>-<檔名>（同名加 -2…），記進 saved；回總資料夾相對路徑。寫不了丟 OSError。"""
+    text = masked(vault, text)
     folder = Path(vault) / HANDEDITS_POSIX
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -198,27 +214,46 @@ def is_empty(d):
     return not any(d.get(k) for k in ("checked", "removed", "changed_date", "other"))
 
 
+def mask_diff(vault, got):
+    """差異裡的「其他」是她寫的字，先遮值再存進待處理。"""
+    got["other"] = [masked(vault, x) for x in got.get("other") or []]
+    return got
+
+
 def handle_list(vault, rel, hers, base_text, lines, turn_id, ignore_sections=()):
-    """日程、裁示被手改（有 JSON 真相的清單）：看得出改了條目就存她那份、待處理開一條 handedit（D-223）。回存的路徑或 None。
-    出錯只記 log：手改偵測不能擋住重新產生。"""
+    """日程、裁示被手改（有 JSON 真相的清單）：看得出改了條目就存她那份、待處理開一條 handedit（D-223）。回存的路徑、None，
+    或 KEEP_FAILED（她那份沒存成，呼叫端這次不重寫）。比對出錯只記 log、當成改了別的。"""
     try:
         got = diff(base_text, hers, lines, ignore_sections)
-        if is_empty(got):
-            return None
-        saved_rel = keep(vault, rel, hers)
-        from kb._lib import pending, turn
-        pending.add_handedit(vault, rel, saved_rel, got, turn_id or turn.current(vault)["turn"])
-        return saved_rel
     except Exception as e:  # noqa: BLE001
         ledger.log_error(vault, f"{rel} 手改比對失敗：{type(e).__name__}: {e}", source="renders")
+        got = {"checked": [], "removed": [], "changed_date": [], "other": ["（比對不出改了哪裡）"]}
+    if is_empty(got):
         return None
+    try:
+        saved_rel = keep(vault, rel, hers)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"{rel} 她那份沒存成，這次不重寫：{type(e).__name__}: {e}", source="renders")
+        return KEEP_FAILED
+    try:
+        from kb._lib import pending, turn
+        pending.add_handedit(vault, rel, saved_rel, mask_diff(vault, got), turn_id or turn.current(vault)["turn"])
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"{rel} 手改沒記進待處理：{type(e).__name__}: {e}", source="renders")
+    return saved_rel
 
 
 def keep_only(vault, rel):
-    """總目錄、工作日誌被手改：只存她那份（之後重新產生、報告說一句），不開待處理。回存的路徑或 None；出錯只記 log。"""
+    """總目錄、工作日誌被手改：只存她那份（之後重新產生、報告說一句），不開待處理。回存的路徑、None 或 KEEP_FAILED。"""
     try:
         hers = check(vault, rel)
-        return keep(vault, rel, hers) if hers is not None else None
     except Exception as e:  # noqa: BLE001
-        ledger.log_error(vault, f"{rel} 手改沒存成：{type(e).__name__}: {e}", source="renders")
+        ledger.log_error(vault, f"{rel} 手改比對失敗：{type(e).__name__}: {e}", source="renders")
         return None
+    if hers is None:
+        return None
+    try:
+        return keep(vault, rel, hers)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"{rel} 她那份沒存成，這次不重寫：{type(e).__name__}: {e}", source="renders")
+        return KEEP_FAILED

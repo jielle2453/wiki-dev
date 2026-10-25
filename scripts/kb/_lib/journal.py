@@ -540,7 +540,8 @@ def render(vault, month):
     p = md_path(vault, month)
     p.parent.mkdir(parents=True, exist_ok=True)
     rel = p.relative_to(vault).as_posix()
-    renders.keep_only(vault, rel)
+    if renders.keep_only(vault, rel) == renders.KEEP_FAILED:
+        return  # 她那份沒存成就不蓋掉（測試 T-10），下次寫再試
     text = "\n\n".join(parts) + "\n"
     write_text_atomic(p, text)
     renders.record(vault, rel, text)

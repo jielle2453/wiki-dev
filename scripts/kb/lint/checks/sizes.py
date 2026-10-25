@@ -5,6 +5,7 @@ from pathlib import Path
 
 from kb._lib import backup, clean, inventory
 from kb.lint import runner
+from kb.lint.checks.system_dir import _is_link
 
 NAME = "清理與大小"
 BUSY_TEXT = "清理這次沒做：另一個備份、還原或退回正在跑，下週再清"
@@ -31,7 +32,7 @@ def _clean(ctx):
 def _walk(root, skip_hidden=True):
     count = size = 0
     for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not (skip_hidden and d.startswith(".")) and not os.path.islink(os.path.join(dirpath, d))]
+        dirs[:] = [d for d in dirs if not (skip_hidden and d.startswith(".")) and not _is_link(Path(dirpath) / d)]  # junction 也不走（T-13）
         for name in files:
             if skip_hidden and name.startswith("."):
                 continue

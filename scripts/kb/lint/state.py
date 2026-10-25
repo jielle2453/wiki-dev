@@ -18,6 +18,8 @@ LINT_POSIX = ".system/lint.json"
 SCHEMA_VERSION = 1
 KEYS = {"last_background": None, "last_spawn": None, "last_report": None, "synthesis_fix": [], "month_done": [],
         "last_counts": None}
+TYPES = {"last_background": str, "last_spawn": str, "last_report": str, "synthesis_fix": list, "month_done": list,
+         "last_counts": dict}
 
 
 def _path(vault):
@@ -37,7 +39,7 @@ def load(vault):
     out = {"schema_version": SCHEMA_VERSION}
     for k, default in KEYS.items():
         v = data.get(k, default)
-        out[k] = v if isinstance(v, type(default)) or default is None else default
+        out[k] = v if isinstance(v, TYPES[k]) else (list(default) if isinstance(default, list) else default)  # 型別不對當沒有（T-14）
     out["synthesis_fix"] = [f for f in out["synthesis_fix"] if isinstance(f, dict) and f.get("path")]
     out["month_done"] = [d for d in out["month_done"] if isinstance(d, dict) and d.get("text")]
     return out
@@ -73,22 +75,26 @@ def card_sha(vault, rel):
 
 
 def add_fix(vault, path, reason, ids, turn_id=None):
-    """標一張綜合卡要更新（出處點不開、有空段、設定檔改了）：同一張卡原因與編號併在一筆。回 True。"""
+    """標一張綜合卡要更新（出處點不開、有空段、設定檔改了）：同一張卡原因與編號併在一筆。回有沒有新增或多了原因、編號
+    （沒有就不寫、不算「替你做了」，測試 T-7）。"""
     sha = card_sha(vault, path)
 
     def fn(data):
         old = next((f for f in data["synthesis_fix"] if f["path"] == path), None)
         if old is not None and old.get("sha") == sha:
             reasons = [r for r in str(old.get("reason") or "").split("、") if r]
+            merged = sorted(set(old.get("ids") or []) | set(ids or []))
+            if reason in reasons and merged == sorted(set(old.get("ids") or [])):
+                return False
             if reason not in reasons:
                 reasons.append(reason)
             old["reason"] = "、".join(reasons)
-            old["ids"] = sorted(set(old.get("ids") or []) | set(ids or []))
+            old["ids"] = merged
             return True
         data["synthesis_fix"] = [f for f in data["synthesis_fix"] if f["path"] != path]
         data["synthesis_fix"].append({"path": path, "reason": reason, "ids": sorted(set(ids or [])), "sha": sha})
         return True
-    return change(vault, fn, turn_id)
+    return bool(change(vault, fn, turn_id))
 
 
 def fixes(vault):

@@ -282,4 +282,34 @@ def rename_entity(vault, mapping, turn_id, undo=None):
         if hits and undo is not None:
             undo.file(STATEMENTS_POSIX)
         return hits, bool(hits)
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    _rename_archive(vault, mapping, turn_id, undo)
+    return got
+
+
+def _rename_archive(vault, mapping, turn_id, undo):
+    """封存檔裡的條目也換名（之後恢復回來才對得上現在的名稱，測試 T-6）。沒有封存檔什麼都不做。"""
+    from kb._lib import entities
+    p = Path(vault) / ARCHIVE_POSIX
+    if not p.exists():
+        return
+    with FileLock(p):
+        arch = load_archive(vault)
+        hit = False
+        for it in arch["statements"]:
+            names = it.get("entities") or []
+            if not any(entities.key(n) in mapping for n in names):
+                continue
+            new = []
+            for n in names:
+                n = mapping.get(entities.key(n), n)
+                if all(entities.key(x) != entities.key(n) for x in new):
+                    new.append(n)
+            it["entities"] = new
+            hit = True
+        if hit:
+            if undo is not None:
+                undo.file(ARCHIVE_POSIX)
+            from kb._lib import turn
+            turn.backup(vault, ARCHIVE_POSIX, turn_id)
+            write_json_atomic(p, arch)

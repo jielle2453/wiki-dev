@@ -5,6 +5,7 @@ from kb._lib import pending
 from kb.lint import runner
 
 NAME = "整理擱著的"
+AFTER_UPKEEP = True  # 關掉不成立的待處理之後才數（測試 T-24）
 
 
 def run(ctx):

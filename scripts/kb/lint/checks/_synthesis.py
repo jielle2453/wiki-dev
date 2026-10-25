@@ -28,9 +28,8 @@ def body_sections(text):
 def fix_finding(check, key, reason, cards):
     """cards：[{"path","name","ids"?,"sections"?}]。apply 把每張寫進 lint.json 的 synthesis_fix，回「標了 N 張綜合卡要更新（原因）」。"""
     def apply(ctx):
-        for c in cards:
-            state.add_fix(ctx.vault, c["path"], reason, c.get("ids") or [], ctx.turn_id)
-        return f"標了 {len(cards)} 張綜合卡要更新（{reason}），整理時會改寫"
+        n = sum(1 for c in cards if state.add_fix(ctx.vault, c["path"], reason, c.get("ids") or [], ctx.turn_id))
+        return f"標了 {n} 張綜合卡要更新（{reason}），整理時會改寫" if n else None  # 早就標過的不再記（T-7）
     names = "、".join(f"「{c['name']}」" for c in cards)
     return runner.finding(check, "fix", key, f"{names}的綜合卡要更新（{reason}）", items=[c["name"] for c in cards],
                           data={"cards": cards, "reason": reason}, apply=apply)

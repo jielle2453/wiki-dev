@@ -1,6 +1,6 @@
 """清單 5（原 9）：推測放太久沒確認（lint_inferred_days 天）：AI 從檔案猜的日程（source inferred）、猜的實體名稱（inferred）、
 設定檔來源是推測的列。各合成一件待處理（同一類一件）。日程那件帶各條的日期，快到期時先放著也會回到前面。"""
-from kb._lib import agenda
+from kb._lib import agenda, plan, profile
 from kb.lint import runner
 
 NAME = "推測放太久"
@@ -31,6 +31,19 @@ def _names(items):
     return shown + ("…" if len(items) > SHOWN else "")
 
 
+def _default_row(prof, sec, row):
+    """程式建的預設列（kb init 的卡型與不整理種類、型別的大類預設段）不算我推測的，只看後來加或改過的（T-22）。"""
+    if sec == "card_types":
+        want = [{"name": s, "required": False, "hint": h} for s, h in profile.DEFAULT_SECTIONS]
+        return row.get("name") in profile.CARD_TYPE_NAMES and row.get("sections") == want
+    if sec == "exclusions":
+        return row.get("kind") in profile.DEFAULT_EXCLUSIONS and row.get("action") == "kind_only"
+    if sec == "synthesis_sections":
+        defaults = {d["type"]: d["sections"] for d in profile.default_sections(prof.get("types") or [])}
+        return row.get("type") in defaults and row.get("sections") == defaults[row.get("type")]
+    return False
+
+
 def run(ctx):
     limit = ctx.config("lint_inferred_days")
     out = []
@@ -54,11 +67,13 @@ def run(ctx):
         out.append(runner.finding(
             "inferred", "decide", "inferred:entity",
             f"有 {len(ents)} 個名字是我猜的，放了超過 {limit} 天還沒確認：{_names(names)}", items=names,
-            data={"names": names, "results": [{"label": "名字都對", "do": [f"kb entity confirm {n}" for n in names if " " not in n]}]},
+            data={"names": names, "results": [{"label": "名字都對",  # 名字照 shell_arg 加引號，給不出來的不給（T-9）
+                                                "do": [c for c in (plan.cmd("entity", "confirm", n) for n in names) if c]}]},
             entity_ids=[e["id"] for e in ents]))
     prof = ctx.profile()
     rows = [f"{sec}:{row.get(key)}" for sec, key in PROFILE_SECTIONS for row in prof.get(sec) or []
-            if isinstance(row, dict) and row.get("source") == "inferred" and _old(ctx, row.get("date") or "", limit)]
+            if isinstance(row, dict) and row.get("source") == "inferred" and _old(ctx, row.get("date") or "", limit)
+            and not _default_row(prof, sec, row)]
     if rows:
         out.append(runner.finding(
             "inferred", "decide", "inferred:profile",

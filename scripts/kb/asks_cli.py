@@ -6,8 +6,9 @@ asks 跟 kb cards todo --json 裡的同一支（plan.build，跑一次 cards.tod
 在對話裡記的 touched）與有時間性的，照急的排、最多 ASKS_MAX 題；others 是其餘的件數（不含先放著），others_line 是這個 session
 還沒說過、others 大於 0 時給 AI 原樣貼的一句，印了就在回合記 asks_told（同一個對話之後都帶著，不再說）。
 --all（「看待處理」「有沒有要我確認的」，answer）：全部照急的排，set_aside 是先放著的件數，沒有 others_line。
-set-aside <key>：p- 開頭的交 kb pending set-aside；其他的（名字確認、逾期這類不住在 pending.json 的）記進 .system/set_aside.json
+set-aside <key>：p- 開頭的交 kb pending set-aside；其他的（名字確認這類不住在 pending.json 的）記進 .system/set_aside.json
 （{key: {at, by, question}}，寫前備進回合）；鍵含問句的指紋，對象變了鍵就變，自然回到前面。找不到「沒有這個問題」exit 3。
+有時間性的（逾期、快到期）不收（D-226 補）：exit 3，第一行是改問的那句，接那題現成的答法；--json 帶 refused 與那題 ask。
 tell 只帶這一回合做了什麼（D-141）。人讀照編號印問題與選項，沒有就印「沒有要問的」。
 """
 import argparse
@@ -27,6 +28,8 @@ OTHERS_LINE = "還有 {n} 件要你決定的事，有空說『看待處理』"
 SET_ASIDE_COUNT = "另外有 {n} 件先放著"
 SET_ASIDE_LINE = "先放著了：{}；有變化或快到期會再拿出來"
 NO_SUCH = "沒有這個問題"
+OVERDUE_NO_ASIDE = "這件已經過了日期，沒辦法先放著：做完了、不用了，還是改到哪一天？"
+URGENT_NO_ASIDE = "這件快到期了，沒辦法先放著：{question}"
 CLI_LOCK_TIMEOUT = 30
 
 
@@ -106,6 +109,10 @@ def _set_aside(vault, key, as_json):
     if not key:
         print(NO_SUCH)
         return 3
+    asks, _hidden, _tell = _collect(vault)
+    hit = next((a for a in asks if a.get("key") == key), None)
+    if hit is not None and hit.get("urgent"):
+        return _refuse_urgent(hit, as_json)
     turn_id = turn.current(vault)["turn"]
     conversation = journal_cli.in_conversation(vault)
     if key.startswith("p-"):
@@ -118,8 +125,6 @@ def _set_aside(vault, key, as_json):
         changed = [{"path": pending.PENDING_POSIX, "action": "modify"}, {"path": pending.MD_POSIX, "action": "modify"}]
     else:
         stored = plan.set_aside_keys(vault)
-        asks, _hidden, _tell = _collect(vault)
-        hit = next((a for a in asks if a.get("key") == key), None)
         if hit is None and key not in stored:
             print(NO_SUCH)
             return 3
@@ -130,6 +135,18 @@ def _set_aside(vault, key, as_json):
     line = SET_ASIDE_LINE.format(text)
     print(json.dumps({"key": key, "line": line}, ensure_ascii=False) if as_json else line)
     return 0
+
+
+def _refuse_urgent(ask, as_json):
+    """有時間性的不能先放著：回改問的那句與那題自己的答法（「還沒，下次再問」照舊只管這個對話）。exit 3。"""
+    line = OVERDUE_NO_ASIDE if ask.get("kind") == "overdue" else URGENT_NO_ASIDE.format(question=ask["question"])
+    plan.renumber([ask])
+    if as_json:
+        print(json.dumps({"key": ask["key"], "refused": line, "ask": ask}, ensure_ascii=False))
+    else:
+        print(line)
+        print("\n".join(f"  {r['n']}. {r['label']}" for r in ask["results"]))
+    return 3
 
 
 def _write_key(vault, key, question, turn_id):

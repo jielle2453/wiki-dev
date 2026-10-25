@@ -744,13 +744,13 @@ def _hand_edited(vault, turn_id, base):
     from kb._lib import renders
     hers = renders.check(vault, MD_POSIX)
     if hers is None:
-        return
+        return None
     try:
         day = renders.recorded_day(vault, MD_POSIX) or _today()
         base_text, lines = render_text(vault, base, day), item_lines(vault, base, day)
     except Exception:  # noqa: BLE001  算不出她看到的那份：只比得出「其他」
         base_text, lines = "", []
-    renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id)
+    return renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id)
 
 
 def render(vault, turn_id=None, data=None, today=None, base=None):
@@ -760,7 +760,8 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
     data = data if data is not None else load(vault)
     text = render_text(vault, data, today)
     target = Path(vault) / MD_POSIX
-    _hand_edited(vault, turn_id, base if base is not None else data)
+    if _hand_edited(vault, turn_id, base if base is not None else data) == renders.KEEP_FAILED:
+        return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
             renders.record(vault, MD_POSIX, text, day=today or _today())
