@@ -58,6 +58,7 @@ FINISH_LINE = "已換到 {version}：先跑 kb upgrade --finish 再做別的。"
 NEW_VERSION_LINE = "有新版 {version}：{note}；說「升級」我帶你做。"
 NEW_VERSION_LINE_NO_NOTE = "有新版 {version}；說「升級」我帶你做。"
 WITHDRAWN_OPENING = "這一版 {version} 撤回了；用起來有問題的話說「退回舊版」。"
+PENDING_OPENING = "上次升級到 {version} 還沒換好；說「升級」我再試一次。"
 
 
 class UpdateError(Exception):
@@ -344,9 +345,10 @@ def _same_path(a, b):
     return norm(a) == norm(b)
 
 
-def plugin_identity():
+def plugin_identity(vault=None):
     """從 CLAUDE_PLUGIN_ROOT（…/cache/<市集>/wiki-with-willy/<版本>）取市集名，範圍從 installed_plugins.json 裡
-    installPath 等於目前 plugin 根的那筆取（客戶是 user；確認時是 local，local 還帶 projectPath）。不寫死。"""
+    installPath 等於目前 plugin 根的那筆取（客戶是 user；確認時是 local，local 還帶 projectPath）。不寫死。
+    同一個版本夾可能有好幾筆（local 裝在好幾個夾，桌面版確認 B-3）：先挑 projectPath 是這個知識庫的，再挑 user 的，最後才是第一筆。"""
     root = Path(_plugin_root())
     if root.parent.name != PLUGIN_NAME or root.parent.parent.parent.name != "cache":
         raise UpdateError(UPDATE_FAILED.format(why="這個外掛不是從市集裝的"))
@@ -356,13 +358,20 @@ def plugin_identity():
         raise UpdateError(UPDATE_FAILED.format(why="讀不到外掛的安裝紀錄"))
     if not re.fullmatch(r"[A-Za-z0-9._-]+", market, re.ASCII):
         raise UpdateError(UPDATE_FAILED.format(why="市集名稱看不懂"))
+    found = []
     for rec in plugins.get(f"{PLUGIN_NAME}@{market}") or []:
         if isinstance(rec, dict) and rec.get("installPath") and _same_path(rec["installPath"], root):
             scope = rec.get("scope") or "user"
             if scope not in ("user", "project", "local"):
                 raise UpdateError(UPDATE_FAILED.format(why="安裝紀錄的範圍看不懂"))
-            return {"market": market, "scope": scope, "project": rec.get("projectPath")}
-    raise UpdateError(UPDATE_FAILED.format(why="安裝紀錄裡找不到這個外掛"))
+            found.append({"market": market, "scope": scope, "project": rec.get("projectPath")})
+    if not found:
+        raise UpdateError(UPDATE_FAILED.format(why="安裝紀錄裡找不到這個外掛"))
+    if vault is not None:
+        for f in found:
+            if f["project"] and _same_path(f["project"], vault):
+                return f
+    return next((f for f in found if f["scope"] == "user"), found[0])
 
 
 def installed_version(identity):
@@ -389,8 +398,10 @@ def run_update(identity, seconds=60):
     if not exe:
         raise UpdateError(NO_CLAUDE)
     argv = [exe, "plugin", "update", f"{PLUGIN_NAME}@{identity['market']}", "--scope", identity["scope"]]
+    project = identity.get("project")
+    cwd = project if identity["scope"] in ("local", "project") and project and os.path.isdir(project) else None
     try:
-        code, out = _call(argv, seconds)
+        code, out = _call(argv, seconds, cwd=cwd)
     except FileNotFoundError:
         raise UpdateError(NO_CLAUDE) from None
     except subprocess.TimeoutExpired:
@@ -463,7 +474,7 @@ def _guard_ready(vault, what):
     if not find_claude():
         raise backup.Refused(NO_CLAUDE)
     try:
-        return plugin_identity()
+        return plugin_identity(vault)
     except UpdateError as e:
         raise backup.Refused(str(e)) from None
 
@@ -511,10 +522,15 @@ def upgrade(vault):
                 hist = ensure_history(vault)
             except (OSError, ValueError):
                 raise backup.Refused(HISTORY_BROKEN) from None
-            _room_for_snapshot(vault)
+            prev = hist.get("pending") or {}
+            kept = Path(vault) / backup.SNAPSHOT_REL / str(prev.get("snapshot") or "")
+            if prev.get("to") == latest and prev.get("snapshot") and kept.is_file():
+                snapshot = kept  # 上次升級到同一版、快照還在：不再拍一份（確認 B-3）
+            else:
+                _room_for_snapshot(vault)
         try:
             if k in ("minor", "major"):
-                snapshot = backup.snapshot(vault, "upgrade")
+                snapshot = snapshot or backup.snapshot(vault, "upgrade")
                 hist["pending"] = {"to": latest, "snapshot": snapshot.name, "started": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
                 write_history(vault, hist)
         except backup.Refused:
@@ -681,7 +697,7 @@ def _auto_patch(vault, latest):
         return {}
     try:
         with backup.acquire(vault):
-            identity = plugin_identity()
+            identity = plugin_identity(vault)
             run_update(identity, config.get(vault, "update_run_seconds"))
             if installed_version(identity) != latest:
                 return {"error": NOT_YET}
@@ -721,19 +737,22 @@ def _maybe_spawn(vault, chk):
 def opening(vault):
     """開場判斷，不連網、不等背景。回 {"finish": 要不要 --finish, "line": 開場那句或 None}。
     沒有 upgrade-history.json 就記成現在版本、不印換版那行（第一次跑這版的既有知識庫）；壞檔丟 ValueError（那行不印、寫 log）。
-    優先序：換了版要 --finish > 有她可以拿的大升級 > 清單被指回舊版（撤回）。"""
+    優先序：換了版要 --finish > 升級記了卻還沒換成 > 有她可以拿的大升級 > 清單被指回舊版（撤回）。"""
     plugin = plugin_version()
     hist = ensure_history(vault)
     finish_needed = hist["current"] != plugin
     chk = env.update_check(vault)
     line = None
+    pending_to = (hist.get("pending") or {}).get("to")
     if finish_needed:
         line = FINISH_LINE.format(version=plugin)
+    elif pending_to and pending_to != plugin:
+        line = PENDING_OPENING.format(version=pending_to)
     elif chk and chk.get("allowed") and isinstance(chk.get("latest"), str):
         k = kind(plugin, chk["latest"])
         if k in ("minor", "major"):
             note = clean_note(chk.get("note"))
-            note = note[:config.get(vault, "update_note_max")].strip() or None if note else None
+            note = note[:config.get(vault, "update_note_max")].strip().rstrip("。.！!") or None if note else None
             line = (NEW_VERSION_LINE.format(version=chk["latest"], note=note) if note
                     else NEW_VERSION_LINE_NO_NOTE.format(version=chk["latest"]))
         elif k == "downgrade":

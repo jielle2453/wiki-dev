@@ -282,7 +282,7 @@ def _write_zip(files, dest):
 
 def build(repo, tag, out_dir=None):
     """回 {"zip", "sha256", "version", "files"}；檢查沒過丟 ReleaseError（問題一次全列）。"""
-    repo = Path(repo)
+    repo = Path(repo).resolve()  # zip 路徑要是絕對的：publish 在公開 clone 裡跑 gh（確認時 --repo . 找不到 zip）
     version = tag_version(tag)
     archive = _archive(repo, tag)
     files = {rel: data for rel, data in archive.items() if allowed(rel)}
@@ -294,7 +294,7 @@ def build(repo, tag, out_dir=None):
     found = problems(files, version, previous)
     if found:
         raise ReleaseError("不能發行：\n" + "\n".join(f"- {p}" for p in found))
-    dest = Path(out_dir or repo / "dist") / f"{PLUGIN_NAME}-{version}.zip"
+    dest = Path(out_dir or repo / "dist").resolve() / f"{PLUGIN_NAME}-{version}.zip"
     _write_zip(files, dest)
     return {"zip": dest, "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(), "version": version, "files": len(files),
             "skipped": skipped}

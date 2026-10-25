@@ -280,6 +280,19 @@ class Skipped(Base):
         self.assertNotIn("scripts", got["skipped"])
 
 
+class RelativeRepo(Base):
+    def test_relative_repo_still_gives_an_absolute_zip_path(self):
+        """桌面版確認準備時：--repo . 打出的 zip 路徑是相對的，publish 在公開 clone 裡跑 gh 找不到。"""
+        old = os.getcwd()
+        os.chdir(self.tmp)
+        try:
+            got = release.build("dev", "v0.20.0", "out")
+        finally:
+            os.chdir(old)
+        self.assertTrue(Path(got["zip"]).is_absolute())
+        self.assertTrue(Path(got["zip"]).is_file())
+
+
 class PatchRule(Base):
     """D-217：小修不能改狀態檔 schema、骨架、_lib/migrate.py 的表；跟上一個 tag 比。"""
 

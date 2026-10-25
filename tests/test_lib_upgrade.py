@@ -311,6 +311,16 @@ class Identity(Base):
             with self.assertRaises(upgrade.UpdateError):
                 self.identity()
 
+    def test_several_records_pick_the_one_for_this_vault(self):
+        """桌面版確認 B-3：local 裝在好幾個夾、版本夾相同 → 挑 projectPath 是這個知識庫的那筆。"""
+        data = json.loads(self.fake.installed.read_text(encoding="utf-8"))
+        data["plugins"][f"wiki-with-willy@{MARKET}"] = [
+            {"scope": "local", "projectPath": "C:/搬走的夾", "installPath": str(self.fake.root), "version": "0.20.1"},
+            {"scope": "local", "projectPath": str(self.V), "installPath": str(self.fake.root), "version": "0.20.1"},
+            {"scope": "local", "projectPath": "C:/複製的夾", "installPath": str(self.fake.root), "version": "0.20.1"}]
+        self.fake.installed.write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(upgrade.plugin_identity(self.V)["project"], str(self.V))
+
     def test_odd_scope_refuses(self):
         self.fake.set_installed("0.20.1", "user & calc")
         with self.assertRaises(upgrade.UpdateError):
@@ -335,6 +345,16 @@ class RunUpdate(Base):
         self.serve("0.21.0", for_all=True)
         upgrade.run_update({"market": MARKET, "scope": "local", "project": "C:/測試夾"})
         self.assertEqual(self.fake.calls[0][0][-2:], ["--scope", "local"])
+
+    def test_local_scope_runs_inside_that_folder(self):
+        """桌面版確認 B-3：在暫存夾跑 --scope local，Claude 換到別筆；要在那個夾裡跑。user 範圍照舊不指定。"""
+        self.serve("0.21.0", for_all=True)
+        seen = []
+        with mock.patch.object(upgrade, "_call", side_effect=lambda argv, timeout, env=None, cwd=None: (seen.append(cwd), (0, ""))[1]):
+            upgrade.run_update({"market": MARKET, "scope": "local", "project": str(self.V)})
+            upgrade.run_update({"market": MARKET, "scope": "user", "project": None})
+            upgrade.run_update({"market": MARKET, "scope": "local", "project": str(self.tmp / "不在了")})
+        self.assertEqual(seen, [str(self.V), None, None])
 
     def test_no_claude_refuses_with_fixed_sentence(self):
         with mock.patch.object(upgrade, "find_claude", return_value=None):
@@ -637,6 +657,16 @@ class UpgradeFlow(Base):
         self.assertEqual(backup.snapshots(self.V), [])
         self.assertIsNone(self.history()["pending"])
         self.assertEqual(self.fake.calls, [])
+
+    def test_pending_to_the_same_version_reuses_its_snapshot(self):
+        """桌面版確認 B-3：上次升級記了 pending 卻沒換成，再說升級用同一份快照，不再拍一份。"""
+        self.serve("0.21.0", mine=True)
+        snap = backup.snapshot(self.V, "upgrade")
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": snap.name, "started": "2026-10-24T10:00:00"})
+        got = self.go()
+        self.assertEqual(got["snapshot"], snap.name)
+        self.assertEqual(len(backup.snapshots(self.V)), 1)
+        self.assertEqual(self.history()["pending"]["snapshot"], snap.name)
 
     def test_patch_takes_no_snapshot_and_no_pending(self):
         self.serve("0.20.2", mine=True)
@@ -1112,6 +1142,22 @@ class Opening(Base):
                                       "note": "第一行\n第二行\u202e\x1b[31m", "auto_patched": None, "error": None})
         line = self.open()[0]["line"]
         self.assertEqual(line, "有新版 0.21.0：第一行 第二行 [31m；說「升級」我帶你做。")
+
+    def test_pending_not_yet_applied_does_not_offer_the_upgrade_again(self):
+        """桌面版確認 B-3：升級記了 pending、載入的還是舊版 → 講還沒換好，不再邀她升級。"""
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": "x.zip", "started": "2026-10-24T10:00:00"})
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
+                                      "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None})
+        got, _ = self.open()
+        self.assertFalse(got["finish"])
+        self.assertEqual(got["line"], "上次升級到 0.21.0 還沒換好；說「升級」我再試一次。")
+
+    def test_note_ending_with_a_period_does_not_double_up(self):
+        """桌面版確認 B-2：「…新功能。；說…」句號與分號連在一起。"""
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
+                                      "note": "多了一點新功能。", "auto_patched": None, "error": None})
+        self.assertEqual(self.open()[0]["line"], "有新版 0.21.0：多了一點新功能；說「升級」我帶你做。")
 
     def test_new_version_line_truncates_the_note(self):
         self.put_history("0.20.1")
