@@ -836,8 +836,18 @@ def mark_redo(vault, fid, turn_id):
             write_text_atomic(Path(vault) / loc, synthesis.replace_front(text, {"整理到": new}))
             names.append(e["name"])
             paths.append(loc)
+    _wake(vault, [fid], turn_id)
     return {"id": fid, "title": _title(card), "path": card["path"], "redo": sha, "changed": changed,
             "synthesis": names, "synthesis_paths": paths}
+
+
+def _wake(vault, fids, turn_id):
+    """卡標了重做：跟它有關的先放著回到前面（D-226）；出錯只記 log。"""
+    from kb._lib import ledger, pending
+    try:
+        pending.wake(vault, file_ids=fids, turn_id=turn_id)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"先放著沒拿回來：{type(e).__name__}: {e}", source="cards")
 
 
 def mark_redo_many(vault, fids, turn_id, check=False):
@@ -879,6 +889,7 @@ def mark_redo_many(vault, fids, turn_id, check=False):
             write_text_atomic(Path(vault) / loc, synthesis.replace_front(text, {"整理到": new}))
             names.append(e["name"])
             paths.append(loc)
+    _wake(vault, [c["id"] for c in shown], turn_id)
     return {"cards": shown, "changed": changed, "synthesis": names, "synthesis_paths": paths}
 
 

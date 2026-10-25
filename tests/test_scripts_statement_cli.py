@@ -99,7 +99,8 @@ class ReplaceWithdraw(Base):
         self.assertEqual((got[old]["status"], got[new]["status"]), ("superseded", "active"))
         self.assertEqual(self.kb("add", "--entity", "王宅", "--text", "王小姐", "--replaces", old, code=3),
                          ["這條已經被取代了，改最新的那條"])
-        self.assertEqual(self.kb("withdraw", new), ["已收回：王宅的聯絡人改成王太太"])
+        self.assertEqual(self.kb("withdraw", new), ["已收回：王宅的聯絡人改成王太太",  # D-224：帶被它取代的那條
+                                                   f"它取代過：王宅的聯絡人是王先生（{got[old]['date']}）；要恢復的話跟我說"])
         self.assertEqual(self.items()[new]["status"], "withdrawn")
         self.assertEqual([p["command"] for p in self.programs()][-2:], ["statement add", "statement withdraw"])
         self.assertEqual(self.kb("withdraw", "s-00000000", code=3), ["沒有這條口述：s-00000000"])
@@ -158,6 +159,49 @@ class Revert(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((self.V / ".system" / "statements.json").read_bytes(), before)
+
+
+class WithdrawRestore(Base):
+    """lint 題（D-224，收 B-083）：收回取代過別條的口述，輸出帶被取代那條；kb statement restore 只收被取代、取代它的已收回的。"""
+
+    def test_withdraw_shows_replaced_then_restore(self):
+        a = self.add("信義王改用系統櫃")
+        b = self.add("信義王改回木工", "信義王", "--replaces", a)
+        r = run_kb("statement", "withdraw", b, "--json", cwd=self.V)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["replaced"]["id"], got["replaced"]["text"]), (a, "信義王改用系統櫃"))
+        out = self.kb("restore", a)
+        self.assertEqual(out, ["恢復了：信義王改用系統櫃（說「退回」可以改回去）"])
+        it = statements.find(statements.load(self.V), a)
+        self.assertEqual((it["status"], it["replaced_by"]), ("active", None))
+        self.assertTrue([i for i in self.todo()["synthesis_stale"] if i["name"] == "信義王"])
+
+    def test_withdraw_human_line(self):
+        a = self.add("信義王改用系統櫃")
+        b = self.add("信義王改回木工", "信義王", "--replaces", a)
+        self.assertEqual(self.kb("withdraw", b), ["已收回：信義王改回木工",
+                                                 "它取代過：信義王改用系統櫃（" + statements.find(statements.load(self.V), a)["date"]
+                                                 + "）；要恢復的話跟我說"])
+
+    def test_restore_refusals(self):
+        a = self.add("信義王改用系統櫃")
+        self.assertEqual(self.kb("restore", a, code=3), ["這條沒有被取代，或取代它的那條還有效"])
+        self.add("信義王改回木工", "信義王", "--replaces", a)
+        self.assertEqual(self.kb("restore", a, code=3), ["這條沒有被取代，或取代它的那條還有效"])
+        self.assertEqual(self.kb("restore", "s-00000000", code=3), ["這條沒有被取代，或取代它的那條還有效"])
+
+    def test_restore_from_archive(self):
+        a = self.add("信義王改用系統櫃")
+        b = self.add("信義王改回木工", "信義王", "--replaces", a)
+        t = turn.start(self.V, None, "")["turn"]
+        self.assertEqual(statements.archive(self.V, [a], t), 1)
+        self.assertIsNone(statements.find(statements.load(self.V), a))
+        arch = statements.load_archive(self.V)
+        self.assertTrue(arch["statements"][0]["archived"])
+        self.kb("withdraw", b)
+        self.assertEqual(self.kb("restore", a), ["恢復了：信義王改用系統櫃（說「退回」可以改回去）"])
+        self.assertEqual(statements.find(statements.load(self.V), a)["status"], "active")
+        self.assertEqual(statements.load_archive(self.V)["statements"], [])
 
 
 if __name__ == "__main__":

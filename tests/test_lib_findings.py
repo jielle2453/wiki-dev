@@ -212,5 +212,25 @@ class RuledOut(Base):
         self.assertFalse((self.V / findings.FINDINGS_POSIX).exists())
 
 
+class Archive(Base):
+    """lint 題：被取代或收回、沒有綜合卡引用的推算由健檢移到 .system/findings-archive.json（schema 1，加 archived 日期）。"""
+
+    def test_moves_only_inactive(self):
+        (old, _none) = self.add()
+        (new, _old) = self.add(text="信義王報價合計 183 萬", replaces=old["id"])
+        self.assertEqual(findings.archive(self.V, [old["id"], new["id"]], self.t), 1)
+        self.assertEqual(list(self.items()), [new["id"]])
+        arch = findings.load_archive(self.V)
+        self.assertEqual([c["id"] for c in arch["findings"]], [old["id"]])
+        self.assertTrue(arch["findings"][0]["archived"])
+        manifest = {e["path"] for e in turn.entries(self.V, self.t)}
+        self.assertTrue({findings.FINDINGS_POSIX, findings.ARCHIVE_POSIX} <= manifest)
+
+    def test_nothing_to_move_writes_nothing(self):
+        (only, _none) = self.add()
+        self.assertEqual(findings.archive(self.V, [only["id"]], self.t), 0)
+        self.assertFalse((self.V / findings.ARCHIVE_POSIX).exists())
+
+
 if __name__ == "__main__":
     unittest.main()

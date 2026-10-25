@@ -226,7 +226,9 @@ def add(vault, kind, entities, cards, text, turn_id, files=(), label=None):
               "turn": turn_id, "status": "active", "revoked": None}
         data["rulings"].append(it)
         return it, True
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    statements.wake_entities(vault, names, turn_id)  # 實體有新裁示：先放著的回到前面（D-226）
+    return got
 
 
 def _add_readable(vault, files, entities, cards, text, label, turn_id):

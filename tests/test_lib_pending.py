@@ -473,5 +473,58 @@ class SchemaTwo(Base):
         self.assertIn(pending.PENDING_POSIX, self.manifest())
 
 
+class WakeOnKnowledge(unittest.TestCase):
+    """先放著的自動回到前面（D-226）：實體有新口述、新裁示，卡重做，原檔換版（清冊指紋變了，due_back 比）。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = E.make_entity_vault(with_entities=True)
+        self.t = turn.start(self.V, None, "")["turn"]
+        self.xinyi = "e-5c1d0a7e"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def aside(self, **kw):
+        pid = pending.add(self.V, "unreadable", kw.get("file_ids", ["f-11111111"]), "「甲.pdf」讀不到", "檔案壞了", self.t,
+                          entity_ids=kw.get("entity_ids"))
+        pending.set_aside(self.V, pid, "customer", self.t)
+        return pid
+
+    def state(self, pid):
+        return next(i for i in pending.load(self.V)["items"] if i["id"] == pid)
+
+    def test_new_statement_wakes(self):
+        from kb._lib import statements
+        pid = self.aside(entity_ids=[self.xinyi])
+        statements.add(self.V, "信義王改用系統櫃", ["信義王"], self.t)
+        self.assertIsNone(self.state(pid)["set_aside"])
+
+    def test_new_ruling_wakes(self):
+        from kb._lib import rulings
+        pid = self.aside(entity_ids=[self.xinyi])
+        rulings.add(self.V, "口述為準", ["信義王"], [], "報價以我說的為準", self.t)
+        self.assertIsNone(self.state(pid)["set_aside"])
+
+    def test_fingerprint_change_is_due_back(self):
+        import json as _json
+        fid = _cards.entry_of(self.V, E.MEMO)["id"]
+        pid = self.aside(file_ids=[fid])
+        self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"]), set())
+        inv_path = self.V / ".system" / "inventory.json"
+        inv = _json.loads(inv_path.read_text(encoding="utf-8"))
+        entry = next(e for e in inv["entries"] if e["id"] == fid)
+        entry["fingerprints"].append(dict(entry["fingerprints"][-1], sha256="0" * 64))
+        inv_path.write_text(_json.dumps(inv, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"]), {pid})
+        self.assertEqual(pending.wake_due(self.V, self.t), 1)
+        self.assertTrue(self.state(pid)["returned"])
+
+    def test_dates_within_wake_days(self):
+        pid, _c = pending.add_lint(self.V, "inferred:agenda", "推測的日程放太久", {"dates": ["2026-10-26"]}, self.t)
+        pending.set_aside(self.V, pid, "lint", self.t)
+        self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"], today="2026-10-25"), {pid})
+        self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"], today="2026-10-20"), set())
+
+
 if __name__ == "__main__":
     unittest.main()
