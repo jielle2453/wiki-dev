@@ -89,6 +89,17 @@ class Check(Base):
         self.assertEqual(got["hidden_reapply"], [])
         self.assertIsNone(got["build_step"])
 
+    def test_skeleton_file_she_changed_after_the_backup_is_listed(self):
+        """桌面版確認 B-5：CLAUDE.md 這類骨架檔備份後改過，演練要講會變回那份的樣子。"""
+        (self.V / "CLAUDE.md").write_text("原本的說明\n", encoding="utf-8")
+        z = _backup.make_zip(self.V, self.B, "vault備份 2026-10-03.zip")
+        (self.V / "CLAUDE.md").write_text("原本的說明\n我習慣先講結論\n", encoding="utf-8")
+        got = restore.check(self.V, str(z))
+        self.assertEqual(got["skeleton_changed"], ["CLAUDE.md"])
+        self.assertIn("CLAUDE.md", "\n".join(restore.lines(got)))
+        (self.V / "CLAUDE.md").write_text("原本的說明\n", encoding="utf-8")
+        self.assertEqual(restore.check(self.V, str(z))["skeleton_changed"], [])
+
     def test_back_side_counts_what_comes_back(self):
         file_card(self.V, "7777", "會回來的卡")
         z = _backup.make_zip(self.V, self.B, "vault備份 2026-10-02.zip")

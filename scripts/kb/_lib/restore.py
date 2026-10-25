@@ -199,6 +199,26 @@ def _build_step(root):
     return step if step and step != "done" else None
 
 
+def _skeleton_rels():
+    """骨架檔（plugin 的 skeleton/ 底下 kb init 會放進知識庫的，跳過 .gitkeep）的相對路徑。"""
+    base = paths.plugin_root() / "skeleton"
+    if not base.is_dir():
+        return []
+    return sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file() and p.name != ".gitkeep")
+
+
+def _skeleton_diff(target, extracted):
+    """知識庫的骨架檔（CLAUDE.md 這類她可能改過的）跟那份不一樣的：還原後會變回那份的樣子（桌面版確認 B-5：退回舊版沒講）。"""
+    out = []
+    for rel in _skeleton_rels():
+        a, b = Path(target) / rel, Path(extracted) / rel
+        mine = _safe(lambda p=a: p.read_bytes() if p.is_file() else None)
+        theirs = _safe(lambda p=b: p.read_bytes() if p.is_file() else None)
+        if mine != theirs:
+            out.append(rel)
+    return out
+
+
 def _compare(vault, target, zip_path):
     tmp = Path(tempfile.mkdtemp(prefix="wwb-check-"))
     try:
@@ -208,6 +228,7 @@ def _compare(vault, target, zip_path):
         hidden_theirs = _hidden_keys(tmp)
         hidden_now = _hidden_keys(target) if vault is not None else set()
         build_step = _build_step(tmp)
+        skeleton = _skeleton_diff(target, tmp) if vault is not None else []
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     lose, back, examples, examples_back = {}, {}, {}, {}
@@ -233,15 +254,16 @@ def _compare(vault, target, zip_path):
         if came and key != "journal_turns":
             examples_back[key] = [other[k] for k in sorted(came)[:EXAMPLES_MAX]]
     reapply = sorted(f"{a}/{s}" for a, s in hidden_now - hidden_theirs)
-    return lose, back, examples, examples_back, reapply, build_step
+    return lose, back, examples, examples_back, reapply, build_step, skeleton
 
 
 def check(cwd, source):
-    """演練：回 {"created","machine","kind","lose","back","examples","examples_back","hidden_reapply","build_step","refuse"}。
+    """演練：回 {"created","machine","kind","lose","back","examples","examples_back","hidden_reapply","build_step",
+    "skeleton_changed","other_vault","refuse"}。
     只讀。擋的原因放 refuse（其他欄位盡量算、算不出來給空的）。"""
     vault, target = target_of(cwd)
     got = {"created": None, "machine": None, "kind": None, "lose": {}, "back": {}, "examples": {}, "examples_back": {},
-           "hidden_reapply": [], "build_step": None, "other_vault": False, "refuse": None}
+           "hidden_reapply": [], "build_step": None, "skeleton_changed": [], "other_vault": False, "refuse": None}
     try:
         zip_path = find_source(source, vault, cwd)
         meta = backup.verify(zip_path)
@@ -250,8 +272,9 @@ def check(cwd, source):
         _guard_target(vault, target)
         if vault is not None and backup.batch_running(vault):
             raise backup.Refused(backup.BATCH_RUNNING.format(what="還原"))
-        lose, back, ex, exb, reapply, step = _compare(vault, target, zip_path)
-        got.update(lose=lose, back=back, examples=ex, examples_back=exb, hidden_reapply=reapply, build_step=step)
+        lose, back, ex, exb, reapply, step, skeleton = _compare(vault, target, zip_path)
+        got.update(lose=lose, back=back, examples=ex, examples_back=exb, hidden_reapply=reapply, build_step=step,
+                   skeleton_changed=skeleton)
     except backup.Refused as e:
         got["refuse"] = str(e)
     return got
@@ -296,7 +319,9 @@ def lines(result):
             parts.append(f"會回來 {n_back} {unit}" + (f"（{'、'.join('「' + e + '」' for e in ex)}）" if ex else ""))
         if parts:
             out.append(f"{word}：" + "；".join(parts))
-    if not any(result["lose"].values()) and not any(result["back"].values()):
+    if result.get("skeleton_changed"):
+        out.append("這幾個知識庫自己的設定檔會變回那份的樣子（之後改的會不見）：" + "、".join(result["skeleton_changed"]))
+    if not any(result["lose"].values()) and not any(result["back"].values()) and not result.get("skeleton_changed"):
         out.append("跟現在幾乎一樣，沒有會不見或回來的")
     for name in result.get("hidden_reapply") or []:
         out.append(f"你設成不想讓 AI 看到的「{name}」會留著，還原後再清一次")
