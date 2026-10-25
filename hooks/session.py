@@ -305,8 +305,16 @@ def line_health(vault):
     return None
 
 
+BACKGROUND_LINT_BUDGET = 7  # 秒，從 hook 開始算；前面的行用掉太多時間這次就不開（SessionStart 逾時 10 秒）
+
+
 def start_background_lint(vault):
-    """背景健檢的觸發（D-221、D-227）：kb.lint.runner.opening 判斷要不要開、開了不等。出錯只記 log。"""
+    """背景健檢的觸發（D-221、D-227）：kb.lint.runner.opening 判斷要不要開、開了不等。出錯只記 log。
+    開場叫她先補位置（line_moved）或先 kb upgrade --finish 時不開：搬了家還沒補，健檢會把出處點不開記成要她決定的事；
+    跟整理指示讓位是同一處判斷。"""
+    state = _upgrade_state(vault)
+    if line_moved(vault) or (state and state["finish"]) or time.monotonic() - _START > BACKGROUND_LINT_BUDGET:
+        return
     try:
         from kb.lint import runner
 

@@ -30,6 +30,7 @@ FAILED_LINE = "{name}這項這次沒查成"
 NOT_TRUE_HOW = "健檢確認已不成立"
 CLOSED_TEXT = "關掉 {n} 件已經不成立的待處理"
 ASIDE_TEXT = "收起 {n} 件放超過 {days} 天沒動的待處理（先放著，有變化會再拿出來）"
+OPENING_LOCK_WAIT = 0.5  # 開場記「今天開過了」只等這麼久，等不到這次不開（開場 hook 有時限）
 NO_BACKGROUND_ENV = "WIKI_WITH_WILLY_NO_BACKGROUND"  # 測試設這個，開場不開背景子行程（黑箱測試的知識庫是暫存夾）
 KINDS = ("fix", "decide", "number", "ingest")
 
@@ -366,6 +367,9 @@ def opening(vault, today=None):
                 return False
         except ValueError:
             pass
-    state.change(vault, lambda d: d.update(last_spawn=today) or True)
+    try:
+        state.change(vault, lambda d: d.update(last_spawn=today) or True, timeout=OPENING_LOCK_WAIT)
+    except TimeoutError:
+        return False  # 記不到今天開過了就不開（免得兩個對話各開一個），下次開場再試
     _spawn(vault)
     return True

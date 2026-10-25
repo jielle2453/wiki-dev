@@ -53,11 +53,11 @@ def save(vault, data, turn_id=None):
     write_json_atomic(p, dict(data, schema_version=SCHEMA_VERSION))
 
 
-def change(vault, fn, turn_id=None):
-    """鎖住讀改寫：fn(data) 回真才寫。回 fn 的結果。"""
+def change(vault, fn, turn_id=None, timeout=None):
+    """鎖住讀改寫：fn(data) 回真才寫。回 fn 的結果。timeout 給了照它等鎖（開場只等一下）。"""
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(p):
+    with FileLock(p, timeout=timeout):
         data = load(vault)
         got = fn(data)
         if got:

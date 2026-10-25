@@ -1045,6 +1045,27 @@ class BackgroundLint(unittest.TestCase):
         self.put(last_background=(date.today() - timedelta(days=3)).isoformat())
         self.assertEqual(self.spawn_calls()[0], [])
 
+    def test_not_when_opening_asks_to_fix_first(self):
+        """換了位置（先 kb moved）或換了版（先 --finish）的開場不開：健檢會把只是搬家造成的出處點不開記成要決定的事。"""
+        from unittest import mock
+        with mock.patch.object(self.session, "line_moved", return_value="知識庫換了位置：先跑 kb moved 補好再做別的。"):
+            self.assertEqual(self.spawn_calls()[0], [])
+        with mock.patch.object(self.session, "_upgrade_state", return_value={"finish": True, "line": "x"}):
+            self.assertEqual(self.spawn_calls()[0], [])
+
+    def test_lock_busy_does_not_wait_long(self):
+        from kb._lib import io as kio
+        from kb.lint import state
+        lock = kio.FileLock(self.V / state.LINT_POSIX, timeout=1)
+        lock.__enter__()
+        try:
+            started = time.monotonic()
+            calls, _lines = self.spawn_calls()
+            self.assertLess(time.monotonic() - started, 2.5)
+            self.assertEqual(calls, [], "記不到今天開過就不開，下次開場再試")
+        finally:
+            lock.__exit__(None, None, None)
+
     def test_switch_for_tests(self):
         os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = "1"
         try:

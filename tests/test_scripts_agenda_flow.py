@@ -322,9 +322,10 @@ class Asks(Base):
     def test_kb_asks_json_equals_todo(self):
         self.make_all()
         todo = self.todo()
-        got = json.loads(run_kb("asks", "--json", cwd=self.V).stdout)
-        self.assertEqual(set(got), {"asks", "tell"})
-        self.assertEqual(got["asks"], todo["asks"])
+        got = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)  # lint 題：全部要 --all（D-225）
+        self.assertEqual(set(got), {"asks", "tell", "set_aside"})
+        mine = [a for a in got["asks"] if not a["kind"].startswith("pending_")]  # --all 照急的排、重新編號：比內容
+        self.assertEqual(sorted((a["key"], a["question"]) for a in mine), sorted((a["key"], a["question"]) for a in todo["asks"]))
         self.assertEqual(got["tell"], [t for t in todo["tell"] if t.startswith(("加進日程", "照新版"))
                                        or "改成" in t])
 
