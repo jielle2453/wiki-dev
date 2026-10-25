@@ -7,6 +7,9 @@
 buckets 給 cards todo：synthesis_new（D-114 門檻數檔案卡加有效口述，裁示不算）、synthesis_stale（D-121）、synthesis_broken、
 entity_drift（D-057）；前兩桶每項帶這個實體的口述、裁示與推算（statements、rulings、findings），added／changed／removed
 每項帶 source。推算不算進建卡門檻。
+健檢標的要更新（lint 題，.system/lint.json 的 synthesis_fix：出處點不開、有空段、設定檔改了）併進 synthesis_stale：
+本來就要更新的那項多 reason 與 ids，本來不用更新的也列一項（added／changed／removed 是空的），整理時照現有流程改寫；
+卡被改寫之後指紋變了，那筆就不算（lint.state.fixes）。
 檔頭用 cards.parse_front 解析（同一套 YAML 子集）。
 """
 import re
@@ -397,6 +400,7 @@ def buckets(vault, data, mounts, prof):
     today = date.today().isoformat()
     new, stale, broken = [], [], []
     listed = set()
+    fixes = _lint_fixes(vault)
     for e in data["entities"]:
         if e.get("status") == "merged" or entities.is_self(e) or not e.get("type"):
             continue
@@ -411,10 +415,14 @@ def buckets(vault, data, mounts, prof):
                 listed.add(rel.casefold())
                 continue
             found = safe_problems(vault, rel, text, data, mounts, prof, know)
-            if not found:
+            fix = fixes.get(rel.casefold())
+            if not found and fix is None:
                 continue
-            if [c for c, _r in found] == [STALE_CODE]:
-                stale.append(_stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know))
+            if not found or [c for c, _r in found] == [STALE_CODE]:
+                item = _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know)
+                if fix is not None:
+                    item.update(reason=fix.get("reason"), ids=list(fix.get("ids") or []))
+                stale.append(item)
             else:
                 broken.append({"path": rel, "reason": found[0][1]})
                 listed.add(rel.casefold())
@@ -489,6 +497,20 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed}
+
+
+def _lint_fixes(vault):
+    """健檢標的要更新綜合卡 {小寫路徑: 那筆}；讀不到當沒有。"""
+    try:
+        from kb.lint import state
+        return {f["path"].casefold(): f for f in state.fixes(vault)}
+    except Exception:  # noqa: BLE001  健檢狀態壞了不能擋整理
+        return {}
+
+
+def lint_fix_count(vault):
+    """健檢標的、還算數的要更新綜合卡張數（開場「還有 N 份沒整理完」算進去，D-161）。"""
+    return len(_lint_fixes(vault))
 
 
 def _ruling_source(r):

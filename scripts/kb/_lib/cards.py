@@ -674,14 +674,14 @@ def _purge_pending(vault, sources):
 # ---------- 查詢（answer 第 1、2 點） ----------
 
 def unsorted(vault, sources=None, deadline=None):
-    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）。
-    deadline 給開場 hook：過了丟 TimeoutError。"""
-    from kb._lib import entities, inventory
+    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）；
+    加上健檢標成要更新的綜合卡（lint 題，D-161）。deadline 給開場 hook：過了丟 TimeoutError。"""
+    from kb._lib import entities, inventory, synthesis
     from kb._lib import sources as sources_lib
     sources = sources if sources is not None else sources_lib.load(vault)
     out, _groups, _data = _sort_files(vault, sources, entities.load(vault), inventory.load(vault)["entries"],
                                       light=True, deadline=deadline)
-    return len(out["new"]) + len(out["stale"])
+    return len(out["new"]) + len(out["stale"]) + synthesis.lint_fix_count(vault)
 
 
 def card_state(vault, entry, card):

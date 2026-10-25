@@ -15,6 +15,9 @@ payload 的 session 在這個對話按過停止（session 檔記著 ingest_stopp
 升級打包（D-215、D-217）：line_version 排在 kb 行之後、line_moved 前面，只用上一次查的結果（env.json 的 update_check），不連網；
 日期不是今天（且清單網址有填）就背景開一個 kb upgrade --background 的子行程、不等它；沒有 upgrade-history.json 就記成現在版本、不印；
 換了版要 kb upgrade --finish 時整理指示不印（跟 line_moved 同一處判斷）。這支多寫 .system/upgrade-history.json（第一次）與 env.json 的 update_check（日期）。
+背景健檢（lint 題，D-221、D-227）：.system/lint.json 的上次健檢超過 lint_background_days 天（或沒跑過）、今天還沒開過，就背景開
+kb lint --background（同升級那支的做法，不等它；兩支互不等）；開場不另外印一行（line_health 照留空殼）。健檢標成要更新的綜合卡
+算進「還有 N 份沒整理完」（D-161）。這支多寫 lint.json 的 last_spawn（今天開過了）。
 core.md 之後接設定檔第六節的「客戶偏好（…照核心規則）：」一條一行（D-137，沒有不印；讀不到這段不印、寫 log；框住，測試後修正裁定 15）。
 任何例外寫 .system/hook-errors.log（source session），永遠 exit 0。找到知識庫之後的例外另印一行出錯的 additionalContext
 （失敗明講，開場注入測試後修正 D2）；找不到知識庫、stdin 壞掉不輸出。write／flush 也包住：pipe 斷掉照樣 exit 0。
@@ -155,9 +158,10 @@ def _unsorted_count(vault, sources):
     key = str(vault)
     if key not in _UNSORTED:
         try:
-            from kb._lib import batches
+            from kb._lib import batches, synthesis
 
-            _UNSORTED[key] = batches.opening_counts(vault, sources, deadline=_START + UNSORTED_BUDGET)
+            left, moved = batches.opening_counts(vault, sources, deadline=_START + UNSORTED_BUDGET)
+            _UNSORTED[key] = (left + synthesis.lint_fix_count(vault), moved)  # 健檢標的要更新綜合卡也算（lint 題）
         except Exception as e:  # noqa: BLE001
             _UNSORTED[key] = None
             _log_vault(vault, e)
@@ -297,8 +301,18 @@ def line_backup(vault):
 
 
 def line_health(vault):
-    """等 lint 題。"""
+    """lint 題：健檢的事併進回答末尾的「還有 N 件」（D-225），開場不另外提醒（D-221 修訂）。"""
     return None
+
+
+def start_background_lint(vault):
+    """背景健檢的觸發（D-221、D-227）：kb.lint.runner.opening 判斷要不要開、開了不等。出錯只記 log。"""
+    try:
+        from kb.lint import runner
+
+        runner.opening(vault)
+    except Exception as e:  # noqa: BLE001  起不來不影響開場
+        _log_vault(vault, e)
 
 
 def line_compact(vault, source):
@@ -319,6 +333,7 @@ def status_lines(vault, source, session_id=None):
             line = None
         if line is not None:
             out.append(line)
+    start_background_lint(vault)
     return out
 
 

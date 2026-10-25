@@ -793,11 +793,12 @@ def order(asks):
     return sorted(asks, key=lambda a: (not a.get("urgent"), rank.get(a.get("kind"), len(_ORDER))))
 
 
-def pending_view_questions(vault):
-    """待處理.md「整理時要問你的」那段（D-226）：整理題裡不住在 pending.json 的問句（先放著的、批次題不列）。健檢算好交給 pending。"""
+def pending_view_questions(vault, out=None):
+    """待處理.md「整理時要問你的」那段（D-226）：整理題裡不住在 pending.json 的問句（先放著的、批次題不列）。健檢算好交給 pending。
+    out 是 cards.collect 的結果（沒給自己算）。"""
     from kb._lib import config as config_lib
     from kb._lib import sources as sources_lib
-    out = cards.collect(vault, sources_lib.load(vault))
+    out = out if out is not None else cards.collect(vault, sources_lib.load(vault))
     got = build(out, vault, config_lib, tell_all=False)
     return [a["question"] for a in got["asks"] if a["kind"] not in PENDING_KEYED + ("batch",)]
 

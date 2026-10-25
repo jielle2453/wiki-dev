@@ -989,3 +989,88 @@ class OpeningSpawn(unittest.TestCase):
             self.session._UPGRADE.clear()
             self.session.line_version(self.V)  # 上一次開場已經記了今天
             self.assertEqual(len(calls), 1)
+
+
+class BackgroundLint(unittest.TestCase):
+    """lint 題驗收 20（D-221、D-227）：lint.json 的 last_background 超過 lint_background_days → 開場背景開 kb lint --background
+    （替身記參數）、不等它、開場 < 1 秒；沒超過不開；同一天第二次開場不再開；開場不多印一行。"""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_lint", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
+        self.env = os.environ.pop("WIKI_WITH_WILLY_NO_BACKGROUND", None)
+
+    def tearDown(self):
+        if self.env is not None:
+            os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = self.env
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def put(self, **fields):
+        (self.V / ".system" / "lint.json").write_text(json.dumps(dict({"schema_version": 1}, **fields)), encoding="utf-8")
+
+    def spawn_calls(self):
+        from unittest import mock
+        from kb.lint import runner
+        calls = []
+        proc = mock.Mock()
+        proc.wait.side_effect = AssertionError("開場不等背景")
+        with mock.patch.object(runner, "_popen", side_effect=lambda argv, **kw: calls.append((argv, kw)) or proc):
+            started = time.monotonic()
+            lines = self.session.status_lines(self.V, "startup", "sid")
+            self.assertLess(time.monotonic() - started, 3)
+        return calls, lines
+
+    def test_eight_days_ago_spawns(self):
+        from datetime import date, timedelta
+        self.put(last_background=(date.today() - timedelta(days=8)).isoformat())
+        calls, lines = self.spawn_calls()
+        self.assertEqual(len(calls), 1)
+        argv, kw = calls[0]
+        self.assertEqual(argv[-2:], ["lint", "--background"])
+        self.assertTrue(argv[-3].endswith("kb.py"))
+        self.assertEqual(Path(kw["cwd"]).resolve(), Path(self.V).resolve())
+        self.assertFalse([ln for ln in lines if "健檢" in ln], "開場不另外提醒（D-221 修訂）")
+        again, _lines = self.spawn_calls()
+        self.assertEqual(again, [], "同一天開過了")
+
+    def test_no_lint_json_spawns(self):
+        calls, _lines = self.spawn_calls()
+        self.assertEqual(len(calls), 1)
+
+    def test_recent_does_not_spawn(self):
+        from datetime import date, timedelta
+        self.put(last_background=(date.today() - timedelta(days=3)).isoformat())
+        self.assertEqual(self.spawn_calls()[0], [])
+
+    def test_switch_for_tests(self):
+        os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = "1"
+        try:
+            self.assertEqual(self.spawn_calls()[0], [])
+        finally:
+            del os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"]
+
+
+class LintFixCounted(unittest.TestCase):
+    """lint 題 D-161：健檢標成要更新的綜合卡算進「還有 N 份沒整理完」。"""
+
+    def setUp(self):
+        from tests import _lint as L
+        self.L = L
+        self.tmp, self.V, self.raw = L.make()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_fix_adds_to_left(self):
+        from kb._lib import cards
+        from kb.lint import state
+        before = cards.unsorted(self.V)
+        rel = self.L.write_synthesis(self.V)
+        state.add_fix(self.V, rel, "有空段", [])
+        self.assertEqual(cards.unsorted(self.V), before + 1)
+        r = run(payload(self.V))
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertTrue([ln for ln in ctx.splitlines() if ln.startswith("還有 ") or ln.startswith("變動：")], ctx[:300])
