@@ -300,5 +300,40 @@ class LintFiles(unittest.TestCase):
         self.assertTrue((Path(V) / saved).is_file())
 
 
+class LintPending(unittest.TestCase):
+    """lint 第二輪 T-25：待處理裡她手改開的 handedit 件（每行原文）、健檢件的文字（推測日程從那夾的卡來）也清；
+    T-31：口述封存檔的原話只遮編號與夾路徑，不照卡標題遮（恢復回來不是壞句）。真的 exclude --kind hidden 再 purge。"""
+    setUp, tearDown = Purge.setUp, Purge.tearDown
+    write_synthesis, exclude = Purge.write_synthesis, Purge.exclude
+
+    def test_pending_texts_cleaned(self):
+        from kb._lib import statements
+        V = self.V
+        t = turn.start(V, None, "")["turn"]
+        md = Path(V) / pending.MD_POSIX
+        md.write_text("\n".join(ln.replace("- ", "- [x] ", 1) if DIARY in ln else ln
+                                for ln in md.read_text(encoding="utf-8").splitlines()) + "\n", encoding="utf-8")
+        pending.add(V, "unreadable", [self.keep_fid], "「估價單.pdf」讀不到", "檔案壞了", t)
+        self.assertTrue([i for i in pending.load(V)["items"] if i["kind"] == "handedit"])
+        pending.add_lint(V, "inferred:agenda", "日程有 1 條是我從檔案推測的，放了超過 30 天還沒確認：2026-12-01 推測的事",
+                         {"dates": ["2026-12-01"]}, t, check="inferred")
+        st = statements.add(V, "王家心情那件先擱著", ["信義王"], t)[0]
+        statements.withdraw(V, st["id"], t)
+        statements.archive(V, [st["id"]], t)
+        turn.start(V, None, "不要讀私人那夾")
+        code, out = self.exclude()
+        self.assertEqual(code, 0, out)
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
+        self.assertEqual(code, 0, out)
+        raw = (Path(V) / pending.PENDING_POSIX).read_text(encoding="utf-8")
+        for word in (DIARY, "私人", "王家心情", "推測的事"):
+            self.assertNotIn(word, raw, word)
+        code, out = kb("lint", "handedit", "--json", "--vault", str(V))
+        for word in (DIARY, "私人", "王家心情"):
+            self.assertNotIn(word, out, word)
+        self.assertEqual([s["text"] for s in statements.load_archive(V)["statements"]], ["王家心情那件先擱著"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ class LintCli(unittest.TestCase):
         self.assertEqual(len(list((self.V / "系統" / "健檢報告").iterdir())), 1, "同月重寫同一份")
 
     def test_human_first_line_is_summary(self):
+        self.kb("--json")  # 第一次跑才有工作日誌（守門那項從第二次起才查得成），先跑一次讓兩次比的狀態一樣
         got = json.loads(self.kb("--json"))
         out = self.kb().splitlines()
         self.assertEqual(out[0], got["summary"])

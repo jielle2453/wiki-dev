@@ -22,20 +22,20 @@ def _old_cards(ctx, row):
 
 
 def run(ctx):
-    prof = ctx.profile()
+    prof = ctx.profile_strict()  # 設定檔讀不到就算這項沒查成，不關它的件（T-28）
     out = []
     for row in prof.get("card_types") or []:
-        ids = _old_cards(ctx, row)
-        if not ids:
+        every = _old_cards(ctx, row)
+        if not every:
             continue
-        ids = ids[:REDO_SHOWN]
+        ids = every[:REDO_SHOWN]
         out.append(runner.finding(
             "stale_by_profile", "decide", f"redo_by_profile:{row['name']}:{row['date']}",
             f"設定檔的「{row['name']}」那類 {row['date']} 改過，有 {len(ids)} 張卡是之前做的；要不要照新的設定重做？",
             data={"card_type": row["name"], "date": row["date"], "ids": ids,
                   "results": [{"label": "好，重做", "do": [cards_lib_redo(ids)],
                                "note": "跑完照 ingest skill 整理（交製卡助手在背景做），跟她說幾張、大約多久"}]},
-            file_ids=ids))
+            items=every, file_ids=ids))  # 指紋照全部的卡算：做完前 200 張、還剩的換一件新的（T-26）
     hits = []
     for e, rel, text in ctx.synthesis():
         rows = [s for s in prof.get("synthesis_sections") or [] if entities.key(s.get("type")) == entities.key(e.get("type"))]

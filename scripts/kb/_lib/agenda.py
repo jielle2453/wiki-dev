@@ -745,9 +745,10 @@ def _hand_edited(vault, turn_id, base):
     hers = renders.check(vault, MD_POSIX)
     if hers is None:
         return None
+    known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
     try:
         day = renders.recorded_day(vault, MD_POSIX) or _today()
-        base_text, lines = render_text(vault, base, day), item_lines(vault, base, day)
+        base_text, lines = known if known else (render_text(vault, base, day), item_lines(vault, base, day))
     except Exception:  # noqa: BLE001  算不出她看到的那份：只比得出「其他」
         base_text, lines = "", []
     return renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id)
@@ -764,7 +765,7 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
         return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
-            renders.record(vault, MD_POSIX, text, day=today or _today())
+            renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))
             return False
     except (OSError, UnicodeDecodeError):
         pass
@@ -773,5 +774,5 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
         turn.backup(vault, MD_POSIX, turn_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
-    renders.record(vault, MD_POSIX, text, day=today or _today())
+    renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))
     return True

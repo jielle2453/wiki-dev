@@ -13,23 +13,24 @@ NAME = "版本與骨架"
 def run(ctx):
     out = []
     rec = skeleton.recorded(ctx.vault)
-    if rec is not None:
-        for rel in skeleton.files():
-            p = Path(ctx.vault) / rel
-            want = rec["files"].get(rel)
-            if not want or not p.is_file():
-                continue
-            sha = hashlib.sha256(p.read_bytes()).hexdigest()
-            if sha == want or skeleton.known(rel, sha):
-                continue
-            out.append(runner.finding(
-                "versions", "decide", f"skeleton:{rel}:{sha[:12]}",
-                f"你改過「{rel}」，跟程式的版本不同；要留你的，還是換回程式的？",
-                data={"file": rel, "results": [{"label": "換回程式的", "do": [f"kb upgrade skeleton {rel} --replace"],
-                                                "note": "她那份會備進回合，說「退回」就回來"},
-                                               {"label": "留我的", "do": [f"kb upgrade skeleton {rel} --keep"],
-                                                "note": "她的留著，之後升級不再問"}]},
-                once=True))
+    if rec is None:  # 沒有骨架紀錄（或壞了）：判不出她改了沒，這項算沒查成（T-28）
+        raise ValueError(f"{skeleton.SKELETON_JSON} 讀不到")
+    for rel in skeleton.files():
+        p = Path(ctx.vault) / rel
+        want = rec["files"].get(rel)
+        if not want or not p.is_file():
+            continue
+        sha = hashlib.sha256(p.read_bytes()).hexdigest()
+        if sha == want or skeleton.known(rel, sha):
+            continue
+        out.append(runner.finding(
+            "versions", "decide", f"skeleton:{rel}:{sha[:12]}",
+            f"你改過「{rel}」，跟程式的版本不同；要留你的，還是換回程式的？",
+            data={"file": rel, "results": [{"label": "換回程式的", "do": [f"kb upgrade skeleton {rel} --replace"],
+                                            "note": "她那份會備進回合，說「退回」就回來"},
+                                           {"label": "留我的", "do": [f"kb upgrade skeleton {rel} --keep"],
+                                            "note": "她的留著，之後升級不再問"}]},
+            once=True))
     old_template = sum(1 for c in ctx.cards().values() if str(c["front"].get("範本版本")) != cards.TEMPLATE_VERSION)
     out.append(runner.finding("versions", "number", "versions", "",
                               data={"old_schema": len(migrate.pending(ctx.vault)), "old_template_cards": old_template}))

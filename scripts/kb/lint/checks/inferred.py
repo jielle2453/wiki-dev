@@ -47,10 +47,7 @@ def _default_row(prof, sec, row):
 def run(ctx):
     limit = ctx.config("lint_inferred_days")
     out = []
-    try:
-        items = agenda.load(ctx.vault)["items"]
-    except ValueError:
-        items = []
+    items = agenda.load(ctx.vault)["items"]  # 日程讀不到就丟出去：這項算沒查成，不把它的件當成已不成立（T-28）
     old = [it for it in items if it.get("status") == "open" and it.get("source") == "inferred" and _old(ctx, _since(it), limit)]
     if old:
         texts = [f"{it.get('date')} {it.get('text')}" for it in old]
@@ -70,7 +67,7 @@ def run(ctx):
             data={"names": names, "results": [{"label": "名字都對",  # 名字照 shell_arg 加引號，給不出來的不給（T-9）
                                                 "do": [c for c in (plan.cmd("entity", "confirm", n) for n in names) if c]}]},
             entity_ids=[e["id"] for e in ents]))
-    prof = ctx.profile()
+    prof = ctx.profile_strict()
     rows = [f"{sec}:{row.get(key)}" for sec, key in PROFILE_SECTIONS for row in prof.get(sec) or []
             if isinstance(row, dict) and row.get("source") == "inferred" and _old(ctx, row.get("date") or "", limit)
             and not _default_row(prof, sec, row)]

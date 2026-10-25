@@ -25,7 +25,8 @@ HISTORY_MAX = 20
 _CHECKED = re.compile(r"^-\s*\[[xX✓✔]\]\s*")
 _BOX = re.compile(r"^-\s*\[\s?\]\s*")
 _DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}|\d{1,2}-\d{1,2}")
-_WEEKDAY = re.compile(r"（週[一二三四五六日]）")  # 日程每行日期後面的星期，改日期時跟著變
+_WEEKDAY = re.compile(r"（週[一二三四五六日]）")
+_COUNT = re.compile(r"（\d+）$")  # 日程每行日期後面的星期，改日期時跟著變
 
 
 def fingerprint(text):
@@ -54,7 +55,9 @@ def load(vault):
                         if isinstance(k, str) and isinstance(v, list)},
             "dates": _str_map(data.get("dates")),
             "saved": [s for s in data.get("saved") or [] if isinstance(s, dict)] if isinstance(data.get("saved"), list) else [],
-            "asks": [q for q in data.get("asks") if isinstance(q, str)] if isinstance(data.get("asks"), list) else []}
+            "asks": [q for q in data.get("asks") if isinstance(q, str)] if isinstance(data.get("asks"), list) else [],
+            "bases": {k: v for k, v in data.get("bases").items() if isinstance(v, dict) and isinstance(v.get("text"), str)
+                      and isinstance(v.get("lines"), list)} if isinstance(data.get("bases"), dict) else {}}
 
 
 def check(vault, rel):
@@ -90,7 +93,15 @@ def _edit(vault, change):
         ledger.log_error(vault, f"renders.json 沒寫成：{type(e).__name__}: {e}", source="renders")
 
 
-def record(vault, rel, text, day=None, turn_id=None):
+def base(vault, rel):
+    """上一次真的寫進 md 的內容與條目 (text, [(行, 編號)])；沒記過回 None（手改比對的基準，lint 第二輪 T-29）。"""
+    got = load(vault)["bases"].get(rel)
+    if not got:
+        return None
+    return got["text"], [(str(x[0]), x[1]) for x in got["lines"] if isinstance(x, (list, tuple)) and len(x) == 2]
+
+
+def record(vault, rel, text, day=None, turn_id=None, lines=None):
     """記下這次程式寫進去的內容指紋（與那天），舊的指紋留最近 HISTORY_MAX 個在 history：退回把 md 換回程式以前寫的那份時
     指紋對得上舊的，不會被當成手改（renders.json 不備進回合，免得每次寫待處理都多一行改了）。turn_id 只為了呼叫端寫法一致。"""
     def change(data):
@@ -101,6 +112,8 @@ def record(vault, rel, text, day=None, turn_id=None):
         data["history"][rel] = old[-HISTORY_MAX:]
         data["files"][rel] = sha
         data["dates"][rel] = day or date.today().isoformat()
+        if lines is not None:  # 有 JSON 真相的清單：記下這次寫進去的那份，下次比她改了什麼用它（不用現在的 JSON 重算）
+            data.setdefault("bases", {})[rel] = {"text": str(text), "lines": [[str(ln), i] for ln, i in lines]}
     _edit(vault, change)
 
 
@@ -162,7 +175,7 @@ def _lines(text, ignore_sections):
             continue
         if line.startswith("## "):
             skip = any(line[3:].startswith(s) for s in ignore_sections)
-            out.append(line)
+            out.append(_COUNT.sub("", line))  # 段名後面的件數不比（件數變了不是她改的，T-29）
             continue
         if skip or not line.strip():
             continue

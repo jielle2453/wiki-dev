@@ -140,6 +140,11 @@ class Context:
         from kb._lib import entities
         return self._get("profile", lambda: entities._profile(self.vault) or {})
 
+    def profile_strict(self):
+        """設定檔；沒檔用預設，讀不懂丟 ValueError（那一項算沒查成，不關它的件，第二輪 T-28）。"""
+        from kb._lib import profile
+        return self._get("profile_strict", lambda: profile.load(self.vault) or profile.defaults())
+
     def collect(self):
         """cards.collect 的結果（整理擱著的、整理題都從這裡算；不寫檔）。"""
         from kb._lib import cards

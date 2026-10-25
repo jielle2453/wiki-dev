@@ -788,6 +788,12 @@ def pending_asks(vault, items=None, config_mod=None):
     return visible(vault, annotate(vault, asks, config_mod))
 
 
+def urgent_pending_ask(vault, pid):
+    """這件待處理（p- 編號）有時間性嗎：有就回它做成的題（帶結果），沒有回 None。只讀 pending.json，不跑整理（第二輪 T-27）。"""
+    asks, _hidden = pending_asks(vault)
+    return next((a for a in asks if a.get("key") == pid and a.get("urgent")), None)
+
+
 def order(asks):
     """照急的排：有時間性的在前，其他照 _ORDER（整理題的原順序、沒有整理題的待處理在後），同種保持原順序。"""
     rank = {k: i for i, k in enumerate(_ORDER)}

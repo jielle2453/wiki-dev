@@ -136,7 +136,9 @@ def _hand_edit(vault, data, turn_id):
         hers = renders.check(vault, MD_POSIX)
         if hers is None:
             return False
-        got = renders.diff(render_text(vault, data, asks=[]), hers, item_lines(data), ignore_sections=(ASKS_TITLE,))
+        known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
+        base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
+        got = renders.diff(base_text, hers, lines, ignore_sections=(ASKS_TITLE,))
         if renders.is_empty(got):
             return False
     except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理
@@ -383,7 +385,7 @@ def render(vault, data=None, asks=None, turn_id=None):
     target = Path(vault) / MD_POSIX
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
-    renders.record(vault, MD_POSIX, text, turn_id=turn_id)
+    renders.record(vault, MD_POSIX, text, turn_id=turn_id, lines=item_lines(data))
 
 
 def refresh(vault, turn_id, asks=None):
@@ -397,7 +399,7 @@ def refresh(vault, turn_id, asks=None):
 
 def _answered(item, once, fp):
     """她（或 AI 照她的話）處理過、不是程式自己關的：once 的一律算，其他要對象指紋跟那時一樣（測試 T-2）。"""
-    return (item.get("status") in ("done", "dismissed") and item.get("how") != LINT_GONE_HOW
+    return (item.get("status") in ("done", "dismissed") and item.get("how") != LINT_GONE_HOW and not item.get("cleared")
             and (once or item.get("fp") == fp))
 
 
@@ -428,17 +430,23 @@ def add_lint(vault, key, text, data, turn_id, file_ids=(), entity_ids=(), once=F
 
 def close_lint_gone(vault, owner, ran, keep, turn_id):
     """這次跑成功的健檢（ran：check 名稱）沒再回的 lint 件關掉（how 是 LINT_GONE_HOW，測試 T-1）；owner(item) 回那件是哪一項開的。
-    keep 是這次又回的 key。回關掉幾件。"""
+    keep 是這次又回的 key。她答過的同 key 件記 cleared（條件消失過，之後復發算新的一件，第二輪 T-26）。回關掉幾件。"""
     if not _path(vault).exists():
         return 0
+    got = {}
 
     def change(items):
-        hits = [i for i in items if i.get("kind") == "lint" and i.get("status") == "open" and owner(i) in ran
-                and i.get("key") not in keep]
+        gone = [i for i in items if i.get("kind") == "lint" and owner(i) in ran and i.get("key") not in keep]
+        hits = [i for i in gone if i.get("status") == "open"]
         for i in hits:
             _close(i, "done", LINT_GONE_HOW)
-        return len(hits)
-    return _edit(vault, turn_id, change) or 0
+        forgot = [i for i in gone if i.get("status") in ("done", "dismissed") and not i.get("cleared")]
+        for i in forgot:
+            i["cleared"] = _today()
+        got["n"] = len(hits)
+        return bool(hits or forgot)
+    _edit(vault, turn_id, change)
+    return got.get("n", 0)
 
 
 def add_report(vault, month, turn_id):

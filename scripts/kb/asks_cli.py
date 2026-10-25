@@ -109,10 +109,13 @@ def _set_aside(vault, key, as_json):
     if not key:
         print(NO_SUCH)
         return 3
-    asks, _hidden, _tell = _collect(vault)
-    hit = next((a for a in asks if a.get("key") == key), None)
+    if key.startswith("p-"):  # 住在 pending.json 的不用跑整理（第二輪 T-27：狀態檔壞了也收得了）
+        hit = plan.urgent_pending_ask(vault, key)
+    else:
+        asks, _hidden, _tell = _collect(vault)
+        hit = next((a for a in asks if a.get("key") == key), None)
     if hit is not None and hit.get("urgent"):
-        return _refuse_urgent(hit, as_json)
+        return refuse_urgent(hit, as_json)
     turn_id = turn.current(vault)["turn"]
     conversation = journal_cli.in_conversation(vault)
     if key.startswith("p-"):
@@ -137,7 +140,7 @@ def _set_aside(vault, key, as_json):
     return 0
 
 
-def _refuse_urgent(ask, as_json):
+def refuse_urgent(ask, as_json):
     """有時間性的不能先放著：回改問的那句與那題自己的答法（「還沒，下次再問」照舊只管這個對話）。exit 3。"""
     line = OVERDUE_NO_ASIDE if ask.get("kind") == "overdue" else URGENT_NO_ASIDE.format(question=ask["question"])
     plan.renumber([ask])

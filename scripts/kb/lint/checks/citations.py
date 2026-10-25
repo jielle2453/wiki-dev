@@ -23,8 +23,8 @@ def _open_broken(front):
     if not isinstance(link, str) or not link.startswith("file:///"):
         return False
     path = unquote(link[len("file:///"):])
-    if path.startswith(("//", "\\\\")):
-        return False  # 網路上的位置不去查（查了會對外連線），當沒查
+    if path.replace("\\", "/").startswith("//"):
+        return False  # 網路上的位置（含混用斜線的寫法）不去查：查了會對外連線，當沒查（T-30）
     return not os.path.exists(path)
 
 

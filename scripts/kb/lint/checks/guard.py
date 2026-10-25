@@ -46,7 +46,23 @@ def _last_guard(vault):
     return max(days) if days else None
 
 
-def _last_conversation(vault):
+def _had_journal(vault, last_guard):
+    """照理該有工作日誌嗎：守門跑過，或開過守門沒在跑那件（新建的知識庫第一次開場還沒有日誌，那不算讀不到）。"""
+    if last_guard:
+        return True
+    try:
+        from kb._lib import pending
+        return any(i.get("key") == "guard_stale" for i in pending.load(vault)["items"])
+    except ValueError:
+        return True
+
+
+def _last_conversation(vault, last_guard=None):
+    """最近一段對話的那天；該有日誌卻一個月都沒有就丟出去（讀不到資料：這項算沒查成，不關它的件，T-28）。"""
+    if not journal.months(vault):
+        if _had_journal(vault, last_guard):
+            raise ValueError("工作日誌讀不到")
+        return None
     for month in reversed(journal.months(vault)):
         rows = [r for r in journal.read_lines(vault, month) if r.get("kind") == "turn" and r.get("time")]
         if rows:
@@ -58,7 +74,7 @@ def run(ctx):
     week, prev = _denies(ctx.vault, ctx.today)
     last = _last_guard(ctx.vault)
     out = [runner.finding("guard", "number", "guard", "", data={"denied_week": week, "denied_prev": prev, "last": last})]
-    talk = _last_conversation(ctx.vault)
+    talk = _last_conversation(ctx.vault, last)
     if talk and (last is None or date.fromisoformat(talk) - date.fromisoformat(last) >= timedelta(days=STALE_DAYS)):
         when = f"最後一次是 {last}" if last else "一直沒有跑的紀錄"
         out.append(runner.finding("guard", "decide", "guard_stale",

@@ -411,12 +411,13 @@ def render(vault, turn_id=None, data=None, base=None):
     hers = renders.check(vault, MD_POSIX)
     if hers is not None:
         base = base if base is not None else data
-        if renders.handle_list(vault, MD_POSIX, hers, render_text(base, titles, names), item_lines(base, titles, names),
-                               turn_id) == renders.KEEP_FAILED:
+        known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
+        base_text, lines = known if known else (render_text(base, titles, names), item_lines(base, titles, names))
+        if renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id) == renders.KEEP_FAILED:
             return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
-            renders.record(vault, MD_POSIX, text)
+            renders.record(vault, MD_POSIX, text, lines=item_lines(data, titles, names))
             return False
     except (OSError, UnicodeDecodeError):
         pass
@@ -425,5 +426,5 @@ def render(vault, turn_id=None, data=None, base=None):
         turn.backup(vault, MD_POSIX, turn_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
-    renders.record(vault, MD_POSIX, text)
+    renders.record(vault, MD_POSIX, text, lines=item_lines(data, titles, names))
     return True

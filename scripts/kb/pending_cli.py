@@ -3,7 +3,8 @@
 list 只印 open；resolve <id> --how "<一句>" 記 done，dismiss <id> 記 dismissed（客戶說不用管），兩者印「已記下」並重渲染 系統/待處理.md。
 add --kind conflict --card <f-…> --card <f-…> [--entity <名>]… --text "<一句>"（answer 第 6 點，D-155）：answer 核對時發現兩份原檔
 寫法不同；兩張卡要有檔案卡、不能是同一張，同一對已有 open 的回既有那條（「已經記過了」）。人讀不印編號。
-set-aside <id>／back <id>（lint 題，D-226）：她說「這個先不要」「暫不處理」收進先放著、拿回前面；找不到「沒有這件待處理」exit 3。
+set-aside <id>／back <id>（lint 題，D-226）：她說「這個先不要」「暫不處理」收進先放著、拿回前面；找不到「沒有這件待處理」exit 3；
+有時間性的（快到期）不收，跟 kb asks set-aside 同一句、exit 3。
 寫一律經 _lib/pending（先備進目前回合）。對不存在或已處理過的 id 第一行說原因、exit 3。
 終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合。
 """
@@ -77,6 +78,11 @@ def _aside(vault, args, as_json):
     conversation = journal_cli.in_conversation(vault)
     turn_id = turn.current(vault)["turn"]
     if args.pending_command == "set-aside":
+        from kb import asks_cli
+        from kb._lib import plan
+        hit = plan.urgent_pending_ask(vault, args.id)  # 有時間性的不收，跟 kb asks set-aside 同一句（第二輪 T-27）
+        if hit is not None:
+            return asks_cli.refuse_urgent(hit, as_json)
         item = pending.set_aside(vault, args.id, "customer", turn_id)
         line, note = SET_ASIDE_LINE.format(_text(item)), f"待處理先放著：{_text(item)}"
     else:
