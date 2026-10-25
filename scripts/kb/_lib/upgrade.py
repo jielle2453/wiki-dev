@@ -39,6 +39,7 @@ UP_TO_DATE = "目前是最新版（{version}）"
 NOT_YET = "新版剛出來，幾分鐘後再說一次"
 NO_CLAUDE = "這台找不到 Claude 的更新程式，請服務人員幫忙"
 UPDATE_FAILED = "更新沒成功：{why}"
+HISTORY_BROKEN = "更新沒成功：升級紀錄（.system/upgrade-history.json）讀不懂，請服務人員看一下；什麼都沒動"
 NO_SNAPSHOT = "升級前的快照已經不在，不能退回；請服務人員幫忙"
 OFFLINE_ASK = "現在連不上更新的地方，晚點再問。"
 OFFLINE_RETRY = "現在連不上更新的地方，晚點再說一次"
@@ -121,8 +122,19 @@ def _popen(argv, **kw):
 
 
 def _which(name):
-    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"  # Windows 找程式不先找目前目錄
-    return shutil.which(name)
+    """PATH 上找程式，跳過目前目錄與相對路徑的 PATH 項。Python 3.12 以前 shutil.which 在 Windows 一定先找目前目錄
+    （傳 path= 也一樣），而 kb upgrade 的目前目錄是知識庫：放一個 claude.cmd 就會被當更新程式跑。所以自己走 PATH。"""
+    here = os.path.normcase(os.path.abspath(os.getcwd()))
+    exts = [""] if os.path.splitext(name)[1] or os.name != "nt" else \
+        [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if e]
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d or not os.path.isabs(d) or os.path.normcase(os.path.abspath(d)) == here:
+            continue
+        for ext in exts:
+            p = os.path.join(d, name + ext)
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return p
+    return None
 
 
 def _today():
@@ -206,6 +218,15 @@ def _json_get(url, seconds):
         raise Offline(f"{url} 讀不到（{type(e).__name__}）") from None
 
 
+def clean_note(text):
+    """會進開場與對話的那句話：壓成一行、去掉控制與方向字元（isprintable 不收 Cc、Cf），截 NOTE_MAX_CHARS；不是字串或空的回 None。
+    抓下來時與開場印之前都過一次（env.json 是本機檔，也可能被改過或從別台帶來）。"""
+    if not isinstance(text, str):
+        return None
+    words = "".join(c if c.isprintable() else " " for c in text).split()
+    return " ".join(words)[:NOTE_MAX_CHARS].strip() or None
+
+
 def fetch(vault):
     """抓清單與名單。回 {"latest", "allowed", "note"}；網址空丟 NotConfigured，抓不到或看不懂丟 Offline。"""
     manifest_url = config.get(vault, "update_manifest_url")
@@ -228,9 +249,8 @@ def fetch(vault):
     note = None
     versions = roster.get("versions") if isinstance(roster, dict) else None
     row = versions.get(latest) if isinstance(versions, dict) else None
-    if isinstance(row, dict) and isinstance(row.get("note"), str):
-        note = "".join(c if c.isprintable() else " " for c in row["note"]).split()  # 會進開場的對話內容：壓成一行、去掉控制字元
-        note = " ".join(note)[:NOTE_MAX_CHARS].strip() or None
+    if isinstance(row, dict):
+        note = clean_note(row.get("note"))
     return {"latest": latest, "allowed": allowed(roster, latest, vid), "note": note}
 
 
@@ -334,9 +354,14 @@ def plugin_identity():
     plugins = _read_installed()
     if plugins is None:
         raise UpdateError(UPDATE_FAILED.format(why="讀不到外掛的安裝紀錄"))
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", market, re.ASCII):
+        raise UpdateError(UPDATE_FAILED.format(why="市集名稱看不懂"))
     for rec in plugins.get(f"{PLUGIN_NAME}@{market}") or []:
         if isinstance(rec, dict) and rec.get("installPath") and _same_path(rec["installPath"], root):
-            return {"market": market, "scope": rec.get("scope") or "user", "project": rec.get("projectPath")}
+            scope = rec.get("scope") or "user"
+            if scope not in ("user", "project", "local"):
+                raise UpdateError(UPDATE_FAILED.format(why="安裝紀錄的範圍看不懂"))
+            return {"market": market, "scope": scope, "project": rec.get("projectPath")}
     raise UpdateError(UPDATE_FAILED.format(why="安裝紀錄裡找不到這個外掛"))
 
 
@@ -461,6 +486,14 @@ def _clear_pending(vault):
         pass
 
 
+def _room_for_snapshot(vault):
+    """拍升級前快照之前比空間（跟備份、還原同一套算法：未壓縮總大小對磁碟剩餘）；不夠丟 backup.Refused，什麼都還沒動。"""
+    need = backup.collect(vault)[2]
+    free = backup._free_bytes(vault)
+    if need > free:
+        raise backup.Refused(UPDATE_FAILED.format(why=backup.NO_SPACE.format(need=backup._mb_up(need), free=free // (1024 * 1024))))
+
+
 def upgrade(vault):
     """kb upgrade：大升級先拍快照、記 pending、換版；小修直接換。回 {"sentence","kind","to","snapshot"}；不行丟 backup.Refused（那一句）。"""
     info = _check_for_action(vault)
@@ -473,10 +506,15 @@ def upgrade(vault):
     seconds = config.get(vault, "update_run_seconds")
     snapshot = None
     with backup.acquire(vault):
+        if k in ("minor", "major"):
+            try:
+                hist = ensure_history(vault)
+            except (OSError, ValueError):
+                raise backup.Refused(HISTORY_BROKEN) from None
+            _room_for_snapshot(vault)
         try:
             if k in ("minor", "major"):
                 snapshot = backup.snapshot(vault, "upgrade")
-                hist = ensure_history(vault)
                 hist["pending"] = {"to": latest, "snapshot": snapshot.name, "started": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
                 write_history(vault, hist)
         except backup.Refused:
@@ -567,6 +605,7 @@ def finish(vault, turn_id):
         snapshot = _pending_snapshot(vault, hist, plugin)
         by = "customer" if snapshot else "outside"
         if k in ("minor", "major") and snapshot is None:
+            _room_for_snapshot(vault)
             try:
                 snapshot = backup.snapshot(vault, "upgrade").name
             except (OSError, ValueError) as e:
@@ -693,8 +732,8 @@ def opening(vault):
     elif chk and chk.get("allowed") and isinstance(chk.get("latest"), str):
         k = kind(plugin, chk["latest"])
         if k in ("minor", "major"):
-            note = chk.get("note")
-            note = str(note)[:config.get(vault, "update_note_max")] if isinstance(note, str) and note.strip() else None
+            note = clean_note(chk.get("note"))
+            note = note[:config.get(vault, "update_note_max")].strip() or None if note else None
             line = (NEW_VERSION_LINE.format(version=chk["latest"], note=note) if note
                     else NEW_VERSION_LINE_NO_NOTE.format(version=chk["latest"]))
         elif k == "downgrade":

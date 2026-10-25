@@ -35,10 +35,11 @@ FETCH_SECONDS = 15
 GITKEEP = ".gitkeep"
 ZIP_STAMP = (1980, 1, 1, 0, 0, 0)  # 固定時間：同一個 tag 打兩次的 sha256 一樣
 MANIFEST_KEYS = ("commands", "agents", "skills", "hooks", "outputStyles", "mcpServers", "lspServers")
-SCHEMA_LINE = re.compile(r"^\s*(\w*(?:SCHEMA_VERSION|TEMPLATE_VERSION))\s*=\s*(.+?)\s*$", re.MULTILINE)
+SCHEMA_LINE = re.compile(r"^\s*(\w*(?:SCHEMA|TEMPLATE_VERSION)\w*)\s*=\s*(.+?)\s*$", re.MULTILINE)
+SCHEMA_LITERAL = re.compile(r"""["']schema_version["']\s*:\s*(\d+)""")  # 寫在字面裡的格式版本（env.py、turn.py…）
 CHANGELOG_HEAD = re.compile(r"^## (\d+\.\d+\.\d+) — .*$", re.MULTILINE)
 NOTE_LINE = re.compile(r"^- \*\*給客戶的一句話\*\*：(.+)$", re.MULTILINE)
-VAULT_ID = re.compile(r"^kb-[0-9a-f]{8}$")
+VAULT_ID = re.compile(r"kb-[0-9a-f]{8}", re.ASCII)  # 整串比對（fullmatch）
 _NUM = r"(?:0|[1-9]\d*)"
 VERSION = re.compile(rf"({_NUM})\.({_NUM})\.({_NUM})", re.ASCII)  # 跟客戶端 _lib/upgrade.parse_version 同一套，整串比對
 TAG = re.compile(rf"v?({_NUM}\.{_NUM}\.{_NUM})", re.ASCII)
@@ -179,8 +180,12 @@ def _schema_constants(files):
     out = {}
     for rel, data in files.items():
         if rel.startswith("scripts/") and rel.endswith(".py"):
-            for name, value in SCHEMA_LINE.findall(data.decode("utf-8", errors="replace")):
+            text = data.decode("utf-8", errors="replace")
+            for name, value in SCHEMA_LINE.findall(text):
                 out[(rel, name)] = value
+            literal = SCHEMA_LITERAL.findall(text)
+            if literal:
+                out[(rel, '字面的 "schema_version"')] = ",".join(literal)
     return out
 
 
@@ -279,7 +284,9 @@ def build(repo, tag, out_dir=None):
     """回 {"zip", "sha256", "version", "files"}；檢查沒過丟 ReleaseError（問題一次全列）。"""
     repo = Path(repo)
     version = tag_version(tag)
-    files = collect(repo, tag)
+    archive = _archive(repo, tag)
+    files = {rel: data for rel, data in archive.items() if allowed(rel)}
+    skipped = sorted({rel.split("/", 1)[0] for rel in archive if not allowed(rel)})
     prev_tag = previous_tag(repo, version)
     previous = None
     if prev_tag and kind(tag_version(prev_tag), version) == "patch":
@@ -289,7 +296,8 @@ def build(repo, tag, out_dir=None):
         raise ReleaseError("不能發行：\n" + "\n".join(f"- {p}" for p in found))
     dest = Path(out_dir or repo / "dist") / f"{PLUGIN_NAME}-{version}.zip"
     _write_zip(files, dest)
-    return {"zip": dest, "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(), "version": version, "files": len(files)}
+    return {"zip": dest, "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(), "version": version, "files": len(files),
+            "skipped": skipped}
 
 
 def prepare(repo, tag):
@@ -347,14 +355,22 @@ def _write_json(path, data):
 
 
 def _release_base(public):
-    """公開 repo 的網址（給 Releases 下載網址用）：從 origin 取，github 的 ssh／https 寫法都認。"""
+    """公開 repo 的網址（給 Releases 下載網址用）：從 origin 取，只認 github 的 ssh（git@github.com:o/r）與 https（https://github.com/o/r）。
+    其他寫法一律拒絕、不原樣用：帶帳密的 https://<token>@github.com/… 會把 token 寫進公開的 marketplace.json。錯誤句不印網址。"""
     url = _git(public, "remote", "get-url", "origin").strip()
-    m = re.match(r"^(?:git@github\.com:|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", url)
-    return f"https://github.com/{m.group(1)}" if m else re.sub(r"\.git/?$", "", url)
+    m = re.fullmatch(r"(?:git@github\.com:|https://github\.com/)([A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?", url)
+    if not m:
+        raise ReleaseError("公開 repo 的 clone 的 origin 不是 git@github.com:<擁有者>/<repo> 或 https://github.com/<擁有者>/<repo>"
+                           "（網址裡不能帶帳號或 token）；改好 origin 再跑")
+    return f"https://github.com/{m.group(1)}"
 
 
 def changelog_note(repo, version):
-    text = (Path(repo) / "CHANGELOG.md").read_text(encoding="utf-8")
+    """工作區 CHANGELOG 裡那一版的一句話（rollout 找不到那一版的 tag 時用）。"""
+    return note_in((Path(repo) / "CHANGELOG.md").read_text(encoding="utf-8"), version)
+
+
+def note_in(text, version):
     for head in CHANGELOG_HEAD.finditer(text):
         if head.group(1) == version:
             rest = text[head.end():]
@@ -364,18 +380,26 @@ def changelog_note(repo, version):
     return None
 
 
-def _manifest_url(repo):
-    data = _read_json(Path(repo) / "config" / "defaults.json", {})
-    url = data.get("update_manifest_url")
-    if not url:
-        raise ReleaseError("config/defaults.json 的 update_manifest_url 還是空的；第一次發行要先定公開 repo 的清單網址、填進去（D-171）")
-    return url
+def _manifest_url(files):
+    """tag 裡（要進 zip 的）config/defaults.json 的清單與名單網址都要填好、是 https；回清單網址。
+    讀 tag 不讀工作區：客戶拿到的是 zip 裡的設定，工作區改了沒 commit 不算數。"""
+    try:
+        data = json.loads(files["config/defaults.json"].decode("utf-8"))
+    except (KeyError, ValueError):
+        data = None
+    data = data if isinstance(data, dict) else {}
+    for key in ("update_manifest_url", "update_rollout_url"):
+        url = data.get(key)
+        if not (isinstance(url, str) and url.startswith("https://")):
+            raise ReleaseError(f"tag 裡 config/defaults.json 的 {key} 還是空的（或不是 https）；第一次發行要先定公開 repo 的清單與名單網址、"
+                               "填進去 commit，再打 tag（D-171）")
+    return data["update_manifest_url"]
 
 
 def _check_who(who):
     if who in ("all", "none"):
         return who
-    if isinstance(who, list) and who and all(isinstance(w, str) and VAULT_ID.match(w) for w in who):
+    if isinstance(who, list) and who and all(isinstance(w, str) and VAULT_ID.fullmatch(w) for w in who):
         return list(who)
     raise ReleaseError("名單要是 all、none，或一串 kb-xxxxxxxx 知識庫編號")
 
@@ -434,16 +458,18 @@ def publish(repo, tag, public, who, wait=15):
     """build → gh release → 清單 → 等外面抓得到 → 名單。回 build 的結果。
     中途失敗可以直接重跑：release 已經有了就把同一個 zip 補傳上去（--clobber，zip 位元組可重現），上次沒推的清單 commit 這次一起推。"""
     who = _check_who(who)
-    manifest_url = _manifest_url(repo)
     _require_clean(public)
+    files = collect(Path(repo), tag)
+    manifest_url = _manifest_url(files)
+    base = _release_base(public)
     got = build(repo, tag)
     version, zip_path = got["version"], Path(got["zip"])
-    note = changelog_note(repo, version) or ""
+    note = note_in(files.get("CHANGELOG.md", b"").decode("utf-8", errors="replace"), version) or ""
     if _release_exists(public, tag):
         _run(["gh", "release", "upload", tag, str(zip_path), "--clobber"], cwd=public)
     else:
         _run(["gh", "release", "create", tag, str(zip_path), "--title", tag, "--notes", note or tag], cwd=public)
-    url = f"{_release_base(public)}/releases/download/{tag}/{zip_path.name}"
+    url = f"{base}/releases/download/{tag}/{zip_path.name}"
     market = _update_marketplace(public, version, url, got["sha256"])
     _commit_and_push(public, f"marketplace: {version}", market.name)
     _wait_for_list(manifest_url, version, wait)
@@ -460,9 +486,12 @@ def rollout(repo, version, public, who):
     note = row.get("note") if isinstance(row, dict) and row.get("note") else None
     if note is None:
         try:
-            note = changelog_note(repo, version)
-        except OSError:
-            note = None
+            note = note_in(collect(Path(repo), f"v{version}").get("CHANGELOG.md", b"").decode("utf-8", errors="replace"), version)
+        except ReleaseError:  # 沒有那一版的 tag：看工作區
+            try:
+                note = changelog_note(repo, version)
+            except OSError:
+                note = None
     if not note:
         raise ReleaseError(f"名單裡沒有 {version}，CHANGELOG 也找不到它的「給客戶的一句話」")
     path = set_rollout(public, version, who, note)
@@ -507,6 +536,8 @@ def main(argv=None):
                 return 0
             got = build(args.repo, args.tag, args.out)
             print(f"版本 {got['version']}，{got['files']} 個檔")
+            if got["skipped"]:
+                print("沒放進 zip（不在要放清單上）：" + "、".join(got["skipped"]) + "；有新的執行用資料夾要先加進 ALLOW_DIRS")
             print(f"zip：{got['zip']}")
             print(f"sha256: {got['sha256']}")
         elif args.command == "publish":

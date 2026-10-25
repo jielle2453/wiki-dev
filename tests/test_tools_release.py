@@ -21,6 +21,8 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "發行", "GIT_AUTHOR_EMAIL": "r@example.invalid",
            "GIT_COMMITTER_NAME": "發行", "GIT_COMMITTER_EMAIL": "r@example.invalid", "GIT_CONFIG_GLOBAL": os.devnull,
            "GIT_CONFIG_SYSTEM": os.devnull}
 MANIFEST_URL = "https://example.invalid/marketplace.json"
+ROLLOUT_URL = "https://example.invalid/rollout.json"
+PUBLIC_URL = "https://github.com/owner/wiki-with-willy"
 ID1, ID2 = "kb-1a2b3c4d", "kb-5e6f7a8b"
 
 
@@ -75,7 +77,8 @@ def make_tree(root, version, note="日程可以匯出成 Excel。", schema=2, sk
     write(root, "templates/card.md", "卡\n")
     write(root, "skeleton/CLAUDE.md", skeleton)
     write(root, "skeleton/案子/.gitkeep", "")
-    write(root, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": MANIFEST_URL}))
+    write(root, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": MANIFEST_URL,
+                                                    "update_rollout_url": ROLLOUT_URL}))
     write(root, "README.md", "說明\n")
     write(root, "LICENSE", "MIT\n")
     write(root, "CHANGELOG.md", CHANGELOG.format(v=version, note=note))
@@ -268,6 +271,15 @@ class Build(Base):
         self.assertIn("0.20.5", text)
 
 
+class Skipped(Base):
+    def test_build_lists_the_top_level_names_it_left_out(self):
+        """測試 I-1：清單外的檔照樣不放，但 build 要說略過了哪些頂層（新的執行用資料夾忘了加 ALLOW_DIRS 才看得到）。"""
+        got = release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        for name in ("design", "tests", "tools", "CLAUDE.md", ".claude"):
+            self.assertIn(name, got["skipped"])
+        self.assertNotIn("scripts", got["skipped"])
+
+
 class PatchRule(Base):
     """D-217：小修不能改狀態檔 schema、骨架、_lib/migrate.py 的表；跟上一個 tag 比。"""
 
@@ -306,6 +318,28 @@ class PatchRule(Base):
         with self.assertRaises(release.ReleaseError) as cm:
             release.build(self.repo, "v0.20.1", self.tmp / "dist")
         self.assertIn("migrate.py", str(cm.exception))
+
+    def test_patch_that_changes_any_schema_named_constant_is_refused(self):
+        """測試 L-1：名稱含 SCHEMA 的常數（例如 upgrade.py 的 HISTORY_SCHEMA）也算格式版本。"""
+        write(self.repo, "scripts/kb/_lib/upgrade.py", "HISTORY_SCHEMA = 1\n")
+        self.commit("0.20.0 加檔", tag="v0.20.0")
+        make_tree(self.repo, "0.20.1", note="修好日期錯誤。")
+        write(self.repo, "scripts/kb/_lib/upgrade.py", "HISTORY_SCHEMA = 2\n")
+        self.commit("0.20.1", tag="v0.20.1")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.1", self.tmp / "dist")
+        self.assertIn("HISTORY_SCHEMA", str(cm.exception))
+
+    def test_patch_that_changes_a_literal_schema_version_is_refused(self):
+        """測試 L-1：寫在字面裡的 "schema_version": N（env.py、turn.py…）改了也擋。"""
+        write(self.repo, "scripts/kb/_lib/env.py", 'DEFAULT = {"schema_version": 1, "machines": {}}\n')
+        self.commit("0.20.0 加檔", tag="v0.20.0")
+        make_tree(self.repo, "0.20.1", note="修好日期錯誤。")
+        write(self.repo, "scripts/kb/_lib/env.py", 'DEFAULT = {"schema_version": 2, "machines": {}}\n')
+        self.commit("0.20.1", tag="v0.20.1")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.1", self.tmp / "dist")
+        self.assertIn("scripts/kb/_lib/env.py", str(cm.exception))
 
     def test_skeleton_history_file_itself_may_change_in_a_patch(self):
         """config/skeleton_history.json 每版都會追加，不算骨架改動。"""
@@ -368,7 +402,8 @@ class Publish(Base):
         git(self.tmp, "init", "-q", "--bare", "-b", "main", str(self.bare))
         self.public = self.tmp / "public"
         git(self.tmp, "clone", "-q", str(self.bare), str(self.public))
-        git(self.public, "remote", "set-url", "origin", str(self.bare))
+        git(self.public, "remote", "set-url", "origin", PUBLIC_URL + ".git")
+        git(self.public, "remote", "set-url", "--push", "origin", str(self.bare))
         write(self.public, "README.md", "公開 repo\n")
         git(self.public, "add", "-A")
         git(self.public, "commit", "-q", "-m", "init")
@@ -525,12 +560,61 @@ class Publish(Base):
 
     def test_empty_manifest_url_refuses_before_anything_is_published(self):
         write(self.repo, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": ""}))
-        self.commit("網址還沒填")
+        self.commit("網址還沒填", tag="v0.21.0")  # 看的是 tag 裡的設定
         with self.assertRaises(release.ReleaseError) as cm:
             self.publish()
         self.assertIn("update_manifest_url", str(cm.exception))
         self.assertEqual(self.gh_calls, [])
         self.assertIsNone(self.remote_file("marketplace.json"))
+
+    def test_url_filled_only_in_the_working_tree_refuses(self):
+        """測試 M-1：tag 裡網址是空的、只有工作區填了沒 commit → 擋（客戶拿到的是 tag 裡的設定）。"""
+        write(self.repo, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": "",
+                                                             "update_rollout_url": ""}))
+        self.commit("網址還沒填", tag="v0.21.0")
+        write(self.repo, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": MANIFEST_URL,
+                                                             "update_rollout_url": ROLLOUT_URL}))
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("tag 裡", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
+        self.assertIsNone(self.remote_file("marketplace.json"))
+
+    def test_empty_rollout_url_refuses(self):
+        """測試 M-1：名單網址空的話客戶端名單是空的、沒人拿得到新版 → 也擋。"""
+        write(self.repo, "config/defaults.json", json.dumps({"schema_version": 1, "update_manifest_url": MANIFEST_URL,
+                                                             "update_rollout_url": ""}))
+        self.commit("名單網址沒填", tag="v0.21.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("update_rollout_url", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
+
+    def test_note_comes_from_the_tag_not_the_working_tree(self):
+        write(self.repo, "CHANGELOG.md", CHANGELOG.format(v="0.21.0", note="工作區改過沒 commit 的。"))
+        self.served = ["0.21.0"]
+        self.publish()
+        self.assertEqual(self.remote_file("rollout.json")["versions"]["0.21.0"]["note"], "日程可以匯出成 Excel。")
+
+    def test_origin_with_a_token_refuses_and_never_prints_it(self):
+        """測試 M-2：origin 帶帳密 → 擋、什麼都沒發，錯誤句不印 token。"""
+        for bad in ("https://ghp_SECRET123@github.com/owner/r.git", "https://user:tok@github.com/owner/r",
+                    "https://gitlab.com/owner/r.git"):
+            git(self.public, "remote", "set-url", "origin", bad)
+            with self.subTest(bad=bad), self.assertRaises(release.ReleaseError) as cm:
+                self.publish()
+            self.assertNotIn("SECRET", str(cm.exception))
+            self.assertNotIn("user:tok", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
+        self.assertIsNone(self.remote_file("marketplace.json"))
+
+    def test_ssh_origin_gives_the_https_download_url(self):
+        git(self.public, "remote", "set-url", "origin", "git@github.com:owner/wiki-with-willy.git")
+        self.served = ["0.21.0"]
+        self.publish()
+        entry = next(p for p in self.remote_file("marketplace.json")["plugins"] if p["name"] == "wiki-with-willy")
+        self.assertEqual(entry["source"]["url"],
+                         PUBLIC_URL + "/releases/download/v0.21.0/wiki-with-willy-0.21.0.zip")
 
     def test_build_failure_publishes_nothing(self):
         git(self.repo, "tag", "v0.22.0")
@@ -608,6 +692,12 @@ class Rollout(Base):
         self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], "all")
         release.rollout(self.repo, "0.21.0", self.public, [ID1, ID2])
         self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], [ID1, ID2])
+
+    def test_vault_id_with_a_trailing_newline_is_refused(self):
+        """測試 L-6：整串比對，kb-xxxxxxxx 後面帶換行不收。"""
+        with self.assertRaises(release.ReleaseError):
+            release.rollout(self.repo, "0.21.0", self.public, [ID1 + "\n"])
+        self.assertEqual(self.remote()["versions"]["0.21.0"]["for"], [ID1])
 
     def test_dirty_public_clone_refuses(self):
         write(self.public, "README.md", "改了沒 commit\n")

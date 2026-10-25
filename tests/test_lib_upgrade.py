@@ -237,6 +237,36 @@ class FindClaude(unittest.TestCase):
         self.exe("claude.exe")
         self.assertIsNone(self.find())
 
+    def test_which_skips_the_current_directory(self):
+        """測試 L-4：kb upgrade 的目前目錄是知識庫；那裡放的 claude.cmd 不能被當更新程式（Python 3.12 以前 shutil.which 會先找目前目錄）。"""
+        here, bin_dir = self.tmp / "知識庫", self.tmp / "bin"
+        here.mkdir()
+        bin_dir.mkdir()
+        (here / "claude.cmd").write_text("", encoding="utf-8")
+        want = bin_dir / "claude.exe"
+        want.write_text("", encoding="utf-8")
+        old = os.getcwd()
+        os.chdir(here)
+        try:
+            with mock.patch.dict(os.environ, {"PATH": os.pathsep.join([".", str(here), str(bin_dir)]),
+                                              "PATHEXT": ".EXE;.CMD"}):
+                got = upgrade._which("claude")
+        finally:
+            os.chdir(old)
+        self.assertEqual(Path(got).resolve(), want.resolve())
+
+    def test_which_none_when_only_the_current_directory_has_it(self):
+        here = self.tmp / "知識庫"
+        here.mkdir()
+        (here / "claude.cmd").write_text("", encoding="utf-8")
+        old = os.getcwd()
+        os.chdir(here)
+        try:
+            with mock.patch.dict(os.environ, {"PATH": ".", "PATHEXT": ".EXE;.CMD"}):
+                self.assertIsNone(upgrade._which("claude"))
+        finally:
+            os.chdir(old)
+
     def test_no_localappdata_env(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LOCALAPPDATA", None)
@@ -271,6 +301,18 @@ class Identity(Base):
 
     def test_not_listed_in_installed_plugins_refuses(self):
         self.fake.installed.write_text(json.dumps({"version": 2, "plugins": {}}), encoding="utf-8")
+        with self.assertRaises(upgrade.UpdateError):
+            self.identity()
+
+    def test_odd_market_name_refuses(self):
+        """測試 I-2：市集名與範圍要進指令列，只收安全的字元與三種範圍。"""
+        odd = self.fake.root.parent.parent.parent / "a&b" / "wiki-with-willy" / "0.20.1"
+        with mock.patch.object(upgrade, "_plugin_root", return_value=odd):
+            with self.assertRaises(upgrade.UpdateError):
+                self.identity()
+
+    def test_odd_scope_refuses(self):
+        self.fake.set_installed("0.20.1", "user & calc")
         with self.assertRaises(upgrade.UpdateError):
             self.identity()
 
@@ -574,6 +616,28 @@ class UpgradeFlow(Base):
         self.assertIsNone(self.history()["pending"])
         self.assertEqual(self.fake.calls, [])
 
+    def test_broken_history_refuses_before_any_snapshot(self):
+        """測試 L-5：升級紀錄壞了 → 那一句、沒拍快照、沒換版。"""
+        self.serve("0.21.0", mine=True)
+        (self.V / ".system" / "upgrade-history.json").write_text("壞掉", encoding="utf-8")
+        with self.assertRaises(backup.Refused) as cm:
+            self.go()
+        self.assertEqual(str(cm.exception), upgrade.HISTORY_BROKEN)
+        self.assertEqual(backup.snapshots(self.V), [])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_not_enough_space_refuses_before_the_snapshot(self):
+        """測試 L-2：拍快照前比空間，不夠就停，不把磁碟寫到滿。"""
+        self.serve("0.21.0", mine=True)
+        self.put_history("0.20.1")
+        with mock.patch.object(backup, "_free_bytes", return_value=1):
+            with self.assertRaises(backup.Refused) as cm:
+                self.go()
+        self.assertIn("空間不夠", str(cm.exception))
+        self.assertEqual(backup.snapshots(self.V), [])
+        self.assertIsNone(self.history()["pending"])
+        self.assertEqual(self.fake.calls, [])
+
     def test_patch_takes_no_snapshot_and_no_pending(self):
         self.serve("0.20.2", mine=True)
         self.put_history("0.20.1")
@@ -798,6 +862,16 @@ class Finish(Base):
         self.assertEqual(len(snaps), 1)
         self.assertEqual(got["snapshot"], snaps[0].name)
         self.assertEqual(self.history()["history"][-1]["by"], "outside")
+
+    def test_not_enough_space_refuses_before_the_snapshot(self):
+        """測試 L-2：--finish 要拍快照時也先比空間。"""
+        self.put_history("0.20.1")
+        with mock.patch.object(backup, "_free_bytes", return_value=1):
+            with self.assertRaises(backup.Refused) as cm:
+                self.finish()
+        self.assertIn("空間不夠", str(cm.exception))
+        self.assertEqual(backup.snapshots(self.V), [])
+        self.assertEqual(self.history()["current"], "0.20.1")
 
     def test_pending_for_another_version_does_not_count(self):
         old = backup.snapshot(self.V, "upgrade")
@@ -1030,6 +1104,14 @@ class Opening(Base):
         got, _ = self.open()
         self.assertFalse(got["finish"])
         self.assertEqual(got["line"], "有新版 0.21.0：日程可以匯出成 Excel；說「升級」我帶你做。")
+
+    def test_note_is_cleaned_again_before_the_opening_prints_it(self):
+        """測試 L-3：env.json 是本機檔，被改成多行或帶方向字元，開場也只印一行乾淨的。"""
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
+                                      "note": "第一行\n第二行\u202e\x1b[31m", "auto_patched": None, "error": None})
+        line = self.open()[0]["line"]
+        self.assertEqual(line, "有新版 0.21.0：第一行 第二行 [31m；說「升級」我帶你做。")
 
     def test_new_version_line_truncates_the_note(self):
         self.put_history("0.20.1")
