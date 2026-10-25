@@ -1075,23 +1075,48 @@ class BackgroundLint(unittest.TestCase):
 
 
 class LintFixCounted(unittest.TestCase):
-    """lint 題 D-161：健檢標成要更新的綜合卡算進「還有 N 份沒整理完」。"""
+    """lint 題 D-161（桌面版確認後 3a 定）：健檢標的要改寫綜合卡在同一行另講「K 張綜合卡要改寫」，「還有 N 份沒整理完」只數檔；
+    0 的那半不印，整理指示照舊接在後面。"""
 
     def setUp(self):
-        from tests import _lint as L
-        self.L = L
-        self.tmp, self.V, self.raw = L.make()
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_fix", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_fix_adds_to_left(self):
+    def line(self, left, moved, fixes):
+        from unittest import mock
+        from kb._lib import batches, synthesis
+        report = {"incomplete": False, "added": [], "modified": [], "missing": [], "missing_sources": []}
+        for cache in (self.session._UNSORTED, self.session._DRIFT, self.session._SCAN):
+            cache.clear()
+        with mock.patch.object(self.session, "_quick_scan", return_value=(None, report)), \
+                mock.patch.object(self.session, "_drift_count", return_value=0), \
+                mock.patch.object(batches, "opening_counts", return_value=(left, moved)), \
+                mock.patch.object(synthesis, "lint_fix_count", return_value=fixes):
+            return self.session.line_changes(self.V), self.session.line_ingest_hint(self.V)
+
+    def test_three_halves(self):
+        self.assertEqual(self.line(0, 0, 2)[0], "還有 2 張綜合卡要改寫")
+        self.assertEqual(self.line(3, 0, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫")
+        self.assertEqual(self.line(3, 5, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫、5 張卡要跟著搬")
+        self.assertEqual(self.line(3, 0, 0)[0], "還有 3 份沒整理完")
+        self.assertIsNone(self.line(0, 0, 0)[0])
+        _line, hint = self.line(0, 0, 2)
+        self.assertTrue(hint and hint.startswith("先照 ingest skill 整理"), hint)
+
+    def test_cards_unsorted_counts_files_only(self):
+        from tests import _lint as L
         from kb._lib import cards
         from kb.lint import state
-        before = cards.unsorted(self.V)
-        rel = self.L.write_synthesis(self.V)
-        state.add_fix(self.V, rel, "有空段", [])
-        self.assertEqual(cards.unsorted(self.V), before + 1)
-        r = run(payload(self.V))
-        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertTrue([ln for ln in ctx.splitlines() if ln.startswith("還有 ") or ln.startswith("變動：")], ctx[:300])
+        tmp, V, _raw = L.make()
+        try:
+            before = cards.unsorted(V)
+            state.add_fix(V, L.write_synthesis(V), "有空段", [])
+            self.assertEqual(cards.unsorted(V), before)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
