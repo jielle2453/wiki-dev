@@ -26,7 +26,9 @@ def run(ctx):
                 "versions", "decide", f"skeleton:{rel}:{sha[:12]}",
                 f"你改過「{rel}」，跟程式的版本不同；要留你的，還是換回程式的？",
                 data={"file": rel, "results": [{"label": "換回程式的", "do": [f"kb upgrade skeleton {rel} --replace"],
-                                                "note": "她那份會備進回合，說「退回」就回來"}]},
+                                                "note": "她那份會備進回合，說「退回」就回來"},
+                                               {"label": "留我的", "do": [f"kb upgrade skeleton {rel} --keep"],
+                                                "note": "她的留著，之後升級不再問"}]},
                 once=True))
     old_template = sum(1 for c in ctx.cards().values() if str(c["front"].get("範本版本")) != cards.TEMPLATE_VERSION)
     out.append(runner.finding("versions", "number", "versions", "",

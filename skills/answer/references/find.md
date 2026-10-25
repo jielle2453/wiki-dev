@@ -63,8 +63,8 @@
 - 每題有 `key`（穩定的鍵）、`about`（對象的實體與檔編號）、`urgent`（有時間性）；`kind` 是 `pending_` 開頭的是待處理裡的事
   （讀不到、兩份寫法不同、健檢查到的、手改過的檔、健檢報告），結果照 `do`、`note` 做；健檢那幾種怎麼講看 lint skill。
 - 她說「這個先不要」「暫不處理」：`kb asks set-aside <那題的 key>`，照成功句說（「有變化或快到期會再拿出來」）；她要拿回來的
-  先放著的事，`p-` 開頭的用 `kb pending back <key>`。
-- 題目本身帶 `note` 的（`credential_same_kind`）先照它判斷再問，判斷不是就跳過那題。客戶怎麼回答歸 note 或 ingest，這裡不跑結果的指令。
+  先放著的事，`p-` 開頭的用 `kb pending back <key>`；其他的（名字確認、逾期這類）沒有指令拿回，對象一變就自己回來。
+- 題目本身帶 `note` 的（`credential_same_kind`）先照它判斷再問，判斷不是就跳過那題。客戶怎麼回答歸 note 或 ingest（`pending_lint`、`pending_handedit`、`pending_report` 歸 lint），這裡不跑結果的指令。
 
 ## 六、名稱沒登記：`mentions`
 

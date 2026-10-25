@@ -37,11 +37,11 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 ## 骨架
 
 - 要檢查：跑 `kb lint --json`；另一個健檢在跑就照拒絕句講、等它做完。
-- 回答：`summary` 照講；`done` 挑一兩件說替她做了什麼；`most_urgent` 講最急的一件，其他說「還有 N 件要你決定，說『看待處理』」；`failed_checks` 有就一句哪幾項這次沒查成。欄位怎麼讀看 `references/report.md`。
-- `ingest` 有大於 0 的：講完照 ingest skill 整理（她這句就是要我把問題處理好）。
-- 看健檢報告：Read 報告那份，照 `references/report.md` 講重點；講完照那件待處理的結果跑 `kb pending resolve`。
-- 你直接修：跑 `kb asks --all --json`，`kind` 是 `pending_lint`、`pending_handedit` 的每件照它的結果與 `references/report.md` 做；手改的先 `kb lint handedit --json`、照意思做完 `kb lint handedit --done <編號>`；最後列清單。
-- 末尾跑 `kb asks --about <這一句講到的實體> --json`，照 `asks` 問、`others_line` 有就原樣貼。
+- 回答：`summary` 照講；`done` 挑一兩件說替她做了什麼；`most_urgent` 講最急的一件，其他的件數交給末尾的 `others_line`，不另外說；`failed_checks` 有就一句哪幾項這次沒查成。欄位怎麼讀看 `references/report.md`。
+- `ingest` 有大於 0 的：講完照 ingest skill 整理，份數多照它的規則先問（她要我檢查，就是要把擱著的處理掉，D-220）。
+- 看健檢報告：`kb asks --all --json` 找 `kind` 是 `pending_report` 那題，照它結果的 `note` 讀那個月的報告、照 `references/report.md` 講重點，講完跑它的 `do`；沒有那題就讀 `系統/健檢報告/` 最新的一份。
+- 你直接修：跑 `kb asks --all --json`，`kind` 是 `pending_lint`、`pending_handedit` 的每件照它的結果與 `references/report.md` 做；手改的先 `kb lint handedit --json`、照意思做完 `kb lint handedit --done <那件的 pending>`；最後列清單。
+- 末尾跑 `kb asks --about <這一句講到的實體> --json`（這一句跑過 `--all` 就不再跑），照 `asks` 問、`others_line` 有就原樣貼。
 - 這句話有寫入（修了、記了）才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。
 
 ## 共通

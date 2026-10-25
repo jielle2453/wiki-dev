@@ -23,8 +23,8 @@
 - `versions_unwritable`：回合備份夾寫不進去，改了東西沒辦法退回。請服務人員看，在那之前先別大改。
 - `system_link`：系統夾裡有捷徑。請服務人員看。
 - `inferred:agenda`、`inferred:entity`、`inferred:profile`：我猜的放太久沒確認。照結果的 `note` 一條一條唸給她聽，對的照原樣確認、
-  不對的照她說的改（日程交 note 的 agenda、名字 `kb entity confirm`、設定檔請她改來源或照 note 改規則）。
-- `skeleton:<檔>:…`：她改過那份系統檔。要留她的就 `kb pending resolve <編號> --how "留著她的"`；換回程式的照 `do` 跑
+  不對的照她說的改（日程照 note 的 `references/agenda.md`、名字 `kb entity confirm`、設定檔照 note 的 `references/preference.md`）。
+- `skeleton:<檔>:…`：她改過那份系統檔。要留她的跑結果裡的 `kb upgrade skeleton <檔> --keep`（之後升級才不再問），再 resolve；換回程式的照 `do` 跑
   `kb upgrade skeleton <檔> --replace`（她那份備進回合，說「退回」就回來），再 resolve。
 - `synthesis_big:<路徑>`：綜合卡太長。她說好就記下（resolve），下次整理改寫時精簡現況、紀事保留。
 - `redo_by_profile:<卡型>:<日期>`：設定檔那類改過之後，之前做的卡。她說好跑 `do`（`kb cards redo --ids …`），
@@ -42,13 +42,13 @@
 
 ## 五、`handedit` 怎麼處理
 
-- `kb lint handedit --json` 每件：`file`（哪份）、`saved`（她那份存在哪）、`checked`（打勾的條目）、`removed`（刪掉的條目）、
+- `kb lint handedit --json` 每件：`pending`（這件待處理的編號，`--done` 給它）、`file`（哪份）、`saved`（她那份存在哪）、`checked`（打勾的條目）、`removed`（刪掉的條目）、
   `changed_date`（改了日期的，`to` 是她寫的日期）、`other`（看不出對到哪條的行），條目帶編號。
 - 待處理（編號 p-）：打勾的當成處理好了 `kb pending resolve <編號> --how "她在待處理.md 打勾"`；刪掉的當成不用管 `kb pending dismiss`。
 - 日程（編號 a-）：打勾或刪掉的照意思 `kb agenda done` 或 `kb agenda cancel`；改日期的 `kb agenda edit <編號> --date <她寫的>`
   （日期不完整就問）。裁示（編號 r-）：刪掉的 `kb ruling remove`。
 - `other` 才問她（「你在待處理加了一行『…』，要我記成什麼？」）；做完 `kb lint handedit --done <那件的編號>`，
-  回答列「照你改的做了哪些」。總目錄、工作日誌被手改只留她那份、照樣重寫，報告講一句，不用處理（D-223）。
+  回答列「照你改的做了哪些」（`--done` 給的是那件的 `pending`，不是條目的編號）。總目錄、工作日誌被手改只留她那份、照樣重寫，報告講一句，不用處理（D-223）。
 
 ## 六、「你直接修」的清單
 
