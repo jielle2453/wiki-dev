@@ -1,6 +1,7 @@
 """lint 第二輪測試報告的修正（design/reports/lint-測試-2.md）：T-26～T-31。T-25 與 T-31 的端到端在 test_lib_purge 的 LintPending。"""
 import datetime as dt
 import json
+import re
 import shutil
 import types
 import unittest
@@ -13,7 +14,9 @@ from kb._lib import pending, profile, purge, renders, skeleton, turn  # noqa: E4
 from kb.lint import checks, runner  # noqa: E402
 from kb.lint.checks import citations, stale_by_profile  # noqa: E402
 
-TODAY = dt.date.today()
+def today():
+    """執行時才取今天（發行前 T-40：載入時固定的話跨午夜會偶發失敗）。"""
+    return dt.date.today()
 
 
 def fake(name, found=None):
@@ -56,7 +59,7 @@ class T26ForgetAnsweredWhenGone(Base):
         for cid in (a, b):
             from kb._lib import cards
             p = self.V / cards.card_of(self.V, cid)["path"]
-            p.write_text(p.read_text(encoding="utf-8").replace(f"製卡日期: {TODAY.isoformat()}", "製卡日期: 2026-10-01"),
+            p.write_text(re.sub(r"^製卡日期: .*$", "製卡日期: 2026-10-01", p.read_text(encoding="utf-8"), count=1, flags=re.M),
                          encoding="utf-8")
         prof = json.loads((self.V / profile.PROFILE_POSIX).read_text(encoding="utf-8"))
         for row in prof["card_types"]:
@@ -72,7 +75,7 @@ class T26ForgetAnsweredWhenGone(Base):
 class T27PendingSetAside(Base):
     def urgent_item(self):
         pid, _c = pending.add_lint(self.V, "inferred:agenda", "推測的日程放太久",
-                                   {"dates": [(TODAY + dt.timedelta(days=1)).isoformat()]}, self.t)
+                                   {"dates": [(today() + dt.timedelta(days=1)).isoformat()]}, self.t)
         return pid
 
     def test_pending_set_aside_refuses_urgent(self):

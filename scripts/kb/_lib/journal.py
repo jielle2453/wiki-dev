@@ -459,7 +459,11 @@ SYSTEM_WORDS = {
     ".system/inventory.json": "清冊",
     ".system/sources.json": "來源登記",
     "總目錄.md": "總目錄",
+    # lint 題的新檔（發行前 T-39：背景健檢每週一段，「改了」不能出英文）
+    ".system/lint.json": "健檢紀錄", ".system/set_aside.json": "先放著的清單", ".system/renders.json": "手改比對紀錄",
+    ".system/statements-archive.json": "口述封存", ".system/findings-archive.json": "推算封存",
 }
+SYSTEM_PREFIXES = ((".system/handedits/", "你手改的那份"), ("系統/健檢報告/", "健檢報告"))
 NAMES_SHOWN = 3
 _TOP_RESERVED = ("檔案索引", "系統", ".system", "AI 產出", "收件匣")
 
@@ -476,9 +480,10 @@ def changed_text(changed):
     for c in changed or []:
         rel = str(c.get("path") or "")
         parts = rel.split("/")
-        if rel in SYSTEM_WORDS:
-            if SYSTEM_WORDS[rel] not in words:
-                words.append(SYSTEM_WORDS[rel])
+        word = SYSTEM_WORDS.get(rel) or next((w for head, w in SYSTEM_PREFIXES if rel.startswith(head)), None)
+        if word:
+            if word not in words:
+                words.append(word)
         elif parts[0] == "檔案索引":
             cards += 1
         elif parts[0] == "AI 產出":

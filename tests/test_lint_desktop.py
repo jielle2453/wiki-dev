@@ -134,5 +134,28 @@ class Six_RedoOnlyActiveCards(Base):
         self.assertEqual(dec["data"]["ids"], [a])
 
 
+
+class T39ChangedInPlainWords(Base):
+    """發行前 T-39：工作日誌「改了」不出現英文：健檢、問法的新檔都有白話名字；背景健檢那段也是。"""
+
+    def test_new_state_files_have_names(self):
+        rels = (".system/lint.json", ".system/set_aside.json", ".system/renders.json", ".system/statements-archive.json",
+                ".system/findings-archive.json", ".system/handedits/20261025-120000-待處理.md", "系統/健檢報告/2026-10.md")
+        text = journal.changed_text([{"path": r, "action": "modify"} for r in rels])
+        self.assertIsNone(re.search(r"[A-Za-z]", text), text)
+        for word in ("健檢紀錄", "先放著的清單", "手改比對紀錄", "口述封存", "推算封存", "你手改的那份", "健檢報告"):
+            self.assertIn(word, text)
+
+    def test_background_segment(self):
+        from unittest import mock
+        from kb.lint import checks, runner
+        with mock.patch.object(checks, "CHECKS", []):
+            runner.run(self.V, background=True)
+        out = run_kb("journal", "recent", "--changed", cwd=self.V).stdout
+        changed = [ln for ln in out.splitlines() if "改了：" in ln]
+        self.assertTrue(changed, out)
+        self.assertIsNone(re.search(r"[A-Za-z]", "".join(changed)), changed)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@
 開原檔遇 UNC 不查、手改留下的那份遮值。T-8 的端到端在 test_lib_purge 的 LintFiles。"""
 import datetime as dt
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -16,7 +17,9 @@ from kb._lib import cards, entities, inventory, pending, plan, profile, renders,
 from kb.lint import checks, report, runner, state  # noqa: E402
 from kb.lint.checks import citations, empty_sections, inferred, sizes, stale_by_profile  # noqa: E402
 
-TODAY = dt.date.today()
+def today():
+    """執行時才取今天（發行前 T-40：載入時固定的話跨午夜會偶發失敗）。"""
+    return dt.date.today()
 
 
 def fake(name, found=None, boom=False):
@@ -80,7 +83,7 @@ class T2AnsweredStaysClosed(Base):
     def test_redo_marked_cards_not_candidates(self):
         a = L.write_card(self.V, E.QUOTE, "信義王報價")
         p = self.V / cards.card_of(self.V, a)["path"]
-        p.write_text(p.read_text(encoding="utf-8").replace(f"製卡日期: {TODAY.isoformat()}", "製卡日期: 2026-10-01"),
+        p.write_text(re.sub(r"^製卡日期: .*$", "製卡日期: 2026-10-01", p.read_text(encoding="utf-8"), count=1, flags=re.M),
                      encoding="utf-8")
         prof = json.loads((self.V / profile.PROFILE_POSIX).read_text(encoding="utf-8"))
         for row in prof["card_types"]:
@@ -98,21 +101,21 @@ class T3PastDatesNotUrgent(Base):
         return pid
 
     def test_past_date(self):
-        pid = self.item((TODAY - dt.timedelta(days=5)).isoformat())
+        pid = self.item((today() - dt.timedelta(days=5)).isoformat())
         asks, _h = plan.pending_asks(self.V)
         self.assertFalse(next(a for a in asks if a["key"] == pid)["urgent"])
         pending.set_aside(self.V, pid, "customer", self.t)
         self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"]), set())
 
     def test_tomorrow(self):
-        pid = self.item((TODAY + dt.timedelta(days=1)).isoformat())
+        pid = self.item((today() + dt.timedelta(days=1)).isoformat())
         asks, _h = plan.pending_asks(self.V)
         self.assertTrue(next(a for a in asks if a["key"] == pid)["urgent"])
 
 
 class T4UrgentCannotBeSetAside(Base):
     def test_overdue_refused_with_answers(self):
-        past = (TODAY - dt.timedelta(days=3)).isoformat()
+        past = (today() - dt.timedelta(days=3)).isoformat()
         item = {"id": "a-12345678", "kind": "promise", "date": past, "text": "給報價", "entities": ["大安陳"], "status": "open",
                 "source": "interview", "created_turn": "t", "history": []}
         (self.V / ".system" / "agenda.json").write_text(json.dumps({"schema_version": 1, "items": [item]}, ensure_ascii=False),
