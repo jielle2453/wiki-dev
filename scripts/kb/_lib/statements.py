@@ -2,7 +2,9 @@
 
 一條一句客戶在對話裡說的事實或決定：id（s- 加 8 碼 hex）、text、entities（登記的實體名稱，客戶自己也可以；
 rename／merge 由 entities 呼叫這裡一起換，移除時照留）、date、turn、status（active｜superseded｜withdrawn）、
-replaced_by（被哪一條取代）。被取代、收回的條目留著（綜合卡紀事會引用它），清理交給 lint。
+replaced_by（被哪一條取代）。被取代、收回的條目留著（綜合卡紀事會引用它）；沒有綜合卡引用的由健檢移到
+.system/statements-archive.json（schema 1，同樣的條目加 archived 日期，lint 題）。收回取代過別條的那條時回傳被取代的（D-224），
+她說要恢復就 restore（被取代、而取代它的那條已收回才收；在封存檔裡的搬回來）。
 綜合卡的「整理到」收 s- 行（指紋欄寫 -），出處寫〔s-…〕，所以有新口述或口述被取代時，程式把那個實體列進待更新綜合卡。
 不渲染 md（工作日誌已記）。每次寫都在 statements.json 的 FileLock 裡：先 turn.backup 再原子寫（D-074）；只經 kb statement
 與 entities 寫。
@@ -15,6 +17,7 @@ from kb._lib import profile
 from kb._lib.io import FileLock, read_json, write_json_atomic
 
 STATEMENTS_POSIX = ".system/statements.json"
+ARCHIVE_POSIX = ".system/statements-archive.json"
 SCHEMA_VERSION = 1
 STATUSES = ("active", "superseded", "withdrawn")
 TEXT_MAX = 200
@@ -26,6 +29,7 @@ NOT_FOUND = "沒有這條口述：{}"
 SUPERSEDED_MSG = "這條已經被取代了，改最新的那條"
 WITHDRAWN_MSG = "這條已經收回了"
 NO_ENTITY = "實體清單沒有「{}」，先 kb entity add"
+NOT_RESTORABLE = "這條沒有被取代，或取代它的那條還有效"
 
 
 class StatementRefused(ValueError):
@@ -160,7 +164,21 @@ def add(vault, text, entities, turn_id, replaces=None):
             old["status"] = "superseded"
             old["replaced_by"] = it["id"]
         return (it, old), True
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    wake_entities(vault, names, turn_id)
+    return got
+
+
+def wake_entities(vault, names, turn_id):
+    """實體有新口述或新裁示：跟它有關的先放著回到前面（D-226）；出錯只記 log。"""
+    try:
+        from kb._lib import entities, pending
+        ent = entities.load(vault)
+        ids = [e["id"] for e in (entities.find(ent, n)[0] for n in names) if e is not None]
+        pending.wake(vault, entity_ids=ids, turn_id=turn_id)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"先放著沒拿回來：{type(e).__name__}: {e}", source="statements")
 
 
 def withdraw(vault, sid, turn_id):
@@ -169,6 +187,75 @@ def withdraw(vault, sid, turn_id):
         it = _need_active(data, sid)
         it["status"] = "withdrawn"
         return it, True
+    return _mutate(vault, turn_id, fn)
+
+
+def replaced_of(vault, sid):
+    """被 sid 取代的那條（statements.json 或封存檔裡 replaced_by 是 sid 的），沒有回 None（D-224）。"""
+    for data in (load(vault), load_archive(vault)):
+        hit = next((s for s in data["statements"] if s.get("replaced_by") == sid), None)
+        if hit is not None:
+            return hit
+    return None
+
+
+def restore(vault, sid, turn_id):
+    """她說原本那條要恢復（D-224）：只收被取代、而取代它的那條已收回的；改回有效、replaced_by 清掉，在封存檔裡的搬回來
+    （兩檔都先備進回合）。不行丟 StatementRefused(NOT_RESTORABLE)。回條目。綜合卡照 D-146 自己會列待更新（依據變了）。"""
+    def fn(data):
+        it = find(data, sid)
+        source = None
+        if it is None:
+            arch = load_archive(vault)
+            it = find(arch, sid)
+            source = arch if it is not None else None
+        if it is None or it.get("status") != "superseded":
+            raise StatementRefused(NOT_RESTORABLE)
+        newer = find(data, it.get("replaced_by")) or find(load_archive(vault), it.get("replaced_by"))
+        if newer is None or newer.get("status") != "withdrawn":
+            raise StatementRefused(NOT_RESTORABLE)
+        if source is not None:
+            from kb._lib import turn
+            turn.backup(vault, ARCHIVE_POSIX, turn_id)
+            source["statements"] = [x for x in source["statements"] if x.get("id") != sid]
+            write_json_atomic(Path(vault) / ARCHIVE_POSIX, source)
+            it = {k: v for k, v in it.items() if k != "archived"}
+            data["statements"].append(it)
+        it["status"], it["replaced_by"] = "active", None
+        return it, True
+    return _mutate(vault, turn_id, fn)
+
+
+# ---------- 封存（健檢，lint 題） ----------
+
+def load_archive(vault):
+    """封存檔；沒檔回空的，壞了丟 ValueError（帶檔名）。"""
+    try:
+        data = read_json(Path(vault) / ARCHIVE_POSIX)
+    except ValueError as e:
+        raise ValueError(f"{ARCHIVE_POSIX}（JSON 壞了：{e}）") from e
+    if data is None:
+        return empty()
+    if not isinstance(data, dict) or not isinstance(data.get("statements"), list):
+        raise ValueError(f"{ARCHIVE_POSIX}（沒有 statements 清單）")
+    return {"schema_version": SCHEMA_VERSION, "statements": [s for s in data["statements"] if isinstance(s, dict)]}
+
+
+def archive(vault, ids, turn_id):
+    """把這幾條（只收被取代或收回的）移到封存檔、加 archived 日期；兩檔先備進回合。回搬了幾條。"""
+    ids = set(ids)
+
+    def fn(data):
+        moving = [s for s in data["statements"] if s.get("id") in ids and s.get("status") in ("superseded", "withdrawn")]
+        if not moving:
+            return 0, False
+        from kb._lib import turn
+        arch = load_archive(vault)
+        turn.backup(vault, ARCHIVE_POSIX, turn_id)
+        arch["statements"].extend(dict(s, archived=_today()) for s in moving)
+        write_json_atomic(Path(vault) / ARCHIVE_POSIX, arch)
+        data["statements"] = [s for s in data["statements"] if s not in moving]
+        return len(moving), True
     return _mutate(vault, turn_id, fn)
 
 
@@ -195,4 +282,34 @@ def rename_entity(vault, mapping, turn_id, undo=None):
         if hits and undo is not None:
             undo.file(STATEMENTS_POSIX)
         return hits, bool(hits)
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    _rename_archive(vault, mapping, turn_id, undo)
+    return got
+
+
+def _rename_archive(vault, mapping, turn_id, undo):
+    """封存檔裡的條目也換名（之後恢復回來才對得上現在的名稱，測試 T-6）。沒有封存檔什麼都不做。"""
+    from kb._lib import entities
+    p = Path(vault) / ARCHIVE_POSIX
+    if not p.exists():
+        return
+    with FileLock(p):
+        arch = load_archive(vault)
+        hit = False
+        for it in arch["statements"]:
+            names = it.get("entities") or []
+            if not any(entities.key(n) in mapping for n in names):
+                continue
+            new = []
+            for n in names:
+                n = mapping.get(entities.key(n), n)
+                if all(entities.key(x) != entities.key(n) for x in new):
+                    new.append(n)
+            it["entities"] = new
+            hit = True
+        if hit:
+            if undo is not None:
+                undo.file(ARCHIVE_POSIX)
+            from kb._lib import turn
+            turn.backup(vault, ARCHIVE_POSIX, turn_id)
+            write_json_atomic(p, arch)

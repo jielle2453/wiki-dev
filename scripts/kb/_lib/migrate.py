@@ -6,13 +6,14 @@ STATE_FILES 是一張表：哪個檔、現在的 schema 版本、磁碟上存的
 CARD_HEADER_MIGRATIONS 是卡的檔頭遷移：[{"from": 舊範本版本, "to": 新範本版本, "fn": 整張卡的文字 → 新文字}]，目前沒有要遷的（空表，D-054）；
 只改檔頭機器欄位、正文不動，寫前備進回合；fn 改壞檔頭（解析不了、版本沒變成 to）就不寫、列進 skipped。
 不需要遷移登記的：sources.json 排除列的選填欄（purge 等）、purge-pending.json、回合夾的 moves.jsonl、unlock.json、vault.json、
-rulings.json（v0.19.0 沒升 schema）、batches.json、build.json（新檔 schema 1）、entities.json 的 ai_judged（schema 沒改）。
+rulings.json（v0.19.0 沒升 schema）、lint.json、renders.json、set_aside.json、statements-archive.json、findings-archive.json（lint 題的新檔，schema 1）、batches.json、build.json（新檔 schema 1）、entities.json 的 ai_judged（schema 沒改）。
 pending 只讀；apply 一個檔失敗不擋其他檔，失敗的列進 skipped（原因一句話）。
 """
 from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cards, entities, inventory, profile
+from kb._lib import pending as pending_lib  # 這支自己有 pending()
 from kb._lib.io import FileLock, read_json, write_text_atomic
 
 Migration = namedtuple("Migration", "rel current stored rewrite")
@@ -59,12 +60,19 @@ def _rewrite_entities(vault, turn_id):
         entities._save(vault, entities.load(vault), turn_id)
 
 
+def _rewrite_pending(vault, turn_id):
+    """schema 1 → 2（lint 題，D-226）：load 補 set_aside、returned，照 pending 自己的寫法寫回（兩檔備進回合、重渲染）。"""
+    pending_lib.refresh(vault, turn_id)
+
+
 STATE_FILES = (
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, profile.stored_schema, _rewrite_profile),
     Migration(inventory.INVENTORY_POSIX, lambda: inventory.SCHEMA_VERSION, _raw_version(inventory.INVENTORY_POSIX),
               _rewrite_inventory),
     Migration(entities.ENTITIES_POSIX, lambda: entities.SCHEMA_VERSION, _raw_version(entities.ENTITIES_POSIX),
               _rewrite_entities),
+    Migration(pending_lib.PENDING_POSIX, lambda: pending_lib.SCHEMA_VERSION, _raw_version(pending_lib.PENDING_POSIX),
+              _rewrite_pending),
 )
 CARD_HEADER_MIGRATIONS = []
 

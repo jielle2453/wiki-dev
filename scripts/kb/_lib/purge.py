@@ -372,6 +372,190 @@ def _current_state(vault, ids, turn_id, counts):
             counts["card_ids"].add(cid)
 
 
+def _mask_pending(items, mask, derived=(), gone=()):
+    """待處理裡衍生的文字（lint 第二輪 T-25）：handedit 件 diff 的每行、健檢件的 text 照 mask 遮（derived 是從那夾抽出的字：
+    日程原文、檔名，也換掉）；diff 裡指到這次拿掉的條目（gone：待處理、日程編號）的那幾行，與遮完只剩「（已排除）」的行拿掉。
+    原地改，回有沒有改到。"""
+    def scrub(text):
+        out = mask(text) if isinstance(text, str) else text
+        for d in derived:
+            if isinstance(out, str) and d and len(d) >= 2:
+                out = out.replace(d, PURGED)
+        return out
+
+    def empty(line):
+        return not re.sub(r"[\s\-。，、：；（）()「」\[\]x]|" + re.escape(PURGED), "", str(line or ""))
+    changed = False
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if it.get("kind") == "lint" and isinstance(it.get("text"), str):
+            new = scrub(it["text"])
+            if new != it["text"]:
+                it["text"], changed = new, True
+        diff = (it.get("data") or {}).get("diff") if it.get("kind") == "handedit" else None
+        if not isinstance(diff, dict):
+            continue
+        for k in ("checked", "removed", "changed_date"):
+            rows = []
+            for row in diff.get(k) or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("id") in gone:
+                    changed = True
+                    continue
+                line = scrub(row.get("line"))
+                if line != row.get("line"):
+                    changed = True
+                if not empty(line):
+                    rows.append(dict(row, line=line))
+            diff[k] = rows
+        other = [scrub(x) for x in diff.get("other") or []]
+        if other != diff.get("other"):
+            changed = True
+        diff["other"] = [x for x in other if not empty(x)]
+    return changed
+
+
+def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone=()):
+    """lint 題（測試 T-8）：健檢與問法的新檔。推算封存檔拿掉掛那些卡的；口述封存檔、lint.json 的「替你做了」、set_aside.json 的問句、
+    renders.json 的整理問題照字詞遮（編號、卡標題、那夾的路徑）；lint.json 的 synthesis_fix 拿掉那些卡的編號；她手改留下的那份
+    （.system/handedits/）與健檢報告（系統/健檢報告/）整份照字詞遮。照字詞遮的不備進回合（清掉的本來就退不回，備了反而留下原文）；
+    推算封存檔照狀態檔的做法備份，回合夾的舊版照 JSON_DROPS 拿掉。各自 try，寫不了的算進還剩的狀態檔。
+    第二輪：待處理裡 handedit 件的每行與健檢件的文字也遮（T-25）；口述封存檔的原話用 plain（只遮編號與夾路徑，不照卡標題，
+    恢復回來才不是壞句，T-31）；renders.json 自己讀寫，寫不了算沒清完（T-31）。"""
+    from kb._lib import renders, statements
+    from kb.lint import state as lint_state
+    plain = plain or words
+
+    def f_archive():
+        p = Path(vault) / findings.ARCHIVE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            data = findings.load_archive(vault)
+            n = drop_findings(data, ids)
+            if n:
+                turn.backup(vault, findings.ARCHIVE_POSIX, turn_id)
+                write_json_atomic(p, data)
+                counts["findings"] += n
+
+    def s_archive():
+        p = Path(vault) / statements.ARCHIVE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            data = statements.load_archive(vault)
+            new = [dict(s, text=plain(s.get("text"))) for s in data["statements"]]
+            if new != data["statements"]:
+                write_json_atomic(p, dict(data, statements=new))
+
+    def lint_json():
+        if not lint_state.exists(vault):
+            return
+
+        def change(d):
+            fixes = [dict(f, ids=[i for i in f.get("ids") or [] if i not in ids]) for f in d["synthesis_fix"]]
+            done = [dict(x, text=words(x.get("text"))) for x in d["month_done"]]
+            if (fixes, done) == (d["synthesis_fix"], d["month_done"]):
+                return False
+            d["synthesis_fix"], d["month_done"] = fixes, done
+            return True
+        lint_state.change(vault, change)
+
+    def set_aside():
+        from kb._lib import plan
+        p = Path(vault) / plan.SET_ASIDE_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):
+            keys = plan.set_aside_keys(vault)
+            new = {k: dict(v, question=words(v.get("question"))) for k, v in keys.items()}
+            if new != keys:
+                write_json_atomic(p, {"schema_version": 1, "keys": new})
+
+    def renders_json():
+        p = Path(vault) / renders.RENDERS_POSIX
+        if not p.exists():
+            return
+        with FileLock(p):  # 自己讀寫（renders._edit 會吞寫入失敗，這裡要算進沒清完）
+            data = renders.load(vault)
+            bases = {}
+            for k, v in data.get("bases", {}).items():
+                masked = {"text": words(v.get("text")), "lines": [[words(ln), i] for ln, i in v.get("lines") or []]}
+                if masked == v or k == pending.MD_POSIX:
+                    bases[k] = masked  # 待處理.md 下一步會照遮過的重寫、重記
+                # 日程、裁示的 bases 被遮過就拿掉：磁碟上的 md 沒重寫，下次手改比對照現在的資料重算（T-37）
+            new = dict(data, asks=[words(q) for q in data["asks"]], bases=bases)
+            if new != data:
+                write_json_atomic(p, new)
+
+    def pending_texts():
+        if not (Path(vault) / pending.PENDING_POSIX).exists():
+            return
+        # 沒改到也重寫一次：待處理.md 的「整理時要問你的」照遮過的寫
+        pending._edit(vault, turn_id, lambda items: _mask_pending(items, words, derived, gone) or True)
+
+    def texts():
+        for folder in (Path(vault) / renders.HANDEDITS_POSIX, Path(vault) / "系統" / "健檢報告"):
+            for f in sorted(folder.glob("*")) if folder.is_dir() else []:
+                if f.is_file() and not _is_link(f):
+                    _mask_file(f, words, counts)
+    for step in (f_archive, s_archive, lint_json, set_aside, renders_json, pending_texts, texts):
+        try:
+            step()
+        except (OSError, ValueError):
+            counts["left"]["state"] += 1
+
+
+def _derived(vault, ids, names=()):
+    """拿掉之前先記（T-25、第三輪 T-33）：(從那些卡推測出的日程原文與那些檔的檔名, 會被拿掉的待處理與推測日程的編號)。
+    names 是呼叫端在 exclude 那一刻從清冊取的檔名（之後清冊就沒有那些條目了）。確認過的日程只拿掉出處、條目留著，不算（T-37）。
+    讀不到的那一類略過。"""
+    words, gone = set(names or ()), set()
+    try:
+        for i in agenda.load(vault)["items"]:
+            if isinstance(i, dict) and (i.get("origin") or {}).get("card") in ids and i.get("source") == "inferred":
+                gone.add(i.get("id"))
+                if i.get("text"):
+                    words.add(str(i["text"]))
+    except (OSError, ValueError):
+        pass
+    try:
+        for i in pending.load(vault)["items"]:
+            if set(i.get("file_ids") or []) & set(ids):
+                gone.add(i.get("id"))
+    except (OSError, ValueError):
+        pass
+    try:
+        for e in inventory.load(vault)["entries"]:
+            if e.get("id") in ids:
+                words.update(str(loc.get("uri", "")).rsplit("/", 1)[-1] for loc in e.get("locations") or [] if isinstance(loc, dict))
+    except (OSError, ValueError):
+        pass
+    return sorted(w for w in words if len(w) >= 3), gone
+
+
+def record_derived(vault, alias, spec, ids, names, turn_id, undo=None):
+    """exclude --kind hidden 記範圍那一刻順便記衍生文字與會拿掉的條目（T-33）：purge 重跑時條目已經拿掉，靠記下的。"""
+    words, gone = _derived(vault, set(ids), names)
+    record(vault, alias, spec, "words", words, turn_id, undo)
+    record(vault, alias, spec, "gone", gone, turn_id, undo)
+
+
+def derived_masker(words, derived):
+    """words 之外，衍生文字（檔名、推測日程原文）也換「（已排除）」：現行檔與她手改的副本、健檢報告用（T-34；備份只換路徑）。"""
+    derived = sorted({d for d in derived if d and len(d) >= 3}, key=len, reverse=True)
+
+    def mask(text):
+        out = words(text)
+        if isinstance(out, str):
+            for d in derived:
+                out = out.replace(d, PURGED)
+        return out
+    return mask
+
+
 def _drop_synced(vault, gone, turn_id, counts):
     """目前的綜合卡檔頭「整理到」拿掉指到清掉的卡與推算的行（第七輪：AI 照 todo 重寫時推算還在，清完就成了懸空的行）；
     改前備進回合（程式改的）。改不了算進還剩的狀態檔。"""
@@ -447,6 +631,7 @@ JSON_DROPS = {
     agenda.AGENDA_POSIX: lambda data, ids, prefix: drop_agenda(data, ids),
     rulings.RULINGS_POSIX: lambda data, ids, prefix: drop_rulings(data, ids),
     findings.FINDINGS_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),
+    findings.ARCHIVE_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),  # lint 題：推算封存檔（T-8）
 }
 
 
@@ -605,7 +790,10 @@ def _scrub_row(row, rel, f, ids, prefix, counts, shorts, datas, state, mask=None
     elif rel in JSON_DROPS:
         data = _read_json(f)
         datas[rel] = data
-        if data is not None and JSON_DROPS[rel](data, ids, prefix):
+        dropped = data is not None and JSON_DROPS[rel](data, ids, prefix)
+        if data is not None and rel == pending.PENDING_POSIX and mask is not None:  # 舊版待處理的衍生文字只換路徑（T-25）
+            dropped = _mask_pending(data.get("items") or [], mask) or dropped
+        if dropped:
             write_json_atomic(f, data)
             counts["backups"] += 1
     elif rel == cards.INDEX_POSIX:
@@ -739,7 +927,7 @@ def _scrub_text(vault, rel, mask):
 TEXT_SUFFIXES = (".md", ".txt", ".json", ".jsonl", ".tsv", ".csv")
 PENDING_POSIX = ".system/purge-pending.json"  # 還沒清完的那幾條排除的卡標題（不寫進 sources.json，清完刪掉；第六輪）
 # 一條記的東西：卡標題（第六輪）、排除那一句與清那一句的回合代號（「問」不換）、清掉的推算編號（「整理到」照拿掉；第七輪）
-PENDING_KEYS = ("titles", "turns", "findings")
+PENDING_KEYS = ("titles", "turns", "findings", "words", "gone")  # words、gone：衍生文字與會拿掉的條目（lint 第三輪 T-33）
 
 
 def load_pending(vault):
@@ -965,7 +1153,12 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     prefix = folder_uri(alias, spec)
     mask = masker(vault, alias, spec, root)  # 備份、ledger、hook-errors 只換路徑（第六輪）
     words = word_masker(mask, ids, word_titles(vault, titles))  # 工作日誌與回合檔的「問」、result、note 另比編號與標題
+    derived, gone = _derived(vault, ids)  # 拿掉之前先記：健檢件的文字、手改的差異裡列了它們（T-25）
+    derived = sorted(set(derived) | recorded(vault, alias, spec, "words"))  # exclude 那一刻記下的（T-33：那時清冊還有檔名）
+    gone = set(gone) | recorded(vault, alias, spec, "gone")
     _current_state(vault, ids, turn_id, counts)
+    _lint_files(vault, ids, derived_masker(words, derived), turn_id, counts, plain=word_masker(mask, ids, ()), derived=derived,
+                gone=gone)
     record(vault, alias, spec, "findings", counts["finding_ids"], turn_id)
     _drop_synced(vault, set(ids) | recorded(vault, alias, spec, "findings"), turn_id, counts)
     for vdir in _version_dirs(vault):

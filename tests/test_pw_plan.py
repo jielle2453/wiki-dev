@@ -101,7 +101,7 @@ class CredentialSameKind(Base):
         (self.raw / "客戶案件" / "內湖李" / "估價單.pdf").unlink()
         r = run_kb("inventory", "scan", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        asks = json.loads(run_kb("asks", "--json", cwd=self.V).stdout)["asks"]
+        asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]  # 跟這一句無關的要 --all（D-225）
         kinds = [a["kind"] for a in asks]
         self.assertIn("credential_same_kind", kinds)
         self.assertIn("missing", kinds)

@@ -39,6 +39,13 @@ HEADER_LINES = (
     "由程式產生，改了會被覆蓋。",
 )
 RECENT_MONTHS = 12
+# 不是她在終端機跑的程式段：照這個說法寫（lint 桌面版確認後；versions list 的「（背景健檢）」同一個意思）
+AUTO_LABELS = {"lint --background": "每週健檢（自動）"}
+
+
+def program_label(command):
+    """程式段的抬頭：自動跑的照 AUTO_LABELS，其他是「程式 <指令>」。"""
+    return AUTO_LABELS.get(str(command or ""), f"程式 {command or ''}".rstrip())
 
 # 地板句（D-084）：區 → [(action, 動詞)], 單位；Z7 不數，其他區數總檔數
 _FLOOR_COUNTED = (
@@ -452,7 +459,11 @@ SYSTEM_WORDS = {
     ".system/inventory.json": "清冊",
     ".system/sources.json": "來源登記",
     "總目錄.md": "總目錄",
+    # lint 題的新檔（發行前 T-39：背景健檢每週一段，「改了」不能出英文）
+    ".system/lint.json": "健檢紀錄", ".system/set_aside.json": "先放著的清單", ".system/renders.json": "手改比對紀錄",
+    ".system/statements-archive.json": "口述封存", ".system/findings-archive.json": "推算封存",
 }
+SYSTEM_PREFIXES = ((".system/handedits/", "你手改的那份"), ("系統/健檢報告/", "健檢報告"))
 NAMES_SHOWN = 3
 _TOP_RESERVED = ("檔案索引", "系統", ".system", "AI 產出", "收件匣")
 
@@ -469,9 +480,10 @@ def changed_text(changed):
     for c in changed or []:
         rel = str(c.get("path") or "")
         parts = rel.split("/")
-        if rel in SYSTEM_WORDS:
-            if SYSTEM_WORDS[rel] not in words:
-                words.append(SYSTEM_WORDS[rel])
+        word = SYSTEM_WORDS.get(rel) or next((w for head, w in SYSTEM_PREFIXES if rel.startswith(head)), None)
+        if word:
+            if word not in words:
+                words.append(word)
         elif parts[0] == "檔案索引":
             cards += 1
         elif parts[0] == "AI 產出":
@@ -523,7 +535,7 @@ def _changed_lines(row):
 def _block(row):
     when = str(row.get("time", "")).replace("T", " ")
     if row.get("kind") == "program":
-        return [f"## {when}　程式 {row.get('command', '')}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+        return [f"## {when}　{program_label(row.get('command'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
     lines = [f"## {when}　回合 {row.get('turn', '')}", f"- 問：{_flat(row.get('prompt'))}"]
     if not row.get("done"):
         return lines + [f"- 結果：{IN_PROGRESS}"]
@@ -531,12 +543,20 @@ def _block(row):
 
 
 def render(vault, month):
-    """從 jsonl 整檔寫 系統/工作日誌/YYYY-MM.md（D-067）。壞行在寫的人那裡記過 log，這裡不再記。"""
+    """從 jsonl 整檔寫 系統/工作日誌/YYYY-MM.md（D-067）。壞行在寫的人那裡記過 log，這裡不再記。
+    寫之前看她有沒有手改那份月檔（D-223）：改了就只把她那份存到 .system/handedits/（不備進回合：會變成這一句的改了），照樣重寫；
+    complete_turn、refresh_changed、update_turn（job_result 換結果也是）都經 _locked_edit 走到這裡。"""
+    from kb._lib import renders
     rows = [obj for _raw, obj in _load(vault, month, log=False) if obj is not None]
     parts = [f"# 工作日誌 {month}", "\n".join(HEADER_LINES)] + ["\n".join(_block(r)) for r in _newest_first(rows)]
     p = md_path(vault, month)
     p.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(p, "\n\n".join(parts) + "\n")
+    rel = p.relative_to(vault).as_posix()
+    if renders.keep_only(vault, rel) == renders.KEEP_FAILED:
+        return  # 她那份沒存成就不蓋掉（測試 T-10），下次寫再試
+    text = "\n\n".join(parts) + "\n"
+    write_text_atomic(p, text)
+    renders.record(vault, rel, text)
 
 
 PURGED_TEXT = "（已排除）"

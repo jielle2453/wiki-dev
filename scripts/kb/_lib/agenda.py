@@ -5,8 +5,11 @@ date、ended（只有期間用）、time、text、entities（實體名稱，同�
 source（D-041：interview｜inferred｜confirmed｜corrected）、origin（製卡抽出的才有：{card, fp}，fp 是那張檔案卡的 fp 前 12 碼，D-130）、
 lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 proposal 的是「原檔新版跟客戶說的不同，等客戶選」。
 每次寫都在 agenda.json 的 FileLock 裡：先 turn.backup 再原子寫，寫完重渲染 md（先備份，內容沒變不寫）。
+重渲染前比對 日程.md 有沒有被手改（_lib/renders，D-223）：改了條目就存她那份、待處理開一條 handedit；比對用改之前的資料
+與上次寫的那天重算她看到的那份。
 只經 kb agenda 與 entities 寫；今天的日期集中在 _today（測試換掉它），逾期、今天、接下來的算法只看 open（D-129）。
 """
+import copy
 import datetime as dt
 import re
 import secrets
@@ -25,6 +28,7 @@ PASSING = ("meeting", "reminder")  # 過了就算已過去
 STATUSES = ("open", "done", "cancelled")
 SOURCES = ("interview", "inferred", "confirmed", "corrected")
 EDITABLE = ("date", "start", "time", "text", "entities", "lead_days")
+CONFIRM_CHANGE = "source inferred → confirmed"  # 推測的那條她說對（kb agenda edit 不帶欄位，lint 桌面版確認後）
 STATUS_TEXT = {"done": "完成", "cancelled": "已取消"}
 PAST_OPEN = "已過去"
 WEEKDAYS = "一二三四五六日"
@@ -33,7 +37,7 @@ NO_ITEMS = "（沒有）"
 HEADER = ("# 日程\n"
           "這是什麼：要做的事與日期，程式從 .system/agenda.json 整理出來；〔推測〕是我從檔案讀到的，不對就跟我說。\n"
           "怎麼用：跟我說「9/25 下午有個會」「交屋改 12/10」「第二期款付了」就會改這裡。\n"
-          "由程式產生，改了會被覆蓋。\n")
+          "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。\n")  # D-223：照她打勾、改日期做
 EMPTY_SENTENCE = "日程是空的；說「9/25 下午有個會」我就記下來。"
 DATE_MSG = "日期要寫 YYYY-MM-DD，而且是真的日期"
 TIME_MSG = "時間要寫 HH:MM"
@@ -130,12 +134,13 @@ def _mutate(vault, turn_id, fn):
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
+        before = copy.deepcopy(data)
         result, changed = fn(data)
         if changed:
             from kb._lib import turn
             turn.backup(vault, AGENDA_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, turn_id, data)
+            render(vault, turn_id, data, base=before)
     return result
 
 
@@ -246,7 +251,8 @@ def show(value):
 
 def edit(vault, aid, turn_id, by="ai", card=None, **fields):
     """改 date、start、time、text、entities、lead_days（None 當沒給）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
-    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。"""
+    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。
+    來源是 inferred、沒有改任何欄（她說推測的那條是對的）→ 記成 confirmed、歷程記一筆（lint 桌面版確認後）。"""
     unknown = set(fields) - set(EDITABLE)
     if unknown:
         raise ValueError(f"edit 不收這些欄位：{sorted(unknown)}")
@@ -286,6 +292,10 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
             if it.get("source") == "inferred" and not card:
                 it["source"] = "corrected"
             _log(it, "；".join(changes), by, turn_id)
+        elif it.get("source") == "inferred" and not card:
+            it["source"] = "confirmed"
+            _log(it, CONFIRM_CHANGE, by, turn_id)
+            dirty = True
         if fp is not None and it["origin"].get("fp") != fp:
             it["origin"]["fp"] = fp
             dirty = True
@@ -721,13 +731,48 @@ def render_text(vault, data, today=None):
     return HEADER + "\n" + "\n\n".join(blocks) + "\n"
 
 
-def render(vault, turn_id=None, data=None, today=None):
-    """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。"""
+def item_lines(vault, data, today=None):
+    """[(日程.md 裡那一行, 編號)]：上面四區與過去區（手改比對用）。"""
+    now = today or _today()
+    cutoff = (dt.date.fromisoformat(now) - dt.timedelta(days=config.get(vault, "agenda_past_days"))).isoformat()
+    out = []
+    for it in data["items"]:
+        if it.get("status") == "open" and it.get("kind") != "period" and _day(it) is not None:
+            out.append((_line(it), it.get("id")))
+        row = _past_row(it, now, cutoff)
+        if row:
+            out.append((row[1], it.get("id")))
+    return out
+
+
+def _hand_edited(vault, turn_id, base, now=None):
+    """日程.md 跟程式上次寫的不一樣：用改之前的資料、上次寫的那天重算她看到的那份，比出她改了哪些條目（D-223）。"""
+    from kb._lib import renders
+    hers = renders.check(vault, MD_POSIX)
+    if hers is None:
+        return None
+    known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
+    try:
+        day = renders.recorded_day(vault, MD_POSIX) or _today()
+        base_text, lines = known if known else (render_text(vault, base, day), item_lines(vault, base, day))
+    except Exception:  # noqa: BLE001  算不出她看到的那份：只比得出「其他」
+        base_text, lines = "", []
+    return renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id,
+                               known_ids={i.get("id") for i in (now or base)["items"]})  # 現在還有的編號；退回拿掉的不算（T-36）
+
+
+def render(vault, turn_id=None, data=None, today=None, base=None):
+    """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
+    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。"""
+    from kb._lib import renders
     data = data if data is not None else load(vault)
     text = render_text(vault, data, today)
     target = Path(vault) / MD_POSIX
+    if _hand_edited(vault, turn_id, base if base is not None else data, data) == renders.KEEP_FAILED:
+        return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
+            renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))
             return False
     except (OSError, UnicodeDecodeError):
         pass
@@ -736,4 +781,5 @@ def render(vault, turn_id=None, data=None, today=None):
         turn.backup(vault, MD_POSIX, turn_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
+    renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))
     return True

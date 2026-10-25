@@ -15,6 +15,9 @@ payload 的 session 在這個對話按過停止（session 檔記著 ingest_stopp
 升級打包（D-215、D-217）：line_version 排在 kb 行之後、line_moved 前面，只用上一次查的結果（env.json 的 update_check），不連網；
 日期不是今天（且清單網址有填）就背景開一個 kb upgrade --background 的子行程、不等它；沒有 upgrade-history.json 就記成現在版本、不印；
 換了版要 kb upgrade --finish 時整理指示不印（跟 line_moved 同一處判斷）。這支多寫 .system/upgrade-history.json（第一次）與 env.json 的 update_check（日期）。
+背景健檢（lint 題，D-221、D-227）：.system/lint.json 的上次健檢超過 lint_background_days 天（或沒跑過）、今天還沒開過，就背景開
+kb lint --background（同升級那支的做法，不等它；兩支互不等）；開場不另外印一行（line_health 照留空殼）。健檢標成要改寫的綜合卡
+在同一行另講「K 張綜合卡要改寫」（「N 份沒整理完」只數檔，桌面版確認後 3a 定；D-161）。這支多寫 lint.json 的 last_spawn（今天開過了）。
 core.md 之後接設定檔第六節的「客戶偏好（…照核心規則）：」一條一行（D-137，沒有不印；讀不到這段不印、寫 log；框住，測試後修正裁定 15）。
 任何例外寫 .system/hook-errors.log（source session），永遠 exit 0。找到知識庫之後的例外另印一行出錯的 additionalContext
 （失敗明講，開場注入測試後修正 D2）；找不到知識庫、stdin 壞掉不輸出。write／flush 也包住：pipe 斷掉照樣 exit 0。
@@ -144,20 +147,22 @@ def _drift_count(vault):
 
 UNSORTED_LINE = "還有 {n} 份沒整理完"
 MOVED_LINE = "{n} 張卡要跟著搬"
+FIX_LINE = "{n} 張綜合卡要改寫"  # 健檢標的（lint 題）：檔與綜合卡分開講，「份」只數檔
 LEFT_HEAD = "還有 "
 UNSORTED_BUDGET = 6  # 秒，從 hook 開始算；SessionStart 逾時 10 秒，留給讀 core.md 與其他行
 _UNSORTED = {}  # vault → 還沒整理的份數或 None（出錯、超時）；line_changes 被叫兩次，log 只記一行
 
 
 def _unsorted_count(vault, sources):
-    """D-161、B-415：(還沒整理的份數, 要跟著搬的卡)（batches.opening_counts，只讀）；超過時限丟 TimeoutError，
-    跟其他錯一樣記一行 log、回 None。"""
+    """D-161、B-415：(還沒整理的份數, 要跟著搬的卡, 健檢標的要改寫綜合卡)（batches.opening_counts、synthesis.lint_fix_count，只讀）；
+    超過時限丟 TimeoutError，跟其他錯一樣記一行 log、回 None。"""
     key = str(vault)
     if key not in _UNSORTED:
         try:
-            from kb._lib import batches
+            from kb._lib import batches, synthesis
 
-            _UNSORTED[key] = batches.opening_counts(vault, sources, deadline=_START + UNSORTED_BUDGET)
+            left, moved = batches.opening_counts(vault, sources, deadline=_START + UNSORTED_BUDGET)
+            _UNSORTED[key] = (left, moved, synthesis.lint_fix_count(vault))
         except Exception as e:  # noqa: BLE001
             _UNSORTED[key] = None
             _log_vault(vault, e)
@@ -183,8 +188,9 @@ def line_changes(vault):
     counts = _unsorted_count(vault, got[0])
     if not counts or not any(counts):
         return None
-    left, moved = counts
-    parts = ([UNSORTED_LINE.format(n=left)] if left else []) + ([MOVED_LINE.format(n=moved)] if moved else [])
+    left, moved, fixes = counts
+    parts = (([UNSORTED_LINE.format(n=left)] if left else []) + ([FIX_LINE.format(n=fixes)] if fixes else [])
+             + ([MOVED_LINE.format(n=moved)] if moved else []))
     line = "、".join(parts)
     return line if line.startswith(LEFT_HEAD) else LEFT_HEAD + line
 
@@ -297,8 +303,26 @@ def line_backup(vault):
 
 
 def line_health(vault):
-    """等 lint 題。"""
+    """lint 題：健檢的事併進回答末尾的「還有 N 件」（D-225），開場不另外提醒（D-221 修訂）。"""
     return None
+
+
+BACKGROUND_LINT_BUDGET = 7  # 秒，從 hook 開始算；前面的行用掉太多時間這次就不開（SessionStart 逾時 10 秒）
+
+
+def start_background_lint(vault):
+    """背景健檢的觸發（D-221、D-227）：kb.lint.runner.opening 判斷要不要開、開了不等。出錯只記 log。
+    開場叫她先補位置（line_moved）或先 kb upgrade --finish 時不開：搬了家還沒補，健檢會把出處點不開記成要她決定的事；
+    跟整理指示讓位是同一處判斷。"""
+    state = _upgrade_state(vault)
+    if line_moved(vault) or (state and state["finish"]) or time.monotonic() - _START > BACKGROUND_LINT_BUDGET:
+        return
+    try:
+        from kb.lint import runner
+
+        runner.opening(vault)
+    except Exception as e:  # noqa: BLE001  起不來不影響開場
+        _log_vault(vault, e)
 
 
 def line_compact(vault, source):
@@ -319,6 +343,7 @@ def status_lines(vault, source, session_id=None):
             line = None
         if line is not None:
             out.append(line)
+    start_background_lint(vault)
     return out
 
 

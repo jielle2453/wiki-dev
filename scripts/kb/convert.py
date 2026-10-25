@@ -397,6 +397,8 @@ def run(args):
             sources = sources_lib.load(vault)
             entry, path, uri = resolve(vault, sources, args.target, os.getcwd())
             out.update(id=entry["id"] if entry else None, uri=uri, path=str(path) if path else None)
+            if entry and entry.get("id"):
+                turn.touch(vault, files=[entry["id"]])  # 這一句讀過的檔（lint 題，D-225）；終端機不記
             readable = gate(vault, sources, entry, path)
             password, saved, label = _password(vault, args)
             result, lines = convert(vault, sources, entry, path, password, secret=readable)

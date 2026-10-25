@@ -64,6 +64,7 @@ def add_arguments(sub):
     rd = subs.add_parser("redo", help="卡讀錯了，標成要重做", description="客戶說卡讀錯原檔：標成要重做，下次整理時照原檔重寫。")
     rd.add_argument("id", nargs="?", help="清冊編號（f-…）")
     rd.add_argument("--job", action="append", help="整批重做：這次整理的編號（cards status --json 的 jobs），可以重複")
+    rd.add_argument("--ids", help="這幾張一起重做：清冊編號用逗號隔開（健檢「設定檔改了之後的卡」，lint 題）")
     rd.add_argument("--check", action="store_true", help="只列要標的卡，不寫")
     mt = subs.add_parser("mount", help="卡掛錯實體，改掛", description="重設這張卡掛的實體；原本與新掛的實體的綜合卡下次整理會更新。")
     mt.add_argument("id", help="清冊編號（f-…）")
@@ -326,11 +327,33 @@ def _skip(vault, fid, kind, as_json, conversation):
 # ---------- redo、mount ----------
 
 REDO_WHICH = "給一張卡的編號，或用 --job 給整理的編號，擇一"
+REDO_NO_IDS = "沒有寫好的卡可以重做"
 REDO_NO_JOB = "沒有這次整理：{}"
 REDO_NO_CARDS = "這次整理沒有寫好的卡"
 REDO_CHECK = "要標成重做的卡 {n} 張："
 REDO_JOB_DONE = "已標成要重做：{n} 張卡，下次整理時照原檔重寫"
 REDO_SHOWN = 30
+
+
+def _redo_ids(vault, ids, check, as_json, conversation):
+    """這幾張一起標要重做（lint 題：設定檔改了之後、之前做的卡，她說好）：清冊 active、卡寫好了的才標，其餘跳過。"""
+    ids = list(dict.fromkeys(x.strip() for x in ids.split(",") if x.strip()))
+    got = cards.mark_redo_many(vault, ids, turn.current(vault)["turn"], check=check)
+    if not got["cards"]:
+        print(REDO_NO_IDS)
+        return 3
+    if not check and (got["changed"] or got["synthesis_paths"]):
+        changed = ([{"path": inventory.INVENTORY_POSIX, "action": "modify"}] if got["changed"] else []) + [
+            {"path": rel, "action": "modify"} for rel in got["synthesis_paths"]]
+        journal_cli.record_program_or_warn(vault, REDO_JOB_DONE.format(n=len(got["cards"])), changed, "cards redo --ids",
+                                           conversation)
+    if as_json:
+        print(json.dumps({"ids": ids, "check": check, "cards": got["cards"], "synthesis": got["synthesis"]}, ensure_ascii=False))
+        return 0
+    print((REDO_CHECK if check else REDO_JOB_DONE).format(n=len(got["cards"])))
+    if not check and got["synthesis"]:
+        print("連帶要更新的綜合卡：" + "、".join(got["synthesis"]))
+    return 0
 
 
 def _redo_jobs(vault, jobs, check, as_json, conversation):
@@ -604,6 +627,8 @@ def run(args):
         if command == "stop":
             return _stop(vault, args, as_json)
         conversation = journal_cli.in_conversation(vault)
+        if getattr(args, "id", None) and str(args.id).startswith("f-"):
+            turn.touch(vault, files=[args.id])  # 這一句動過的卡（lint 題，D-225）；終端機不記
         if command == "sync":
             return _sync(vault, as_json, conversation)
         if command == "drop":
@@ -611,9 +636,11 @@ def run(args):
         if command == "skip":
             return _skip(vault, args.id, args.kind.strip(), as_json, conversation)
         if command == "redo":
-            if bool(args.id) == bool(args.job) or (args.check and not args.job):
+            if sum(bool(x) for x in (args.id, args.job, args.ids)) != 1 or (args.check and not (args.job or args.ids)):
                 print(REDO_WHICH)
                 return 3
+            if args.ids:
+                return _redo_ids(vault, args.ids, args.check, as_json, conversation)
             if args.job:
                 return _redo_jobs(vault, args.job, args.check, as_json, conversation)
             return _redo(vault, args.id, as_json, conversation)

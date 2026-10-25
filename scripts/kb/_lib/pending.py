@@ -1,33 +1,48 @@
-"""待處理 .system/pending.json（schema 1，D-102、D-062）與渲染視圖 系統/待處理.md（D-067：JSON 為真）。
+"""待處理 .system/pending.json（schema 2，D-102、D-062、D-226）與渲染視圖 系統/待處理.md（D-067：JSON 為真）。
 
-三種 kind：missing_file（原檔不見，照清冊狀態由 sync_missing 開與自動 done）、unreadable（kb convert 讀不到）、
+kind：missing_file（原檔不見，照清冊狀態由 sync_missing 開與自動 done）、unreadable（kb convert 讀不到）、
 close（事類實體看起來結案了，等客戶答；entity_ids 帶實體，file_ids 是依據，日程第 3 點、D-127；客戶答了 kb entity progress 自動 done）、
 conflict（兩份原檔寫法不同，answer 核對時發現；file_ids 是那兩張卡、titles 是記的時候的卡標題，同一對不論順序只開一條，
 answer 第 6 點、D-155；不進 asks，客戶說哪個對之後照 note 記完再 resolve）、
 script_touched（kb office run 的腳本動到了登記的來源、實體夾、AI 產出或收件匣裡的檔，密碼與守門 D-188；file_ids 是清冊編號，
-不在清冊的放 uri）。
+不在清冊的放 uri）、lint（健檢要她決定的，key 是合成的鍵、data 是項目，同 key 只開一條，lint 第 2 點）、
+report（這個月的健檢報告出來了，data.month；新的開了舊的自動 done，最多一件，D-227）、
+handedit（她手改了程式產生的 md，data 是 {file, saved, diff}，D-223）。
+schema 2（lint 題，D-226）：條目多 set_aside（null 或 {"at","by": customer|lint,"fps"}）與 returned（最後回到前面的日期）；
+先放著是 open 加 set_aside：不在回答末尾問、待處理.md 移到最底下「先放著的」一段；相關的原檔換版、卡重做、實體有新口述或裁示、
+或日期快到了（data.dates 離到期剩 set_aside_wake_days 天）就回到前面（wake、due_back）。schema 1 在 load 時補欄位，
+kb upgrade --finish 經 _lib/migrate.py 的遷移表寫回。
 每次寫都在 pending.json 的 FileLock 裡：先 turn.backup pending.json 與 待處理.md 兩個（退回後客戶看到的要一致），
-再原子寫，寫完重渲染 md。沒有改動就什麼都不寫（不建檔、不備份）。形狀不對的 pending.json 丟 ValueError。
+再原子寫，寫完重渲染 md。改之前先比對 待處理.md 有沒有被手改（_lib/renders，D-223）：有就把她那份存起來、開一條 handedit。
+沒有改動就什麼都不寫（不建檔、不備份）。形狀不對的 pending.json 丟 ValueError。
 """
 import copy
 import secrets
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from kb._lib import ledger, renders
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PENDING_POSIX = ".system/pending.json"
 MD_POSIX = "系統/待處理.md"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 EMPTY = {"schema_version": SCHEMA_VERSION, "items": []}
-KINDS = ("missing_file", "unreadable", "close", "conflict", "script_touched")
+KINDS = ("missing_file", "unreadable", "close", "conflict", "script_touched", "lint", "report", "handedit")
 SECTIONS = (("missing_file", "原檔不見"), ("unreadable", "讀不到"), ("close", "要確認結案的"), ("conflict", "兩份寫法不同的"),
-            ("script_touched", "程式動到的檔"))
+            ("script_touched", "程式動到的檔"), ("lint", "健檢查到的"), ("handedit", "你手改過的"), ("report", "健檢報告"))
+ASKS_TITLE = "整理時要問你的"
+ASIDE_TITLE = "先放著的"
+NOT_FOUND = "沒有這件待處理"
+REPORT_TEXT = "{month} 的健檢報告出來了，說「看健檢報告」我講重點"
+REPORT_REPLACED = "新的健檢報告出來了，這件換新"
+LINT_GONE_HOW = "健檢確認已不成立"  # 程式關的：條件又出現時照樣再開（她答過的才不重開，測試 T-1、T-2）
+HANDEDIT_TEXT = "你改過「{name}」，我留下了你那份，照你改的處理"
 SCRIPT_TOUCHED_ASK = "我沒有要動它；說「退回上一版」看救不救得回，救不回就從資源回收筒或雲端找。"
 HEADER = ("# 待處理\n"
           "這是什麼：等你回答或處理的事，程式從 .system/pending.json 整理出來。\n"
           "怎麼用：在對話裡直接回答我，處理完會從這裡消失。\n"
-          "由程式產生，改了會被覆蓋。\n")
+          "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。\n")  # D-223：照她打勾、刪行做
 NOTHING = "目前沒有等你決定的事。"
 MISSING_ASK = "是你刪的嗎？是的話我把它的卡一起拿掉；不是的話可以從資源回收筒或雲端找回來。"
 # 讀不到的問法，依 reason 開頭挑；都不是就用最後一句
@@ -63,6 +78,9 @@ def load(vault):
     version = data.get("schema_version", SCHEMA_VERSION)
     if not isinstance(version, int) or version > SCHEMA_VERSION:
         raise ValueError(f"待處理版本 {version!r} 比這版 plugin 新")
+    for item in items:  # schema 1 → 2 在記憶體補欄位（D-226）
+        item.setdefault("set_aside", None)
+        item.setdefault("returned", None)
     return {"schema_version": SCHEMA_VERSION, "items": items}
 
 
@@ -92,19 +110,48 @@ def open_for(vault, file_id, kind):
 
 
 def _edit(vault, turn_id, change):
-    """鎖住讀改寫：change(items) 回真才備份、寫、渲染。回 change 的結果。"""
+    """鎖住讀改寫：change(items) 回真才備份、寫、渲染。回 change 的結果。
+    改之前先看 待處理.md 有沒有被她手改（D-223）：有就存她那份、開一條 handedit，這次一定重寫。"""
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
+        handed = _hand_edit(vault, data, turn_id)
         result = change(data["items"])
-        if result:
+        if result or handed:
             from kb._lib import turn
             turn.backup(vault, PENDING_POSIX, turn_id)
             turn.backup(vault, MD_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, data)
+            if handed != renders.KEEP_FAILED:  # 她那份沒存成就不蓋掉（測試 T-10），下次寫再試
+                render(vault, data, turn_id=turn_id)
     return result
+
+
+def _hand_edit(vault, data, turn_id):
+    """待處理.md 跟程式上次寫的不一樣、而且看得出改了條目（打勾、刪行、改日期、多了字）：她那份存到 .system/handedits/、
+    data 多一條 handedit。整理時要問你的那段不算（每次都會變）。比對出錯只記 log；她那份存不了回 KEEP_FAILED（這次不重寫）。
+    回有沒有開。"""
+    try:
+        hers = renders.check(vault, MD_POSIX)
+        if hers is None:
+            return False
+        known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
+        base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
+        got = renders.diff(base_text, hers, lines, ignore_sections=(ASKS_TITLE,))
+        got = renders.keep_known(got, {i.get("id") for i in data["items"]})  # 退回拿掉的件不算（T-36）
+        if renders.is_empty(got):
+            return False
+    except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理
+        ledger.log_error(vault, f"待處理.md 手改比對失敗：{type(e).__name__}: {e}", source="renders")
+        return False
+    try:
+        saved = renders.keep(vault, MD_POSIX, hers)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"待處理.md 她那份沒存成，這次不重寫：{type(e).__name__}: {e}", source="renders")
+        return renders.KEEP_FAILED
+    data["items"].append(_handedit_item(data["items"], MD_POSIX, saved, renders.mask_diff(vault, got), turn_id))
+    return True
 
 
 def _new_item(items, kind, file_ids, text, reason, turn_id, entity_ids=None):
@@ -114,7 +161,8 @@ def _new_item(items, kind, file_ids, text, reason, turn_id, entity_ids=None):
         if pid not in taken:
             break
     return {"id": pid, "kind": kind, "file_ids": list(file_ids), "entity_ids": list(entity_ids or []), "text": text, "reason": reason,
-            "created": _now(), "created_turn": turn_id, "status": "open", "resolved": None, "how": None}
+            "created": _now(), "created_turn": turn_id, "status": "open", "resolved": None, "how": None,
+            "set_aside": None, "returned": None}
 
 
 def add(vault, kind, file_ids, text, reason, turn_id, entity_ids=None):
@@ -220,6 +268,20 @@ def dismiss_entity(vault, entity_id, kind, how, turn_id):
     return _edit(vault, turn_id, change)
 
 
+def close_ids(vault, ids, how, turn_id):
+    """這些 open 條目一律 done（健檢確認已不成立，lint 第 2 點）；回關掉幾條。"""
+    ids = set(ids)
+    if not ids or not _path(vault).exists():
+        return 0
+
+    def change(items):
+        hits = [i for i in items if i.get("status") == "open" and i.get("id") in ids]
+        for item in hits:
+            _close(item, "done", how)
+        return len(hits)
+    return _edit(vault, turn_id, change) or 0
+
+
 def answered(items, entry):
     """這次不見之後客戶答過了嗎：有任何 missing_file 條目（open、done、dismissed 都算）是這份檔、
     且建立時間不早於 missing_since（測試後修正裁定 31）。"""
@@ -256,7 +318,7 @@ def sync_missing(vault, entries, turn_id):
 def ask_of(item):
     if item.get("kind") == "missing_file":
         return MISSING_ASK
-    if item.get("kind") in ("close", "conflict"):
+    if item.get("kind") in ("close", "conflict", "lint", "report", "handedit"):
         return ""
     if item.get("kind") == "script_touched":
         return SCRIPT_TOUCHED_ASK
@@ -265,32 +327,320 @@ def ask_of(item):
 
 
 def line_of(item):
-    """「<text>。<問法>」；讀不到有 reason 時 text 後面接「：<reason>」。"""
+    """「<text>。<問法>」；讀不到有 reason 時 text 後面接「：<reason>」；健檢、報告、手改只有 text。"""
     text = item.get("text", "")
     if item.get("kind") == "close":
         return text + (f"（{item['reason']}）" if item.get("reason") else "")
     if item.get("kind") == "conflict":
         titles = "".join(f"「{t}」" for t in item.get("titles") or [])
         return f"{text}（{titles + '，' if titles else ''}{str(item.get('created', ''))[:10]}）"
+    if item.get("kind") in ("lint", "report", "handedit"):
+        return text
     if item.get("kind") == "unreadable" and item.get("reason"):
         text += f"：{item['reason']}"
     return f"{text}。{ask_of(item)}"
 
 
-def render(vault, data=None):
-    """寫 系統/待處理.md：只列 open，依 kind 分段、新的在上；沒有 open 時一行 NOTHING。兩份寫法不同的日期寫在句尾。"""
-    data = data if data is not None else load(vault)
+def _row(item):
+    return f"- {line_of(item)}" if item.get("kind") == "conflict" else f"- {str(item.get('created', ''))[:10]} {line_of(item)}"
+
+
+def _newest_first(rows):
+    return sorted(rows, key=lambda i: str(i.get("created", "")), reverse=True)
+
+
+def item_lines(data):
+    """[(待處理.md 裡那一行, 編號)]：open 的每一條（先放著的也是），手改比對用。"""
+    return [(_row(i), i["id"]) for i in data["items"] if i.get("status") == "open" and i.get("id")]
+
+
+def render_text(vault, data, asks=None):
+    """待處理.md 的內容：只列 open，依 kind 分段、新的在上；再來「整理時要問你的」（asks：不住在 pending.json 的問題，
+    沒給就用上一次健檢或 kb asks --all 算好、記在 renders.json 的那份——每次寫待處理都重算整理問題太慢）；最底下「先放著的」。
+    什麼都沒有時一行 NOTHING。兩份寫法不同的日期寫在句尾。"""
     opened = [i for i in data["items"] if i.get("status") == "open"]
+    front = [i for i in opened if not i.get("set_aside")]
+    aside = [i for i in opened if i.get("set_aside")]
+    asks = renders.stored_asks(vault) if asks is None else list(asks)
     parts = [HEADER]
     for kind, title in SECTIONS:
-        rows = sorted((i for i in opened if i.get("kind") == kind), key=lambda i: str(i.get("created", "")),
-                      reverse=True)
+        rows = _newest_first(i for i in front if i.get("kind") == kind)
         if rows:
             parts.append(f"\n## {title}（{len(rows)}）\n")
-            parts.extend((f"- {line_of(i)}\n" if kind == "conflict" else f"- {str(i.get('created', ''))[:10]} {line_of(i)}\n")
-                         for i in rows)
-    if not opened:
+            parts.extend(_row(i) + "\n" for i in rows)
+    if asks:
+        parts.append(f"\n## {ASKS_TITLE}（{len(asks)}）\n")
+        parts.extend(f"- {q}\n" for q in asks)
+    if aside:
+        parts.append(f"\n## {ASIDE_TITLE}（{len(aside)}）\n")
+        parts.extend(_row(i) + "\n" for i in _newest_first(aside))
+    if not opened and not asks:
         parts.append(f"\n{NOTHING}\n")
+    return "".join(parts)
+
+
+def render(vault, data=None, asks=None, turn_id=None):
+    """寫 系統/待處理.md 並記指紋（_lib/renders；有 turn_id 時 renders.json 先備進回合，退回後兩邊一致）。"""
+    data = data if data is not None else load(vault)
+    text = render_text(vault, data, asks)
     target = Path(vault) / MD_POSIX
     target.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(target, "".join(parts))
+    write_text_atomic(target, text)
+    renders.record(vault, MD_POSIX, text, turn_id=turn_id, lines=item_lines(data))
+
+
+def refresh(vault, turn_id, asks=None):
+    """重寫一次（健檢、遷移、kb asks --all 用）：照樣先比對手改；asks 給了就換掉記著的「整理時要問你的」。"""
+    if asks is not None:
+        renders.set_asks(vault, asks)
+    return _edit(vault, turn_id, lambda items: True)
+
+
+# ---------- 健檢、報告、手改（lint 題） ----------
+
+def _answered(item, once, fp):
+    """她（或 AI 照她的話）處理過、不是程式自己關的：once 的一律算，其他要對象指紋跟那時一樣（測試 T-2）。"""
+    return (item.get("status") in ("done", "dismissed") and item.get("how") != LINT_GONE_HOW and not item.get("cleared")
+            and (once or item.get("fp") == fp))
+
+
+def add_lint(vault, key, text, data, turn_id, file_ids=(), entity_ids=(), once=False, check=None, fp=None):
+    """健檢要她決定的一件：同 key 已有 open 的不重複（文字、資料、指紋變了就更新）；她答過（done、dismissed）而對象指紋 fp
+    跟那時一樣的不重開，once 的答過就不再開（骨架檔：鍵本身帶她那份的指紋）。check 是哪一項健檢開的（條件消失時照它關）。
+    回 (編號, 新開了嗎)。"""
+    found = {}
+
+    def change(items):
+        old = next((i for i in items if i.get("kind") == "lint" and i.get("key") == key and i.get("status") == "open"), None)
+        if old is None:
+            old = next((i for i in items if i.get("kind") == "lint" and i.get("key") == key and _answered(i, once, fp)), None)
+        if old is not None:
+            found.update(id=old["id"], created=False)
+            if old.get("status") == "open" and (old.get("text"), old.get("data"), old.get("fp")) != (text, data, fp):
+                old.update(text=text, data=data, fp=fp, check=check or old.get("check"))
+                return True
+            return False
+        item = _new_item(items, "lint", file_ids, text, None, turn_id, entity_ids)
+        item.update(key=key, data=data, check=check, fp=fp)
+        items.append(item)
+        found.update(id=item["id"], created=True)
+        return True
+    _edit(vault, turn_id, change)
+    return found["id"], found["created"]
+
+
+def close_lint_gone(vault, owner, ran, keep, turn_id):
+    """這次跑成功的健檢（ran：check 名稱）沒再回的 lint 件關掉（how 是 LINT_GONE_HOW，測試 T-1）；owner(item) 回那件是哪一項開的。
+    keep 是這次又回的 key。她答過的同 key 件記 cleared（條件消失過，之後復發算新的一件，第二輪 T-26）。回關掉幾件。"""
+    if not _path(vault).exists():
+        return 0
+    got = {}
+
+    def change(items):
+        gone = [i for i in items if i.get("kind") == "lint" and owner(i) in ran and i.get("key") not in keep]
+        hits = [i for i in gone if i.get("status") == "open"]
+        for i in hits:
+            _close(i, "done", LINT_GONE_HOW)
+        forgot = [i for i in gone if i.get("status") in ("done", "dismissed") and not i.get("cleared")]
+        for i in forgot:
+            i["cleared"] = _today()
+        got["n"] = len(hits)
+        return bool(hits or forgot)
+    _edit(vault, turn_id, change)
+    return got.get("n", 0)
+
+
+def add_report(vault, month, turn_id):
+    """「這個月的健檢報告出來了」：其他月的 open report 自動 done（最多一件，D-227）；同月已有 open 的不重複。回 (編號, 新開了嗎)。"""
+    found = {}
+
+    def change(items):
+        changed = False
+        for i in items:
+            if i.get("kind") == "report" and i.get("status") == "open" and (i.get("data") or {}).get("month") != month:
+                _close(i, "done", REPORT_REPLACED)
+                changed = True
+        old = next((i for i in items if i.get("kind") == "report" and i.get("status") == "open"), None)
+        if old is not None:
+            found.update(id=old["id"], created=False)
+            return changed
+        item = _new_item(items, "report", [], REPORT_TEXT.format(month=month), None, turn_id)
+        item["data"] = {"month": month}
+        items.append(item)
+        found.update(id=item["id"], created=True)
+        return True
+    _edit(vault, turn_id, change)
+    return found["id"], found["created"]
+
+
+def _handedit_item(items, rel, saved, diff, turn_id):
+    item = _new_item(items, "handedit", [], HANDEDIT_TEXT.format(name=Path(rel).name), None, turn_id)
+    item["data"] = {"file": rel, "saved": saved, "diff": diff}
+    return item
+
+
+def add_handedit(vault, rel, saved, diff, turn_id):
+    """日程、裁示被手改（D-223）：開一條 handedit；回編號。"""
+    found = {}
+
+    def change(items):
+        item = _handedit_item(items, rel, saved, diff, turn_id)
+        items.append(item)
+        found["id"] = item["id"]
+        return True
+    _edit(vault, turn_id, change)
+    return found["id"]
+
+
+def _today():
+    return date.today().isoformat()
+
+
+def _snapshot(vault, file_ids):
+    """先放著那一刻相關原檔的指紋與重做記號（之後變了就回到前面）；清冊讀不到回空。"""
+    try:
+        from kb._lib import cards, inventory
+        by_id = {e.get("id"): e for e in inventory.load(vault)["entries"]}
+    except Exception:  # noqa: BLE001
+        return {}
+    return {f: {"fp": cards.current_fp(by_id[f]), "redo": by_id[f].get("redo")} for f in file_ids if f in by_id}
+
+
+def _open_item(items, pid):
+    item = next((i for i in items if i.get("id") == pid), None)
+    if item is None or item.get("status") != "open":
+        raise KeyError(NOT_FOUND)
+    return item
+
+
+def set_aside(vault, pid, by, turn_id):
+    """收進先放著（by 是 customer 或 lint）；已經放著的照回。找不到或不是 open 丟 KeyError(NOT_FOUND)。"""
+    got = {}
+
+    def change(items):
+        item = _open_item(items, pid)
+        got["item"] = item
+        if item.get("set_aside"):
+            return False
+        item["set_aside"] = {"at": _today(), "by": by, "fps": _snapshot(vault, item.get("file_ids") or [])}
+        return True
+    _edit(vault, turn_id, change)
+    return dict(got["item"])
+
+
+def _back(item):
+    item["set_aside"] = None
+    item["returned"] = _today()
+
+
+def back(vault, pid, turn_id):
+    """從先放著拿回來（沒放著的照回）。找不到或不是 open 丟 KeyError(NOT_FOUND)。"""
+    got = {}
+
+    def change(items):
+        item = _open_item(items, pid)
+        got["item"] = item
+        if not item.get("set_aside"):
+            return False
+        _back(item)
+        return True
+    _edit(vault, turn_id, change)
+    return dict(got["item"])
+
+
+def wake(vault, file_ids=(), entity_ids=(), turn_id=None):
+    """跟這些檔或實體有關的先放著回到前面（卡重做、實體有新口述或裁示時，各寫入點叫）。沒有 pending.json 不建。回幾件。"""
+    files, ents = set(file_ids or []), set(entity_ids or [])
+    if not _path(vault).exists() or not (files or ents):
+        return 0
+    if turn_id is None:
+        from kb._lib import turn
+        turn_id = turn.current(vault)["turn"]
+
+    def change(items):
+        hits = [i for i in items if i.get("status") == "open" and i.get("set_aside")
+                and (files & set(i.get("file_ids") or []) or ents & set(i.get("entity_ids") or []))]
+        for i in hits:
+            _back(i)
+        return len(hits)
+    return _edit(vault, turn_id, change) or 0
+
+
+def due_back(vault, items, today=None, wake_days=None):
+    """先放著、而現在該回到前面的編號（只讀，D-226）：相關原檔指紋或重做記號跟放著那時不同（原檔換版沒有寫入點可叫 wake，
+    在這裡比）、掛的實體在放著之後有新的口述或裁示、data.dates 裡有離今天剩 wake_days 天以內的。讀不到的那一類略過。"""
+    aside = [i for i in items if i.get("status") == "open" and i.get("set_aside")]
+    if not aside:
+        return set()
+    from kb._lib import config
+    today = today or _today()
+    if wake_days is None:
+        wake_days = config.get(vault, "set_aside_wake_days")
+    out = set()
+    try:
+        from kb._lib import cards, inventory
+        by_id = {e.get("id"): e for e in inventory.load(vault)["entries"]}
+    except Exception:  # noqa: BLE001
+        by_id = {}
+    news = _knowledge_dates(vault)
+    limit = (date.fromisoformat(today) + timedelta(days=wake_days)).isoformat()  # 今天到 limit 之間才算快到期（過了的不算，測試 T-3）
+    for i in aside:
+        snap = (i["set_aside"] or {}).get("fps") or {}
+        at = (i["set_aside"] or {}).get("at") or ""
+        for fid, was in snap.items():
+            e = by_id.get(fid)
+            if e is not None and (cards.current_fp(e) != was.get("fp") or e.get("redo") != was.get("redo")):
+                out.add(i["id"])
+        if any(d > at for eid in i.get("entity_ids") or [] for d in news.get(eid, ())):
+            out.add(i["id"])
+        if any(today <= str(d) <= limit for d in (i.get("data") or {}).get("dates") or []):
+            out.add(i["id"])
+    return out
+
+
+def _knowledge_dates(vault):
+    """{實體編號: [有效口述與裁示的日期]}；讀不到回空。"""
+    try:
+        from kb._lib import entities, rulings, statements
+        ent = entities.load(vault)
+        out = {}
+        for s in statements.load(vault)["statements"] + rulings.load(vault)["rulings"]:
+            if s.get("status") != "active":
+                continue
+            for name in s.get("entities") or []:
+                e, _hit = entities.find(ent, name)
+                if e is not None:
+                    out.setdefault(e["id"], []).append(str(s.get("date") or ""))
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def wake_due(vault, turn_id, today=None):
+    """把 due_back 認出的寫回（健檢做）。回幾件。"""
+    if not _path(vault).exists():
+        return 0
+
+    def change(items):
+        ids = due_back(vault, items, today)
+        hits = [i for i in items if i.get("id") in ids]
+        for i in hits:
+            _back(i)
+        return len(hits)
+    return _edit(vault, turn_id, change) or 0
+
+
+def set_aside_old(vault, days, turn_id, today=None):
+    """open 超過 days 天沒動（created 或最後回到前面的日期）的收進先放著（by lint，D-226）。回幾件。"""
+    if not _path(vault).exists():
+        return 0
+    today = today or _today()
+    cutoff = (date.fromisoformat(today) - timedelta(days=days)).isoformat()
+
+    def change(items):
+        hits = [i for i in items if i.get("status") == "open" and not i.get("set_aside")
+                and max(str(i.get("created") or "")[:10], str(i.get("returned") or "")) < cutoff]
+        for i in hits:
+            i["set_aside"] = {"at": today, "by": "lint", "fps": _snapshot(vault, i.get("file_ids") or [])}
+        return len(hits)
+    return _edit(vault, turn_id, change) or 0

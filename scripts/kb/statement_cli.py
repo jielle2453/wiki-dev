@@ -1,4 +1,4 @@
-"""kb statement add／withdraw／list（note 改知識第 3 點，D-146）。
+"""kb statement add／withdraw／restore／list（note 改知識第 3 點，D-146；restore 與 withdraw 帶被取代那條是 lint 題，D-224）。
 
 口述清單只准這裡與 entities 寫（經 _lib/statements）：每次在 statements.json 的鎖裡讀改寫（CLI 等 30 秒，等不到「等不到鎖，
 沒有寫入」exit 3），寫前備進回合。拒絕的第一行就是原因、exit 3；成功句與拒絕句一字不差。
@@ -16,6 +16,8 @@ CLI_LOCK_TIMEOUT = 30
 LOCK_BUSY = "等不到鎖，沒有寫入"
 CHANGED = [{"path": statements.STATEMENTS_POSIX, "action": "modify"}]
 STATUS_SUFFIX = {"superseded": "（已被取代）", "withdrawn": "（已收回）"}
+REPLACED_LINE = "它取代過：{text}（{date}）；要恢復的話跟我說"
+RESTORED_LINE = "恢復了：{}（說「退回」可以改回去）"
 
 
 def add_arguments(sub):
@@ -26,10 +28,12 @@ def add_arguments(sub):
     ad.add_argument("--replaces", help="改的是哪一條舊口述（s-…）：舊的記成被這條取代")
     wd = subs.add_parser("withdraw", help="收回一條口述", description="客戶說沒這回事：這條記成已收回（紀錄留著）。")
     wd.add_argument("id", help="口述編號（s-…）")
+    rs = subs.add_parser("restore", help="恢復被取代的那條", description="取代它的那條已經收回：原本那條改回有效。")
+    rs.add_argument("id", help="口述編號（s-…）")
     ls = subs.add_parser("list", help="列出口述", description="預設列有效的；--all 含被取代與收回的。")
     ls.add_argument("--entity", help="只列掛在這個實體上的")
     ls.add_argument("--all", action="store_true", help="全部列出")
-    for p in (ad, wd, ls):
+    for p in (ad, wd, rs, ls):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -56,7 +60,16 @@ def _add(vault, args, as_json, conversation, turn_id):
 def _withdraw(vault, args, as_json, conversation, turn_id):
     it = statements.withdraw(vault, args.id.strip(), turn_id)
     journal_cli.record_program_or_warn(vault, f"收回口述：{it['text']}", CHANGED, "statement withdraw", conversation)
-    _out(as_json, [f"已收回：{it['text']}"], {"statement": it})
+    old = statements.replaced_of(vault, it["id"])
+    lines = [f"已收回：{it['text']}"] + ([REPLACED_LINE.format(text=old.get("text"), date=old.get("date"))] if old else [])
+    _out(as_json, lines, {"statement": it, "replaced": old})
+    return 0
+
+
+def _restore(vault, args, as_json, conversation, turn_id):
+    it = statements.restore(vault, args.id.strip(), turn_id)
+    journal_cli.record_program_or_warn(vault, f"恢復口述：{it['text']}", CHANGED, "statement restore", conversation)
+    _out(as_json, [RESTORED_LINE.format(it["text"])], {"statement": it})
     return 0
 
 
@@ -83,7 +96,7 @@ def _list(vault, args, as_json):
     return 0
 
 
-WRITERS = {"add": _add, "withdraw": _withdraw}
+WRITERS = {"add": _add, "withdraw": _withdraw, "restore": _restore}
 
 
 def run(args):

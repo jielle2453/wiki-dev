@@ -6,6 +6,8 @@ folders.jsonl（kb 程式改的資料夾，一行一個動作，D-142）。
 整批製卡（card-maker，D-195）：kb.py 收全域 --turn 時 OVERRIDE 是那個回合，current() 回它、這次呼叫的備份都進它；
 那個回合已經不是 session 檔的目前回合時，它的欄位（approved、ai_synthesis、note、job_result）存在 versions/<回合>/turn.json
 （turn_data／save_turn）。agent_turn 從 batches.json 的 agents 查子代理算哪個回合。
+回答末尾的問法（lint 題，D-225）：asks_told 是這個 session 說過「還有 N 件要你決定的事」了，start 從同 session 的上一句帶下去；
+touched 是這一句查過、動過的實體與檔（kb lookup、convert、cards 在對話裡跑時記），kb asks 照它判斷哪些題跟這一句有關。
 """
 import json
 import os
@@ -85,7 +87,10 @@ def start(vault, session_id, prompt, inherit=None):
                 data[flag] = True
     (Path(vault) / TURNS_REL).mkdir(parents=True, exist_ok=True)
     if session_id:
-        _keep(vault, _read_turn(_session_file(vault, session_id)))
+        old = _read_turn(_session_file(vault, session_id))
+        if old and old.get(SESSION_FLAG):
+            data[SESSION_FLAG] = True  # 「還有 N 件…」一個對話只說一次（D-225）：跟著每一句帶下去
+        _keep(vault, old)
         write_json_atomic(_session_file(vault, session_id), data)
     write_json_atomic(_current_file(vault), data)
     return data
@@ -334,8 +339,10 @@ def set_prompt_head(vault, session_id, text):
     return _set(vault, session_id, prompt_head=text)
 
 
-# mark 記的回合旗標；退回自己這句時 start(inherit=) 帶過去。secret_shown（密碼與守門）：這句回答給了密碼，Stop 不記結果
-MARK_FLAGS = ("ingest", "ingest_stopped", "secret_shown")
+# mark 記的回合旗標；退回自己這句時 start(inherit=) 帶過去。secret_shown（密碼與守門）：這句回答給了密碼，Stop 不記結果；
+# asks_told（lint 題，D-225）：這個對話說過「還有 N 件要你決定的事」，start 從同 session 的上一句帶下去
+MARK_FLAGS = ("ingest", "ingest_stopped", "secret_shown", "asks_told")
+SESSION_FLAG = "asks_told"
 
 
 def mark(vault, key):
@@ -352,6 +359,41 @@ def mark(vault, key):
         if not sess or sess.get("turn") != data["turn"]:  # session 檔已經是別的回合：不記到錯的那句
             return False
         return _set(vault, data["session_id"], **{key: True}) is not None
+
+
+def touch(vault, entities=(), files=()):
+    """這一句查過、動過的對象記進回合的 touched（{"entities": [...], "files": [...]}，lint 題 D-225）：有 --turn（子代理）記進那個回合；
+    否則只在對話裡的回合（同 mark），終端機跑的不記。在回合檔的鎖裡讀改寫；寫不了不擋呼叫的指令（回 False）。"""
+    ents, fids = [str(x) for x in entities or [] if x], [str(x) for x in files or [] if x]
+    if not ents and not fids:
+        return False
+    if OVERRIDE:
+        tid = OVERRIDE
+    else:
+        data = _read_turn(_current_file(vault))
+        if not data or not data.get("session_id") or data.get("done"):
+            return False
+        tid = data["turn"]
+
+    def change(d):
+        got = dict(d.get("touched") or {})
+        new_e = list(dict.fromkeys(list(got.get("entities") or []) + ents))
+        new_f = list(dict.fromkeys(list(got.get("files") or []) + fids))
+        if new_e == list(got.get("entities") or []) and new_f == list(got.get("files") or []):
+            return False
+        d["touched"] = {"entities": new_e, "files": new_f}
+        return True
+    try:
+        return bool(change_turn(vault, tid, change))
+    except (OSError, ValueError) as e:
+        ledger.log_error(vault, f"touched 沒記到：{type(e).__name__}: {e}")
+        return False
+
+
+def touched(data):
+    """回合資料的 touched → {"entities": set, "files": set}。"""
+    got = (data or {}).get("touched") or {}
+    return {"entities": set(got.get("entities") or []), "files": set(got.get("files") or [])}
 
 
 def _realcase(p):

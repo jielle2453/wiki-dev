@@ -220,6 +220,23 @@ def version_line_vault(kind):
     return prepare
 
 
+class OpeningLeftLine(unittest.TestCase):
+    """lint 題（桌面版確認後）：沒有新變動時變動行換成「還有 N 份沒整理完、K 張綜合卡要改寫、M 張卡要跟著搬」；
+    三半都有、數字都是四位數的那句換掉七行情況裡的變動行，照樣在預算內。"""
+
+    def test_worst_left_line_within_budget(self):
+        if not SESSION_HOOK.exists():
+            self.skipTest("hooks/session.py 尚未建立")
+        status = opening_status("compact", all_lines_vault)
+        lines = status.splitlines()
+        worst = "還有 9999 份沒整理完、9999 張綜合卡要改寫、9999 張卡要跟著搬"
+        i = next(n for n, ln in enumerate(lines) if ln.startswith("變動："))
+        swapped = lines[:i] + [worst] + lines[i + 1:]
+        text = "\n".join(swapped)
+        self.assertLessEqual(count_lines(text), OPENING_MAX_LINES)
+        self.assertLessEqual(len(text), OPENING_MAX_CHARS, (len(text), swapped))
+
+
 class OpeningVersionLines(unittest.TestCase):
     def test_each_version_line_worst_case_within_budget(self):
         if not SESSION_HOOK.exists():

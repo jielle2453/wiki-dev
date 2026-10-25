@@ -123,12 +123,16 @@ def _changes(before, after):
 def _edit(vault, args, as_json, conversation, turn_id):
     fields = {"date": args.date, "start": args.start, "time": args.time, "text": args.text, "entities": args.entity,
               "lead_days": args.lead_days}
-    if all(v is None for v in fields.values()) and not args.card:
-        print("沒有給要改的欄位")
-        return 3
     before = copy.deepcopy(agenda.get(vault, args.id))
+    if all(v is None for v in fields.values()) and not args.card and before.get("source") != "inferred":
+        print("沒有給要改的欄位")  # 推測的那條不帶欄位是「記成確認」（lint 桌面版確認後）
+        return 3
     after = agenda.edit(vault, args.id, turn_id, by="ai" if conversation else "program", card=args.card, **fields)
     parts, labels = _changes(before, after)
+    if not parts and before.get("source") == "inferred" and after.get("source") == "confirmed":
+        journal_cli.record_program_or_warn(vault, f"日程記成確認：{after['text']}", CHANGED, "agenda edit", conversation)
+        _out(as_json, [f"記成確認了：{after['text']}"], {"item": after, "changed": True})
+        return 0
     if not parts:
         _out(as_json, [f"沒有要改的：{after['text']}"], {"item": after, "changed": False})
         return 0

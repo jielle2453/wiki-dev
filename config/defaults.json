@@ -88,5 +88,19 @@
   "update_run_seconds": 60,
   "_why_update_run_seconds": "叫內建 Claude Code 跑 plugin update 最多等幾秒（D-215）：B-409 spike 實測 2～3.5 秒，60 秒留給慢網路與防毒掃描，超過殺掉整棵行程樹",
   "update_note_max": 40,
-  "_why_update_note_max": "開場「有新版 X：一句話」的一句話最多幾字（D-060、B-060）：整段開場在常駐預算裡，超過截掉；完整的一句話升級後由 --finish 從 CHANGELOG 讀給客戶"
+  "_why_update_note_max": "開場「有新版 X：一句話」的一句話最多幾字（D-060、B-060）：整段開場在常駐預算裡，超過截掉；完整的一句話升級後由 --finish 從 CHANGELOG 讀給客戶",
+  "lint_background_days": 7,
+  "_why_lint_background_days": "開場距上次背景健檢超過幾天就在背景跑一次（D-221、D-227）：一週查一次，能自己修的修掉、要她決定的進待處理；Claude 關著時不跑、不裝排程",
+  "pending_set_aside_days": 30,
+  "_why_pending_set_aside_days": "待處理放幾天沒動就由健檢收進先放著（D-226）：一個月沒回的多半是她不急，收起來不再每句問；不會自己關掉，有變化或快到期會再拿出來",
+  "set_aside_wake_days": 1,
+  "_why_set_aside_wake_days": "先放著的事離到期剩幾天就回到前面（D-226），回答末尾也照這個算有時間性的（D-225）：前一天提醒來得及準備",
+  "lint_inferred_days": 30,
+  "_why_lint_inferred_days": "AI 推測的日程、實體名稱、設定檔列放幾天還沒確認就進待處理（清單 5）：一個月夠她在日常對話裡順手確認，還沒確認的才一起問",
+  "ruling_promote_min": 5,
+  "_why_ruling_promote_min": "同種類、掛的卡同卡型的有效裁示到幾條就提議升格成一條偏好（D-149、D-150）：說了五次同樣的話多半是規則不是個案",
+  "lint_inbox_max": 30,
+  "_why_lint_inbox_max": "收件匣超過幾份算在報告的數字裡提一句（清單 7）：收件匣是暫放區，三十份以上多半是忘了整理",
+  "lint_synthesis_max_chars": 12000,
+  "_why_lint_synthesis_max_chars": "一張綜合卡超過幾個字就進待處理問要不要精簡（清單 7）：跟 adopt_chunk_chars 同一個量級，再長製卡助手一次讀不完、她也看不完"
 }

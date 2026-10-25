@@ -3,7 +3,8 @@
 一筆一個 AI 從多張卡算出來、客戶說「記下來」的結果：id（c- 加 8 碼 hex）、text（結果一句）、how（算法一句）、
 entities（登記的實體名稱，客戶自己也可以）、basis（[{id, fp}]，fp 是記的時候那張檔案卡的指紋前 12 碼）、
 mounts_fp（記的時候掛的實體掛著的卡編號集合的雜湊；掛客戶自己的算全庫的卡）、date、turn、
-status（active｜superseded｜withdrawn）、replaced_by。被取代、收回的留著，清理交 lint。
+status（active｜superseded｜withdrawn）、replaced_by。被取代、收回的留著；沒有綜合卡引用的由健檢移到
+.system/findings-archive.json（schema 1，加 archived 日期，lint 題，只有 lint 叫 archive）。
 過期（stale）：依據卡指紋變了（或卡不見）、依據卡被客戶說別信（不採用，answer 裁定 15），或那個集合變了（掛的實體多了新卡）；
 過期的不直接用，重算記新的一筆取代。記的時候依據含不採用的卡拒絕。
 綜合卡的「整理到」收 c- 行（指紋欄寫 -），所以有新推算或推算被取代時，那個實體列進待更新綜合卡（synthesis 接）。
@@ -18,6 +19,7 @@ from pathlib import Path
 from kb._lib.io import FileLock, read_json, write_json_atomic
 
 FINDINGS_POSIX = ".system/findings.json"
+ARCHIVE_POSIX = ".system/findings-archive.json"
 SCHEMA_VERSION = 1
 STATUSES = ("active", "superseded", "withdrawn")
 LABEL = "推算"
@@ -237,4 +239,37 @@ def withdraw(vault, cid, turn_id):
         it = _need_active(data, cid)
         it["status"] = "withdrawn"
         return it, True
+    return _mutate(vault, turn_id, fn)
+
+
+# ---------- 封存（健檢，lint 題） ----------
+
+def load_archive(vault):
+    """封存檔；沒檔回空的，壞了丟 ValueError（帶檔名）。"""
+    try:
+        data = read_json(Path(vault) / ARCHIVE_POSIX)
+    except ValueError as e:
+        raise ValueError(f"{ARCHIVE_POSIX}（JSON 壞了：{e}）") from e
+    if data is None:
+        return empty()
+    if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+        raise ValueError(f"{ARCHIVE_POSIX}（沒有 findings 清單）")
+    return {"schema_version": SCHEMA_VERSION, "findings": [c for c in data["findings"] if isinstance(c, dict)]}
+
+
+def archive(vault, ids, turn_id):
+    """把這幾筆（只收被取代或收回的）移到封存檔、加 archived 日期；兩檔先備進回合。回搬了幾筆。"""
+    ids = set(ids)
+
+    def fn(data):
+        moving = [c for c in data["findings"] if c.get("id") in ids and c.get("status") in ("superseded", "withdrawn")]
+        if not moving:
+            return 0, False
+        from kb._lib import turn
+        arch = load_archive(vault)
+        turn.backup(vault, ARCHIVE_POSIX, turn_id)
+        arch["findings"].extend(dict(c, archived=_today()) for c in moving)
+        write_json_atomic(Path(vault) / ARCHIVE_POSIX, arch)
+        data["findings"] = [c for c in data["findings"] if c not in moving]
+        return len(moving), True
     return _mutate(vault, turn_id, fn)

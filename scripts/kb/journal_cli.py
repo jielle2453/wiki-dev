@@ -73,7 +73,9 @@ def _lines(row):
     changed = journal.changed_text(row.get("changed"))
     tail = [f"{INDENT}改了：{changed}"] if changed else []
     if row.get("kind") == "program":
-        return [f"{when}｜你在終端機跑的：kb {row.get('command', '')}".rstrip(),
+        head = (f"{when}｜{journal.AUTO_LABELS[row.get('command')]}" if row.get("command") in journal.AUTO_LABELS
+                else f"{when}｜你在終端機跑的：kb {row.get('command', '')}".rstrip())  # 自動跑的不說是她跑的
+        return [head,
                 f"{INDENT}做了：{journal._flat(row.get('note'))}"] + tail
     head = f"{when}｜你說：{_head(row.get('prompt'))}"
     if not row.get("done"):

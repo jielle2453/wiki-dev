@@ -961,7 +961,8 @@ class VersionsJournal(Base):
         self.assertEqual(turn.current(self.V, SID)["turn"], t["turn"])  # turns/<sid>.json 不動
 
 
-SKIP_TREE = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/")
+# .system/renders.json：渲染指紋跟日誌一樣是記帳，退回不還原（lint 題，舊指紋留在 history，退回後不算手改）
+SKIP_TREE = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json/")
 
 
 def tree(V):

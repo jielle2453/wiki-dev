@@ -162,7 +162,7 @@ class Draft(Base):
         e = self.entry(rel)
         new = {i["id"] for i in cards.todo(self.V, sources_lib.load(self.V))["new"]}
         self.assertNotIn(e["id"], new)
-        asks = json.loads(run_kb("asks", "--json", cwd=self.V).stdout)["asks"]
+        asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]  # 跟這一句無關的要 --all（D-225）
         (ask,) = [a for a in asks if a["kind"] == "draft"]
         self.assertEqual(ask["question"], "內湖李 報價 的草稿還在等你看")
         drop = ask["results"][2]

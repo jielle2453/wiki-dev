@@ -28,18 +28,19 @@ COMMANDS = {
     "convert": ("kb.convert", "抽字：把一份原檔轉成純文字暫存檔給製卡者讀；PDF、圖片指給 Read"),
     "cards": ("kb.cards", "檔案卡：todo 列該做的卡，sync 跟著原檔搬卡，drop 拿掉原檔已刪的卡，index 重寫總目錄，"
                           "skip 記成不整理，redo 卡讀錯了標成要重做，mount 卡掛錯實體改掛，list 列卡（只讀）"),
-    "pending": ("kb.pending_cli", "待處理：list 列等你決定的事，add 記一件兩份寫法不同的，resolve 記下怎麼處理，dismiss 記成不用管"),
+    "pending": ("kb.pending_cli", "待處理：list 列等你決定的事，add 記一件兩份寫法不同的，resolve 記下怎麼處理，dismiss 記成不用管，"
+                                  "set-aside 先放著，back 拿回來"),
     "profile": ("kb.profile_cli", "客戶設定檔：check 看改了什麼，apply 套用並建型別夾"),
     "entity": ("kb.entity", "實體：add 登記，confirm 確認名稱，accept AI 判斷有把握直接登記，rename 改名，merge 合併，remove 移除，rebuild 重寫綜合卡，"
                             "clean 清放錯的綜合卡，list 列出，render 重寫綜合卡快取，progress 事類的進行中、結案、擱置，"
                             "suggest-close 記一條結案待問，alias 加或拿掉別名"),
-    "statement": ("kb.statement_cli", "客戶口述：add 記一條（--replaces 改舊的），withdraw 收回，list 列出"),
+    "statement": ("kb.statement_cli", "客戶口述：add 記一條（--replaces 改舊的），withdraw 收回，restore 恢復被取代的那條，list 列出"),
     "ruling": ("kb.ruling_cli", "個案裁示：add 記一條（口述為準、不採用、可以讀），remove 收回，recheck 原檔新版看過了照舊，"
                                "decline 檔名像密碼的這份不要讀，list 列出"),
     "unlock": ("kb.unlock", "密碼：save 存進這台電腦的憑證管理員，get 取出，forget 忘掉，list 列名字，"
                             "authorize 這一種的 PDF 用這組開，revoke 不再自動開"),
     "agenda": ("kb.agenda_cli", "日程：add 加一條，edit 改，done／cancel／reopen 改狀態，recheck 原檔新版看過了，list 列出，render 重寫日程.md"),
-    "asks": ("kb.asks_cli", "要問客戶的事：只讀，列出 asks 與 tell（逾期、日程有出入、結案、名字確認…）"),
+    "asks": ("kb.asks_cli", "要問客戶的事：列出跟這一句有關的與有時間性的（--about 名稱、--all 全部），其餘報件數；set-aside 先放著"),
     "lookup": ("kb.lookup_cli", "查一個實體：只讀，一次給齊綜合卡、檔案卡、口述、裁示、推算、日程與還沒整理的份數"),
     "finding": ("kb.finding_cli", "推算：add 記一筆（--replaces 改舊的），withdraw 收回，list 列出"),
     "tally": ("kb.tally_cli", "加總：只讀，收每一筆（卡、數字、位置），回逐筆表、筆數、合計、平均"),
@@ -53,6 +54,8 @@ COMMANDS = {
     "restore": ("kb.restore_cli", "還原：list 列備份與快照，check 演練會回到什麼樣子，apply 還原（先拍快照）"),
     "upgrade": ("kb.upgrade_cli", "升級：--check 查有沒有新版，直接跑是升級，--finish 換版後的新對話轉格式，--downgrade 退回舊版，"
                                   "skeleton 骨架檔保留或換新"),
+    "lint": ("kb.lint_cli", "健檢：查整個知識庫、能修的修掉、要你決定的放進待處理、寫這個月的報告；--background 開場背景跑，"
+                            "handedit 列你手改程式產生的檔的差異"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
 }
 

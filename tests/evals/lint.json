@@ -1,0 +1,22 @@
+[
+  {"query": "幫我檢查一下知識庫，最近好像有點亂", "should_trigger": true},
+  {"query": "知識庫有沒有什麼問題？我怕有東西壞掉我不知道", "should_trigger": true},
+  {"query": "我是幫林小姐設定的服務人員，幫她做一次健檢，我要看數字", "should_trigger": true},
+  {"query": "看健檢報告", "should_trigger": true},
+  {"query": "健檢報告說信義王的綜合卡有 2 個出處點不開，那怎麼辦？", "should_trigger": true},
+  {"query": "那些問題你直接幫我修就好，我沒空一件一件看", "should_trigger": true},
+  {"query": "跟上次的健檢比，有變好嗎？", "should_trigger": true},
+  {"query": "檢查要多久？會不會很花額度", "should_trigger": true},
+  {"query": "守門有正常在跑嗎？幫我查一下", "should_trigger": true},
+  {"query": "你說過 6 次報價單以我說的為準，要改成一條規則嗎？好啊，改吧", "should_trigger": true},
+  {"query": "看待處理", "should_trigger": false},
+  {"query": "有沒有要我確認的？", "should_trigger": false},
+  {"query": "幫我備份一下，放到隨身碟", "should_trigger": false},
+  {"query": "我放了幾份新的估價單進去，整理一下", "should_trigger": false},
+  {"query": "信義王現在怎樣？", "should_trigger": false},
+  {"query": "硬碟快滿了，幫我清一點空間", "should_trigger": false},
+  {"query": "這個先不要，暫不處理", "should_trigger": false},
+  {"query": "每個月自動幫我檢查", "should_trigger": false},
+  {"query": "那條信義王改用系統櫃的我收回，沒這回事", "should_trigger": false},
+  {"query": "把這週的進度整理成一份 Word 給業主", "should_trigger": false}
+]

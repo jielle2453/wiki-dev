@@ -8,7 +8,9 @@ cards（[{id, fp}]，fp 是掛的時候那張檔案卡的指紋前 12 碼）、t
 生效由程式帶：綜合卡的「整理到」收 r- 行，cards todo 把掛在實體或它的卡上的有效裁示附給寫綜合卡的人（for_entity）；
 掛卡的裁示遇到卡指紋變了（原檔改版、卡重做）由 drifted 列出、asks 問現在可以信了嗎。封頂與升格交 lint。
 每次寫都在 rulings.json 的 FileLock 裡：先 turn.backup 再原子寫，寫完重渲染 md（先備份，內容沒變不寫）。
+重渲染前比對 裁示.md 有沒有被手改（_lib/renders，D-223）：刪了行、改了字就存她那份、待處理開一條 handedit。
 """
+import copy
 import secrets
 from datetime import date
 from pathlib import Path
@@ -38,8 +40,8 @@ MISSING_CARD = "（找不到這張卡）"
 MISSING_FILE = "（找不到這份檔）"
 HEADER = ("# 裁示\n"
           "這是什麼：你說過「只有這件這樣」的個案，程式從 .system/rulings.json 整理出來。\n"
-          "怎麼用：要改跟我說；直接改這個檔不會生效。\n"
-          "由程式產生，每次有裁示加入或收回時重寫。\n")
+          "怎麼用：要改跟我說，或在這裡刪掉一行。\n"
+          "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。\n")  # D-223：照她刪掉的收回
 EMPTY_SENTENCE = "目前沒有裁示"
 
 
@@ -115,12 +117,13 @@ def _mutate(vault, turn_id, fn):
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
+        before = copy.deepcopy(data)
         result, changed = fn(data)
         if changed:
             from kb._lib import turn
             turn.backup(vault, RULINGS_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, turn_id, data)
+            render(vault, turn_id, data, base=before)
     return result
 
 
@@ -223,7 +226,9 @@ def add(vault, kind, entities, cards, text, turn_id, files=(), label=None):
               "turn": turn_id, "status": "active", "revoked": None}
         data["rulings"].append(it)
         return it, True
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    statements.wake_entities(vault, names, turn_id)  # 實體有新裁示：先放著的回到前面（D-226）
+    return got
 
 
 def _add_readable(vault, files, entities, cards, text, label, turn_id):
@@ -380,20 +385,40 @@ def render_text(data, titles, names=None):
     for kind in ACTIVE_KINDS:
         rows = [r for r in data["rulings"] if r.get("status") == "active" and r.get("kind") == kind]
         if rows:
-            blocks.append(f"## {KIND_TEXT[kind]}\n" + "\n".join(
-                f"- {targets(r, titles, names)}{'（' + r['label'] + '）' if r.get('label') else ''}：{r.get('text')}（{r.get('date')}）"
-                for r in rows))
+            blocks.append(f"## {KIND_TEXT[kind]}\n" + "\n".join(_row(r, titles, names) for r in rows))
     return HEADER + "\n" + ("\n\n".join(blocks) if blocks else EMPTY_SENTENCE) + "\n"
 
 
-def render(vault, turn_id=None, data=None):
-    """寫 系統/裁示.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。"""
-    from kb._lib import agenda
+def _row(r, titles, names):
+    label = "（" + r["label"] + "）" if r.get("label") else ""
+    return f"- {targets(r, titles, names)}{label}：{r.get('text')}（{r.get('date')}）"
+
+
+def item_lines(data, titles, names=None):
+    """[(裁示.md 裡那一行, 編號)]：有效的每一條（手改比對用）。"""
+    return [(_row(r, titles, names), r.get("id")) for r in data["rulings"]
+            if r.get("status") == "active" and r.get("kind") in ACTIVE_KINDS]
+
+
+def render(vault, turn_id=None, data=None, base=None):
+    """寫 系統/裁示.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
+    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。"""
+    from kb._lib import agenda, renders
     data = data if data is not None else load(vault)
-    text = render_text(data, agenda.card_titles(vault), file_names(vault))
+    titles, names = agenda.card_titles(vault), file_names(vault)
+    text = render_text(data, titles, names)
     target = Path(vault) / MD_POSIX
+    hers = renders.check(vault, MD_POSIX)
+    if hers is not None:
+        base = base if base is not None else data
+        known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
+        base_text, lines = known if known else (render_text(base, titles, names), item_lines(base, titles, names))
+        if renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id,
+                               known_ids={r.get("id") for r in data["rulings"]}) == renders.KEEP_FAILED:  # T-36
+            return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
+            renders.record(vault, MD_POSIX, text, lines=item_lines(data, titles, names))
             return False
     except (OSError, UnicodeDecodeError):
         pass
@@ -402,4 +427,5 @@ def render(vault, turn_id=None, data=None):
         turn.backup(vault, MD_POSIX, turn_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
+    renders.record(vault, MD_POSIX, text, lines=item_lines(data, titles, names))
     return True

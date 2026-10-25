@@ -674,8 +674,8 @@ def _purge_pending(vault, sources):
 # ---------- 查詢（answer 第 1、2 點） ----------
 
 def unsorted(vault, sources=None, deadline=None):
-    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）。
-    deadline 給開場 hook：過了丟 TimeoutError。"""
+    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）。只數檔：
+    健檢標的要改寫綜合卡另外講（開場那行，lint 桌面版確認後）。deadline 給開場 hook：過了丟 TimeoutError。"""
     from kb._lib import entities, inventory
     from kb._lib import sources as sources_lib
     sources = sources if sources is not None else sources_lib.load(vault)
@@ -836,8 +836,18 @@ def mark_redo(vault, fid, turn_id):
             write_text_atomic(Path(vault) / loc, synthesis.replace_front(text, {"整理到": new}))
             names.append(e["name"])
             paths.append(loc)
+    _wake(vault, [fid], turn_id)
     return {"id": fid, "title": _title(card), "path": card["path"], "redo": sha, "changed": changed,
             "synthesis": names, "synthesis_paths": paths}
+
+
+def _wake(vault, fids, turn_id):
+    """卡標了重做：跟它有關的先放著回到前面（D-226）；出錯只記 log。"""
+    from kb._lib import ledger, pending
+    try:
+        pending.wake(vault, file_ids=fids, turn_id=turn_id)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"先放著沒拿回來：{type(e).__name__}: {e}", source="cards")
 
 
 def mark_redo_many(vault, fids, turn_id, check=False):
@@ -879,6 +889,7 @@ def mark_redo_many(vault, fids, turn_id, check=False):
             write_text_atomic(Path(vault) / loc, synthesis.replace_front(text, {"整理到": new}))
             names.append(e["name"])
             paths.append(loc)
+    _wake(vault, [c["id"] for c in shown], turn_id)
     return {"cards": shown, "changed": changed, "synthesis": names, "synthesis_paths": paths}
 
 
@@ -1208,8 +1219,12 @@ def _render_index(vault, turn_id):
     emit(tree, 0)
     body = "\n".join(lines) if lines else INDEX_EMPTY
     text = f"{INDEX_HEAD}\n{body}\n\n共 {count} 張卡\n"
+    from kb._lib import renders
+    if renders.keep_only(vault, INDEX_POSIX) == renders.KEEP_FAILED:  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
+        return count  # 她那份沒存成就不蓋掉（測試 T-10）
     if turn_id:
         from kb._lib import turn
         turn.backup(vault, INDEX_POSIX, turn_id)
     write_text_atomic(Path(vault) / INDEX_POSIX, text)
+    renders.record(vault, INDEX_POSIX, text)
     return count

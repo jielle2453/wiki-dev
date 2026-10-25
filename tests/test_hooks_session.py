@@ -989,3 +989,134 @@ class OpeningSpawn(unittest.TestCase):
             self.session._UPGRADE.clear()
             self.session.line_version(self.V)  # 上一次開場已經記了今天
             self.assertEqual(len(calls), 1)
+
+
+class BackgroundLint(unittest.TestCase):
+    """lint 題驗收 20（D-221、D-227）：lint.json 的 last_background 超過 lint_background_days → 開場背景開 kb lint --background
+    （替身記參數）、不等它、開場 < 1 秒；沒超過不開；同一天第二次開場不再開；開場不多印一行。"""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_lint", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
+        self.env = os.environ.pop("WIKI_WITH_WILLY_NO_BACKGROUND", None)
+
+    def tearDown(self):
+        if self.env is not None:
+            os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = self.env
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def put(self, **fields):
+        (self.V / ".system" / "lint.json").write_text(json.dumps(dict({"schema_version": 1}, **fields)), encoding="utf-8")
+
+    def spawn_calls(self):
+        from unittest import mock
+        from kb.lint import runner
+        calls = []
+        proc = mock.Mock()
+        proc.wait.side_effect = AssertionError("開場不等背景")
+        with mock.patch.object(runner, "_popen", side_effect=lambda argv, **kw: calls.append((argv, kw)) or proc):
+            started = time.monotonic()
+            lines = self.session.status_lines(self.V, "startup", "sid")
+            self.assertLess(time.monotonic() - started, 3)
+        return calls, lines
+
+    def test_eight_days_ago_spawns(self):
+        from datetime import date, timedelta
+        self.put(last_background=(date.today() - timedelta(days=8)).isoformat())
+        calls, lines = self.spawn_calls()
+        self.assertEqual(len(calls), 1)
+        argv, kw = calls[0]
+        self.assertEqual(argv[-2:], ["lint", "--background"])
+        self.assertTrue(argv[-3].endswith("kb.py"))
+        self.assertEqual(Path(kw["cwd"]).resolve(), Path(self.V).resolve())
+        self.assertFalse([ln for ln in lines if "健檢" in ln], "開場不另外提醒（D-221 修訂）")
+        again, _lines = self.spawn_calls()
+        self.assertEqual(again, [], "同一天開過了")
+
+    def test_no_lint_json_spawns(self):
+        calls, _lines = self.spawn_calls()
+        self.assertEqual(len(calls), 1)
+
+    def test_recent_does_not_spawn(self):
+        from datetime import date, timedelta
+        self.put(last_background=(date.today() - timedelta(days=3)).isoformat())
+        self.assertEqual(self.spawn_calls()[0], [])
+
+    def test_not_when_opening_asks_to_fix_first(self):
+        """換了位置（先 kb moved）或換了版（先 --finish）的開場不開：健檢會把只是搬家造成的出處點不開記成要決定的事。"""
+        from unittest import mock
+        with mock.patch.object(self.session, "line_moved", return_value="知識庫換了位置：先跑 kb moved 補好再做別的。"):
+            self.assertEqual(self.spawn_calls()[0], [])
+        with mock.patch.object(self.session, "_upgrade_state", return_value={"finish": True, "line": "x"}):
+            self.assertEqual(self.spawn_calls()[0], [])
+
+    def test_lock_busy_does_not_wait_long(self):
+        from kb._lib import io as kio
+        from kb.lint import state
+        lock = kio.FileLock(self.V / state.LINT_POSIX, timeout=1)
+        lock.__enter__()
+        try:
+            started = time.monotonic()
+            calls, _lines = self.spawn_calls()
+            self.assertLess(time.monotonic() - started, 2.5)
+            self.assertEqual(calls, [], "記不到今天開過就不開，下次開場再試")
+        finally:
+            lock.__exit__(None, None, None)
+
+    def test_switch_for_tests(self):
+        os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = "1"
+        try:
+            self.assertEqual(self.spawn_calls()[0], [])
+        finally:
+            del os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"]
+
+
+class LintFixCounted(unittest.TestCase):
+    """lint 題 D-161（桌面版確認後 3a 定）：健檢標的要改寫綜合卡在同一行另講「K 張綜合卡要改寫」，「還有 N 份沒整理完」只數檔；
+    0 的那半不印，整理指示照舊接在後面。"""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_fix", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def line(self, left, moved, fixes):
+        from unittest import mock
+        from kb._lib import batches, synthesis
+        report = {"incomplete": False, "added": [], "modified": [], "missing": [], "missing_sources": []}
+        for cache in (self.session._UNSORTED, self.session._DRIFT, self.session._SCAN):
+            cache.clear()
+        with mock.patch.object(self.session, "_quick_scan", return_value=(None, report)), \
+                mock.patch.object(self.session, "_drift_count", return_value=0), \
+                mock.patch.object(batches, "opening_counts", return_value=(left, moved)), \
+                mock.patch.object(synthesis, "lint_fix_count", return_value=fixes):
+            return self.session.line_changes(self.V), self.session.line_ingest_hint(self.V)
+
+    def test_three_halves(self):
+        self.assertEqual(self.line(0, 0, 2)[0], "還有 2 張綜合卡要改寫")
+        self.assertEqual(self.line(3, 0, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫")
+        self.assertEqual(self.line(3, 5, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫、5 張卡要跟著搬")
+        self.assertEqual(self.line(3, 0, 0)[0], "還有 3 份沒整理完")
+        self.assertIsNone(self.line(0, 0, 0)[0])
+        _line, hint = self.line(0, 0, 2)
+        self.assertTrue(hint and hint.startswith("先照 ingest skill 整理"), hint)
+
+    def test_cards_unsorted_counts_files_only(self):
+        from tests import _lint as L
+        from kb._lib import cards
+        from kb.lint import state
+        tmp, V, _raw = L.make()
+        try:
+            before = cards.unsorted(V)
+            state.add_fix(V, L.write_synthesis(V), "有空段", [])
+            self.assertEqual(cards.unsorted(V), before)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
