@@ -109,9 +109,10 @@ class T28UnreadableSourceIsFailed(Base):
         self.assertIn("推測放太久", got["failed_checks"])
         self.assertEqual(self.status(pid), "open")
 
-    def test_skeleton_record_missing(self):
+    def test_skeleton_record_broken(self):
+        """第三輪 T-35：沒有 skeleton.json 是舊庫、照常查；壞掉才算沒查成。"""
         pid = self.put("skeleton:CLAUDE.md:abc", "versions")
-        (self.V / skeleton.SKELETON_JSON).unlink(missing_ok=True)
+        (self.V / skeleton.SKELETON_JSON).write_text("{壞", encoding="utf-8")
         got = self.lint()
         self.assertIn("版本與骨架", got["failed_checks"])
         self.assertEqual(self.status(pid), "open")

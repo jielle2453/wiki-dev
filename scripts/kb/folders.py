@@ -482,6 +482,7 @@ def _exclude(vault, args, as_json):
             purge.record_titles(vault, best["alias"], rel, {cards._title(c) for cid in gone for c in groups.get(cid, [])},
                                 turn_id, undo)
             purge.record(vault, best["alias"], rel, "turns", purge.own_turns(vault), turn_id, undo)  # 排除那一句的「問」不換
+            purge.record_derived(vault, best["alias"], rel, gone, names, turn_id, undo)  # 檔名、推測日程原文（lint 第三輪 T-33）
         try:
             removed, titles, card_changed = _guarded_drop(vault, ids, turn_id, original, inv_before, record)
         except _Undone as e:

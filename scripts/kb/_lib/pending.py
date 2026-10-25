@@ -139,6 +139,7 @@ def _hand_edit(vault, data, turn_id):
         known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
         base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
         got = renders.diff(base_text, hers, lines, ignore_sections=(ASKS_TITLE,))
+        got = renders.keep_known(got, {i.get("id") for i in data["items"]})  # 退回拿掉的件不算（T-36）
         if renders.is_empty(got):
             return False
     except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理

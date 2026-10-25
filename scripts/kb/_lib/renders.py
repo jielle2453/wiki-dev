@@ -56,7 +56,8 @@ def load(vault):
             "dates": _str_map(data.get("dates")),
             "saved": [s for s in data.get("saved") or [] if isinstance(s, dict)] if isinstance(data.get("saved"), list) else [],
             "asks": [q for q in data.get("asks") if isinstance(q, str)] if isinstance(data.get("asks"), list) else [],
-            "bases": {k: v for k, v in data.get("bases").items() if isinstance(v, dict) and isinstance(v.get("text"), str)
+            "bases": {k: {"text": v["text"], "lines": [x for x in v["lines"] if isinstance(x, list) and len(x) == 2]}
+                      for k, v in data.get("bases").items() if isinstance(v, dict) and isinstance(v.get("text"), str)
                       and isinstance(v.get("lines"), list)} if isinstance(data.get("bases"), dict) else {}}
 
 
@@ -223,6 +224,14 @@ def diff(base, hers, lines, ignore_sections=()):
     return got
 
 
+def keep_known(got, ids):
+    """只留現在資料裡還有的編號（退回拿掉的件不算她打勾、刪掉、改日期的，第三輪 T-36）。"""
+    ids = set(ids)
+    for k in ("checked", "removed", "changed_date"):
+        got[k] = [c for c in got.get(k) or [] if c.get("id") in ids]
+    return got
+
+
 def is_empty(d):
     return not any(d.get(k) for k in ("checked", "removed", "changed_date", "other"))
 
@@ -233,7 +242,7 @@ def mask_diff(vault, got):
     return got
 
 
-def handle_list(vault, rel, hers, base_text, lines, turn_id, ignore_sections=()):
+def handle_list(vault, rel, hers, base_text, lines, turn_id, ignore_sections=(), known_ids=None):
     """日程、裁示被手改（有 JSON 真相的清單）：看得出改了條目就存她那份、待處理開一條 handedit（D-223）。回存的路徑、None，
     或 KEEP_FAILED（她那份沒存成，呼叫端這次不重寫）。比對出錯只記 log、當成改了別的。"""
     try:
@@ -241,6 +250,8 @@ def handle_list(vault, rel, hers, base_text, lines, turn_id, ignore_sections=())
     except Exception as e:  # noqa: BLE001
         ledger.log_error(vault, f"{rel} 手改比對失敗：{type(e).__name__}: {e}", source="renders")
         got = {"checked": [], "removed": [], "changed_date": [], "other": ["（比對不出改了哪裡）"]}
+    if known_ids is not None:
+        got = keep_known(got, known_ids)
     if is_empty(got):
         return None
     try:

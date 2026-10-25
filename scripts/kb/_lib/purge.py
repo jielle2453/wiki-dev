@@ -480,9 +480,13 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
             return
         with FileLock(p):  # 自己讀寫（renders._edit 會吞寫入失敗，這裡要算進沒清完）
             data = renders.load(vault)
-            new = dict(data, asks=[words(q) for q in data["asks"]],
-                       bases={k: {"text": words(v.get("text")), "lines": [[words(ln), i] for ln, i in v.get("lines") or []]}
-                              for k, v in data.get("bases", {}).items()})
+            bases = {}
+            for k, v in data.get("bases", {}).items():
+                masked = {"text": words(v.get("text")), "lines": [[words(ln), i] for ln, i in v.get("lines") or []]}
+                if masked == v or k == pending.MD_POSIX:
+                    bases[k] = masked  # 待處理.md 下一步會照遮過的重寫、重記
+                # 日程、裁示的 bases 被遮過就拿掉：磁碟上的 md 沒重寫，下次手改比對照現在的資料重算（T-37）
+            new = dict(data, asks=[words(q) for q in data["asks"]], bases=bases)
             if new != data:
                 write_json_atomic(p, new)
 
@@ -504,12 +508,14 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
             counts["left"]["state"] += 1
 
 
-def _derived(vault, ids):
-    """purge 拿掉之前先記（T-25）：(從那些卡抽出的日程原文與那些檔的檔名, 會被拿掉的待處理與日程編號)。讀不到的那一類略過。"""
-    words, gone = set(), set()
+def _derived(vault, ids, names=()):
+    """拿掉之前先記（T-25、第三輪 T-33）：(從那些卡推測出的日程原文與那些檔的檔名, 會被拿掉的待處理與推測日程的編號)。
+    names 是呼叫端在 exclude 那一刻從清冊取的檔名（之後清冊就沒有那些條目了）。確認過的日程只拿掉出處、條目留著，不算（T-37）。
+    讀不到的那一類略過。"""
+    words, gone = set(names or ()), set()
     try:
         for i in agenda.load(vault)["items"]:
-            if isinstance(i, dict) and (i.get("origin") or {}).get("card") in ids:
+            if isinstance(i, dict) and (i.get("origin") or {}).get("card") in ids and i.get("source") == "inferred":
                 gone.add(i.get("id"))
                 if i.get("text"):
                     words.add(str(i["text"]))
@@ -528,6 +534,26 @@ def _derived(vault, ids):
     except (OSError, ValueError):
         pass
     return sorted(w for w in words if len(w) >= 3), gone
+
+
+def record_derived(vault, alias, spec, ids, names, turn_id, undo=None):
+    """exclude --kind hidden 記範圍那一刻順便記衍生文字與會拿掉的條目（T-33）：purge 重跑時條目已經拿掉，靠記下的。"""
+    words, gone = _derived(vault, set(ids), names)
+    record(vault, alias, spec, "words", words, turn_id, undo)
+    record(vault, alias, spec, "gone", gone, turn_id, undo)
+
+
+def derived_masker(words, derived):
+    """words 之外，衍生文字（檔名、推測日程原文）也換「（已排除）」：現行檔與她手改的副本、健檢報告用（T-34；備份只換路徑）。"""
+    derived = sorted({d for d in derived if d and len(d) >= 3}, key=len, reverse=True)
+
+    def mask(text):
+        out = words(text)
+        if isinstance(out, str):
+            for d in derived:
+                out = out.replace(d, PURGED)
+        return out
+    return mask
 
 
 def _drop_synced(vault, gone, turn_id, counts):
@@ -901,7 +927,7 @@ def _scrub_text(vault, rel, mask):
 TEXT_SUFFIXES = (".md", ".txt", ".json", ".jsonl", ".tsv", ".csv")
 PENDING_POSIX = ".system/purge-pending.json"  # 還沒清完的那幾條排除的卡標題（不寫進 sources.json，清完刪掉；第六輪）
 # 一條記的東西：卡標題（第六輪）、排除那一句與清那一句的回合代號（「問」不換）、清掉的推算編號（「整理到」照拿掉；第七輪）
-PENDING_KEYS = ("titles", "turns", "findings")
+PENDING_KEYS = ("titles", "turns", "findings", "words", "gone")  # words、gone：衍生文字與會拿掉的條目（lint 第三輪 T-33）
 
 
 def load_pending(vault):
@@ -1128,8 +1154,11 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     mask = masker(vault, alias, spec, root)  # 備份、ledger、hook-errors 只換路徑（第六輪）
     words = word_masker(mask, ids, word_titles(vault, titles))  # 工作日誌與回合檔的「問」、result、note 另比編號與標題
     derived, gone = _derived(vault, ids)  # 拿掉之前先記：健檢件的文字、手改的差異裡列了它們（T-25）
+    derived = sorted(set(derived) | recorded(vault, alias, spec, "words"))  # exclude 那一刻記下的（T-33：那時清冊還有檔名）
+    gone = set(gone) | recorded(vault, alias, spec, "gone")
     _current_state(vault, ids, turn_id, counts)
-    _lint_files(vault, ids, words, turn_id, counts, plain=word_masker(mask, ids, ()), derived=derived, gone=gone)
+    _lint_files(vault, ids, derived_masker(words, derived), turn_id, counts, plain=word_masker(mask, ids, ()), derived=derived,
+                gone=gone)
     record(vault, alias, spec, "findings", counts["finding_ids"], turn_id)
     _drop_synced(vault, set(ids) | recorded(vault, alias, spec, "findings"), turn_id, counts)
     for vdir in _version_dirs(vault):

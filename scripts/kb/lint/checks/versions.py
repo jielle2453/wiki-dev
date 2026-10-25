@@ -13,9 +13,10 @@ NAME = "版本與骨架"
 def run(ctx):
     out = []
     rec = skeleton.recorded(ctx.vault)
-    if rec is None:  # 沒有骨架紀錄（或壞了）：判不出她改了沒，這項算沒查成（T-28）
+    if rec is None and (Path(ctx.vault) / skeleton.SKELETON_JSON).exists():  # 壞了：判不出她改了沒，算沒查成（T-28）
         raise ValueError(f"{skeleton.SKELETON_JSON} 讀不到")
-    for rel in skeleton.files():
+    # 沒有骨架紀錄是 0.21.0 之前建的庫：跳過比對，數字照出（第三輪 T-35）
+    for rel in skeleton.files() if rec is not None else []:
         p = Path(ctx.vault) / rel
         want = rec["files"].get(rel)
         if not want or not p.is_file():

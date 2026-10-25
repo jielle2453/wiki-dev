@@ -498,6 +498,7 @@ def _reapply_hidden(vault, hidden_now, keep_snapshots=()):
                     purge.record_titles(vault, alias, spec, {cards._title(c) for cid in gone for c in groups.get(cid, [])},
                                         turn_id, undo)
                     purge.record(vault, alias, spec, "turns", purge.own_turns(vault), turn_id, undo)
+                    purge.record_derived(vault, alias, spec, gone, names, turn_id, undo)  # lint 第三輪 T-33
                 folders._guarded_drop(vault, ids, turn_id, original, inv_before, record)
                 blocking = purge.blocking(vault, set(purge.target(vault, alias, spec)["ids"]) | set(ids))
                 if blocking:  # 還有綜合卡寫著那夾的內容：留著 pending，照一般流程重寫綜合卡再 purge（不算重清過）

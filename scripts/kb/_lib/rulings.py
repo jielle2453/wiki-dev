@@ -413,7 +413,8 @@ def render(vault, turn_id=None, data=None, base=None):
         base = base if base is not None else data
         known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
         base_text, lines = known if known else (render_text(base, titles, names), item_lines(base, titles, names))
-        if renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id) == renders.KEEP_FAILED:
+        if renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id,
+                               known_ids={r.get("id") for r in data["rulings"]}) == renders.KEEP_FAILED:  # T-36
             return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
