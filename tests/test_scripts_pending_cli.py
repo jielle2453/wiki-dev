@@ -161,5 +161,29 @@ class Answered(Base):
         self.assertIn(fid, [n["id"] for n in self.todo()["new"]])
 
 
+class SetAsideCli(Base):
+    """lint 題（D-226）：kb pending set-aside／back 成功句與拒絕句一字不差。"""
+
+    def setUp(self):
+        super().setUp()
+        t = turn.start(self.V, None, "")["turn"]
+        self.pid = pending.add(self.V, "unreadable", ["f-11111111"], "「甲.pdf」讀不到", "檔案壞了", t)
+
+    def test_set_aside_and_back(self):
+        r = self.kb("pending", "set-aside", self.pid)
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (0, "先放著了：「甲.pdf」讀不到：檔案壞了；有變化或快到期會再拿出來"), r.stderr)
+        self.assertEqual(self.items()[0]["set_aside"]["by"], "customer")
+        self.assertIn("（先放著）", self.kb("pending", "list").stdout)
+        r = self.kb("pending", "back", self.pid)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "拿回來了：「甲.pdf」讀不到：檔案壞了"))
+        self.assertIsNone(self.items()[0]["set_aside"])
+
+    def test_unknown_id(self):
+        for verb in ("set-aside", "back"):
+            r = self.kb("pending", verb, "p-00000000")
+            self.assertEqual((r.returncode, r.stdout.strip()), (3, "沒有這件待處理"))
+
+
 if __name__ == "__main__":
     unittest.main()

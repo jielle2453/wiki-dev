@@ -531,12 +531,19 @@ def _block(row):
 
 
 def render(vault, month):
-    """從 jsonl 整檔寫 系統/工作日誌/YYYY-MM.md（D-067）。壞行在寫的人那裡記過 log，這裡不再記。"""
+    """從 jsonl 整檔寫 系統/工作日誌/YYYY-MM.md（D-067）。壞行在寫的人那裡記過 log，這裡不再記。
+    寫之前看她有沒有手改那份月檔（D-223）：改了就只把她那份存到 .system/handedits/（不備進回合：會變成這一句的改了），照樣重寫；
+    complete_turn、refresh_changed、update_turn（job_result 換結果也是）都經 _locked_edit 走到這裡。"""
+    from kb._lib import renders
     rows = [obj for _raw, obj in _load(vault, month, log=False) if obj is not None]
     parts = [f"# 工作日誌 {month}", "\n".join(HEADER_LINES)] + ["\n".join(_block(r)) for r in _newest_first(rows)]
     p = md_path(vault, month)
     p.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(p, "\n\n".join(parts) + "\n")
+    rel = p.relative_to(vault).as_posix()
+    renders.keep_only(vault, rel)
+    text = "\n\n".join(parts) + "\n"
+    write_text_atomic(p, text)
+    renders.record(vault, rel, text)
 
 
 PURGED_TEXT = "（已排除）"

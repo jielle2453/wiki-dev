@@ -39,9 +39,10 @@ class Base(unittest.TestCase):
 
 
 class Table(Base):
-    def test_registered_files_are_profile_inventory_entities(self):
+    def test_registered_files_are_profile_inventory_entities_pending(self):
+        """lint 題：pending.json schema 1 → 2 加一列（D-226）。"""
         self.assertEqual([m.rel for m in migrate.STATE_FILES],
-                         [".system/profile.json", ".system/inventory.json", ".system/entities.json"])
+                         [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json"])
 
     def test_card_header_table_is_empty_for_now(self):
         self.assertEqual(migrate.CARD_HEADER_MIGRATIONS, [])

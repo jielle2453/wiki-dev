@@ -1208,8 +1208,11 @@ def _render_index(vault, turn_id):
     emit(tree, 0)
     body = "\n".join(lines) if lines else INDEX_EMPTY
     text = f"{INDEX_HEAD}\n{body}\n\n共 {count} 張卡\n"
+    from kb._lib import renders
+    renders.keep_only(vault, INDEX_POSIX)  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
     if turn_id:
         from kb._lib import turn
         turn.backup(vault, INDEX_POSIX, turn_id)
     write_text_atomic(Path(vault) / INDEX_POSIX, text)
+    renders.record(vault, INDEX_POSIX, text)
     return count

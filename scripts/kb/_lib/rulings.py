@@ -8,7 +8,9 @@ cards（[{id, fp}]，fp 是掛的時候那張檔案卡的指紋前 12 碼）、t
 生效由程式帶：綜合卡的「整理到」收 r- 行，cards todo 把掛在實體或它的卡上的有效裁示附給寫綜合卡的人（for_entity）；
 掛卡的裁示遇到卡指紋變了（原檔改版、卡重做）由 drifted 列出、asks 問現在可以信了嗎。封頂與升格交 lint。
 每次寫都在 rulings.json 的 FileLock 裡：先 turn.backup 再原子寫，寫完重渲染 md（先備份，內容沒變不寫）。
+重渲染前比對 裁示.md 有沒有被手改（_lib/renders，D-223）：刪了行、改了字就存她那份、待處理開一條 handedit。
 """
+import copy
 import secrets
 from datetime import date
 from pathlib import Path
@@ -115,12 +117,13 @@ def _mutate(vault, turn_id, fn):
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
+        before = copy.deepcopy(data)
         result, changed = fn(data)
         if changed:
             from kb._lib import turn
             turn.backup(vault, RULINGS_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, turn_id, data)
+            render(vault, turn_id, data, base=before)
     return result
 
 
@@ -380,20 +383,36 @@ def render_text(data, titles, names=None):
     for kind in ACTIVE_KINDS:
         rows = [r for r in data["rulings"] if r.get("status") == "active" and r.get("kind") == kind]
         if rows:
-            blocks.append(f"## {KIND_TEXT[kind]}\n" + "\n".join(
-                f"- {targets(r, titles, names)}{'（' + r['label'] + '）' if r.get('label') else ''}：{r.get('text')}（{r.get('date')}）"
-                for r in rows))
+            blocks.append(f"## {KIND_TEXT[kind]}\n" + "\n".join(_row(r, titles, names) for r in rows))
     return HEADER + "\n" + ("\n\n".join(blocks) if blocks else EMPTY_SENTENCE) + "\n"
 
 
-def render(vault, turn_id=None, data=None):
-    """寫 系統/裁示.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。"""
-    from kb._lib import agenda
+def _row(r, titles, names):
+    label = "（" + r["label"] + "）" if r.get("label") else ""
+    return f"- {targets(r, titles, names)}{label}：{r.get('text')}（{r.get('date')}）"
+
+
+def item_lines(data, titles, names=None):
+    """[(裁示.md 裡那一行, 編號)]：有效的每一條（手改比對用）。"""
+    return [(_row(r, titles, names), r.get("id")) for r in data["rulings"]
+            if r.get("status") == "active" and r.get("kind") in ACTIVE_KINDS]
+
+
+def render(vault, turn_id=None, data=None, base=None):
+    """寫 系統/裁示.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
+    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。"""
+    from kb._lib import agenda, renders
     data = data if data is not None else load(vault)
-    text = render_text(data, agenda.card_titles(vault), file_names(vault))
+    titles, names = agenda.card_titles(vault), file_names(vault)
+    text = render_text(data, titles, names)
     target = Path(vault) / MD_POSIX
+    hers = renders.check(vault, MD_POSIX)
+    if hers is not None:
+        base = base if base is not None else data
+        renders.handle_list(vault, MD_POSIX, hers, render_text(base, titles, names), item_lines(base, titles, names), turn_id)
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
+            renders.record(vault, MD_POSIX, text)
             return False
     except (OSError, UnicodeDecodeError):
         pass
@@ -402,4 +421,5 @@ def render(vault, turn_id=None, data=None):
         turn.backup(vault, MD_POSIX, turn_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
+    renders.record(vault, MD_POSIX, text)
     return True

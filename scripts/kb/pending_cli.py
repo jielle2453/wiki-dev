@@ -3,6 +3,7 @@
 list 只印 open；resolve <id> --how "<一句>" 記 done，dismiss <id> 記 dismissed（客戶說不用管），兩者印「已記下」並重渲染 系統/待處理.md。
 add --kind conflict --card <f-…> --card <f-…> [--entity <名>]… --text "<一句>"（answer 第 6 點，D-155）：answer 核對時發現兩份原檔
 寫法不同；兩張卡要有檔案卡、不能是同一張，同一對已有 open 的回既有那條（「已經記過了」）。人讀不印編號。
+set-aside <id>／back <id>（lint 題，D-226）：她說「這個先不要」「暫不處理」收進先放著、拿回前面；找不到「沒有這件待處理」exit 3。
 寫一律經 _lib/pending（先備進目前回合）。對不存在或已處理過的 id 第一行說原因、exit 3。
 終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合。
 """
@@ -15,7 +16,11 @@ from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 CLI_LOCK_TIMEOUT = 30
-KIND_TEXT = {"missing_file": "原檔不見", "unreadable": "讀不到", "close": "要確認結案", "conflict": "寫法不同"}
+KIND_TEXT = {"missing_file": "原檔不見", "unreadable": "讀不到", "close": "要確認結案", "conflict": "寫法不同",
+             "script_touched": "程式動到的檔", "lint": "健檢", "report": "健檢報告", "handedit": "你手改過的"}
+SET_ASIDE_LINE = "先放著了：{}；有變化或快到期會再拿出來"
+BACK_LINE = "拿回來了：{}"
+ASIDE_SUFFIX = "（先放著）"
 SAME_CARD = "兩張要是不同的卡"
 NO_ENTITY = "實體清單沒有「{}」，先 kb entity add"
 TEXT_LABEL = "說明"
@@ -39,7 +44,11 @@ def add_arguments(sub):
     ad.add_argument("--card", action="append", default=[], help="寫法不同的檔案卡編號（f-…），兩張")
     ad.add_argument("--entity", action="append", default=[], help="相關的實體名稱，可以重複")
     ad.add_argument("--text", required=True, help="一句：哪裡寫得不同")
-    for p in (ls, rs, dm, ad):
+    sa = subs.add_parser("set-aside", help="這件先放著", description="這件先放著：不在回答末尾問，有變化或快到期會再拿出來。")
+    sa.add_argument("id", help="待處理編號（p-…）")
+    bk = subs.add_parser("back", help="先放著的拿回來", description="先放著的拿回前面。")
+    bk.add_argument("id", help="待處理編號（p-…）")
+    for p in (ls, rs, dm, ad, sa, bk):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -58,7 +67,26 @@ def _list(vault, as_json):
         print(pending.NOTHING.rstrip("。"))
         return 0
     for item in opened:
-        print(f"- {item['id']} {KIND_TEXT.get(item.get('kind'), item.get('kind'))} {_text(item)}")
+        print(f"- {item['id']} {KIND_TEXT.get(item.get('kind'), item.get('kind'))} {_text(item)}"
+              f"{ASIDE_SUFFIX if item.get('set_aside') else ''}")
+    return 0
+
+
+def _aside(vault, args, as_json):
+    """set-aside／back：同一件做兩次照樣成功（已經放著、已經在前面）。"""
+    conversation = journal_cli.in_conversation(vault)
+    turn_id = turn.current(vault)["turn"]
+    if args.pending_command == "set-aside":
+        item = pending.set_aside(vault, args.id, "customer", turn_id)
+        line, note = SET_ASIDE_LINE.format(_text(item)), f"待處理先放著：{_text(item)}"
+    else:
+        item = pending.back(vault, args.id, turn_id)
+        line, note = BACK_LINE.format(_text(item)), f"待處理拿回來：{_text(item)}"
+    journal_cli.record_program_or_warn(vault, note, CHANGED, f"pending {args.pending_command}", conversation)
+    if as_json:
+        print(json.dumps(item, ensure_ascii=False))
+    else:
+        print(line)
     return 0
 
 
@@ -125,6 +153,8 @@ def run(args):
             return _list(vault, as_json)
         if args.pending_command == "add":
             return _add(vault, args, as_json)
+        if args.pending_command in ("set-aside", "back"):
+            return _aside(vault, args, as_json)
         return _close(vault, args, as_json)
     except AddRefused as e:
         print(str(e))

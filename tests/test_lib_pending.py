@@ -41,7 +41,7 @@ class Base(unittest.TestCase):
 
 class LoadShape(Base):
     def test_missing_file_is_empty(self):
-        self.assertEqual(pending.load(self.V), {"schema_version": 1, "items": []})
+        self.assertEqual(pending.load(self.V), {"schema_version": 2, "items": []})
 
     def test_bad_shapes_raise(self):
         p = self.V / ".system" / "pending.json"
@@ -367,6 +367,110 @@ class ConflictCliOsError(unittest.TestCase):
         (self.V / pending.PENDING_POSIX).unlink(missing_ok=True)
         (self.V / pending.PENDING_POSIX).mkdir(parents=True)
         self.assertEqual(self.add(self.a, self.b, code=3), [f"狀態檔讀不到：{pending.PENDING_POSIX}"])
+
+
+class SchemaTwo(Base):
+    """lint 第 2 點（D-226）：schema 2 多 set_aside、returned；kind 多 lint、report、handedit；先放著、拿回來、自己回到前面。"""
+
+    def put_v1(self, items):
+        (self.V / ".system" / "pending.json").write_text(
+            json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False), encoding="utf-8")
+
+    def unreadable(self, fid="f-11111111", created="2026-10-01T00:00:00"):
+        return {"id": "p-aaaa0001", "kind": "unreadable", "file_ids": [fid], "entity_ids": [], "text": "「甲.pdf」讀不到",
+                "reason": "檔案壞了", "created": created, "created_turn": "t", "status": "open", "resolved": None, "how": None}
+
+    def test_v1_loads_as_v2_in_memory(self):
+        self.put_v1([self.unreadable()])
+        data = pending.load(self.V)
+        self.assertEqual(data["schema_version"], 2)
+        self.assertEqual((data["items"][0]["set_aside"], data["items"][0]["returned"]), (None, None))
+
+    def test_set_aside_back_and_render(self):
+        self.put_v1([self.unreadable()])
+        item = pending.set_aside(self.V, "p-aaaa0001", "customer", self.t)
+        self.assertEqual(item["set_aside"]["by"], "customer")
+        md = self.md()
+        self.assertIn("## 先放著的（1）", md)
+        self.assertNotIn("## 讀不到", md)
+        self.assertEqual(json.loads((self.V / ".system" / "pending.json").read_text(encoding="utf-8"))["schema_version"], 2)
+        item = pending.back(self.V, "p-aaaa0001", self.t)
+        self.assertIsNone(item["set_aside"])
+        self.assertTrue(item["returned"])
+        self.assertNotIn("先放著的", self.md())
+        with self.assertRaises(KeyError):
+            pending.set_aside(self.V, "p-nope", "customer", self.t)
+
+    def test_wake_by_file_and_entity(self):
+        self.put_v1([self.unreadable(), dict(self.unreadable("f-22222222"), id="p-aaaa0002", entity_ids=["e-1"])])
+        pending.set_aside(self.V, "p-aaaa0001", "lint", self.t)
+        pending.set_aside(self.V, "p-aaaa0002", "lint", self.t)
+        self.assertEqual(pending.wake(self.V, file_ids=["f-11111111"], turn_id=self.t), 1)
+        self.assertEqual(pending.wake(self.V, entity_ids=["e-1"], turn_id=self.t), 1)
+        self.assertTrue(all(i["set_aside"] is None and i["returned"] for i in self.items()))
+        self.assertEqual(pending.wake(self.V, file_ids=["f-11111111"], turn_id=self.t), 0)
+
+    def test_set_aside_old_items(self):
+        self.put_v1([self.unreadable(created="2026-09-01T00:00:00"),
+                     dict(self.unreadable(created="2026-10-20T00:00:00"), id="p-aaaa0002")])
+        n = pending.set_aside_old(self.V, 30, self.t, today="2026-10-25")
+        self.assertEqual(n, 1)
+        by = {i["id"]: i["set_aside"] for i in self.items()}
+        self.assertEqual(by["p-aaaa0001"]["by"], "lint")
+        self.assertIsNone(by["p-aaaa0002"])
+
+    def test_returned_date_counts_as_last_touch(self):
+        self.put_v1([dict(self.unreadable(created="2026-08-01T00:00:00"), returned="2026-10-20")])
+        self.assertEqual(pending.set_aside_old(self.V, 30, self.t, today="2026-10-25"), 0)
+
+    def test_lint_items_dedupe_by_key(self):
+        pid, created = pending.add_lint(self.V, "guard_stale", "守門好像沒在跑", {"last": "2026-10-01"}, self.t)
+        again, created2 = pending.add_lint(self.V, "guard_stale", "守門好像沒在跑", {}, self.t)
+        self.assertEqual((pid, created, created2), (again, True, False))
+        item = self.items()[0]
+        self.assertEqual((item["kind"], item["key"]), ("lint", "guard_stale"))
+        self.assertIn("## 健檢查到的（1）", self.md())
+
+    def test_lint_once_does_not_reopen_answered(self):
+        pid, _c = pending.add_lint(self.V, "skeleton:CLAUDE.md:abc", "你改過 CLAUDE.md", {}, self.t, once=True)
+        pending.resolve(self.V, pid, "留著", self.t)
+        _pid, created = pending.add_lint(self.V, "skeleton:CLAUDE.md:abc", "你改過 CLAUDE.md", {}, self.t, once=True)
+        self.assertFalse(created)
+
+    def test_report_keeps_only_newest(self):
+        first, _c = pending.add_report(self.V, "2026-09", self.t)
+        second, _c = pending.add_report(self.V, "2026-10", self.t)
+        by = {i["id"]: i for i in self.items()}
+        self.assertEqual(by[first]["status"], "done")
+        self.assertEqual((by[second]["status"], by[second]["data"]["month"]), ("open", "2026-10"))
+        self.assertIn("2026-10", self.md())
+
+    def test_handedit_item(self):
+        pid = pending.add_handedit(self.V, "系統/日程.md", ".system/handedits/x-日程.md",
+                                   {"checked": [], "removed": [], "changed_date": [], "other": ["x"]}, self.t)
+        item = next(i for i in self.items() if i["id"] == pid)
+        self.assertEqual((item["kind"], item["data"]["file"]), ("handedit", "系統/日程.md"))
+        self.assertIn("你手改過的", self.md())
+
+    def test_asks_section(self):
+        self.put_v1([self.unreadable()])
+        pending.render(self.V, asks=["「信義王」名字這樣叫對嗎？"])
+        self.assertIn("## 整理時要問你的（1）\n- 「信義王」名字這樣叫對嗎？", self.md())
+
+    def test_done_items_not_listed(self):
+        self.put_v1([dict(self.unreadable(), status="done")])
+        pending.render(self.V)
+        self.assertIn(pending.NOTHING, self.md())
+
+    def test_migration_row_rewrites_v2(self):
+        from kb._lib import migrate
+        self.put_v1([self.unreadable()])
+        self.assertIn({"rel": pending.PENDING_POSIX, "from": 1, "to": 2}, migrate.pending(self.V))
+        got = migrate.apply(self.V, self.t)
+        self.assertIn(pending.PENDING_POSIX, got["migrated"])
+        raw = json.loads((self.V / ".system" / "pending.json").read_text(encoding="utf-8"))
+        self.assertEqual(raw["schema_version"], 2)
+        self.assertIn(pending.PENDING_POSIX, self.manifest())
 
 
 if __name__ == "__main__":
