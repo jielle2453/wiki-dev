@@ -144,6 +144,14 @@
 | B-429 | 2026-10-24 | open | `kb cards redo --job … --check` 只列前 30 張卡、後面寫「……共 N 張」；超過時照資料夾或實體分組全列 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
 | B-430 | 2026-10-24 | open | 建置被另一個對話拿著時，擋下句的「最後動作 HH:MM」取的是最後一步 done 的時間（例如抽樣完成），不是那個對話真正最後一次動作（派工、批次 last_seen）；接手後被放掉的批次，舊的子代理沒記成停了 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
 | B-431 | 2026-10-24 | open | 桌面版還沒驗到的（自動測試有涵蓋）：抽樣說「案子改叫工程」後卡的待補型別跟著改、交付報告不再問；舊 wiki 記了口述之後綜合卡先更新才准收尾、`.system\temp\adopt\` 收尾清空；日程同一件事兩個日期（驗收 11-20 與改定的 11-28）都 open、沒標誰取代誰。留給 (8) 完整試跑看 | card-maker 與 build 桌面版補驗（`llm-wiki-test\cmb-check\補驗報告*.md`） |
+| B-441 | 2026-10-25 | open | 連退兩步做不到：`versions revert` 把「退回」本身算最近一句，第二次說退回會取消前一次（D-074 原本的設計，D-228 因此改問重做或不讀）；確認時 AI 先答應「一次退一步就行」講錯了。要在說明裡寫明，(8) 試跑看客戶常不常這樣說 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-442 | 2026-10-25 | open | 搬家後開場說「還有 N 張卡要跟著搬」（114）跟 `kb moved` 實際補的（6）對不上：開場那時相對來源還沒補，算法把每張都當成要搬 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-443 | 2026-10-25 | open | 「舊位置還有一份」只在第一次 `kb moved` 提醒，補好後 `old_copy` 變 null 就不再講；她沒刪的話之後沒人提 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-444 | 2026-10-25 | open | 檔名含「密碼」的設計文件（`密碼與守門-確認.md`）被守門當成憑證檔擋；只有開發與確認時會遇到 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-445 | 2026-10-25 | open | 還原會把 `.claude\settings.local.json` 換成備份裡那份（local 範圍的 plugin 設定跟著回去）；客戶是 user 範圍、通常沒有這個檔 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-446 | 2026-10-25 | open | 退回舊版（還原快照）的當下，hook 讀 `.system\batches.json.lock` 碰到 PermissionError 寫了一筆 hook-errors.log；一次性、之後沒再增加 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-447 | 2026-10-25 | open | B-425 只放行單一檔名的 Glob；AI 很自然會寫 `**/檔名`，在有「不讀」子夾的來源底下仍被擋 | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
+| B-448 | 2026-10-25 | open | 升級打包測試第二輪 I-4、I-5：小修規則整檔掃字面 `"schema_version"`，docstring 裡多寫一句也會被擋（誤擋）；市集名的字元檢查放過 `.`、`..`（無害） | 桌面版確認（備份還原與升級打包，`llm-wiki-test\bu-check\確認報告.md`） |
 
 ## 補漏洞型延伸（落在既有位置，不加分類）
 
