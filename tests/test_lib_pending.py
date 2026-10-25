@@ -61,7 +61,7 @@ class Render(Base):
         pending.render(self.V)
         lines = self.md().splitlines()
         self.assertEqual(lines[0], "# 待處理")
-        self.assertEqual(lines[3], "由程式產生，改了會被覆蓋。")
+        self.assertEqual(lines[3], "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。")  # D-223：照她打勾、刪行做
         self.assertEqual(lines[-1], "目前沒有等你決定的事。")
 
     def test_reason_questions(self):
@@ -346,7 +346,9 @@ class ConflictCli(unittest.TestCase):
         self.add(self.a, self.b)
         got = json.loads(run_kb("asks", "--json", cwd=self.V).stdout)
         self.assertEqual([a for a in got["asks"] if "conflict" in a["kind"] and a["kind"] != "agenda_conflict"], [])
-        self.assertIn("還有 1 件兩份寫法不同的，在待處理", got["tell"])
+        self.assertFalse([t for t in got["tell"] if "兩份寫法不同" in t], "lint 題：件數只由 others_line 講（D-225）")
+        self.assertGreaterEqual(got["others"], 1)
+        self.assertIsNotNone(got["others_line"])
 
     def test_revert(self):
         turn.start(self.V, None, "")

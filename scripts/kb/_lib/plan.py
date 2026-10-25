@@ -6,7 +6,7 @@ asks：排好序、編好號的問題，每題 {"id","kind","question","results"
       順序：實體夾或綜合卡不見 → 原檔不見 → 裁示遇到原檔改版（ruling_recheck）→ 逾期、日程有出入、結案 → 草稿還在等（draft，
       produce）→ 名字確認；
       號碼從 1 一路編下去不管挑哪幾題，do 的指令以 kb 開頭，要客戶給的值寫成 {新名字} 這種空格，fill 列有哪些。
-tell：回答末尾要講的現成句子；kb asks（tell_all 是 False）多一句還有幾件兩份寫法不同的（待處理 conflict，不進 asks，answer 第 6 點）。
+tell：回答末尾要講的現成句子；兩份寫法不同的（待處理 conflict，不進整理題）件數只由 kb asks 的 others_line 講（lint 題，D-225）。
 密碼與守門（D-181、D-182、D-183）：plan 多 unlock_same_kind（授權過的種類在、待處理有新的「有密碼」PDF：列檔與每一種的例子給 AI 判斷，
 排在寫卡之前、份數算進 ingest_auto_max）；asks 多 credential_same_kind（有帶 label 的「可以讀」裁示時，每份新的檔名像密碼的檔一題，
 排在原檔不見之後）；tell 的「有密碼」PDF 與 Word／Excel 分開講、不製卡的密碼檔接「要讓我讀哪一份跟我說」、這一回合用存好的密碼開了的講一句。
@@ -132,8 +132,7 @@ def build(out, vault, config, tell_all=True):
     steps = [s for s in full if s["step"] in ("sync",) + PURGE_STEPS] if batch else full  # 清殘留批次時也留（疑義第 8 條）
     asks, hidden = visible(vault, annotate(vault, asks, config))  # 先放著的不列（D-226），有時間性的照列
     if not tell_all:
-        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault) + _conflict_tell(vault),
-                "set_aside": hidden}
+        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault), "set_aside": hidden}
     waiting = _waiting(out, vault)
     announce = ANNOUNCE.format(n=waiting, how_long=_how_long(waiting, vault, config)) if waiting and not batch else None
     return {"plan": steps, "asks": _number(asks), "tell": _tell(out, vault), "announce": announce, "set_aside": hidden}
@@ -872,17 +871,7 @@ def _opened_tell(vault):
             for o in opened if o.get("label")]
 
 
-CONFLICT_TELL = "還有 {n} 件兩份寫法不同的，在待處理"
 UNBACKED_TELL = "AI 產出有 {n} 份沒經程式放進來，這幾份退回拿不掉"  # produce 第 5 點：只數這次待製卡裡的
-
-
-def _conflict_tell(vault):
-    """待處理裡 open 的「兩份寫法不同」：只講件數，不問（客戶說哪個對之後交 note）；pending.json 讀不到就不講。"""
-    try:
-        n = sum(1 for i in pending.load(vault)["items"] if i.get("kind") == "conflict" and i.get("status") == "open")
-    except ValueError:
-        return []
-    return [CONFLICT_TELL.format(n=n)] if n else []
 
 
 def _unreadable_line(name, reason):
