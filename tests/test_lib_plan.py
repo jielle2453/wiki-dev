@@ -726,9 +726,10 @@ class WithRealVault(unittest.TestCase):
             self.run_do(line, fills)
 
     def test_three_keys_and_old_keys_unchanged(self):
-        data = self.todo()
-        self.assertEqual(set(data), self.OLD_KEYS | {"plan", "asks", "tell", "announce"})
-        self.assertEqual(set(data) - {"plan", "asks", "tell", "announce"}, self.OLD_KEYS)
+        data = self.todo()  # set_aside：先放著藏了幾題（lint 題，D-226）
+        self.assertEqual(set(data), self.OLD_KEYS | {"plan", "asks", "tell", "announce", "set_aside"})
+        self.assertEqual(set(data) - {"plan", "asks", "tell", "announce", "set_aside"}, self.OLD_KEYS)
+        self.assertTrue(all({"key", "about", "urgent"} <= set(a) for a in data["asks"]))
 
     def test_skipped_by_setting_names_the_kind(self):
         ids = [i["id"] for i in self.todo()["new"]][:4]

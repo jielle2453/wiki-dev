@@ -112,8 +112,21 @@ def run(args):
     except Exception as e:  # noqa: BLE001  OSError 這類：一句白話，不印 traceback 與絕對路徑（answer 裁定 22）
         print(f"查不出來（{type(e).__name__}），沒有結果")
         return 3
+    _touch(vault, got)
     if getattr(args, "json", False):
         print(json.dumps(got, ensure_ascii=False))
     else:
         print("\n".join(_lines(got)))
     return 0
+
+
+def _touch(vault, got):
+    """對話裡查過的實體與它的卡記進回合 touched（lint 題，D-225：回答末尾只問跟這一句有關的）；記不到不擋查詢。"""
+    if got["entity"] is None:
+        return
+    try:
+        from kb._lib import turn
+        e, _hit = entities.find(entities.load(vault), got["entity"]["name"])
+        turn.touch(vault, entities=[e["id"]] if e else [], files=[c["id"] for c in got["cards"] if c.get("id")])
+    except Exception:  # noqa: BLE001
+        pass

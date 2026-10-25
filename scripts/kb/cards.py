@@ -604,6 +604,8 @@ def run(args):
         if command == "stop":
             return _stop(vault, args, as_json)
         conversation = journal_cli.in_conversation(vault)
+        if getattr(args, "id", None) and str(args.id).startswith("f-"):
+            turn.touch(vault, files=[args.id])  # 這一句動過的卡（lint 題，D-225）；終端機不記
         if command == "sync":
             return _sync(vault, as_json, conversation)
         if command == "drop":

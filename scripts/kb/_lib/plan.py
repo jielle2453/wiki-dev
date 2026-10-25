@@ -15,11 +15,18 @@ announce：要整理的份數在 ingest_auto_max 以內時，開始整理前先�
 名字（D-202，build 第 7 點）：有到門檻還沒確認的新名字（synthesis_new 沒確認的、unconfirmed_names）時，plan 最前面多一步 names：
 AI 讀掛的卡判斷，有把握的 kb entity accept（記成 AI 判斷，算確認），有疑慮的不動、留給 asks 的名字題；
 AI 判斷登記的（ai_judged）不算沒確認，不出名字題。tell 多一句這一回合 AI 判斷登記了哪幾個。
+回答末尾的問法（lint 題，D-225、D-226）：每題多 key（穩定的鍵：住在 pending.json 的是 p- 編號，其他是題號加問句的指紋，
+對象變了問句就變、鍵跟著變）、about（{"entities","files"}：這題的對象，檔案卡掛的實體也算）、urgent（有時間性：逾期、
+日程條目離到期剩 set_aside_wake_days 天）；先放著的（pending 的 set_aside 還沒該回來、.system/set_aside.json 記的鍵）不列，
+有時間性的照列；build 多回 set_aside（藏了幾題）。pending_asks 把 pending.json 裡沒有整理題的那幾種（讀不到、寫法不同、
+程式動到的、健檢、報告、手改）也做成題，給 kb asks 的範圍與 --all 用；order 照急的排。
 只讀：不寫任何檔，不開原檔。
 """
+import hashlib
 import math
 import os
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 from kb._lib import agenda, batches, cards, entities, inventory, pending, rulings, turn
@@ -123,11 +130,13 @@ def build(out, vault, config, tell_all=True):
     asks = _asks(out, vault, config, full, state)
     batch = bool(asks) and asks[0]["id"] == "batch"
     steps = [s for s in full if s["step"] in ("sync",) + PURGE_STEPS] if batch else full  # 清殘留批次時也留（疑義第 8 條）
+    asks, hidden = visible(vault, annotate(vault, asks, config))  # 先放著的不列（D-226），有時間性的照列
     if not tell_all:
-        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault) + _conflict_tell(vault)}
+        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault) + _conflict_tell(vault),
+                "set_aside": hidden}
     waiting = _waiting(out, vault)
     announce = ANNOUNCE.format(n=waiting, how_long=_how_long(waiting, vault, config)) if waiting and not batch else None
-    return {"plan": steps, "asks": _number(asks), "tell": _tell(out, vault), "announce": announce}
+    return {"plan": steps, "asks": _number(asks), "tell": _tell(out, vault), "announce": announce, "set_aside": hidden}
 
 
 def _waiting(out, vault):
@@ -563,6 +572,234 @@ def _number(asks):
             n += 1
             r["n"] = n
     return asks
+
+
+def renumber(asks):
+    """挑過之後選項從 1 重新連號（kb asks 的範圍與 --all）。"""
+    return _number(asks)
+
+
+# ---------- 回答末尾的問法（lint 題，D-225、D-226） ----------
+
+SET_ASIDE_POSIX = ".system/set_aside.json"
+PENDING_KEYED = ("missing", "close")  # 這兩種題目住在 pending.json，key 就是 p- 編號
+PENDING_ONLY = ("handedit", "lint", "unreadable", "script_touched", "conflict", "report")  # 沒有整理題的待處理，照這個順序
+# 急的排前面：有時間性的 → 整理題照 _asks 的順序 → 沒有整理題的待處理
+_ORDER = ("batch", "drift", "missing", "credential_same_kind", "ruling_recheck", "overdue", "agenda_conflict", "close", "draft",
+          "name") + tuple(f"pending_{k}" for k in PENDING_ONLY)
+PENDING_HOW = "{客戶的話}"
+
+
+def _digest(text):
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:8]
+
+
+def set_aside_keys(vault):
+    """.system/set_aside.json 記的鍵 {key: {at, by, question}}（不住在 pending.json 的問題先放著）；沒檔、壞檔回空。"""
+    try:
+        from kb._lib.io import read_json
+        data = read_json(Path(vault) / SET_ASIDE_POSIX)
+    except (ValueError, OSError):
+        return {}
+    keys = data.get("keys") if isinstance(data, dict) else None
+    return {k: v for k, v in keys.items() if isinstance(v, dict)} if isinstance(keys, dict) else {}
+
+
+class _About:
+    """算 about 要的東西，要用才讀：實體名稱 → 編號、卡 → 掛的實體、日程與裁示條目、待處理條目。讀不到的那一類給空的。"""
+
+    def __init__(self, vault):
+        self.vault = vault
+        self._ent = self._cards = self._agenda = self._rulings = self._pending = None
+
+    def entities(self):
+        if self._ent is None:
+            try:
+                self._ent = entities.load(self.vault)
+            except ValueError:
+                self._ent = {"entities": []}
+        return self._ent
+
+    def ids_of(self, names):
+        out = []
+        for name in names or []:
+            e, _hit = entities.find(self.entities(), name)
+            if e is not None and e["id"] not in out:
+                out.append(e["id"])
+        return out
+
+    def card_entities(self, fid):
+        if self._cards is None:
+            self._cards = {}
+            try:
+                for name, ms in entities.mounts(self.vault, self.entities()).items():
+                    eid = self.ids_of([name])
+                    for m in ms:
+                        self._cards.setdefault(m["id"], []).extend(eid)
+            except Exception:  # noqa: BLE001  卡讀不到：只用題目自己帶的對象
+                self._cards = {}
+        return self._cards.get(fid, [])
+
+    def agenda_item(self, aid):
+        if self._agenda is None:
+            try:
+                self._agenda = {i.get("id"): i for i in agenda.load(self.vault)["items"]}
+            except ValueError:
+                self._agenda = {}
+        return self._agenda.get(aid)
+
+    def ruling(self, rid):
+        if self._rulings is None:
+            try:
+                self._rulings = {r.get("id"): r for r in rulings.load(self.vault)["rulings"]}
+            except ValueError:
+                self._rulings = {}
+        return self._rulings.get(rid)
+
+    def pending_item(self, pid):
+        if self._pending is None:
+            try:
+                self._pending = {i.get("id"): i for i in pending.load(self.vault)["items"]}
+            except ValueError:
+                self._pending = {}
+        return self._pending.get(pid)
+
+
+def _about_of(ask, ctx):
+    """這題的對象 {"entities","files"}：照題號認是哪一種對象，檔案卡掛的實體一起算。"""
+    kind, _sep, target = str(ask["id"]).partition(":")
+    ents, files = [], []
+    if kind in ("drift", "name"):
+        ents.append(target)
+    elif kind == "credential":
+        files.append(target)
+    elif kind in ("missing", "close", "pending"):
+        item = ctx.pending_item(target) or {}
+        ents += list(item.get("entity_ids") or [])
+        files += [f for f in item.get("file_ids") or [] if str(f).startswith("f-")]
+    elif kind in ("overdue", "conflict"):
+        item = ctx.agenda_item(target) or {}
+        ents += ctx.ids_of(item.get("entities"))
+        card = (item.get("origin") or {}).get("card") or ((item.get("proposal") or {}).get("card"))
+        if card:
+            files.append(card)
+    elif kind == "ruling":
+        r = ctx.ruling(target) or {}
+        ents += ctx.ids_of(r.get("entities"))
+        files += list(rulings.card_ids(r)) if r else []
+    for f in files:
+        ents += ctx.card_entities(f)
+    return {"entities": list(dict.fromkeys(ents)), "files": list(dict.fromkeys(files))}
+
+
+def _key_of(vault, ask):
+    """穩定的鍵：住在 pending.json 的是 p- 編號；其他是題號加問句的指紋（草稿另加內容指紋，改了內容鍵就變）。"""
+    kind, _sep, target = str(ask["id"]).partition(":")
+    if kind in ("missing", "close", "pending"):
+        return target
+    extra = ""
+    if kind == "draft":
+        try:
+            extra = _digest((Path(vault) / target).read_bytes())
+        except OSError:
+            extra = ""
+    return f"{ask['id']}@{_digest(ask['question'] + extra)}"
+
+
+def _urgent(ask, ctx, limit):
+    """有時間性（D-225、D-129）：逾期一律算；日程有出入的條目或新日期離今天剩 set_aside_wake_days 天以內；待處理的 data.dates 同。"""
+    kind, _sep, target = str(ask["id"]).partition(":")
+    if ask["kind"] == "overdue":
+        return True
+    if kind == "conflict":
+        item = ctx.agenda_item(target) or {}
+        days = [item.get("date"), (item.get("proposal") or {}).get("date")]
+        return any(isinstance(d, str) and d <= limit for d in days)
+    if kind == "pending":
+        item = ctx.pending_item(target) or {}
+        return any(str(d) <= limit for d in (item.get("data") or {}).get("dates") or [])
+    return False
+
+
+def _limit(vault, config_mod=None):
+    from kb._lib import config as config_lib
+    days = (config_mod or config_lib).get(vault, "set_aside_wake_days")
+    return (date.fromisoformat(agenda._today()) + timedelta(days=days)).isoformat()
+
+
+def annotate(vault, asks, config_mod=None):
+    """每題補 key、about、urgent（原地改，也回同一份）。"""
+    ctx = _About(vault)
+    limit = _limit(vault, config_mod)
+    for ask in asks:
+        ask["key"] = _key_of(vault, ask)
+        ask["about"] = _about_of(ask, ctx)
+        ask["urgent"] = _urgent(ask, ctx, limit)
+    return asks
+
+
+def visible(vault, asks):
+    """去掉先放著的（有時間性的照留）：pending 的 set_aside 還沒該回來、set_aside.json 記的鍵。回 (留下的, 藏了幾題)。"""
+    try:
+        items = pending.load(vault)["items"]
+    except ValueError:
+        items = []
+    back = pending.due_back(vault, items) if any(i.get("set_aside") for i in items) else set()
+    aside = {i["id"] for i in items if i.get("status") == "open" and i.get("set_aside") and i["id"] not in back}
+    keys = set(set_aside_keys(vault))
+    shown = [a for a in asks if a.get("urgent") or (a.get("key") not in aside and a.get("key") not in keys)]
+    return shown, len(asks) - len(shown)
+
+
+def _pending_results(item):
+    pid, kind = item["id"], item.get("kind")
+    resolve = _result("處理好了", [cmd("pending", "resolve", pid, "--how") + f' "{PENDING_HOW}"'],
+                      fill=[_fill("客戶的話", FREE_TEXT_RULE)])
+    drop = _result("不用管", [cmd("pending", "dismiss", pid)])
+    if kind == "report":
+        month = (item.get("data") or {}).get("month") or ""
+        return [_result("看報告", [cmd("pending", "resolve", pid, "--how", "看過了")],
+                        note=f"讀 系統/健檢報告/{month}.md 用白話講重點（照 lint skill），講完跑 do")]
+    if kind == "handedit":
+        return [_result("照你改的做", note="kb lint handedit --json 看她改了什麼，照意思用 kb 指令做、看不懂的才問，做完 kb lint handedit --done "
+                                       + pid), drop]
+    if kind == "lint":
+        got = [_result(r.get("label", ""), r.get("do") or [], note=r.get("note")) for r in (item.get("data") or {}).get("results") or []
+               if isinstance(r, dict) and r.get("label")]
+        return (got or [resolve]) + [drop]
+    if kind == "conflict":
+        return [_result("說哪個對", note="照 note skill 記下她說的（口述或裁示），記完 kb pending resolve " + pid), drop]
+    return [resolve, drop]
+
+
+def pending_asks(vault, items=None, config_mod=None):
+    """pending.json 裡沒有整理題的那幾種（PENDING_ONLY）做成題：題號 pending:<編號>、kind pending_<種類>、問句是 待處理.md 那一行。
+    補好 key、about、urgent，先放著的不列。回 (題, 藏了幾題)。"""
+    if items is None:
+        try:
+            items = pending.load(vault)["items"]
+        except ValueError:
+            return [], 0
+    rank = {k: i for i, k in enumerate(PENDING_ONLY)}
+    rows = sorted((i for i in items if i.get("status") == "open" and i.get("kind") in PENDING_ONLY),
+                  key=lambda i: (rank[i["kind"]], str(i.get("created") or "")))
+    asks = [_ask(f"pending:{i['id']}", f"pending_{i['kind']}", pending.line_of(i), _pending_results(i)) for i in rows]
+    return visible(vault, annotate(vault, asks, config_mod))
+
+
+def order(asks):
+    """照急的排：有時間性的在前，其他照 _ORDER（整理題的原順序、沒有整理題的待處理在後），同種保持原順序。"""
+    rank = {k: i for i, k in enumerate(_ORDER)}
+    return sorted(asks, key=lambda a: (not a.get("urgent"), rank.get(a.get("kind"), len(_ORDER))))
+
+
+def pending_view_questions(vault):
+    """待處理.md「整理時要問你的」那段（D-226）：整理題裡不住在 pending.json 的問句（先放著的、批次題不列）。健檢算好交給 pending。"""
+    from kb._lib import config as config_lib
+    from kb._lib import sources as sources_lib
+    out = cards.collect(vault, sources_lib.load(vault))
+    got = build(out, vault, config_lib, tell_all=False)
+    return [a["question"] for a in got["asks"] if a["kind"] not in PENDING_KEYED + ("batch",)]
 
 
 # ---------- tell ----------

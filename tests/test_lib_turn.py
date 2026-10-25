@@ -648,5 +648,46 @@ class MarkLockAndInherit(unittest.TestCase):
         self.assertNotIn("ingest", plain)
 
 
+class AsksToldAndTouched(unittest.TestCase):
+    """lint 題（D-225）：asks_told 一個 session 說過一次就跟著每一句帶下去、新 session 沒有；touched 記這一句查過的實體與檔。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_asks_told_carries_within_session_only(self):
+        self.assertIn("asks_told", turn.MARK_FLAGS)
+        turn.start(self.V, SID, "第一句")
+        self.assertTrue(turn.mark(self.V, "asks_told"))
+        self.assertTrue(turn.start(self.V, SID, "第二句").get("asks_told"))
+        self.assertFalse(turn.start(self.V, "other-sid", "別的對話").get("asks_told"))
+
+    def test_touch_records_in_conversation_turn(self):
+        turn.start(self.V, SID, "信義王現在怎樣")
+        turn.touch(self.V, entities=["e-1"], files=["f-1"])
+        turn.touch(self.V, entities=["e-1", "e-2"])
+        got = turn.touched(turn.current(self.V, SID))
+        self.assertEqual(got, {"entities": {"e-1", "e-2"}, "files": {"f-1"}})
+
+    def test_touch_in_terminal_records_nothing(self):
+        turn.start(self.V, None, "")
+        turn.touch(self.V, entities=["e-1"])
+        self.assertEqual(turn.touched(turn.current(self.V)), {"entities": set(), "files": set()})
+
+    def test_touch_with_override_goes_to_that_turn(self):
+        job = turn.start(self.V, SID, "整理")["turn"]
+        turn.turn_dir(self.V, job)  # 派工那句的回合夾（cards dispatch 會建），換句話之後欄位留在那裡
+        turn.start(self.V, SID, "下一句")
+        turn.OVERRIDE = job
+        try:
+            turn.touch(self.V, files=["f-9"])
+        finally:
+            turn.OVERRIDE = None
+        self.assertEqual(turn.touched(turn.turn_data(self.V, job))["files"], {"f-9"})
+        self.assertEqual(turn.touched(turn.current(self.V, SID))["files"], set())
+
+
 if __name__ == "__main__":
     unittest.main()
