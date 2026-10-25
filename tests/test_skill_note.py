@@ -89,7 +89,7 @@ class Body(unittest.TestCase):
 
     def test_skeleton_mentions_the_three_programs(self):
         skeleton = self.body[self.body.index("## 骨架"):self.body.index("## 共通")]
-        for want in ("list --json", "kb entity progress", "kb asks --json", "turn note", "references/agenda.md"):
+        for want in ("list --json", "kb entity progress", "kb asks --about", "turn note", "references/agenda.md"):
             with self.subTest(want=want):
                 self.assertIn(want, skeleton)
 

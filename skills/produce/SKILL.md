@@ -48,7 +48,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - **新做**：收資料（實體用 `kb lookup`、按卡型或年列卡用 `kb cards list`、日程用 `kb agenda list`）→ 寫草稿放 AI 產出（`references/draft.md`）→ 她說可以 → 照用途做成（`references/make.md`）：本機檔在工作區做好後 `kb output save … --draft <草稿>`，線上文件建好後 `kb output link`；剛回答過的直接做成。
 - **改既有、轉格式**：`kb office copy` → 在工作區改（`kb office unpack`／`pack`、或腳本經 `kb office run`）→ 驗（Word 修訂數、Excel `kb office recalc`、簡報 `kb office render`）→ `kb output save … --from <原檔>`。
 - **回答**：說放在哪（AI 產出的哪個夾，或線上文件存在她帳號）、說「退回」可以退這一步（這份檔先留著，要刪再跟我說）、用了哪幾份資料；程式的成功句與拒絕句照 `references/make.md` 轉白話。
-- 末尾跑 `kb asks --json`，照 `asks` 補問（加上自己的問題一次最多 3 個，D-135），`tell` 原樣貼。
+- 末尾跑 `kb asks --about 實體 --json`，照 `asks` 補問（一次最多 3 個），`others_line`、`tell` 照貼。
 - 這句話有寫入才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。
 
 ## 共通
