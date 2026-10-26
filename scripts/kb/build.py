@@ -27,7 +27,7 @@ def add_arguments(sub):
     st = subs.add_parser("status", help="建置做到哪、這一步做什麼", description="印目前這一步與要跑的指令；還沒開始從環境那步起。")
     st.add_argument("--takeover", action="store_true", help="接手建置：另一個對話已經關掉了，鎖換成這個對話")
     sa = subs.add_parser("start", help="開始建置：在這個資料夾建知識庫", description="在目前的資料夾跑 kb init、記下環境檢查。")
-    ev = subs.add_parser("env", help="檢查這台電腦（只讀）", description="Python、kb、信任、智慧型應用程式控制、PDF 元件、Office、磁碟、舊 llm-wiki。")
+    ev = subs.add_parser("env", help="檢查這台電腦（只讀）", description="Python、kb、信任、自動記憶、智慧型應用程式控制、PDF 元件、Office、磁碟、舊 llm-wiki。")
     se = subs.add_parser("set", help="記下幾個人用、舊 wiki 在哪", description="people：幾個人用（她的原話）；adopt：舊 llm-wiki 的資料夾。")
     se.add_argument("key", choices=["people", "adopt"], help="people 或 adopt")
     se.add_argument("value", help="值（有空白加引號）")
