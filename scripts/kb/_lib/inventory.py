@@ -5,6 +5,7 @@ locations（[{uri, size, mtime}]，uri 是 file://<來源別名>/<相對路徑>�
 fingerprints（[{sha256, text_sha256?, time, turn}]，最後一筆是現行；text_sha256 只有 OOXML 算得出來才有，D-096）、
 read（ok｜placeholder｜credential｜too_large｜error）、status（active｜missing｜excluded｜turn_reverted｜deleted｜superseded）、
 first_seen、created_turn、missing_since。選填欄 skip_kind、agenda_fp、redo 由各自的 set_ 寫，scan／apply／reconcile 原樣保留；
+收件匣（issue #10）的選填欄 intake（kb intake 收的才有：received、from、name、original_name、pasted、copy）由 register_intake 寫，同樣保留；
 produce 第 4 點的三個選填欄同樣保留：kind（只有 "link"：Claude artifact，位置是網址，不算指紋、不走訪、不算不見）、
 derived_from（成品改自哪份原檔的清冊編號）、unbacked（AI 產出裡沒經程式放進來、掃描才看到的檔，退回拿不掉）；
 link 條目另帶 title、type、entities、basis（output link 給的，製卡時預填）。
@@ -273,6 +274,53 @@ def register_output(vault, rel, turn_id, derived_from=None):
         }
         if derived_from:
             entry["derived_from"] = derived_from
+        data["entries"].append(entry)
+        _write(vault, data["entries"])
+        return entry
+
+
+def register_intake(vault, rel, turn_id, meta, fresh=False):
+    """kb intake 收進收件匣的檔（收件匣第 2 點，D-242）：同位置有 active 條目就追加指紋（位置大小時間跟著更新，同 register_output），
+    沒有就新建一筆 origin intake、created_turn 是這回合；同位置的舊非 active 條目改 superseded。
+    fresh（新收的檔，呼叫端剛建）：一律新建；同位置還記著 active 的（檔在 kb 外被刪、掃描還沒記不見）也改 superseded，不接到舊條目上。
+    選填欄 intake = meta（from、name、original_name、pasted、copy，沒有的不寫）加 received（這次寫進來的時間）。回那一筆。"""
+    uri = "file://" + str(rel).replace("\\", "/")
+    key = uri_key(uri)
+    target = Path(vault) / rel
+    digest = sha256_of(target)
+    now = _now()
+    info = {k: v for k, v in dict(meta or {}).items() if v not in (None, "", False)}
+    p = _path(vault)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        data = load(vault)
+        same = [e for e in data["entries"] if _has_location(e, key)]
+        active = [e for e in same if e.get("status") == "active"]
+        if active and not fresh:
+            entry = active[-1]
+            fps = entry.setdefault("fingerprints", [])
+            if not fps or fps[-1].get("sha256") != digest:
+                fps.append({"sha256": digest, "time": now, "turn": turn_id})
+            entry["locations"] = [_loc_of(target, loc["uri"]) if uri_key(loc.get("uri", "")) == key else loc
+                                  for loc in entry["locations"]]
+            entry["intake"] = dict(entry.get("intake") or {}, **info, received=now)
+            _set_read(entry, "ok")
+            _write(vault, data["entries"])
+            return entry
+        for old in same:
+            old["status"] = "superseded"
+        entry = {
+            "id": _new_id({e.get("id") for e in data["entries"]}),
+            "origin": "intake",
+            "locations": [_loc_of(target, uri)],
+            "fingerprints": [{"sha256": digest, "time": now, "turn": turn_id}],
+            "read": "ok",
+            "status": "active",
+            "first_seen": now,
+            "created_turn": turn_id,
+            "missing_since": None,
+            "intake": dict(info, received=now),
+        }
         data["entries"].append(entry)
         _write(vault, data["entries"])
         return entry

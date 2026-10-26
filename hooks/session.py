@@ -4,6 +4,7 @@
 輸出 ensure_ascii=True：純 ASCII 不碰 cp950（I-001）。不碰 guard-status、ledger、回合、日誌；
 唯一寫的是 .system/env.json 的「找不到的來源已報過」記號（清冊題，D-094 補），清冊只讀（快速 scan，不 apply）；
 客戶設定檔那行也只讀（profile.status，不寫 profile.json 與 md）；變動行的實體夾有變也只讀（entities.drift）；日程行只讀 agenda.json。
+收件匣行（line_inbox，排在日程行之後，D-045）印了才寫 env.json 的 inbox_reminded（這台電腦每 inbox_remind_every_days 天最多一次）。
 沒有新變動、但清冊還有沒做成卡的或要跟著原檔搬的卡（batches.opening_counts，只讀；讀不到記進待處理的、還沒清的排除夾裡的不算，
 B-415）：變動行改印「還有 N 份沒整理完、M 張卡要跟著搬」（0 的那半不印），後面接整理指示（開頭不寫「有變動：」，answer 第 9b 點、
 裁定 14，D-161）；算超過開場時限就這行不印、寫 log。
@@ -297,6 +298,60 @@ def line_agenda(vault):
     return "日程：" + "、".join(parts) if parts else None
 
 
+INBOX_LINE = "收件匣：{n} 份沒歸位、最久 {days} 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+
+
+def line_inbox(vault):
+    """收件匣第 6 點（D-045）：收件匣最上層（不含子夾、跳過 . 開頭）的檔數到 inbox_remind_files，或最舊一份（清冊 first_seen，
+    沒有用修改時間）超過 inbox_remind_days 天，而且這台電腦上次提醒是 inbox_remind_every_days 天前或沒提醒過，才印並記今天
+    （env.json 的 inbox_reminded）；不成立不印、不記。版本那行（有新版、撤回、換了版）印了就不印也不記，下次開場再提醒
+    （收件匣裁定 2：開場預算，收件匣不急）。出錯由 status_lines 記 log。"""
+    from datetime import date, datetime
+    from kb._lib import config, env, inventory
+
+    if line_version(vault):
+        return None
+    root = os.path.join(str(vault), inventory.INBOX)
+    if not os.path.isdir(root) or os.path.islink(root):
+        return None
+    with os.scandir(root) as it:  # 清冊走訪不讀的（. 開頭、~$ 這類、隱藏或系統屬性）不算
+        files = [e for e in it if not e.name.startswith(".") and not inventory._skipped_name(e.name)
+                 and e.is_file(follow_symlinks=False)
+                 and not getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & inventory.HIDDEN_OR_SYSTEM]
+    if not files:
+        return None
+    today = date.today()
+    last = env.inbox_reminded(vault)
+    if last:
+        try:
+            if (today - date.fromisoformat(last)).days < config.get(vault, "inbox_remind_every_days"):
+                return None
+        except ValueError:
+            pass
+    seen = {}
+    try:
+        for e in inventory.load(vault)["entries"]:
+            if e.get("status") != "active":
+                continue
+            for loc in e.get("locations") or []:
+                seen.setdefault(inventory.uri_key(loc.get("uri", "")), str(e.get("first_seen") or ""))
+    except ValueError:
+        pass
+    oldest = today
+    for f in files:
+        first = seen.get(inventory.uri_key(inventory.make_uri(inventory.INBOX, f.name)), "")
+        try:
+            day = date.fromisoformat(first[:10]) if first else datetime.fromtimestamp(f.stat().st_mtime).date()
+        except ValueError:
+            day = datetime.fromtimestamp(f.stat().st_mtime).date()
+        oldest = min(oldest, day)
+    days = (today - oldest).days
+    if len(files) < config.get(vault, "inbox_remind_files") and days <= config.get(vault, "inbox_remind_days"):
+        return None
+    env.set_inbox_reminded(vault, today.isoformat())
+    return INBOX_LINE.format(n=len(files), days=days)
+
+
 def line_backup(vault):
     """等備份題。"""
     return None
@@ -333,7 +388,8 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_agenda, line_backup,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_agenda, line_inbox,
+               line_backup,
                line_health,
                lambda v: line_compact(v, source)):
         try:

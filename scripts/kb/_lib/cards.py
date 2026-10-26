@@ -20,13 +20,13 @@ from kb._lib.io import FileLock, write_text_atomic
 
 CARDS_DIR = "檔案索引"
 INDEX_POSIX = "總目錄.md"
-KEYS = ("編號", "出處", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別", "文件日期", "讀取", "製卡日期",
+KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別", "文件日期", "讀取", "製卡日期",
         "範本版本", "敏感資料種類", "開原檔")
-OPTIONAL = ("內容指紋",)
+OPTIONAL = ("內容指紋", "收件")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）
 V2_KEYS = ("實體", "待補型別")  # 範本第二版加的兩欄（實體與綜合卡第 4 點）；第一版的卡沒有，不算少鍵
 LIST_KEYS = ("原檔", "敏感資料種類", "實體", "待補型別")
 # 檔頭值的型別（測試後修正裁定 21）：這些要是字串，LIST_KEYS 要是清單
-STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "標題", "卡型", "文件日期", "讀取", "開原檔")
+STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔")
 ORIGIN_TEXT = {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"}
 FILL = "（填）"
 DATE_FILL = "（填，YYYY-MM-DD 或 未載）"
@@ -225,6 +225,23 @@ def current_fp(entry):
     return fp.get("sha256", "")
 
 
+INTAKE_WRONG = "收件那行照 kb cards todo 印的抄"
+
+
+def intake_text(entry):
+    """卡上「收件」那行該是的值（收件匣第 2 點，D-242、D-243）：<收件日期>，有 from 接「，從<from>」，從對話紀錄取的圖接「，對話裡的版本」。
+    條目沒有 intake 欄（客戶自己丟進收件匣的、舊的）回 None：卡上不要求這行。"""
+    info = entry.get("intake")
+    if not isinstance(info, dict):
+        return None
+    out = str(info.get("received") or "")[:10]
+    if info.get("from"):
+        out += f"，從{info['from']}"
+    if info.get("copy"):
+        out += "，對話裡的版本"
+    return out
+
+
 def header_for(vault, sources, entry, today=None, ent_data=False):
     """印給製卡者照抄的檔頭：機器欄位填好，製卡者欄位放（填）；實體 預填實體夾的那個、待補型別 空。
     today 是 YYYY-MM-DD，沒給用今天；ent_data 是 entities.load 的結果（沒給自己讀）。"""
@@ -237,6 +254,8 @@ def header_for(vault, sources, entry, today=None, ent_data=False):
         "原檔": [loc.get("uri", "") for loc in entry.get("locations") or []],
         "指紋": current_fp(entry),
     }
+    if intake_text(entry) is not None:  # 印的順序照 KEYS：出處的下一行
+        front["收件"] = intake_text(entry)
     if fp.get("text_sha256"):
         front["內容指紋"] = fp["text_sha256"]
     title = safe_title(entry.get("title"), config.get(vault, "card_title_max_chars")) if entry.get("kind") == "link" else None
@@ -339,6 +358,9 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
     want = ORIGIN_TEXT.get(entry.get("origin"), entry.get("origin"))
     if front["出處"] != want:
         out.append(("origin", f"出處該是 {want}"))
+    want_intake = intake_text(entry)
+    if want_intake is not None and front.get("收件") != want_intake:
+        out.append(("intake", INTAKE_WRONG))
     if front["開原檔"] != entry_link(vault, sources, entry):
         out.append(("link", "開原檔那行照 kb cards todo 印的抄"))
     folder, _, name = rel.rpartition("/")

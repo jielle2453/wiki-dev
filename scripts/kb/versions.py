@@ -2,6 +2,7 @@
 
 退回只從最近一次開始，不跳；退回前先把現況備進「退回」這句話自己的回合，退錯可再退。
 成品（清冊 created_turn 是那回合且 manifest 記 create 的）預設留著、status 改 turn_reverted，revert 只列不問；
+kb intake 收進收件匣的檔（origin intake）不是成品：照備份拿掉、清冊改 turn_reverted，退回「退回」本身時照成品那套改回 active（收件匣第 4 點）；
 客戶明說刪才 delete-outputs（或一開始就 revert --delete-outputs）。退回動完後對碰到的 Z3 路徑對帳清冊 status。
 退回標記是回合夾裡的 reverted.json，不改夾名；退回動作的回合在 turn.json 記 reverted_turn，退掉它時撤原回合的標記（第二輪 R2-4）。
 刪成品前三道關：這一句話已經改過的不刪（R2-2）、指紋跟清冊不同的不刪（R2-3）、檔已不在只改 status（R2-L1）。
@@ -742,11 +743,13 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     # 成品只算「清冊 created_turn 是這回合 且 這回合 manifest 記 create」的（第一輪 M4）
     created = {e.get("path") for e in target["entries"] if e.get("action") == "create"}
     try:  # 清冊讀不到：照 manifest 還原檔案（含 inventory.json），跳過成品對帳（清冊審閱裁定 37）
-        outputs = [o for o in inventory.outputs_of_turn(vault, target["turn"])
-                   if o.get("origin") == "ai_output" and _rel_of(o) in created]
+        of_turn = inventory.outputs_of_turn(vault, target["turn"])
+        outputs = [o for o in of_turn if o.get("origin") == "ai_output" and _rel_of(o) in created]
+        # 收件匣：kb intake 這回合收進來的檔照備份拿掉（不像成品留著），清冊改 turn_reverted（收件匣第 4 點）
+        intakes = [o for o in of_turn if o.get("origin") == "intake" and o.get("intake") and _rel_of(o) in created]
         inv_error = None
     except ValueError as e:
-        outputs, inv_error = [], str(e)
+        outputs, intakes, inv_error = [], [], str(e)
     out_rels = _rels_of(outputs)
 
     restored, removed, lost, touched_z3, kept_msgs, kept_ids = [], [], [], [], [], []
@@ -798,6 +801,9 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
                 inventory.set_status(vault, kept_ids, "turn_reverted")
         else:
             inventory.set_status(vault, [o["id"] for o in outputs], "turn_reverted")
+    gone_intakes = [o["id"] for o in intakes if not (Path(vault) / back(_rel_of(o))).is_file()]
+    if gone_intakes:
+        inventory.set_status(vault, gone_intakes, "turn_reverted")
     if inv_error is None:
         _reconcile(vault, touched_z3)
         _rescan(vault, target["moves"], rt["turn"])

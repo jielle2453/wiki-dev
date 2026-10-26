@@ -256,6 +256,39 @@ class OpeningVersionLines(unittest.TestCase):
         self.assertFalse([ln for ln in status.splitlines() if ln.startswith("有變動：")])
 
 
+class OpeningInboxLine(unittest.TestCase):
+    """收件匣第 6 點（D-045）與裁定 2：版本那行在時收件匣那行不印；沒有版本那行時，收件匣那行（份數、天數都四位數）
+    疊在七行情況（摺疊）上照樣在預算內。"""
+    WORST = "收件匣：9999 份沒歸位、最久 9999 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+
+    @staticmethod
+    def with_inbox(prepare):
+        def go(vault):
+            prepare(vault)
+            for i in range(10):
+                (vault / "收件匣" / f"{i}.txt").write_text("x", encoding="utf-8")
+        return go
+
+    def test_inbox_line_worst_case_within_budget(self):
+        if not SESSION_HOOK.exists():
+            self.skipTest("hooks/session.py 尚未建立")
+        for source in ("startup", "compact"):
+            lines = opening_status(source, self.with_inbox(all_lines_vault)).splitlines()
+            i = next(n for n, ln in enumerate(lines) if ln.startswith("收件匣："))
+            text = "\n".join(lines[:i] + [self.WORST] + lines[i + 1:])
+            with self.subTest(source=source):
+                self.assertLessEqual(count_lines(text), OPENING_MAX_LINES, text)
+                self.assertLessEqual(len(text), OPENING_MAX_CHARS, (len(text), text))
+
+    def test_version_line_hides_inbox_line(self):
+        if not SESSION_HOOK.exists():
+            self.skipTest("hooks/session.py 尚未建立")
+        for kind in ("a", "b", "c"):
+            lines = opening_status("compact", self.with_inbox(version_line_vault(kind))).splitlines()
+            with self.subTest(kind=kind):
+                self.assertFalse([ln for ln in lines if ln.startswith("收件匣：")], lines)
+
+
 PREFERENCE_MAX = 10
 PREFERENCE_MAX_CHARS = 400
 

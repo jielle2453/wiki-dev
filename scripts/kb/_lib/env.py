@@ -6,6 +6,7 @@ vault_path、backup_dir 是備份還原與換電腦加的選填欄（D-206、D-2
 update_check 是升級打包加的選填欄（背景查新版的結果）：{"date","latest","kind","allowed","note","auto_patched","error","verify_failed"}，
 讀不到、形狀不對一律當沒查過（開場只用上一次查的結果，D-072、D-216）。verify_failed（換版前先驗新版，D-230）是背景驗新版沒過的那份
 （upgrade.verify 的回傳，null 是沒有）；同一版、同一個 Python 背景不再重抓，換成功或清單換了新版本時清掉。
+inbox_reminded 是收件匣加的選填欄（YYYY-MM-DD）：這台電腦上次開場提醒收件匣放太久的日期（D-045，每 inbox_remind_every_days 天最多一次）。
 讀改寫包 FileLock；壞 JSON 或形狀不對當空的重建（這個檔只有提示記號，別讓它拖垮開場，I-046）。
 """
 import json
@@ -153,3 +154,12 @@ def set_update_check(vault, value):
         data = _load(vault)
         _machine(data, create=True)["update_check"] = dict(value)
         write_json_atomic(p, data)
+
+
+def inbox_reminded(vault):
+    """這台電腦上次提醒收件匣的日期（YYYY-MM-DD）；沒提醒過回 None。只讀。"""
+    return _text_of(vault, "inbox_reminded")
+
+
+def set_inbox_reminded(vault, day):
+    _set_text(vault, "inbox_reminded", day)

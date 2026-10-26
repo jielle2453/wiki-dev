@@ -4,7 +4,7 @@ plan：照順序要做的事，每步 {"step","items","do","read"}；多量先�
       （kb cards dispatch --json，交給背景的 card-maker，D-196～D-198）；link 條目、檔名像密碼的、記過有密碼的留一步 cards 給主對話。
 asks：排好序、編好號的問題，每題 {"id","kind","question","results":[{"n","label","do","strict","fill"}]}；
       順序：實體夾或綜合卡不見 → 原檔不見 → 裁示遇到原檔改版（ruling_recheck）→ 逾期、日程有出入、結案 → 草稿還在等（draft，
-      produce）→ 名字確認；
+      produce）→ 收件匣的檔要放哪（inbox_place，收件匣第 5 點）→ 名字確認；
       號碼從 1 一路編下去不管挑哪幾題，do 的指令以 kb 開頭，要客戶給的值寫成 {新名字} 這種空格，fill 列有哪些。
 tell：回答末尾要講的現成句子；兩份寫法不同的（待處理 conflict，不進整理題）件數只由 kb asks 的 others_line 講（lint 題，D-225）。
 密碼與守門（D-181、D-182、D-183）：plan 多 unlock_same_kind（授權過的種類在、待處理有新的「有密碼」PDF：列檔與每一種的例子給 AI 判斷，
@@ -272,6 +272,7 @@ def _asks(out, vault, config, full_plan, state=None):
     asks.extend(_ruling_asks(vault))  # 「別信」蓋在新版上會讓綜合卡漏掉新內容，排在逾期之前（note 改知識釐清）
     asks.extend(_agenda_asks(vault))
     asks.extend(_draft_asks(vault))
+    asks.extend(_inbox_asks(vault))
     asks.extend(_name(i) for i in out.get("synthesis_new") or [] if not i.get("confirmed"))
     asks.extend(_name(i) for i in batches.unconfirmed_names(vault, out))  # 壞的、要更新的綜合卡也先問名字（card-maker R5）
     return asks
@@ -574,6 +575,83 @@ def _draft_asks(vault):
     return out
 
 
+# ---------- 收件匣的檔要放哪（收件匣第 5 點，D-244、D-178） ----------
+
+INBOX_QUESTION = "{title}（收件匣）要放到哪裡？"
+INBOX_PLACES = 3
+INBOX_LATER = "先放著"
+NOT_DESTINATIONS = (inventory.INBOX.casefold(), inventory.OUTPUT.casefold())
+
+
+def _inbox_places(vault, names, where_of):
+    """候選的夾：每個實體的檔放在哪些夾（source_edit.where 的份數），收件匣與 AI 產出不算，加總照份數排、最多 INBOX_PLACES 個；
+    都沒有（沒資料夾的客戶）給實體夾 <型別>/<名稱>。知識庫裡的夾去掉「知識庫/」（kb 從知識庫根跑，照相對路徑認）。"""
+    counts = {}
+    for name in names:
+        for row in where_of(name)["folders"]:
+            folder = row["folder"]
+            if folder.split("/", 1)[0].casefold() in NOT_DESTINATIONS:
+                continue
+            if folder.split("/", 1)[0] == inventory.KNOWLEDGE and "/" in folder:
+                folder = folder.split("/", 1)[1]
+            counts[folder] = counts.get(folder, 0) + row["count"]
+    if counts:
+        return [f for f, _n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))][:INBOX_PLACES]
+    data = entities.load(vault)
+    out = []
+    for name in names:
+        e, _hit = entities.find(data, name)
+        if e is not None and e.get("type") and f"{e['type']}/{e['name']}" not in out:
+            out.append(f"{e['type']}/{e['name']}")
+    return out[:INBOX_PLACES]
+
+
+def _inbox_top(entry):
+    """條目在收件匣最上層就回檔名，否則 None（來源子夾裡的定期交來的不問，D-241）。"""
+    alias, rel = inventory.split_uri(((entry.get("locations") or [{}])[0]).get("uri", ""))
+    return rel if alias.casefold() == inventory.INBOX.casefold() and rel and "/" not in rel else None
+
+
+def _inbox_asks(vault):
+    """收件匣最上層、有卡、卡有掛實體的檔各一題：候選的夾一個一個結果（do 是 kb source-edit move），最後「先放著」。
+    來源子夾裡的（定期交來的，D-241）不問。跟這一句有沒有關照 touched（kb intake 在對話裡記了收的那份）。讀不到就不問。"""
+    from kb._lib import source_edit
+    try:
+        rows = [e for e in inventory.load(vault)["entries"] if e.get("status") == "active" and e.get("origin") == "intake"
+                and _inbox_top(e)]
+        groups = cards._scan_groups(vault)[0] if rows else {}
+    except (ValueError, OSError):
+        return []
+    cache = {}
+
+    def where_of(name):
+        if name not in cache:
+            try:
+                cache[name] = source_edit.where(vault, name)
+            except (source_edit.Refused, ValueError):
+                cache[name] = {"folders": []}
+        return cache[name]
+    out = []
+    for e in rows:
+        rel = _inbox_top(e)
+        if e["id"] not in groups:
+            continue
+        front = groups[e["id"]][0]["front"]
+        names = [n for n in front.get("實體") or [] if isinstance(n, str) and n]
+        title = front.get("標題") if isinstance(front.get("標題"), str) else rel
+        if not names:
+            continue
+        try:
+            places = _inbox_places(vault, names, where_of)
+        except ValueError:
+            continue
+        src = f"{inventory.INBOX}/{rel}"
+        out.append(_ask(f"inbox:{e['id']}", "inbox_place", INBOX_QUESTION.format(title=title),
+                        [_result(f"放到 {f}", [cmd("source-edit", "move", src, "--to", f)]) for f in places]
+                        + [_result(INBOX_LATER)]))
+    return out
+
+
 def _number(asks):
     n = 0
     for ask in asks:
@@ -595,7 +673,7 @@ PENDING_KEYED = ("missing", "close")  # 這兩種題目住在 pending.json，key
 PENDING_ONLY = ("handedit", "lint", "unreadable", "script_touched", "conflict", "report")  # 沒有整理題的待處理，照這個順序
 # 急的排前面：有時間性的 → 整理題照 _asks 的順序 → 沒有整理題的待處理
 _ORDER = ("batch", "drift", "missing", "credential_same_kind", "ruling_recheck", "overdue", "agenda_conflict", "close", "draft",
-          "name") + tuple(f"pending_{k}" for k in PENDING_ONLY)
+          "inbox_place", "name") + tuple(f"pending_{k}" for k in PENDING_ONLY)
 PENDING_HOW = "{客戶的話}"
 
 
@@ -680,7 +758,7 @@ def _about_of(ask, ctx):
     ents, files = [], []
     if kind in ("drift", "name"):
         ents.append(target)
-    elif kind == "credential":
+    elif kind in ("credential", "inbox"):
         files.append(target)
     elif kind in ("missing", "close", "pending"):
         item = ctx.pending_item(target) or {}

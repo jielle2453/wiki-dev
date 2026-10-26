@@ -1,0 +1,405 @@
+"""收件匣（issue #10，D-240～D-245）：kb intake 的本體。收件匣只有這裡能寫（D-046），守門照舊擋 AI 直接寫。
+
+receive：拖進對話的檔、程式或 skill 交來的檔。照順序判斷（output.source_mode 的寫法，守門同一套 guard.classify、credential_hit）：
+不存在 → 拒絕；在知識庫裡（收件匣的說已經在、其他區拒絕）；排除的（Z10、Z10b）、檔名像密碼或金鑰的拒絕；登記的來源裡（Z9）
+不複製、說已經在讀；指紋等於清冊某個 active 條目的現行指紋不複製、說收過了（帶 --name 的不走這條）；其餘複製（原檔不動，D-240）。
+檔名照原檔名，有 title 用它加原副檔名（D-245）；同名加 (2)。from 記來源名（D-242）；from 加 name 是定期同步的（D-241）：
+存 收件匣/<來源>/<項目><原副檔名>，同來源同項目再交就覆蓋（內容一樣不動），那裡的同名檔不是那個來源交的拒絕。
+receive_pasted：這一句貼的圖與文字，從回合記的對話紀錄（transcript）取（D-243）：從檔尾往前找第一則客戶訊息，
+圖照 media_type 存、不轉檔，系統另存了原圖（inlined_image_paths，~/.claude/uploads/）且份數對得上就用原圖；
+文字取 <pasted_content> 每一段的內文，沒有標記取整則訊息（系統提醒、IDE 帶的不算）。取不到一律丟 Refused（那一句請她另存再拖）。
+寫入前 turn.backup（新收 create、覆蓋 modify），寫完 inventory.register_intake。拒絕丟 Refused，訊息就是給人看的那句（一字不差）。
+"""
+import base64
+import json
+import os
+import re
+import shutil
+from pathlib import Path
+
+from kb._lib import credentials, inventory, output, turn
+
+INBOX = inventory.INBOX
+
+NOT_FOUND = "找不到這個檔：{path}"
+IN_INBOX = "這份已經在收件匣：{rel}"
+IN_VAULT = "這份已經在知識庫裡：{rel}"
+EXCLUDED = "這個位置你說過不讀"
+CREDENTIAL = "這個檔名像密碼或金鑰，不收"
+BAD_NAME = '檔名不能有 \\ / : * ? " < > | $ ` 這些字元'
+HIDDEN_NAME = "這種名字知識庫不會讀，換個名字"
+DEVICE_NAME = "這種名字 Windows 不收，換個名字"
+READING = "這份我已經在讀了：{where}"
+HAVE = "這份收過了：{where}"
+NO_IMAGE = "這張圖我拿不到檔；請把它存到電腦，再拖進對話"
+NO_TEXT = "這段我拿不到原文；請把它存成檔，再拖進對話"
+NOT_FROM = "收件匣/{src}/ 裡已經有同名的檔，不是 {src} 交的；請先改名或搬走"
+NAME_NEEDS_FROM = "--name 要配 --from"
+PASTED_NEEDS_TITLE = "--pasted 要給 --title"
+NEW = "收進收件匣了：{rel}（原檔沒動）"
+NEW_TITLED = "收進收件匣了：{rel}（原本叫 {orig}）"
+NEW_PLAIN = "收進收件匣了：{rel}"
+UPDATED = "更新了：{rel}"
+SAME = "沒有變：{rel}"
+
+IMAGE_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}  # 照原格式存、不轉檔（D-243）
+UPLOAD_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+# 不是客戶說的話（同 hooks/turn.py 的 NOT_A_PROMPT）：背景通知、跨對話訊息
+NOT_A_PROMPT = ("<task-notification", "<cross-session-message", "<agent-message", "[SYSTEM NOTIFICATION")
+# 系統或 IDE 附在客戶訊息裡的段（桌面版的系統提醒、VS Code 開著的檔與選取）：不算她貼的
+INJECTED = ("<system-reminder", "<ide_")
+_PASTED = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content\b[^>]*>", re.DOTALL)
+_REF = re.compile(r"^(image|text):([1-9][0-9]{0,3})$")
+READ_CHUNK = 1 << 16
+
+
+class Refused(Exception):
+    """拒絕：訊息就是給人看的那句。"""
+
+
+class NotInTranscript(Exception):
+    """對話紀錄裡拿不到：沒有紀錄、檔不在、這則訊息沒有那一項、格式認不得。"""
+
+
+# ---------- 檔名 ----------
+
+def check_name(name):
+    """檔名、來源名、項目名的檢查（output 的不收字元與冒號，加 $、反引號；Windows 裝置名；. 與 ~$ 開頭知識庫不讀）。
+    回去掉頭尾空白與結尾的點的名字。"""
+    from kb._lib.source_edit import DEVICE_NAMES
+    text = str(name or "").strip()
+    clean = text.rstrip(" .")
+    if not clean or output._UNSAFE.search(text):
+        raise Refused(BAD_NAME)
+    if clean.startswith(".") or clean.startswith("~$"):
+        raise Refused(HIDDEN_NAME)
+    if clean.split(".")[0].strip().upper() in DEVICE_NAMES:
+        raise Refused(DEVICE_NAME)
+    return clean
+
+
+def titled(title, ext):
+    """AI 取的名字加原副檔名；名字已經以原副檔名結尾就不重複加。"""
+    text = str(title or "").strip()
+    if ext and text.casefold().endswith(ext.casefold()):
+        return text
+    return text + (ext or "")
+
+
+def _no_credential(rel):
+    if credentials.match_segment(rel.split("/")[1:]) is not None:
+        raise Refused(CREDENTIAL)
+
+
+def _item(path, entry_id, result, said):
+    return {"path": path, "id": entry_id, "result": result, "said": said}
+
+
+def _where(uri):
+    return uri[len("file://"):] if uri.startswith("file://") else uri
+
+
+def _entry_at(vault, rel):
+    e = inventory.entry_for(vault, "file://" + rel)
+    return e if e and e.get("status") == "active" else None
+
+
+def _same_content(vault, digest):
+    for e in inventory.load(vault)["entries"]:
+        fps = e.get("fingerprints") or []
+        if e.get("status") == "active" and fps and fps[-1].get("sha256") == digest and e.get("locations"):
+            return e
+    return None
+
+
+def _write_new(vault, rel, turn_id, put, meta):
+    """同名加 (2) → 備份 create → 放 → 登記。回 (rel, 條目)。"""
+    rel = output.free_rel(vault, rel)
+    target = Path(vault) / rel
+    turn.backup(vault, rel, turn_id, action="create")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    put(target)
+    return rel, inventory.register_intake(vault, rel, turn_id, meta, fresh=True)
+
+
+# ---------- 收檔 ----------
+
+def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None):
+    """收一份檔，回 {"path","id","result","said"}；拒絕丟 Refused。"""
+    from kb import guard
+    from kb._lib import sources as sources_lib
+    from kb._lib.paths import normalize
+    if name and not from_:
+        raise Refused(NAME_NEEDS_FROM)
+    path = output._abs(src, cwd)
+    if not path.is_file():
+        raise Refused(NOT_FOUND.format(path=src))
+    if output._inside(path, vault):
+        rel = os.path.relpath(os.path.realpath(str(path)), os.path.realpath(str(vault))).replace("\\", "/")
+        if rel.split("/", 1)[0].casefold() == INBOX.casefold():
+            rel = f"{INBOX}/{rel.split('/', 1)[1]}"
+            e = _entry_at(vault, rel)
+            return _item(rel, e["id"] if e else None, "already_inbox", IN_INBOX.format(rel=rel))
+        raise Refused(IN_VAULT.format(rel=rel))
+    sources = sources_lib.load(vault)
+    path_n, vault_n = normalize(os.path.realpath(str(path)), None), normalize(str(vault), None)
+    zone, _alias = guard.classify(path_n, vault_n, sources)
+    if zone in ("Z10", "Z10b"):
+        raise Refused(EXCLUDED)
+    if guard.credential_hit(path_n, zone, vault_n, sources) is not None:
+        raise Refused(CREDENTIAL)
+    if zone == "Z9":
+        uri = inventory.uri_of(vault, sources, path) or ""
+        e = inventory.entry_for(vault, uri) if uri else None
+        return _item(_where(uri), e["id"] if e else None, "reading", READING.format(where=_where(uri)))
+    ext = path.suffix
+    meta = {}
+    if from_:
+        from_ = check_name(from_)
+        meta["from"] = from_
+    if name:
+        meta["name"] = name = check_name(name)
+        rel = f"{INBOX}/{from_}/{check_name(titled(name, ext))}"
+    elif title:
+        rel = f"{INBOX}/{check_name(titled(check_name(title), ext))}"
+    else:
+        rel = f"{INBOX}/{check_name(path.name)}"
+    _no_credential(rel)
+    digest = inventory.sha256_of(path)
+    if name:
+        return _periodic(vault, path, rel, digest, turn_id, meta)
+    have = _same_content(vault, digest)
+    if have is not None:
+        where = _where(have["locations"][0].get("uri", ""))
+        return _item(where, have["id"], "have", HAVE.format(where=where))
+    if title and rel.rsplit("/", 1)[1] != path.name:
+        meta["original_name"] = path.name
+    rel, entry = _write_new(vault, rel, turn_id, lambda t: shutil.copy2(str(path), str(t)), meta)
+    said = (NEW_TITLED.format(rel=rel, orig=path.name) if meta.get("original_name") else NEW.format(rel=rel))
+    return _item(rel, entry["id"], "new", said)
+
+
+def _periodic(vault, path, rel, digest, turn_id, meta):
+    """定期同步的（D-241）：同來源同項目覆蓋；那裡的檔不是這個來源交的拒絕。"""
+    target = Path(vault) / rel
+    if os.path.lexists(target):
+        e = _entry_at(vault, rel)
+        info = (e or {}).get("intake") or {}
+        mine = (target.is_file() and str(info.get("from", "")).casefold() == meta["from"].casefold()
+                and str(info.get("name", "")).casefold() == meta["name"].casefold())
+        if not mine:
+            raise Refused(NOT_FROM.format(src=meta["from"]))
+        if inventory.sha256_of(target) == digest:
+            return _item(rel, e["id"], "same", SAME.format(rel=rel))
+        turn.backup(vault, rel, turn_id, action="modify")
+        shutil.copy2(str(path), str(target))
+        entry = inventory.register_intake(vault, rel, turn_id, meta)
+        return _item(rel, entry["id"], "updated", UPDATED.format(rel=rel))
+    turn.backup(vault, rel, turn_id, action="create")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(path), str(target))
+    entry = inventory.register_intake(vault, rel, turn_id, meta, fresh=True)
+    return _item(rel, entry["id"], "new", NEW_PLAIN.format(rel=rel))
+
+
+# ---------- 對話紀錄 ----------
+
+def _lines_backwards(path):
+    """從檔尾往前一行一行給（bytes）；紀錄可能很大，不整份讀。"""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        pos, buf = f.tell(), b""
+        while pos > 0:
+            step = min(READ_CHUNK, pos)
+            pos -= step
+            f.seek(pos)
+            buf = f.read(step) + buf
+            parts = buf.split(b"\n")
+            buf = parts[0]
+            yield from reversed(parts[1:])
+        yield buf
+
+
+def _blocks(content):
+    """訊息內容 → 段的清單（字串內容當一段文字）。"""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        return [b for b in content if isinstance(b, dict)]
+    raise NotInTranscript("訊息內容認不得")
+
+
+def _own_texts(blocks):
+    """客戶自己的文字段：去掉系統或 IDE 附的。"""
+    return [b.get("text") or "" for b in blocks
+            if b.get("type") == "text" and not str(b.get("text") or "").lstrip().startswith(INJECTED)]
+
+
+def _is_customer(d):
+    if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
+        return False
+    msg = d.get("message")
+    if not isinstance(msg, dict) or msg.get("role") != "user":
+        return False
+    try:
+        blocks = _blocks(msg.get("content"))
+    except NotInTranscript:
+        return False
+    if any(b.get("type") == "tool_result" for b in blocks):
+        return False
+    texts = _own_texts(blocks)
+    images = [b for b in blocks if b.get("type") == "image"]
+    if not texts and not images:
+        return False
+    first = texts[0].lstrip() if texts else ""
+    if isinstance(msg.get("content"), str) and first.startswith("<system-reminder"):
+        return False
+    return not first.startswith(NOT_A_PROMPT)
+
+
+def read_message(path):
+    """對話紀錄最後一則客戶訊息：{"uuid","blocks","uploads"}；uploads 是它後面 inlined_image_paths 附件給的原圖路徑（照順序）。
+    沒有紀錄、讀不到、找不到客戶訊息丟 NotInTranscript。壞行（寫到一半的最後一行）跳過。"""
+    if not path:
+        raise NotInTranscript("回合沒有記對話紀錄")
+    groups = []
+    try:
+        for raw in _lines_backwards(path):
+            if not raw.strip():
+                continue
+            try:
+                d = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            att = d.get("attachment")
+            if d.get("type") == "attachment" and isinstance(att, dict) and att.get("type") == "inlined_image_paths":
+                groups.append([str(p) for p in att.get("paths") or [] if isinstance(p, str)])
+                continue
+            if _is_customer(d):
+                uploads = [p for g in reversed(groups) for p in g]
+                return {"uuid": d.get("uuid"), "blocks": _blocks(d["message"]["content"]), "uploads": uploads}
+    except OSError as e:
+        raise NotInTranscript(f"對話紀錄讀不到：{type(e).__name__}") from None
+    raise NotInTranscript("找不到客戶的訊息")
+
+
+def _images(msg):
+    return [b for b in msg["blocks"] if b.get("type") == "image"]
+
+
+def _texts(msg):
+    own = _own_texts(msg["blocks"])
+    found = [_unwrap(m.group(1)) for t in own for m in _PASTED.finditer(t)]
+    if found:
+        return found
+    return ["\n".join(own)] if own else []
+
+
+def _unwrap(inner):
+    """標記後面與結尾標記前面的那個換行是包裝加的，不是她貼的；內文其他一字不動。"""
+    if inner.startswith("\n"):
+        inner = inner[1:]
+    return inner[:-1] if inner.endswith("\n") else inner
+
+
+def _decode(block):
+    src = block.get("source") or {}
+    media = src.get("media_type")
+    if src.get("type") != "base64" or media not in IMAGE_EXT:
+        raise NotInTranscript("圖的格式認不得")
+    try:
+        return base64.b64decode(src.get("data") or "", validate=True), media
+    except ValueError:
+        raise NotInTranscript("圖的資料認不得") from None
+
+
+def pasted_items(msg):
+    """這則訊息裡的圖與文字：[{"ref","kind","media_type","bytes"} 或 {"ref","kind","chars"}]。"""
+    out = []
+    for i, b in enumerate(_images(msg), 1):
+        try:
+            data, media = _decode(b)
+        except NotInTranscript:
+            continue
+        out.append({"ref": f"image:{i}", "kind": "image", "media_type": media, "bytes": len(data)})
+    out.extend({"ref": f"text:{i}", "kind": "text", "chars": len(t)} for i, t in enumerate(_texts(msg), 1))
+    return out
+
+
+def pasted_image(msg, n):
+    """第 n 張圖：(位元組, media_type, 原圖路徑或 None)。原圖要份數跟圖對得上才照順序配。"""
+    images = _images(msg)
+    if not 1 <= n <= len(images):
+        raise NotInTranscript("沒有這張圖")
+    data, media = _decode(images[n - 1])
+    uploads = msg.get("uploads") or []
+    return data, media, (uploads[n - 1] if len(uploads) == len(images) else None)
+
+
+def pasted_text(msg, n):
+    texts = _texts(msg)
+    if not 1 <= n <= len(texts):
+        raise NotInTranscript("沒有這段文字")
+    return texts[n - 1]
+
+
+def uploads_root():
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "uploads"
+
+
+def _upload_ok(path):
+    """原圖要在 Claude 的 uploads 夾裡、是認得的圖檔。"""
+    if not path:
+        return False
+    p = Path(path)
+    return (p.suffix.lower() in UPLOAD_EXTS and p.is_file()
+            and output._inside(p, uploads_root()) and output._real(p) != output._real(uploads_root()))
+
+
+def parse_ref(ref):
+    m = _REF.match(str(ref or "").strip())
+    return (m.group(1), int(m.group(2))) if m else (None, None)
+
+
+def receive_pasted(vault, ref, title, turn_id, transcript):
+    """存這一句貼的第幾張圖或第幾段文字，回 {"path","id","result","said"}；拿不到丟 Refused。"""
+    kind, n = parse_ref(ref)
+    miss = NO_IMAGE if kind == "image" else NO_TEXT
+    if not title:
+        raise Refused(PASTED_NEEDS_TITLE)
+    try:
+        msg = read_message(transcript)
+        if kind == "image":
+            data, media, upload = pasted_image(msg, n)
+        elif kind == "text":
+            text = pasted_text(msg, n)
+        else:
+            raise NotInTranscript("要寫 image:<第幾個> 或 text:<第幾個>")
+    except NotInTranscript:
+        raise Refused(miss) from None
+    name = check_name(title)
+    if kind == "image":
+        if _upload_ok(upload):
+            ext = Path(upload).suffix.lower()
+            meta = {"pasted": "image"}
+            put = lambda t: shutil.copy2(upload, str(t))  # noqa: E731
+        else:
+            ext = IMAGE_EXT[media]
+            meta = {"pasted": "image", "copy": True}  # 紀錄裡的版本可能縮過（D-243）
+            put = lambda t: t.write_bytes(data)  # noqa: E731
+    else:
+        ext = ".txt"
+        meta = {"pasted": "text"}
+        body = text.replace("\r\n", "\n").encode("utf-8")
+        put = lambda t: t.write_bytes(body)  # noqa: E731
+    rel = f"{INBOX}/{check_name(titled(name, ext))}"
+    _no_credential(rel)
+    rel, entry = _write_new(vault, rel, turn_id, put, meta)
+    return _item(rel, entry["id"], "new", NEW_PLAIN.format(rel=rel))
+
+
+def pasted_list(transcript):
+    """--pasted list：這一句的圖與文字；拿不到丟 NotInTranscript。"""
+    return pasted_items(read_message(transcript))

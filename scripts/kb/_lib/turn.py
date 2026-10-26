@@ -59,10 +59,12 @@ def journal_key(data):
     return data.get("journal_turn") or data["turn"]
 
 
-def start(vault, session_id, prompt, inherit=None):
+def start(vault, session_id, prompt, inherit=None, transcript=None):
     """開新回合：寫 turns/<sid>.json（有 sid 才寫）與 current.json。回回合 dict。
     inherit（工作日誌第二輪 R2-M2）：對話裡退回自己這句時，新回合接著原回合，繼承它的問、note、approved，
-    並記 journal_turn（原回合的 journal_turn，沒有就原回合），Stop 與補記才收原回合那一行。"""
+    並記 journal_turn（原回合的 journal_turn，沒有就原回合），Stop 與補記才收原回合那一行。
+    transcript（收件匣第 3 點）：hook 給的對話紀錄路徑，只存路徑不讀內容（kb intake --pasted 從那裡取貼的圖與文字）；
+    inherit 開的不帶舊的。"""
     now = _now().replace(microsecond=0)  # 代號只到秒，比較也只到秒
     head = inherit.get("prompt_head", "") if inherit else prompt_head(vault, prompt)
     tag = _safe_sid(session_id)[:4] if session_id else "0000"
@@ -80,6 +82,8 @@ def start(vault, session_id, prompt, inherit=None):
         "note": inherit.get("note", "") if inherit else "",  # 模型叫 kb turn note 給的「做了」（D-084）
         "done": False,  # Stop 或中斷補記後為 true（D-083）
     }
+    if transcript:
+        data["transcript"] = str(transcript)
     if inherit:
         data["journal_turn"] = journal_key(inherit)
         for flag in MARK_FLAGS:  # 同一句話跑過整理、按過停止，退回自己後照樣認得（answer 裁定 21）
