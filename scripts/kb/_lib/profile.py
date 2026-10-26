@@ -11,6 +11,8 @@ schema 4 多第七節做文件用的範本（templates，D-167）：[{doc, card,
 md 讀回時「以哪份為底」寫卡標題或卡編號都認（template_resolver 換回編號）；schema 3 由 load 在記憶體補空清單。
 schema 5 多第八節標籤字典（tags，D-233）：[{type, field, words, multi, source, date}]，照型別定欄、只能從字典挑詞；
 綜合卡檔頭照它標（synthesis 驗）；schema 4 由 load 在記憶體補空清單。
+schema 6 偏好每條多用在哪（use，D-504）：全部、整理成卡、做文件或已裝的客製 skill 名；開場段帶整理成卡以外的、
+製卡材料帶全部＋整理成卡；上限分開場那組與整理成卡兩組；schema 5 由 load 在記憶體補成全部，舊表頭（沒有用在哪欄）照全部讀。
 """
 import copy
 import hashlib
@@ -26,7 +28,7 @@ from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PROFILE_POSIX = ".system/profile.json"
 MD_POSIX = "系統/客戶設定檔.md"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 CATEGORIES = {"對象": "party", "事": "matter", "物": "asset", "主題": "topic"}
 SOURCES = {"訪談": "interview", "推測": "inferred", "確認": "confirmed", "糾正": "corrected"}
 ACTIONS = {"不整理": "no_card", "只記種類": "kind_only"}
@@ -44,8 +46,13 @@ SECTION_NAMES = ("型別", "卡型", "不整理與敏感", "每類段落", "關�
 NUMERALS = ("一", "二", "三", "四", "五", "六", "七", "八")
 # 每節的基本欄數；後面可再加來源、日期兩欄
 BASE_COLUMNS = (3, 4, 2, 4, 3, 1, 2, 4)
-PREFERENCE_MAX = 10  # config 的預設；parse_md 由呼叫端傳 config 的值
-PREFERENCE_MAX_CHARS = 400
+PREFERENCE_MAX = 20  # config 的預設；parse_md 由呼叫端傳 config 的值（開場那組：整理成卡以外，D-504）
+PREFERENCE_MAX_CHARS = 1000
+PREFERENCE_CARD_MAX = 5  # 整理成卡那組另算
+PREFERENCE_CARD_MAX_CHARS = 200
+PREFERENCE_SIMILAR_RATIO = 0.35
+USE_ALL, USE_CARD, USE_DOC = "全部", "整理成卡", "做文件"
+USES = (USE_ALL, USE_CARD, USE_DOC)  # 另加已裝的客製 skill 名（use_choices）
 HIDDEN_OR_SYSTEM = 0x2 | 0x4
 # 四大類的預設段落（D-119）：load 遷移 schema 1、merge 遇到第一次加入的型別時寫進 JSON
 CATEGORY_SECTIONS = {
@@ -77,8 +84,10 @@ PROMPTS = (
     "每類的綜合卡除了現況、紀事、推算，還要固定寫哪些段？一段一列；「必出現」打 ✓ 的段沒內容時寫「未知」。"
     "新加的型別我會先填一組預設，你再改。",
     "你的公司與你本人叫什麼？檔案裡出現這些名字時我知道是你，不會替你自己寫一張。別名用頓號分開。",
-    "怎麼回答你、怎麼做東西給你：例如回答先講結論、日期帶星期。一條一列；寫卡時跟寫卡有關的也照做（例如人名用連結），卡上要多記哪一段放第二節。"
-    "最多 10 條、合計 400 字。",
+    "怎麼回答、怎麼做東西、寫卡時照做的習慣；用在哪不填就是每次都照做。例如回答先講結論、日期帶星期。一條一列；"
+    "用在哪填 整理成卡、做文件 或客製功能的名字，就只在那件事時照做；卡上要多記哪一段放第二節。"
+    "整理成卡以外的最多 {preference_max} 條、合計 {preference_max_chars} 字，"
+    "整理成卡的另算最多 {preference_card_max} 條、合計 {preference_card_max_chars} 字。",
     "做哪種文件時以哪一份為底：例如報價單照報價單範本做。「以哪份為底」寫檔案卡的標題；只有一份範本時我直接用，多份才問你。",
     "想照什麼條件找人或找案子？一列一個欄，詞用頓號分開；只能從這些詞挑，字典外的我會先問你。不用的型別不用填。",
 )
@@ -88,7 +97,7 @@ TABLE_HEADS = (("名稱", "大類", "一句說明", "來源", "日期"),
                ("種類", "處理", "來源", "日期"),
                ("型別", "段落", "必出現", "提示", "來源", "日期"),
                ("名稱", "是什麼", "別名", "來源", "日期"),
-               ("偏好", "來源", "日期"),
+               ("偏好", "用在哪", "來源", "日期"),
                ("文件", "以哪份為底", "來源", "日期"),
                ("型別", "欄名", "可選的詞", "可多選", "來源", "日期"))
 
@@ -202,7 +211,10 @@ def load(vault):
     if version < 4:
         data = dict(data, templates=[])
     if version < 5:
-        data = dict(data, schema_version=SCHEMA_VERSION, tags=[])
+        data = dict(data, tags=[])
+    if version < 6:
+        data = dict(data, schema_version=SCHEMA_VERSION,
+                    preferences=[dict(x, use=x.get("use") or USE_ALL) for x in data["preferences"]])
     return data
 
 
@@ -222,6 +234,12 @@ def _sections(lines):
         if current is not None:
             found[current].append(line)
     return found
+
+
+def _table_head(lines):
+    """這節第一張表的表頭格子（沒有表回 []）。"""
+    line = next((x.strip() for x in lines if x.lstrip().startswith("|")), "")
+    return [c.strip() for c in line.strip("|").split("|")] if line else []
 
 
 def _table_rows(section, lines):
@@ -255,8 +273,8 @@ def _err(section, row, text):
     raise ProfileError(section, row, f"第 {section} 節第 {row} 列{text}")
 
 
-def _columns(section, row, cells):
-    base = BASE_COLUMNS[section - 1]
+def _columns(section, row, cells, base=None):
+    base = base or BASE_COLUMNS[section - 1]
     if len(cells) not in (base, base + 2):
         _err(section, row, f"欄數不對（要 {base} 欄或 {base + 2} 欄）")
     extra = cells[base:] if len(cells) == base + 2 else ["", ""]
@@ -428,28 +446,114 @@ def preference_problem(text):
     return None
 
 
-def _parse_preferences(rows, max_count, max_chars):
-    """第六節（D-137）：一條一列，不能空、不能重複、不收密碼與四種字元；超過 max_count 條或合計超過 max_chars 字
-    在超過的那列報錯（手改同一條上限）。"""
-    out, seen, total = [], {}, 0
+def _group(use):
+    """偏好的上限組：整理成卡一組，其他（開場段帶的）一組（D-504 決策 3）。"""
+    return "card" if use == USE_CARD else "opening"
+
+
+def _limits_of(group, lim):
+    if group == "card":
+        return lim["preference_card_max"], lim["preference_card_max_chars"], "整理成卡的偏好"
+    return lim["preference_max"], lim["preference_max_chars"], "偏好"
+
+
+def use_problem(use, uses):
+    """用在哪不能收的那句（接在「第 6 節第 N 列」或「偏好」後面），能收回 None；uses 是 None 不驗。"""
+    if uses is None or use in uses:
+        return None
+    return f"的用在哪要是 {'、'.join(uses)} 之一，或留空（留空就是全部）"
+
+
+def _parse_preferences(rows, lim, uses, with_use):
+    """第六節（D-137、D-504）：一條一列，不能空、不能重複（不分用在哪）、不收密碼與四種字元；用在哪留空是全部，
+    uses 給了只收裡面的值；開場那組與整理成卡各自超過條數或字數在超過的那列報錯（手改同一條上限）。
+    with_use：表頭有「用在哪」；舊表頭（偏好｜來源｜日期）每條照全部讀。"""
+    out, seen, used = [], {}, {"opening": [0, 0], "card": [0, 0]}
     for m, cells in enumerate(rows, 1):
-        (text,), extra = _columns(6, m, cells)
+        if with_use:
+            (text, use), extra = _columns(6, m, cells, 2)
+        else:
+            (text,), extra = _columns(6, m, cells)
+            use = ""
+        use = use or USE_ALL
         if not text:
             _err(6, m, "的偏好是空的")
         why = preference_problem(text)
         if why:
             _err(6, m, f"：{why}")
+        why = use_problem(use, uses)
+        if why:
+            _err(6, m, why)
         source, when = _source_date(6, m, extra)
         if text in seen:
             _err(6, m, f"跟第 {seen[text]} 列重複（{text}）")
         seen[text] = m
-        total += len(text)
-        if m > max_count:
-            _err(6, m, f"超過上限（偏好最多 {max_count} 條）")
-        if total > max_chars:
-            _err(6, m, f"超過上限（偏好合計最多 {max_chars} 字）")
-        out.append({"text": text, "source": source, "date": when})
+        group = _group(use)
+        count, chars, label = _limits_of(group, lim)
+        used[group][0] += 1
+        used[group][1] += len(text)
+        tail = "" if group == "card" else "，整理成卡的另算"
+        if used[group][0] > count:
+            _err(6, m, f"超過上限（{label}最多 {count} 條{tail}）")
+        if used[group][1] > chars:
+            _err(6, m, f"超過上限（{label}合計最多 {chars} 字{tail}）")
+        out.append({"text": text, "use": use, "source": source, "date": when})
     return out
+
+
+_SIMILAR_DROP = re.compile(r"[\s\W_]+")
+
+
+def _bigrams(text):
+    t = _SIMILAR_DROP.sub("", text)
+    return {t[i:i + 2] for i in range(len(t) - 1)} or ({t} if t else set())
+
+
+def similar(a, b):
+    """兩句偏好的字面相似度（D-504 決策 4、裁定 4）：拿掉空白與標點後的字元二元組 Jaccard，0～1，取兩位。"""
+    x, y = _bigrams(a), _bigrams(b)
+    return round(len(x & y) / len(x | y), 2) if x | y else 0.0
+
+
+def same_group(use, other):
+    """用在哪是 use 的一條要跟哪些比：全部跟每一條比；其他跟同組與全部比。"""
+    return use == USE_ALL or other in (use, USE_ALL)
+
+
+def preference_check(data, text, use, number=None, ratio=PREFERENCE_SIMILAR_RATIO, **limits):
+    """kb profile add 偏好 --check（D-504 決策 4），不改任何東西：would（add／change／exists）、這條放進去後那組的
+    條數字數與上限、compare（同組＋全部每一條與相似度；序號=N 改的那條自己不比）、similar（過門檻的序號）、over_limit。"""
+    lim = dict(_DEFAULT_LIMITS, **limits)
+    use = use or USE_ALL
+    others = [(i, x) for i, x in enumerate(data.get("preferences") or [], 1) if i != number]
+    group = _group(use)
+    count, chars, _label = _limits_of(group, lim)
+    mates = [x for _i, x in others if _group(x.get("use") or USE_ALL) == group]
+    exists = any(x["text"] == text for _i, x in others)
+    compare = [{"序號": i, "偏好": x["text"], "用在哪": x.get("use") or USE_ALL, "similar": similar(text, x["text"])}
+               for i, x in others if same_group(use, x.get("use") or USE_ALL)]
+    n = len(mates) + (0 if exists else 1)
+    total = sum(len(x["text"]) for x in mates) + (0 if exists else len(text))
+    return {"would": "exists" if exists else "change" if number else "add", "use": use, "group_count": n,
+            "group_max": count, "group_chars": total, "group_max_chars": chars, "compare": compare,
+            "similar": [c["序號"] for c in compare if c["similar"] >= ratio], "over_limit": n > count or total > chars}
+
+
+def use_choices(vault):
+    """用在哪能填的值：全部、整理成卡、做文件，加上 .claude/skills/<名>/SKILL.md 在的客製 skill（照名字排）。"""
+    root = Path(vault) / ".claude" / "skills"
+    try:
+        skills = sorted(d.name for d in root.iterdir() if (d / "SKILL.md").is_file())
+    except OSError:
+        skills = []
+    return list(USES) + [n for n in skills if n not in USES]
+
+
+def known_uses(vault, data):
+    """套用與改一列時重驗整張表用：能填的值加上表裡已存的（skill 拿掉了不擋，交給健檢，D-504）。"""
+    out = use_choices(vault)
+    have = [x.get("use") for x in (data or {}).get("preferences") or [] if x.get("use")]
+    return out + [u for u in dict.fromkeys(have) if u not in out]
 
 
 TEMPLATE_DOC_CHARS = '"$`\\'  # 文件名會被貼進雙引號的指令（同偏好那四種）
@@ -605,14 +709,18 @@ def template_resolver(vault, old=None):
     return resolve
 
 
-def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), preference_max=PREFERENCE_MAX,
-             preference_max_chars=PREFERENCE_MAX_CHARS, resolve=None):
+_DEFAULT_LIMITS = {"preference_max": PREFERENCE_MAX, "preference_max_chars": PREFERENCE_MAX_CHARS,
+                   "preference_card_max": PREFERENCE_CARD_MAX, "preference_card_max_chars": PREFERENCE_CARD_MAX_CHARS}
+
+
+def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), resolve=None, uses=None, **limits):
     """md → {"types", "card_types", "exclusions", "synthesis_sections", "about", "preferences"}（跟 JSON 同形，source／date
     沒填是 None）；讀不懂丟 ProfileError。各節都在但沒有任何列算成功；少任何一節就是錯（I-097：命中 0 節不回空）。
     型別名長度上限是 max_type_chars。legacy 是磁碟上 JSON 的舊 schema（True 或 1：舊 md 只有三節；2：只有五節；3：六節；4：七節）：
     那版沒有的節缺了不算錯、回 None，呼叫端取 JSON 遷移補的值。
     known_types：舊 JSON 第一節的型別名，第一節拿掉的型別在第四節的列丟掉不報錯（status 傳）。
-    resolve：第七節「以哪份為底」換成卡編號的函式（template_resolver(vault, 舊 JSON)）；沒給只收卡編號。"""
+    resolve：第七節「以哪份為底」換成卡編號的函式（template_resolver(vault, 舊 JSON)）；沒給只收卡編號。
+    uses：第六節用在哪能填的值（known_uses）；沒給不驗。limits：偏好兩組上限（preference_limits），沒給用預設。"""
     lines = str(text).lstrip("﻿").splitlines()
     found = _sections(lines)
     have = SECTIONS_OF.get(int(legacy), len(NUMERALS))
@@ -625,8 +733,8 @@ def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), p
             "exclusions": _parse_exclusions(_table_rows(3, found[3])),
             "synthesis_sections": _parse_synthesis(_table_rows(4, found[4]), types, known_types) if 4 in found else None,
             "about": _parse_about(_table_rows(5, found[5]), types, max_type_chars) if 5 in found else None,
-            "preferences": (_parse_preferences(_table_rows(6, found[6]), preference_max, preference_max_chars)
-                            if 6 in found else None),
+            "preferences": (_parse_preferences(_table_rows(6, found[6]), dict(_DEFAULT_LIMITS, **limits), uses,
+                                               "用在哪" in _table_head(found[6])) if 6 in found else None),
             "templates": _parse_templates(_table_rows(7, found[7]), resolve) if 7 in found else None,
             "tags": _parse_tags(_table_rows(8, found[8]), types, known_types, max_type_chars) if 8 in found else None}
 
@@ -674,7 +782,7 @@ def _compare(old, new, fields):
 
 def diff(old, new):
     """以鍵比：型別＝名稱、卡型＝[卡型名, 段落名]、排除＝種類、每類段落＝[型別, 段落名]、關於你＝名稱、偏好＝那句話；
-    changed 是同鍵其他欄不同（來源與日期不算；偏好只有一欄，沒有 changed）；範本＝文件，changed 是換了底；
+    changed 是同鍵其他欄不同（來源與日期不算；偏好的 changed 是改了用在哪）；範本＝文件，changed 是換了底；
     標籤＝[型別, 欄名]，changed 是詞或可多選不同。"""
     tags = _compare(_tag_rows(old), _tag_rows(new), ("words", "multi"))
     cards = _compare(_section_rows(old), _section_rows(new), ("required", "hint"))
@@ -684,7 +792,7 @@ def diff(old, new):
             "exclusions": _compare(_exclusion_rows(old), _exclusion_rows(new), ("action",)),
             "synthesis_sections": {k: [list(x) for x in v] for k, v in synthesis.items()},
             "about": _compare(_about_rows(old), _about_rows(new), ("kind", "aliases")),
-            "preferences": _compare(_preference_rows(old), _preference_rows(new), ()),
+            "preferences": _compare(_preference_rows(old), _preference_rows(new), ("use",)),
             "templates": _compare(_template_rows(old), _template_rows(new), ("card",)),
             "tags": {k: [list(x) for x in v] for k, v in tags.items()}}
 
@@ -764,8 +872,8 @@ def merge(old, new, today=None, first=False):
     old_prefs = _preference_rows(old)
     preferences = []
     for p in new.get("preferences") or []:
-        source, when = _stamp(p, old_prefs.get(p["text"]), False, today, first)
-        preferences.append({"text": p["text"], "source": source, "date": when})
+        source, when = _stamp(p, old_prefs.get(p["text"]), p["text"] in d["preferences"]["changed"], today, first)
+        preferences.append({"text": p["text"], "use": p.get("use") or USE_ALL, "source": source, "date": when})
     old_templates = _template_rows(old)
     templates = []
     for t in new.get("templates") or []:
@@ -855,8 +963,9 @@ def _row(cells):
     return "| " + " | ".join(_cell(c) for c in cells) + " |"
 
 
-def render_text(data, titles=None):
-    """JSON → md 全文；表格不對齊，分隔列固定短橫線。titles 是 {卡編號: 標題}（第七節顯示卡標題，查不到顯示編號）。"""
+def render_text(data, titles=None, limits=None):
+    """JSON → md 全文；表格不對齊，分隔列固定短橫線。titles 是 {卡編號: 標題}（第七節顯示卡標題，查不到顯示編號）；
+    limits 是偏好兩組上限（第六節提示句照它寫，沒給用預設）。"""
     titles = titles or {}
     cats, srcs, acts = _REVERSED
     tables = (
@@ -870,14 +979,16 @@ def render_text(data, titles=None):
           s.get("date")] for s in data.get("synthesis_sections") or [] for x in s.get("sections") or []],
         [[a["name"], _KINDS_REVERSED.get(a.get("kind"), ""), "、".join(a.get("aliases") or []),
           srcs.get(a.get("source"), ""), a.get("date")] for a in data.get("about") or []],
-        [[p["text"], srcs.get(p.get("source"), ""), p.get("date")] for p in data.get("preferences") or []],
+        [[p["text"], p.get("use") or USE_ALL, srcs.get(p.get("source"), ""), p.get("date")]
+         for p in data.get("preferences") or []],
         [[t["doc"], titles.get(t.get("card")) or t.get("card"), srcs.get(t.get("source"), ""), t.get("date")]
          for t in data.get("templates") or []],
         [[t["type"], t["field"], "、".join(t.get("words") or []), "✓" if t.get("multi") else "",
           srcs.get(t.get("source"), ""), t.get("date")] for t in data.get("tags") or []],
     )
     parts = [HEADER]
-    for num, title, prompt, head, rows in zip(NUMERALS, TITLES, PROMPTS, TABLE_HEADS, tables):
+    prompts = PROMPTS[:5] + (PROMPTS[5].format(**dict(_DEFAULT_LIMITS, **(limits or {}))),) + PROMPTS[6:]
+    for num, title, prompt, head, rows in zip(NUMERALS, TITLES, prompts, TABLE_HEADS, tables):
         lines = [f"## {num}、{title}", prompt, "", _row(head), "|" + "---|" * len(head)]
         lines += [_row(r) for r in rows]
         parts.append("\n" + "\n".join(lines) + "\n")
@@ -905,7 +1016,7 @@ def card_titles(vault, data):
 
 def render(vault, data):
     """寫 系統/客戶設定檔.md，回寫出的文字；備份與 md_sha256 由呼叫端管。"""
-    text = render_text(data, card_titles(vault, data))
+    text = render_text(data, card_titles(vault, data), preference_limits(vault))
     target = Path(vault) / MD_POSIX
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
@@ -921,7 +1032,7 @@ def write_locked(vault, data, turn_id):
     md = Path(vault) / MD_POSIX
     if (old is not None and old.get("md_sha256") and md.is_file() and md_sha256(vault) != old["md_sha256"]
             and not any(e.get("path") == MD_POSIX for e in turn.entries(vault, turn_id))):
-        write_text_atomic(md, render_text(old, card_titles(vault, old)))
+        write_text_atomic(md, render_text(old, card_titles(vault, old), preference_limits(vault)))
     turn.backup(vault, PROFILE_POSIX, turn_id)
     turn.backup(vault, MD_POSIX, turn_id)
     data = copy.deepcopy(data)
@@ -950,7 +1061,7 @@ SECTION_SPECS = (
     ("不整理與敏感", ("種類", "處理"), ("種類",)),
     ("每類段落", ("型別", "段落", "必出現", "提示"), ("型別", "段落")),
     ("關於你", ("名稱", "是什麼", "別名"), ("名稱",)),
-    ("偏好", ("偏好",), ("序號",)),
+    ("偏好", ("偏好", "用在哪"), ("序號",)),
     ("範本", ("文件", "底"), ("文件",)),
     ("標籤", ("型別", "欄名", "詞", "可多選"), ("型別", "欄名")),
 )
@@ -974,6 +1085,7 @@ COLUMN_RULES = {
     (5, "是什麼"): {"choices": list(KINDS)},
     (5, "別名"): {"rule": "其他叫法，頓號分開，可以空"},
     (6, "偏好"): {"rule": FREE_TEXT_RULE},
+    (6, "用在哪"): {"choices": list(USES), "rule": "留空就是全部（每次都照做）；整理成卡只在寫卡時照做，不進開場"},
     (7, "文件"): {"rule": "文件的種類，例：報價單；" + FREE_TEXT_RULE},
     (7, "底"): {"rule": "當底的那份檔的檔案卡標題或卡編號"},
     (8, "型別"): {"rule": "第一節有的型別名"},
@@ -1014,7 +1126,8 @@ def flat_rows(data, number, titles=None):
         return [dict({"名稱": a["name"], "是什麼": _KINDS_REVERSED.get(a.get("kind"), ""), "別名": "、".join(a.get("aliases") or [])},
                      **tail(a)) for a in data.get("about") or []]
     if number == 6:
-        return [dict({"序號": i, "偏好": p["text"]}, **tail(p)) for i, p in enumerate(data.get("preferences") or [], 1)]
+        return [dict({"序號": i, "偏好": p["text"], "用在哪": p.get("use") or USE_ALL}, **tail(p))
+                for i, p in enumerate(data.get("preferences") or [], 1)]
     if number == 8:
         return [dict({"型別": t["type"], "欄名": t["field"], "可選的詞": "、".join(t.get("words") or []),
                       "可多選": "✓" if t.get("multi") else ""}, **tail(t)) for t in data.get("tags") or []]
@@ -1029,32 +1142,39 @@ def _row_no(out, number, match):
     return next((i for i, r in enumerate(rows, 1) if match(r)), len(rows) + 1)
 
 
-def sections_schema(data, preference_max=PREFERENCE_MAX, preference_max_chars=PREFERENCE_MAX_CHARS, titles=None):
-    """kb profile show --json 的 sections：每節的欄（能填什麼）、主鍵、現有的列、add／remove 指令範本（{欄} 是空格）。"""
+def sections_schema(data, titles=None, uses=None, **limits):
+    """kb profile show --json 的 sections：每節的欄（能填什麼）、主鍵、現有的列、add／remove 指令範本（{欄} 是空格）。
+    第六節的用在哪 choices 是 uses（use_choices，沒給是內建三個），limits 分 opening（整理成卡以外）與 card 兩組。"""
+    lim = dict(_DEFAULT_LIMITS, **limits)
     out = []
     for number, (name, columns, key) in enumerate(SECTION_SPECS, 1):
         item = {"name": name, "number": number, "key": list(key),
-                "columns": [dict({"name": c}, **COLUMN_RULES[(number, c)]) for c in columns],
+                "columns": [dict({"name": c}, **dict(COLUMN_RULES[(number, c)],
+                                                     **({"choices": list(uses)} if uses and (number, c) == (6, "用在哪")
+                                                        else {}))) for c in columns],
                 "rows": flat_rows(data, number, titles),
                 "add": f"kb profile add {name} " + " ".join(f"{c}={{{c}}}" for c in columns),
                 "remove": None if number in (1, 8) else f"kb profile remove {name} " + " ".join(f"{c}={{{c}}}" for c in key)}
         if number == 6:
-            prefs = data.get("preferences") or []
-            item["limits"] = {"count": preference_max, "chars": preference_max_chars, "used_count": len(prefs),
-                              "used_chars": sum(len(p["text"]) for p in prefs)}
+            item["limits"] = {}
+            for group in ("opening", "card"):
+                count, chars, _label = _limits_of(group, lim)
+                prefs = [p for p in data.get("preferences") or [] if _group(p.get("use") or USE_ALL) == group]
+                item["limits"][group] = {"count": count, "chars": chars, "used_count": len(prefs),
+                                         "used_chars": sum(len(p["text"]) for p in prefs)}
         out.append(item)
     return out
 
 
-def edited(data, section, op, fields, today=None, preference_max=PREFERENCE_MAX,
-           preference_max_chars=PREFERENCE_MAX_CHARS):
+def edited(data, section, op, fields, today=None, uses=None, **limits):
     """kb profile add／remove 的核心（D-144），只在記憶體改：回 (六節的新 dict, {"message", "changed", "row"})。
     op 是 add（主鍵已有就改那一列，沒有就加）或 remove（給主鍵）；改到的列來源 corrected、日期 today，其他列不動。
     節名、欄名不對、找不到那一列、選項欄的值不對、偏好超過上限丟 ProfileError（message 是給人看的整句）。
-    其餘格式（名稱字元、保留字、第四節的型別要在第一節…）由呼叫端 render_text 後 parse_md 驗，跟 apply 同一支。"""
+    其餘格式（名稱字元、保留字、第四節的型別要在第一節…）由呼叫端 render_text 後 parse_md 驗，跟 apply 同一支。
+    第六節（D-504）：uses 是用在哪能填的值（use_choices，沒給不驗）；add 帶「序號」是改第幾條；limits 是兩組上限。"""
     today = today or _today()
     number, columns, key = _spec(section)
-    allowed = columns if op == "add" else key
+    allowed = (columns + (("序號",) if number == 6 else ())) if op == "add" else key
     for k in fields:
         if k not in allowed:
             raise ProfileError(number, None, f"「{section}」這一節沒有「{k}」欄；欄是 {'、'.join(allowed)}")
@@ -1064,6 +1184,8 @@ def edited(data, section, op, fields, today=None, preference_max=PREFERENCE_MAX,
         raise ProfileError(8, None, TAG_REMOVE_REFUSAL)
     need = {("add", 6): ("偏好",), ("add", 7): ("文件", "底"), ("add", 8): ("型別", "欄名", "詞"), ("remove", 2): ("卡型",),
             ("remove", 4): ("型別",)}.get((op, number), key)
+    if (op, number) == ("add", 6) and "序號" in fields:
+        need = ("序號",)
     missing = [k for k in need if not str(fields.get(k) or "").strip()]
     if missing:
         raise ProfileError(number, None, f"少了「{missing[0]}」；這一節要給 {'、'.join(need)}")
@@ -1072,7 +1194,7 @@ def edited(data, section, op, fields, today=None, preference_max=PREFERENCE_MAX,
     absent = "沒有這一列：" + "、".join(f"{k}={f[k]}" for k in key if k in f)
     handler = (_edit_types, _edit_cards, _edit_exclusions, _edit_synthesis, _edit_about, _edit_preferences,
                _edit_templates, _edit_tags)[number - 1]
-    message, changed = handler(out, op, f, today, absent, preference_max, preference_max_chars)
+    message, changed = handler(out, op, f, today, absent, dict(_DEFAULT_LIMITS, **limits, uses=uses))
     return out, {"message": message, "changed": changed, "row": f}
 
 
@@ -1209,30 +1331,53 @@ def _edit_about(out, op, f, today, absent, *_limits):
     return f"已加關於你：{name}（{kind}）", True
 
 
-def _edit_preferences(out, op, f, today, absent, max_count, max_chars):
+def _where(use):
+    return "每次都照做" if use == USE_ALL else f"只在{use}時用"
+
+
+def _edit_preferences(out, op, f, today, absent, lim):
+    """remove 給序號；add 沒帶序號是加一條（同一句不分用在哪算重複），帶序號是改那一條（D-504 決策 5）。"""
     rows = out["preferences"]
-    if op == "remove":
+    old = None
+    if op == "remove" or "序號" in f:
         try:
             n = int(f["序號"])
         except ValueError:
             n = 0
         if not 1 <= n <= len(rows):
-            raise ProfileError(6, None, absent)
-        gone = rows.pop(n - 1)
-        return f"已拿掉偏好 {n}：{gone['text']}", True
-    text = f["偏好"]
+            raise ProfileError(6, None, absent if op == "remove" else f"沒有第 {f['序號']} 條偏好（現在 {len(rows)} 條）")
+        if op == "remove":
+            gone = rows.pop(n - 1)
+            return f"已拿掉偏好 {n}：{gone['text']}", True
+        old = rows[n - 1]
+    text = f.get("偏好") or (old["text"] if old else "")
+    use = (f["用在哪"] or USE_ALL) if "用在哪" in f else (old.get("use") or USE_ALL) if old else USE_ALL
     why = preference_problem(text)
     if why:
         raise ProfileError(6, None, why)
-    if any(p["text"] == text for p in rows):
+    why = use_problem(use, lim["uses"])
+    if why:
+        raise ProfileError(6, None, "偏好" + why)
+    others = [p for p in rows if p is not old]
+    if any(p["text"] == text for p in others):
         return f"偏好已經有了：{text}", False
-    if len(rows) >= max_count:
-        raise ProfileError(6, None, f"偏好最多 {max_count} 條（現在 {len(rows)} 條），先合併或拿掉一條")
-    total = sum(len(p["text"]) for p in rows) + len(text)
-    if total > max_chars:
-        raise ProfileError(6, None, f"偏好合計最多 {max_chars} 字（加了會是 {total} 字），先合併或縮短")
-    rows.append({"text": text, "source": "corrected", "date": today})
-    return f"已加偏好：{text}", True
+    if old is not None and (old["text"], old.get("use") or USE_ALL) == (text, use):
+        return _same("偏好", str(n))
+    group = _group(use)
+    count, chars, label = _limits_of(group, lim)
+    mates = [p for p in others if _group(p.get("use") or USE_ALL) == group]
+    tail = "" if group == "card" else "，整理成卡的另算"
+    if len(mates) >= count:
+        raise ProfileError(6, None, f"{label}最多 {count} 條（現在 {len(mates)} 條{tail}），先合併或拿掉一條")
+    total = sum(len(p["text"]) for p in mates) + len(text)
+    if total > chars:
+        raise ProfileError(6, None, f"{label}合計最多 {chars} 字（加了會是 {total} 字{tail}），先合併或縮短")
+    new = {"text": text, "use": use, "source": "corrected", "date": today}
+    if old is not None:
+        rows[n - 1] = new
+        return f"已改偏好 {n}，{_where(use)}：{text}", True
+    rows.append(new)
+    return f"記下了，{_where(use)}：{text}", True
 
 
 def _edit_templates(out, op, f, today, absent, *_limits):
@@ -1305,7 +1450,7 @@ def status(vault):
             new = parse_md(md.read_text(encoding="utf-8"), config.get(vault, "card_title_max_chars"),
                            legacy=stored if stored in SECTIONS_OF else False,
                            known_types=[t["name"] for t in data["types"]], **preference_limits(vault),
-                           resolve=template_resolver(vault, data))
+                           resolve=template_resolver(vault, data), uses=known_uses(vault, data))
             for key in NEW_LISTS:  # 舊 md 沒有第四～八節：取 JSON 遷移補的值
                 if new[key] is None:
                     new[key] = copy.deepcopy(data[key])
@@ -1325,10 +1470,9 @@ def status(vault):
 
 
 def preference_limits(vault):
-    """parse_md 的偏好上限兩個參數，從 config 讀（D-137）。"""
+    """parse_md 的偏好兩組上限四個參數，從 config 讀（D-137、D-504）。"""
     from kb._lib import config
-    return {"preference_max": config.get(vault, "preference_max"),
-            "preference_max_chars": config.get(vault, "preference_max_chars")}
+    return {k: config.get(vault, k) for k in _DEFAULT_LIMITS}
 
 
 def _plain_sections(sections):
@@ -1337,7 +1481,7 @@ def _plain_sections(sections):
 
 def card_types_for_todo(data):
     """給 cards todo --json 的 profile 塊：去掉 source、date；多型別、每類段落、關於你（實體與綜合卡第 10 點）、
-    標籤字典（tags，照型別分組）、偏好（preferences，第六節每條的那句，製卡者照寫卡有關的做，D-503）。"""
+    標籤字典（tags，照型別分組）、偏好（preferences，第六節用在哪是全部或整理成卡的那句、順序照表，製卡者照寫卡有關的做，D-503、D-504）。"""
     return {"card_types": [{"name": c["name"], "sections": _plain_sections(c.get("sections"))}
                            for c in data.get("card_types") or []],
             "exclusions": [{"kind": e["kind"], "action": e["action"]} for e in data.get("exclusions") or []],
@@ -1347,7 +1491,8 @@ def card_types_for_todo(data):
             "about": [{"name": a["name"], "kind": a.get("kind"), "aliases": list(a.get("aliases") or [])}
                       for a in data.get("about") or []],
             "tags": tag_groups(data),
-            "preferences": [p["text"] for p in data.get("preferences") or []]}
+            "preferences": [p["text"] for p in data.get("preferences") or []
+                            if (p.get("use") or USE_ALL) in (USE_ALL, USE_CARD)]}
 
 
 def tag_groups(data):

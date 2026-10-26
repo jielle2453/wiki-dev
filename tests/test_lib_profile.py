@@ -55,7 +55,7 @@ def message(text, **kw):
 class Defaults(unittest.TestCase):
     def test_shape(self):
         d = profile.defaults(DAY)
-        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (5, None, None, []))
+        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (6, None, None, []))
         self.assertEqual((d["synthesis_sections"], d["about"], d["preferences"], d["templates"]), ([], [], [], []))
         self.assertEqual([c["name"] for c in d["card_types"]],
                          ["報價", "合約", "會議紀錄", "型錄", "進度表", "範本", "說明", "其他"])
@@ -513,7 +513,7 @@ class SchemaOneMigration(unittest.TestCase):
         p = self.V / ".system" / "profile.json"
         before = p.read_bytes()
         data = profile.load(self.V)
-        self.assertEqual(data["schema_version"], 5)
+        self.assertEqual(data["schema_version"], 6)
         self.assertEqual([(s["type"], [x["name"] for x in s["sections"]], s["source"]) for s in data["synthesis_sections"]],
                          [("案子", ["時程", "金額"], "inferred")])
         self.assertEqual((data["about"], data["preferences"]), ([], []))
@@ -548,23 +548,24 @@ class AboutListChars(unittest.TestCase):
 
 
 
-SECTION6_PROMPT = ("怎麼回答你、怎麼做東西給你：例如回答先講結論、日期帶星期。一條一列；寫卡時跟寫卡有關的也照做（例如人名用連結），卡上要多記哪一段放第二節。"
-                   "最多 10 條、合計 400 字。")
+SECTION6_PROMPT = ("怎麼回答、怎麼做東西、寫卡時照做的習慣；用在哪不填就是每次都照做。例如回答先講結論、日期帶星期。一條一列；"
+                   "用在哪填 整理成卡、做文件 或客製功能的名字，就只在那件事時照做；卡上要多記哪一段放第二節。"
+                   "整理成卡以外的最多 20 條、合計 1000 字，整理成卡的另算最多 5 條、合計 200 字。")
 
 
-def pref(text, source="corrected", date=DAY):
-    return {"text": text, "source": source, "date": date}
+def pref(text, source="corrected", date=DAY, use="全部"):
+    return {"text": text, "use": use, "source": source, "date": date}
 
 
 class SchemaThree(unittest.TestCase):
-    """note 改規則第 1 點（D-137）：第六節偏好、schema 2 在記憶體遷移、上限 10 條 400 字。"""
+    """note 改規則第 1 點（D-137）：第六節偏好、schema 2 在記憶體遷移；上限照 D-504 開場那組 20 條 1000 字。"""
 
     def test_render_has_section_six(self):
         d = profile.defaults(DAY)
         d["preferences"] = [pref("回答先講結論")]
         text = profile.render_text(d)
-        self.assertIn("\n## 六、偏好\n" + SECTION6_PROMPT + "\n\n| 偏好 | 來源 | 日期 |\n|---|---|---|\n"
-                      "| 回答先講結論 | 糾正 | 2026-10-19 |\n", text)
+        self.assertIn("\n## 六、偏好\n" + SECTION6_PROMPT + "\n\n| 偏好 | 用在哪 | 來源 | 日期 |\n|---|---|---|---|\n"
+                      "| 回答先講結論 | 全部 | 糾正 | 2026-10-19 |\n", text)
         self.assertEqual(profile.parse_md(text)["preferences"], [pref("回答先講結論")])
 
     def test_round_trip_six_sections(self):
@@ -583,23 +584,24 @@ class SchemaThree(unittest.TestCase):
     def test_preference_errors(self):
         base = profile.render_text(profile.defaults(DAY))
         cases = [
-            (["|  | 糾正 |  |"], "第 6 節第 1 列的偏好是空的"),
-            (["| 先講結論 |", "| 日期帶星期 |", "| 先講結論 |"], "第 6 節第 3 列跟第 1 列重複（先講結論）"),
-            ([f"| 第{i}條 |" for i in range(11)], "第 6 節第 11 列超過上限（偏好最多 10 條）"),
-            (["| " + "長" * 300 + " |", "| " + "短" * 101 + " |"], "第 6 節第 2 列超過上限（偏好合計最多 400 字）"),
-            (["| 先講結論 | 亂填 |  |"], "第 6 節第 1 列的來源要是 訪談、推測、確認、糾正 之一，或留空"),
-            (["| 先講結論 | 糾正 |"], "第 6 節第 1 列欄數不對（要 1 欄或 3 欄）"),
+            (["|  | 全部 | 糾正 |  |"], "第 6 節第 1 列的偏好是空的"),
+            (["| 先講結論 |  |", "| 日期帶星期 |  |", "| 先講結論 | 做文件 |"], "第 6 節第 3 列跟第 1 列重複（先講結論）"),
+            ([f"| 第{i}條 |  |" for i in range(21)], "第 6 節第 21 列超過上限（偏好最多 20 條，整理成卡的另算）"),
+            (["| " + "長" * 900 + " |  |", "| " + "短" * 101 + " |  |"],
+             "第 6 節第 2 列超過上限（偏好合計最多 1000 字，整理成卡的另算）"),
+            (["| 先講結論 | 全部 | 亂填 |  |"], "第 6 節第 1 列的來源要是 訪談、推測、確認、糾正 之一，或留空"),
+            (["| 先講結論 | 全部 | 糾正 |"], "第 6 節第 1 列欄數不對（要 2 欄或 4 欄）"),
         ]
         for rows, want in cases:
             with self.subTest(want=want):
                 self.assertEqual(message(with_rows(base, "六", rows)), want)
-        got = profile.parse_md(with_rows(base, "六", ["| 一 |", "| 二 |"]), preference_max=2, preference_max_chars=2)
+        got = profile.parse_md(with_rows(base, "六", ["| 一 |  |", "| 二 |  |"]), preference_max=2, preference_max_chars=2)
         self.assertEqual([p["text"] for p in got["preferences"]], ["一", "二"])
 
     def test_diff_merge_summary(self):
         old = profile.defaults(DAY)
         old["preferences"] = [pref("回答先講結論")]
-        new = profile.parse_md(with_rows(profile.render_text(old), "六", ["| 講日期都帶星期 |"]))
+        new = profile.parse_md(with_rows(profile.render_text(old), "六", ["| 講日期都帶星期 |  |"]))
         d = profile.diff(old, new)
         self.assertEqual(d["preferences"], {"added": ["講日期都帶星期"], "removed": [], "changed": []})
         self.assertEqual(profile.summary_full(d), "偏好 +1 -0 ~0")
@@ -620,7 +622,7 @@ class SchemaTwoLoad(unittest.TestCase):
     def test_load_adds_preferences_in_memory(self):
         before = (self.V / ".system" / "profile.json").read_bytes()
         data = profile.load(self.V)
-        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (5, [], []))
+        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (6, [], []))
         self.assertEqual((self.V / ".system" / "profile.json").read_bytes(), before)
         self.assertEqual(profile.stored_schema(self.V), 2)
         self.assertEqual(profile.status(self.V)["state"], "ok")
@@ -656,21 +658,21 @@ class Edited(unittest.TestCase):
     def test_add_preference(self):
         got, res = edit(self.d, "偏好", "add", 偏好="回答先講結論")
         self.assertEqual(got["preferences"], [pref("回答先講結論", date="2026-10-21")])
-        self.assertEqual((res["message"], res["changed"]), ("已加偏好：回答先講結論", True))
+        self.assertEqual((res["message"], res["changed"]), ("記下了，每次都照做：回答先講結論", True))
         self.assertEqual(got["types"], self.d["types"], "其他節不動")
         self.assertEqual(self.d["preferences"], [], "不改傳進來的那份")
         again, res = edit(dict(self.d, preferences=got["preferences"]), "偏好", "add", 偏好="回答先講結論")
         self.assertEqual((res["changed"], again["preferences"]), (False, got["preferences"]))
 
     def test_preference_limits_and_remove(self):
-        d = dict(self.d, preferences=[pref(f"第{i}條") for i in range(10)])
+        d = dict(self.d, preferences=[pref(f"第{i}條") for i in range(20)])
         with self.assertRaises(profile.ProfileError) as cm:
             edit(d, "偏好", "add", 偏好="再一條")
-        self.assertEqual(cm.exception.message, "偏好最多 10 條（現在 10 條），先合併或拿掉一條")
-        d = dict(self.d, preferences=[pref("長" * 390)])
+        self.assertEqual(cm.exception.message, "偏好最多 20 條（現在 20 條，整理成卡的另算），先合併或拿掉一條")
+        d = dict(self.d, preferences=[pref("長" * 990)])
         with self.assertRaises(profile.ProfileError) as cm:
             edit(d, "偏好", "add", 偏好="短" * 33)
-        self.assertEqual(cm.exception.message, "偏好合計最多 400 字（加了會是 423 字），先合併或縮短")
+        self.assertEqual(cm.exception.message, "偏好合計最多 1000 字（加了會是 1023 字，整理成卡的另算），先合併或縮短")
         d = dict(self.d, preferences=[pref("回答先講結論"), pref("講日期都帶星期")])
         got, res = edit(d, "偏好", "remove", 序號="2")
         self.assertEqual((got["preferences"], res["message"]), ([pref("回答先講結論")], "已拿掉偏好 2：講日期都帶星期"))
@@ -733,7 +735,7 @@ class Edited(unittest.TestCase):
 
     def test_bad_section_and_column(self):
         self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
-        self.assertEqual(self.err("偏好", "add", 名稱="x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好")
+        self.assertEqual(self.err("偏好", "add", 名稱="x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好、用在哪、序號")
         self.assertEqual(self.err("卡型", "remove", 提示="x"), "「卡型」這一節沒有「提示」欄；欄是 卡型、段落")
 
 
@@ -764,10 +766,13 @@ class SectionsSchema(unittest.TestCase):
         self.assertEqual(about["columns"][1], {"name": "是什麼", "choices": ["公司", "本人"]})
         self.assertIn("頓號分開", about["columns"][2]["rule"])
         self.assertEqual(prefs, {"name": "偏好", "number": 6, "key": ["序號"],
-                                 "limits": {"count": 10, "chars": 400, "used_count": 1, "used_chars": 6},
-                                 "columns": [{"name": "偏好", "rule": "一句白話，不含 \" $ ` \\ 這四種字元"}],
-                                 "rows": [{"序號": 1, "偏好": "回答先講結論", "來源": "糾正", "日期": DAY}],
-                                 "add": "kb profile add 偏好 偏好={偏好}", "remove": "kb profile remove 偏好 序號={序號}"})
+                                 "limits": {"opening": {"count": 20, "chars": 1000, "used_count": 1, "used_chars": 6},
+                                            "card": {"count": 5, "chars": 200, "used_count": 0, "used_chars": 0}},
+                                 "columns": [{"name": "偏好", "rule": "一句白話，不含 \" $ ` \\ 這四種字元"},
+                                             dict({"name": "用在哪"}, **profile.COLUMN_RULES[(6, "用在哪")])],
+                                 "rows": [{"序號": 1, "偏好": "回答先講結論", "用在哪": "全部", "來源": "糾正", "日期": DAY}],
+                                 "add": "kb profile add 偏好 偏好={偏好} 用在哪={用在哪}",
+                                 "remove": "kb profile remove 偏好 序號={序號}"})
 
 
 
@@ -842,7 +847,7 @@ class SchemaFour(unittest.TestCase):
             shutil.copy2(PROFILE / "schema3.json", V / ".system" / "profile.json")
             shutil.copy2(PROFILE / "schema3.md", V / "系統" / "客戶設定檔.md")
             data = profile.load(V)
-            self.assertEqual((data["schema_version"], data["templates"]), (5, []))
+            self.assertEqual((data["schema_version"], data["templates"]), (6, []))
             self.assertEqual(profile.stored_schema(V), 3)
             self.assertEqual(profile.status(V)["state"], "ok")
         finally:
@@ -871,7 +876,7 @@ class SchemaFive(unittest.TestCase):
         text = profile.render_text(profile.defaults(DAY))
         self.assertTrue(text.endswith(SECTION8), text[-300:])
         self.assertEqual(profile.defaults(DAY)["tags"], [])
-        self.assertEqual(profile.SCHEMA_VERSION, 5)
+        self.assertEqual(profile.SCHEMA_VERSION, 6)
 
     def test_round_trip(self):
         d = profile.defaults(DAY)
@@ -964,7 +969,7 @@ class SchemaFive(unittest.TestCase):
             shutil.copy2(PROFILE / "schema4.json", V / ".system" / "profile.json")
             shutil.copy2(PROFILE / "schema4.md", V / "系統" / "客戶設定檔.md")
             data = profile.load(V)
-            self.assertEqual((data["schema_version"], data["tags"]), (5, []))
+            self.assertEqual((data["schema_version"], data["tags"]), (6, []))
             self.assertEqual(profile.stored_schema(V), 4)
             self.assertEqual(profile.status(V)["state"], "ok")
         finally:

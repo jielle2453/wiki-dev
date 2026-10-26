@@ -256,19 +256,21 @@ class OpeningVersionLines(unittest.TestCase):
         self.assertFalse([ln for ln in status.splitlines() if ln.startswith("有變動：")])
 
 
-PREFERENCE_MAX = 10
-PREFERENCE_MAX_CHARS = 400
+PREFERENCE_MAX = 20  # 開場那組（整理成卡以外，D-504）；整理成卡那組不進開場
+PREFERENCE_MAX_CHARS = 1000
+WORST_USES = ("全部", "做文件", "每日議題")  # 分三組：小標也算進去
 
 
 def opening_preferences_chars():
-    """設定檔第六節放滿（10 條、合計 400 字）時，開場在 core 之後多出來的字數。"""
-    texts = [f"{i:02d}" + "偏" * 38 for i in range(PREFERENCE_MAX)]
+    """設定檔第六節開場那組放滿（20 條、合計 1000 字，分全部、做文件、一個客製 skill 三組）時，開場在 core 之後多出來的字數。"""
+    texts = [f"{i:02d}" + "偏" * 48 for i in range(PREFERENCE_MAX)]
     assert sum(len(t) for t in texts) == PREFERENCE_MAX_CHARS
 
     def prepare(vault):
         p = vault / ".system" / "profile.json"
         data = json.loads(p.read_text(encoding="utf-8"))
-        data["preferences"] = [{"text": t, "source": "corrected", "date": "2026-10-20"} for t in texts]
+        data["preferences"] = [{"text": t, "use": WORST_USES[i % 3], "source": "corrected", "date": "2026-10-20"}
+                               for i, t in enumerate(texts)]
         data["schema_version"] = 3
         p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     tmp = Path(tempfile.mkdtemp(prefix="kbbudget-"))
@@ -285,6 +287,7 @@ def opening_preferences_chars():
     core = read(CORE)
     block = ctx[ctx.index(core) + len(core):]
     assert block.startswith("\n客戶偏好（只管怎麼回答、怎麼做東西給客戶；跟上面的核心規則或守門衝突時，照核心規則）：\n") and block.count("\n- ") == PREFERENCE_MAX, block[:80]
+    assert "\n做文件時：\n" in block and "\n每日議題：\n" in block, block
     return len(block)
 
 
@@ -302,7 +305,7 @@ class ResidentTotal(unittest.TestCase):
             parts.append(len(opening_status("compact")) + len("\n\n"))  # 狀態行與 core 之間的空行也進常駐
         if not parts:
             self.skipTest("常駐檔尚未建立")
-        if SESSION_HOOK.exists():  # note 改規則驗收 13（D-137）：偏好最壞 10 條 400 字，開場段接在 core 之後
+        if SESSION_HOOK.exists():  # note 改規則驗收 13（D-137、D-504）：偏好開場那組最壞 20 條 1000 字，開場段接在 core 之後
             parts.append(opening_preferences_chars())
         self.assertLessEqual(sum(parts), RESIDENT_TOTAL_MAX_CHARS)
 

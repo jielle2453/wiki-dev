@@ -337,7 +337,7 @@ class SchemaTwoApply(Base):
         self.drop_line("| 案子 | 金額 |")
         self.apply()
         self.assertNotIn("案子", {s["type"] for s in self.data()["synthesis_sections"]})
-        self.assertEqual(self.data()["schema_version"], 5, "寫的時候寫 5")
+        self.assertEqual(self.data()["schema_version"], 6, "寫的時候寫 6")
 
     def test_drop_type_row_only_applies_and_drops_its_sections(self):
         """實作回報裁定 1：只刪第一節的列，apply 成功，第四節那個型別的列一起拿掉。"""
@@ -401,32 +401,36 @@ class Edit(Base):
         data = json.loads(self.kb("show", "--json").stdout)
         self.assertEqual([s["name"] for s in data["sections"]], ["型別", "卡型", "不整理與敏感", "每類段落", "關於你", "偏好", "範本", "標籤"])
         self.assertIsNone(data["pending_edit"])
-        self.assertEqual(data["sections"][5]["limits"], {"count": 10, "chars": 400, "used_count": 0, "used_chars": 0})
+        self.assertEqual(data["sections"][5]["limits"],
+                         {"opening": {"count": 20, "chars": 1000, "used_count": 0, "used_chars": 0},
+                          "card": {"count": 5, "chars": 200, "used_count": 0, "used_chars": 0}})
         self.assertEqual(data["sections"][0]["add"], "kb profile add 型別 名稱={名稱} 大類={大類} 一句說明={一句說明}")
 
     def test_preference_add_limits_remove(self):
         t = turn.current(self.V)["turn"]
-        self.assertEqual(self.run_ok("add", "偏好", "偏好=回答先講結論"), ["已加偏好：回答先講結論"])
+        self.assertEqual(self.run_ok("add", "偏好", "偏好=回答先講結論"), ["記下了，每次都照做：回答先講結論"])
         data = self.data()
         self.assertEqual((data["schema_version"], data["preferences"]),
-                         (5, [{"text": "回答先講結論", "source": "corrected", "date": self.today}]))
+                         (6, [{"text": "回答先講結論", "use": "全部", "source": "corrected", "date": self.today}]))
         self.assertIn(f"## 六、偏好", self.md_text())
-        self.assertIn(f"| 回答先講結論 | 糾正 | {self.today} |", self.md_text())
+        self.assertIn(f"| 回答先講結論 | 全部 | 糾正 | {self.today} |", self.md_text())
         self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
         manifest = {e["path"] for e in turn.entries(self.V, t)}
         self.assertTrue({profile.PROFILE_POSIX, profile.MD_POSIX} <= manifest)
-        self.assertEqual((self.programs()[-1]["command"], self.programs()[-1]["note"]), ("profile add", "已加偏好：回答先講結論"))
+        self.assertEqual((self.programs()[-1]["command"], self.programs()[-1]["note"]), ("profile add", "記下了，每次都照做：回答先講結論"))
         self.assertEqual(self.run_ok("add", "偏好", "偏好=回答先講結論"), ["偏好已經有了：回答先講結論"])
-        for i in range(9):
+        for i in range(19):
             self.run_ok("add", "偏好", f"偏好=第{i}條")
         before = self.hashes()
-        self.assertEqual(self.refused("add", "偏好", "偏好=再一條"), "偏好最多 10 條（現在 10 條），先合併或拿掉一條")
+        self.assertEqual(self.refused("add", "偏好", "偏好=再一條"),
+                         "偏好最多 20 條（現在 20 條，整理成卡的另算），先合併或拿掉一條")
         self.assertEqual(self.hashes(), before)
-        for i in range(9):
+        for i in range(19):
             self.run_ok("remove", "偏好", "序號=2")
-        self.assertEqual(self.run_ok("add", "偏好", "偏好=" + "長" * 384), ["已加偏好：" + "長" * 384])
+        self.assertEqual(self.run_ok("add", "偏好", "偏好=" + "長" * 984), ["記下了，每次都照做：" + "長" * 984])
         before = self.hashes()
-        self.assertEqual(self.refused("add", "偏好", "偏好=" + "短" * 33), "偏好合計最多 400 字（加了會是 423 字），先合併或縮短")
+        self.assertEqual(self.refused("add", "偏好", "偏好=" + "短" * 33),
+                         "偏好合計最多 1000 字（加了會是 1023 字，整理成卡的另算），先合併或縮短")
         self.assertEqual(self.hashes(), before)
         self.assertEqual(self.run_ok("remove", "偏好", "序號=1"), ["已拿掉偏好 1：回答先講結論"])
         self.assertEqual(self.refused("remove", "偏好", "序號=5"), "沒有這一列：序號=5")
@@ -472,7 +476,7 @@ class Edit(Base):
     def test_bad_section_column_and_argument(self):
         before = self.hashes()
         self.assertEqual(self.refused("add", "偏好啦", "偏好=x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
-        self.assertEqual(self.refused("add", "偏好", "名稱=x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好")
+        self.assertEqual(self.refused("add", "偏好", "名稱=x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好、用在哪、序號")
         self.assertEqual(self.refused("add", "偏好", "回答先講結論"), "「回答先講結論」要寫成 欄=值")
         self.assertEqual(self.refused("remove", "卡型", "卡型=估價單"), "沒有這一列：卡型=估價單")
         self.assertEqual(self.hashes(), before)
@@ -546,7 +550,7 @@ class SecondRound(Base):
                 self.assertEqual(self.refused("add", "偏好", f"偏好={text}"), SECRET)
         self.assertEqual(self.hashes(), before)
         self.kb("add", "偏好", "偏好=回答先講結論")  # 有第六節的 md（fixture 是 schema 2）
-        self.hand_add("## 七、", "| 用 password: hunter2 登入 |")
+        self.hand_add("## 七、", "| 用 password: hunter2 登入 |  |")
         self.assertEqual(self.apply(3), [f"客戶設定檔讀不懂：第 6 節第 2 列：{SECRET}"])
         self.assertNotIn("hunter2", (self.V / ".system" / "profile.json").read_text(encoding="utf-8"))
 
@@ -557,7 +561,7 @@ class SecondRound(Base):
                 self.assertEqual(self.refused("add", "偏好", f"偏好={text}"), CHARS)
         self.assertEqual(self.hashes(), before)
         self.kb("add", "偏好", "偏好=回答先講結論")
-        self.hand_add("## 七、", "| 含$符號 |")
+        self.hand_add("## 七、", "| 含$符號 |  |")
         self.assertEqual(self.apply(3), [f"客戶設定檔讀不懂：第 6 節第 2 列：{CHARS}"])
 
     def test_names_refuse_shell_chars_and_knowledge(self):
@@ -690,7 +694,7 @@ class Templates(unittest.TestCase):
         r = self.kb("add", "範本", "文件=報價單", f"底={self.fid}")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "已加範本：報價單"))
         self.assertEqual(self.data()["templates"], [{"doc": "報價單", "card": self.fid, "source": "corrected", "date": today}])
-        self.assertEqual(self.data()["schema_version"], 5)
+        self.assertEqual(self.data()["schema_version"], 6)
         self.assertIn(f"| 報價單 | 報價單範本 | 糾正 | {today} |", self.md_text())
         self.assertEqual(self.data()["md_sha256"], profile.md_sha256(self.V))
         self.assertEqual(self.kb("check").stdout.strip(), "客戶設定檔沒有改")
