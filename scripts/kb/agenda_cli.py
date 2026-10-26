@@ -126,7 +126,7 @@ def _changes(before, after):
     if before.get("date") != after.get("date"):
         parts.append(f"{before['text']} {agenda.with_weekday(before['date'])}→ {agenda.with_weekday(after['date'])}")
     for key, label in FIELD_LABEL:
-        old, new = agenda.show(before.get(key)), agenda.show(after.get(key))
+        old, new = agenda.show(before.get(key), key), agenda.show(after.get(key), key)
         if old != new:
             parts.append(f"{label}{' ' + old if old else ''} → {new}")
             labels.append(label)

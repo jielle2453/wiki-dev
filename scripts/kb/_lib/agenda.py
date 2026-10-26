@@ -334,7 +334,9 @@ def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=
     return _mutate(vault, turn_id, fn)
 
 
-def show(value):
+def show(value, key=None):
+    if key == "repeat" and not value:
+        return NO_REPEAT
     if isinstance(value, dict):  # repeat
         return REPEAT_TEXT.get(value.get("every"), "")
     if isinstance(value, list):
@@ -385,8 +387,8 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
         changes = []
         for key in EDITABLE:
             if key in want and want[key] != it.get(key):
-                if key != "repeat" or show(want[key]) != show(it.get(key)):  # 只換錨點不另記
-                    changes.append(f"{key} {show(it.get(key))} → {show(want[key])}")
+                if key != "repeat" or show(want[key], key) != show(it.get(key), key):  # 只換錨點不另記
+                    changes.append(f"{key} {show(it.get(key), key)} → {show(want[key], key)}")
                 if want[key] is None:
                     it.pop(key, None)
                 else:

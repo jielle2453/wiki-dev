@@ -126,3 +126,23 @@ class Views(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Wording(Base):
+    def test_no_repeat_shown_as_words(self):  # 測試 T-1
+        aid = self.add(repeat="每月")["id"]
+        msg = agenda.edit(self.V, aid, self.t, repeat=agenda.NO_REPEAT)
+        log = read(self.V)
+        self.assertIn("repeat 每月 → 不重複", json.dumps(log, ensure_ascii=False) + str(msg))
+        self.assertEqual(agenda.show(None, "repeat"), "不重複")
+        self.assertEqual(agenda.show(None), "")
+
+    def test_overdue_question_for_repeat(self):  # 測試 T-2：重複的不給整串改日期，「這次不用」走 done
+        from kb._lib import plan
+        it = {"id": "a-1", "kind": "deadline", "date": "2026-11-10", "text": "月繳B", "entities": [], "status": "open",
+              "repeat": {"every": "month", "from": "2026-11-10"}}
+        ask = plan._overdue(it)
+        self.assertIn("（每月）過了", ask["question"])
+        self.assertEqual([(r["label"], r["do"]) for r in ask["results"]], [
+            ("完成了", ["kb agenda done a-1"]), ("這次不用，跳到下一次", ["kb agenda done a-1"]),
+            ("以後都不要了", ["kb agenda cancel a-1"]), ("還沒，下次再問", [])])
