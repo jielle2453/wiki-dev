@@ -57,6 +57,7 @@ class Base(unittest.TestCase):
             mock.patch.object(upgrade, "_changelog", return_value=(
                 "## 0.21.0 — 2026-10-30\n- **給客戶的一句話**：日程可以匯出成 Excel。\n\n"
                 "## 0.20.2 — 2026-10-26\n- **給客戶的一句話**：修好日程匯出的日期錯誤。\n")),
+            mock.patch.object(upgrade, "verify", side_effect=self.fake.verify),
         ]
         for p in self.patches:
             p.start()
@@ -87,7 +88,7 @@ class Check(Base):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out), {"plugin": "0.20.1", "vault": "0.20.1", "latest": "0.21.0", "kind": "minor",
                                            "allowed": True, "note": "日程可以匯出成 Excel", "snapshot_for_downgrade": None,
-                                           "error": None})
+                                           "error": None, "verify_failed": None})
 
     def test_human_lines_are_exact(self):
         self.serve("0.21.0")
@@ -111,6 +112,36 @@ class Check(Base):
     def test_not_a_vault_exit_3(self):
         code, out = run_inproc(["upgrade", "--check"], self.tmp)
         self.assertEqual((code, out.strip()), (3, "這裡不是知識庫"))
+
+
+class VerifyFailed(Base):
+    """換版前先驗新版：kb upgrade 驗不過 exit 3 那句一字不差；--check 多一行、--json 多 verify_failed。"""
+
+    FAILED = {"ok": False, "version": "0.21.0", "python": "3.11", "step": "compile", "file": "hooks/guard.py", "line": 12,
+              "why": "SyntaxError: invalid syntax"}
+    REFUSED = "新版 0.21.0 在這台電腦跑不起來（hooks/guard.py 第 12 行：SyntaxError），先不換；什麼都沒動"
+
+    def test_upgrade_refused(self):
+        self.serve("0.21.0")
+        self.put_history("0.20.1")
+        self.fake.verify_result = self.FAILED
+        self.assertEqual(run_inproc(["upgrade"], self.V), (3, self.REFUSED + "\n"))
+        code, out = run_inproc(["upgrade", "--json"], self.V)
+        self.assertEqual((code, json.loads(out)), (3, {"ok": False, "message": self.REFUSED}))
+        self.assertEqual(backup.snapshots(self.V), [])
+        self.assertIsNone(self.history()["pending"])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_check_line_and_json(self):
+        self.serve("0.21.0")
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, dict(upgrade.BLANK_CHECK, date="2026-10-24", verify_failed=self.FAILED))
+        code, out = run_inproc(["upgrade", "--check"], self.V)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines(), ["現在 0.20.1；最新 0.21.0（日程可以匯出成 Excel），說「升級」就幫你升。",
+                                            "新版 0.21.0 在這台電腦跑不起來（hooks/guard.py 第 12 行：SyntaxError），先沒換"])
+        code, out = run_inproc(["upgrade", "--check", "--json"], self.V)
+        self.assertEqual(json.loads(out)["verify_failed"], self.FAILED)
 
 
 class Upgrade(Base):

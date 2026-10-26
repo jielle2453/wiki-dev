@@ -8,6 +8,7 @@
 import argparse
 import importlib
 import os
+import sys
 
 NO_SUCH_TURN = "回合不存在：{}"
 NOT_THIS_TURN = "這個回合不是這個對話的：{}"
@@ -57,6 +58,7 @@ COMMANDS = {
     "lint": ("kb.lint_cli", "健檢：查整個知識庫、能修的修掉、要你決定的放進待處理、寫這個月的報告；--background 開場背景跑，"
                             "handedit 列你手改程式產生的檔的差異"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
+    "selftest": ("kb.selftest_cli", "自我檢查：這份外掛在這台電腦跑不跑得起來（模組、版本、每個 hook、背景升級），用暫存的小知識庫，不碰你的"),
 }
 
 
@@ -101,6 +103,11 @@ def _touch(vault, agent_id):
 
 
 def main(argv=None):
+    raw = sys.argv[1:] if argv is None else list(argv)
+    if raw[:1] == ["selftest"] and all(a == "--json" for a in raw[1:]):
+        # 不建整個 parser（那會先 import 每個子命令模組）：某個模組 import 壞了，自我檢查也要回 step import（換版前先驗新版 裁定 1）
+        from kb import selftest_cli
+        return selftest_cli.run(argparse.Namespace(json=bool(raw[1:])))
     args = build_parser().parse_args(argv)
     if args.session is not None:
         from kb._lib import turn

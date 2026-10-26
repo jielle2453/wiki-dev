@@ -98,6 +98,11 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.env = mock.patch.dict(os.environ, GIT_ENV)
         self.env.start()
+        self.selftests = []  # 假外掛樹沒有真的 kb selftest：替身記下 zip、回過（換版前先驗新版）
+        self.selftest_result = {"ok": True, "version": None, "step": None, "file": None, "line": None, "why": None}
+        self.selftest = mock.patch.object(release, "_selftest", side_effect=lambda z: (self.selftests.append(Path(z)),
+                                                                                         dict(self.selftest_result))[1])
+        self.selftest.start()
         self.tmp = Path(tempfile.mkdtemp(prefix="kbrel-")).resolve()
         self.repo = self.tmp / "dev"
         self.repo.mkdir()
@@ -106,6 +111,7 @@ class Base(unittest.TestCase):
         self.commit("0.20.0", tag="v0.20.0")
 
     def tearDown(self):
+        self.selftest.stop()
         self.env.stop()
         rmtree(self.tmp)
 
@@ -269,6 +275,65 @@ class Build(Base):
         text = str(cm.exception)
         self.assertIn("給客戶的一句話", text)
         self.assertIn("0.20.5", text)
+
+
+class Verify(Base):
+    """換版前先驗新版 要做的事三、驗收 8：Python 3.10 語法與 zip 自己的 kb selftest。"""
+
+    def test_py310_syntax_is_refused_with_file_and_line(self):
+        write(self.repo, "scripts/kb/_lib/new.py", "x = 1\n\ndef f[T](x):\n    return x\n")
+        write(self.repo, "hooks/also.py", "try:\n    pass\nexcept* ValueError:\n    pass\n")
+        self.commit("新寫法", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        msg = str(cm.exception)
+        self.assertIn("scripts/kb/_lib/new.py 第 3 行：Python 3.10 不認得這種寫法", msg)
+        self.assertRegex(msg, r"hooks/also\.py 第 \d+ 行：Python 3\.10 不認得這種寫法")  # except* 報哪一行看 Python 版本
+        self.assertFalse((self.tmp / "dist" / "wiki-with-willy-0.20.0.zip").exists())
+
+    def test_selftest_failure_is_refused_and_no_zip_left(self):
+        self.selftest_result = {"ok": False, "version": "0.20.0", "step": "hooks", "file": None, "line": None,
+                                "why": "守門（hooks/guard.py）該擋沒擋"}
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn("自我檢查沒過：hooks：守門（hooks/guard.py）該擋沒擋", str(cm.exception))
+        self.assertFalse((self.tmp / "dist" / "wiki-with-willy-0.20.0.zip").exists())
+
+    def test_selftest_runs_on_the_built_zip(self):
+        got = release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertEqual(len(self.selftests), 1)
+        self.assertEqual(self.selftests[0].parent, Path(got["zip"]).parent)
+
+    def test_failed_rebuild_keeps_the_good_zip_of_the_same_tag(self):
+        """裁定 16：先寫暫存名，全部檢查過才改名；同一個 tag 重打失敗，先前打好的那份不動、也不留暫存檔。"""
+        got = release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        good = Path(got["zip"]).read_bytes()
+        self.selftest_result = {"ok": False, "step": "hooks", "why": "x"}
+        with self.assertRaises(release.ReleaseError):
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertEqual(Path(got["zip"]).read_bytes(), good)
+        self.assertEqual(sorted(p.name for p in (self.tmp / "dist").iterdir()), ["wiki-with-willy-0.20.0.zip"])
+        self.assertNotEqual(self.selftests[-1], Path(got["zip"]), "自我檢查跑在暫存名上")
+
+    def test_all_problems_listed_together_with_the_selftest(self):
+        write(self.repo, "scripts/kb/_lib/new.py", "type X = int\n")
+        self.commit("新寫法", tag="v0.20.0")
+        self.selftest_result = {"ok": False, "step": "import", "file": "scripts/kb/_lib/new.py", "line": 1,
+                                "why": "SyntaxError: invalid syntax"}
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        msg = str(cm.exception)
+        self.assertIn("Python 3.10 不認得", msg)
+        self.assertIn("自我檢查沒過：import：scripts/kb/_lib/new.py 第 1 行：SyntaxError: invalid syntax", msg)
+
+    def test_selftest_that_cannot_run_is_a_problem(self):
+        self.selftest.stop()
+        try:
+            with self.assertRaises(release.ReleaseError) as cm:  # 假樹的 kb.py 只印一行，沒有 selftest
+                release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        finally:
+            self.selftest.start()
+        self.assertIn("自我檢查沒過", str(cm.exception))
 
 
 class Skipped(Base):
