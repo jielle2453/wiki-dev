@@ -24,7 +24,7 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 CLI_LOCK_TIMEOUT = 30
 LOCK_BUSY = "等不到鎖，沒有寫入"
 CHANGED = [{"path": agenda.AGENDA_POSIX, "action": "modify"}, {"path": agenda.MD_POSIX, "action": "modify"}]
-FIELD_LABEL = (("start", "開始"), ("text", "說明"), ("time", "時間"), ("entities", "掛的實體"), ("lead_days", "提前天數"))
+FIELD_LABEL = (("start", "開始"), ("text", "說明"), ("time", "時間"), ("entities", "掛的實體"), ("lead_days", "提前天數"), ("repeat", "重複"))
 
 
 def add_arguments(sub):
@@ -38,6 +38,7 @@ def add_arguments(sub):
     ad.add_argument("--entity", action="append", help="掛的實體名稱，可以重複")
     ad.add_argument("--card", help="出處的檔案卡編號（f-…），製卡抽出的才有，會標成推測")
     ad.add_argument("--lead-days", type=int, help="提前幾天提醒；沒給用 agenda_window_days")
+    ad.add_argument("--repeat", help="每年、每月、每週（D-501）")
     ed = subs.add_parser("edit", help="改一條日程", description="改日期、開始、時間、說明、掛的實體、提前天數。")
     ed.add_argument("id", help="日程編號（a-…）")
     ed.add_argument("--date", help="新日期 YYYY-MM-DD")
@@ -46,6 +47,7 @@ def add_arguments(sub):
     ed.add_argument("--text", help="新的一句話")
     ed.add_argument("--entity", action="append", help="換成這些實體，可以重複")
     ed.add_argument("--lead-days", type=int, help="提前幾天提醒")
+    ed.add_argument("--repeat", help="每年、每月、每週；不重複 是拿掉")
     ed.add_argument("--card", help="照這張卡的新版重對（只能是出處那張）：來源維持推測、記下新版的指紋")
     helps = {"done": "記成完成", "cancel": "取消", "reopen": "重開"}
     status_parsers = [subs.add_parser(name, help=text, description=f"把一條日程{text}。") for name, text in helps.items()]
@@ -95,7 +97,7 @@ def _when(it):
 def _describe(it):
     """「2026-11-30（週一）交屋（到期，信義王）」。"""
     inside = [agenda.KIND_TEXT.get(it["kind"], it["kind"])] + list(it.get("entities") or [])
-    return f"{_when(it)}{it['text']}（{'，'.join(inside)}）"
+    return f"{_when(it)}{it['text']}（{'，'.join(inside)}）{agenda.repeat_suffix(it)}"
 
 
 def _origin(vault, it):
@@ -108,7 +110,7 @@ def _origin(vault, it):
 
 def _add(vault, args, as_json, conversation, turn_id):
     it, created = agenda.add(vault, args.kind.strip(), args.date, args.text, args.entity or [], turn_id, start=args.start,
-                             time=args.time, card=args.card, lead_days=args.lead_days)
+                             time=args.time, card=args.card, lead_days=args.lead_days, repeat=args.repeat)
     line = f"{_describe(it)}{_origin(vault, it)}"
     if not created:
         _out(as_json, [f"日程裡已經有這條：{line}"], {"item": it, "created": False})
@@ -124,7 +126,7 @@ def _changes(before, after):
     if before.get("date") != after.get("date"):
         parts.append(f"{before['text']} {agenda.with_weekday(before['date'])}→ {agenda.with_weekday(after['date'])}")
     for key, label in FIELD_LABEL:
-        old, new = agenda.show(before.get(key)), agenda.show(after.get(key))
+        old, new = agenda.show(before.get(key), key), agenda.show(after.get(key), key)
         if old != new:
             parts.append(f"{label}{' ' + old if old else ''} → {new}")
             labels.append(label)
@@ -133,7 +135,7 @@ def _changes(before, after):
 
 def _edit(vault, args, as_json, conversation, turn_id):
     fields = {"date": args.date, "start": args.start, "time": args.time, "text": args.text, "entities": args.entity,
-              "lead_days": args.lead_days}
+              "lead_days": args.lead_days, "repeat": args.repeat}
     before = copy.deepcopy(agenda.get(vault, args.id))
     if all(v is None for v in fields.values()) and not args.card and before.get("source") != "inferred":
         print("沒有給要改的欄位")  # 推測的那條不帶欄位是「記成確認」（lint 桌面版確認後）
@@ -159,8 +161,14 @@ def _edit(vault, args, as_json, conversation, turn_id):
 def _status(vault, args, as_json, conversation, turn_id):
     command = args.agenda_command
     status = {"done": "done", "cancel": "cancelled", "reopen": "open"}[command]
+    was = agenda.get(vault, args.id).get("date")
     it = agenda.set_status(vault, args.id, status, turn_id, by="ai" if conversation else "program")
     when = agenda.md_of(it["date"])
+    if command == "done" and it.get("status") == "open":  # 重複的完成這一次（D-501）
+        journal_cli.record_program_or_warn(vault, f"日程完成：{it['text']}（{agenda.md_of(was)}，下次 {when}）", CHANGED,
+                                           "agenda done", conversation)
+        _out(as_json, [f"已記成完成這一次：{it['text']}，下次 {agenda.with_weekday(it['date'])}"], {"item": it})
+        return 0
     line, note = {"done": (f"已記成完成：{it['text']}", f"日程完成：{it['text']}"),
                   "cancel": (f"已取消：{when} {it['text']}", f"日程取消：{when} {it['text']}"),
                   "reopen": (f"已重開：{it['text']}", f"日程重開：{it['text']}")}[command]
@@ -240,7 +248,7 @@ def _list(vault, args, as_json):
     for it in items:
         names = it.get("entities") or []
         print(f"- {_when(it)}{agenda.KIND_TEXT.get(it['kind'], it['kind'])} {it['text']}"
-              + (f"（{'、'.join(names)}）" if names else "") + _suffix(it))
+              + (f"（{'、'.join(names)}）" if names else "") + agenda.repeat_suffix(it) + _suffix(it))
     return 0
 
 

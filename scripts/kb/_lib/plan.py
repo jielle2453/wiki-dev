@@ -475,6 +475,12 @@ def _with_entities(it):
 
 def _overdue(it):
     aid = it["id"]
+    if it.get("repeat"):  # 重複的：一條代表下一次，cancel 與改日期都是整串（D-501）
+        return _ask(f"overdue:{aid}", "overdue", f"{agenda.md_of(it['date'])} {_with_entities(it)}{agenda.repeat_suffix(it)}過了，完成了嗎？", [
+            _result("完成了", [cmd("agenda", "done", aid)]),
+            _result("這次不用，跳到下一次", [cmd("agenda", "done", aid)]),
+            _result("以後都不要了", [cmd("agenda", "cancel", aid)], strict=True),
+            _result("還沒，下次再問", note="這個對話不再問")])
     return _ask(f"overdue:{aid}", "overdue", f"{agenda.md_of(it['date'])} {_with_entities(it)}過了，完成了嗎？", [
         _result("完成了", [cmd("agenda", "done", aid)]),
         _result("不用了", [cmd("agenda", "cancel", aid)], strict=True),

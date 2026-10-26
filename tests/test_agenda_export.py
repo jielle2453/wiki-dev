@@ -21,7 +21,7 @@ from kb._lib.io import FileLock
 STATE = ".system/agenda_export.json"
 CONFIG = ".system/config.json"
 FP_KEYS = ("kind", "date", "start", "time", "text", "entities", "status", "lead_days")
-FIELDS = {"id", "kind", "start", "date", "time", "text", "entities", "status", "source", "lead_days", "fp"}
+FIELDS = {"id", "kind", "start", "date", "time", "text", "entities", "status", "source", "lead_days", "repeat", "fp"}  # repeat：D-501
 
 
 def fp_of(it):
