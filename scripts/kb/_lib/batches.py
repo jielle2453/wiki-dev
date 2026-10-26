@@ -727,6 +727,10 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
             size = st["synthesis_batch_size"] if kind == "synthesis" else st["card_batch_size"]
             while slots and left[kind]:
                 chunk, left[kind] = left[kind][:size], left[kind][size:]
+                if kind == "synthesis":  # 補標籤送出去幾張：之後算門檻時從回合已改的扣掉（裁定 25）
+                    sent = sum(1 for b, _k, i in chunk if tag_only(b, i))
+                    if sent:
+                        job["tag_sent"] = job.get("tag_sent", 0) + sent
                 bid = _new_id("b", {b.get("batch") for b in data["batches"]})
                 made.append({"batch": bid, "job": job["job"], "kind": kind, "items": [x[1] for x in chunk],
                              "source": source, "created": now.strftime(_TIME), "agent_id": None, "status": "open"})
@@ -799,26 +803,30 @@ WAIT = object()  # _approval：先不派綜合卡，等在跑的做完
 def _approval(vault, jt, items, st, job=None, run=()):
     """job 回合已改的既有綜合卡加這次要派的 synthesis_stale、synthesis_broken 張數超過上限、回合沒同意：回問句與指令（D-075）。
     broken 也算：寫回同一個路徑的也是改既有綜合卡，守門的 before_write 一樣會數（第一輪修）。
-    要改的全是只補標籤的（標籤字典實作疑義 1）：不問，直接對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行，
-    job 記 tag_approved。之後同一個整理要派別的原因的（裁定 17）：補標籤的綜合卡批次還在跑回 WAIT；做完了撤回核准、照上面問。"""
+    只補標籤的不算進門檻（標籤字典三-5、驗收 13；裁定 25）：扣掉它們（這次的與這個整理已經送出去的 tag_sent）還在上限內、
+    又超過了上限，就不問、對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行，job 記 tag_approved（實作疑義 1）。
+    之後同一個整理要派的別的原因的（裁定 17）扣完超過上限：補標籤的綜合卡批次還在跑回 WAIT；做完了撤回核准、照上面問。"""
     data = turn.turn_data(vault, jt) or {}
+    job = job if job is not None else {}
+    limit = st["big_change_synthesis_max"]
     counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")]
-    tag_all = bool(counted) and all(tag_only(bucket, i) for bucket, i in counted)
+    others = sum(1 for bucket, i in counted if not tag_only(bucket, i))
+    done = len(data.get("ai_synthesis") or [])
+    others += max(0, done - job.get("tag_sent", 0))
+    n = done + len(counted)
     if data.get("approved"):
-        if not (job or {}).get("tag_approved") or tag_all or not counted:
+        if not job.get("tag_approved") or others <= limit:
             return None
         if any(b.get("kind") == "synthesis" for b in run):
             return WAIT
         turn.change_turn(vault, jt, lambda d: d.update(approved=False) or True)
         job.pop("tag_approved", None)
-        data = turn.turn_data(vault, jt) or {}
-    n = len(data.get("ai_synthesis") or []) + len(counted)
-    if n <= st["big_change_synthesis_max"]:
+        return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
+    if n <= limit:
         return None
-    if tag_all:
+    if others <= limit and others < len(counted) + done:
         turn.approve(vault, turn_id=jt)
-        if job is not None:
-            job["tag_approved"] = True
+        job["tag_approved"] = True
         return None
     return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
 

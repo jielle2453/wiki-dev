@@ -155,6 +155,35 @@ class TestRoundOne(Base):
                 self.assertEqual((r.returncode, r.stdout.strip()), (3, want))
 
 
+class RealFlow(Base):
+    """裁定 25、28：照真流程——kb profile add 標籤（12 張要補標，其中 1 張另有新口述）→ cards dispatch 直接派、不回 approval，
+    job 回合核准、守門寫第 11 張起不擋。"""
+
+    def test_add_tag_then_dispatch_without_approval(self):
+        from kb._lib import batches, statements
+        data = entities.load(self.V)["entities"]
+        more = [E.entity(f"e-bbbb000{i}", f"案{i}", card=True) for i in range(9)]
+        E.put_entities(self.V, data + more)
+        for e in more:
+            T.write_synthesis(self.V, e["id"], e["name"], f"案子/{e['name']}/{e['name']}.md", ["工種: [水電]"])
+        statements.add(self.V, "內湖李改用系統櫃", ["內湖李"], turn.current(self.V)["turn"])
+        r = self.kb("add", "標籤", "型別=案子", "欄名=預算", "詞=高、中")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("12 張案子的綜合卡要補標籤", r.stdout)
+        sid = "sid-real"
+        t = turn.start(self.V, sid, "現在補標籤")["turn"]
+        real = batches._collect  # 這個假知識庫還有沒整理的原檔：只拿掉做卡與日程，綜合卡照真的 todo 算
+        self.addCleanup(setattr, batches, "_collect", real)
+        batches._collect = lambda v: dict(real(v), new=[], stale=[], unlinked=[], agenda_recheck=[], agenda_unscanned=[])
+        got = batches.dispatch(self.V, sid, t)
+        self.assertIsNone(got["approval"])
+        self.assertEqual(sum(b["items"] for b in got["batches"]), 12)
+        self.assertTrue(turn.turn_data(self.V, t).get("approved"))
+        for rel in [T.XINYI_REL, T.DAAN_REL, LI_REL] + [f"案子/{e['name']}/{e['name']}.md" for e in more]:
+            ok, code, _r = turn.before_write(self.V, str(self.V / rel), str(self.V), "Z1", sid, t)
+            self.assertEqual((ok, code), (True, ""), rel)
+
+
 class AddTag(Base):
     def test_add_field_then_word_marks_retag(self):
         r = self.kb("add", "標籤", "型別=案子", "欄名=預算", "詞=高、中", "可多選=✓")
