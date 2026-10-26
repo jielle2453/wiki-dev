@@ -75,6 +75,9 @@ def _lines(got):
         out.append("別名：" + "、".join(e["aliases"]))
     if got["synthesis"]:
         out.append(f"綜合卡：{got['synthesis']}")
+    tags = [f"{t['field']} {'、'.join(t['words'])}" for t in got.get("tags") or [] if t["words"]]
+    if tags:
+        out.append("標籤：" + "；".join(tags))
     if got["cards"]:
         out += ["檔案卡："] + [_card_line(c) for c in got["cards"]]
     if got["statements"]:

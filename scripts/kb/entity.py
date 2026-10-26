@@ -7,6 +7,7 @@ progress 改事類實體的進行中／結案／擱置（結案連帶結束它�
 alias 加或拿掉別名：別名撞到另一個已登記的實體就不寫、exit 3，--json 帶問題與結果清單（同 asks 的形狀）改問合併；
 拿掉時列出內文提到那個別名的檔案卡（suspect_cards）。
 accept：AI 看掛的卡有把握的新名字直接登記成「AI 判斷」（source ai_judged，D-202；build 第 5 點），算確認、不出名字題。
+list --tag 欄=詞[,詞]（標籤字典第四節，D-235）：照綜合卡檔頭的標籤行篩，照型別一段、第一句幾個符合與幾個還沒標過，只列符合的。
 rename 搬了夾、夾裡有客戶原檔時，鎖外接著 inventory.scan（只掃知識庫）加 apply，讓原檔的新位置入冊（同 folders add）。
 終端機跑的記一段工作日誌程式段（D-085），command 是 entity <子子命令>；對話裡叫的併進回合。
 """
@@ -47,6 +48,7 @@ def add_arguments(sub):
     cl = subs.add_parser("clean", help="清掉放錯的綜合卡", description="刪掉放錯位置的綜合卡（照對的位置寫好之後）。")
     cl.add_argument("path", help="放錯的綜合卡（相對總資料夾，例：案子/王宅/王宅.md）")
     ls = subs.add_parser("list", help="列出實體", description="列出實體、掛了幾張檔案卡、有沒有綜合卡。")
+    ls.add_argument("--tag", action="append", help="照標籤篩：欄=詞（多個詞用逗號分開，是或）；可以重複（不同欄是且）")
     rd = subs.add_parser("render", help="重寫綜合卡的快取欄", description="重寫全部綜合卡檔頭的 檔案卡、相關實體 兩欄。")
     pg = subs.add_parser("progress", help="事類實體的狀態", description="事類實體記成進行中、結案或擱置；結案連帶結束它的期間條目。")
     pg.add_argument("ref", help="名稱或編號（e-…）")
@@ -284,28 +286,47 @@ def _alias(vault, args, as_json, conversation, turn_id):
     return 0
 
 
-def _list(vault, as_json):
+def _list(vault, as_json, tag_args=None):
+    conds = entities.parse_tag_args(tag_args) if tag_args else None
     data = entities.load(vault)
+    got = entities.tag_filter(vault, conds, data) if conds else None
     mounts = entities.mounts(vault, data)
     rows = []
+    keep = None if got is None else set(got["matched"])
     for e in data["entities"]:
+        if keep is not None and e.get("id") not in keep:
+            continue
         has_card = bool(e.get("card")) and entities.locate(vault, e) is not None if e.get("type") else False
         rows.append(dict(e, mounted=len(mounts.get(e["name"], [])) if e.get("status") == "active" else 0,
                          has_card=has_card))
     if as_json:
-        print(json.dumps({"entities": rows}, ensure_ascii=False))
+        payload = {"entities": rows} if got is None else {"entities": rows, "counts": got["counts"], "tag": got["tag"]}
+        print(json.dumps(payload, ensure_ascii=False))
         return 0
-    lines = []
-    for e in rows:
-        if e.get("status") != "active":
-            continue
-        if entities.is_self(e):
-            lines.append(f"- {e['name']}（你自己）掛 {e['mounted']} 張")
-        else:
-            kind = f"{e['type']}，{_state(e)}" + (f"，{entities.PROGRESS_TEXT.get(e['progress'], e['progress'])}"
-                                                    if e.get("progress") and entities.is_matter(vault, e) else "")  # D-143
-            lines.append(f"- {e['name']}（{kind}）掛 {e['mounted']} 張" + ("，有綜合卡" if e["has_card"] else ""))
+    if got is not None:
+        return _print_tagged(vault, rows, got)
+    lines = [_row_line(vault, e) for e in rows if e.get("status") == "active"]
     print("\n".join(lines) if lines else "實體清單是空的")
+    return 0
+
+
+def _row_line(vault, e):
+    if entities.is_self(e):
+        return f"- {e['name']}（你自己）掛 {e['mounted']} 張"
+    kind = f"{e['type']}，{_state(e)}" + (f"，{entities.PROGRESS_TEXT.get(e['progress'], e['progress'])}"
+                                            if e.get("progress") and entities.is_matter(vault, e) else "")  # D-143
+    return f"- {e['name']}（{kind}）掛 {e['mounted']} 張" + ("，有綜合卡" if e["has_card"] else "")
+
+
+def _print_tagged(vault, rows, got):
+    """照型別一段：第一句「客戶 200 個中 12 個符合；另有 15 個還沒照字典標過」（0 的那半不印），接著只列符合的。"""
+    blocks = []
+    for c in got["counts"]:
+        head = f"{c['type']} {c['total']} 個中 {c['matched']} 個符合" + \
+            (f"；另有 {c['untagged']} 個還沒照字典標過" if c["untagged"] else "")
+        blocks.append("\n".join([head] + [_row_line(vault, e) for e in rows
+                                          if entities.key(e.get("type")) == entities.key(c["type"])]))
+    print("\n\n".join(blocks) if blocks else "第八節沒有哪個型別同時有這些欄")
     return 0
 
 
@@ -333,7 +354,7 @@ def run(args):
     command = args.entity_command
     try:
         if command == "list":
-            return _list(vault, as_json)
+            return _list(vault, as_json, args.tag)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
         if command == "render":

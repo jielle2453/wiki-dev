@@ -6,6 +6,7 @@ stale、不採用的 ruled_out）、有效口述、有效裁示（口述為準�
 名稱沒登記（或已移除）：entity、synthesis 是 null，mentions 列標題或正文出現這個詞的檔案卡（最多 lookup_mentions_max 張，
 mentions_total 是全部份數；比對用 entities.key，第一版的卡也找得到）。
 狀態檔不在當空的；壞了丟 ValueError（帶檔名）。不寫任何檔。
+tags（標籤字典第四節第 6 點）：綜合卡檔頭的標籤行 [{"field","words"}]，照第八節的順序；沒有綜合卡或沒標過是空的。
 """
 from pathlib import Path
 
@@ -68,6 +69,17 @@ def mentions(vault, word):
     return by_title + by_body
 
 
+def _tags(vault, rel, prof, type_):
+    from kb._lib import cards, synthesis
+    if not rel:
+        return []
+    try:
+        front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return []
+    return [{"field": f, "words": synthesis.tag_words(v)} for f, v in synthesis.card_tags(front, prof, type_)]
+
+
 def lookup(vault, query):
     """回 {"query","entity","synthesis","cards","statements","rulings","findings","agenda","unsorted","mentions","verify_max"}
     （沒登記多 mentions_total）。verify_max 是要逐份核對的份數上限（answer_verify_max，answer 裁定 6）；裁示帶日期（短標用）。"""
@@ -76,7 +88,8 @@ def lookup(vault, query):
     unsorted = cards.unsorted(vault)
     e, _hit = entities.find(ent, query)
     out = {"query": query, "entity": None, "synthesis": None, "cards": [], "statements": [], "rulings": [], "findings": [],
-           "agenda": [], "unsorted": unsorted, "mentions": [], "verify_max": config.get(vault, "answer_verify_max")}
+           "agenda": [], "unsorted": unsorted, "mentions": [], "verify_max": config.get(vault, "answer_verify_max"),
+           "tags": []}
     if e is None or e.get("status") != "active":
         found = mentions(vault, query)
         limit = config.get(vault, "lookup_mentions_max")
@@ -93,6 +106,7 @@ def lookup(vault, query):
     out["entity"] = _brief_entity(vault, e, prof)
     if e.get("type") and not entities.is_self(e):
         out["synthesis"] = entities.locate(vault, e, ent)
+        out["tags"] = _tags(vault, out["synthesis"], prof, e["type"])
     out["cards"] = cards.newest_first([cards.card_brief(vault, by_id[m["id"]], groups[m["id"]][0], ruled_out)
                                        for m in ms if m["id"] in by_id and m["id"] in groups])
     out["statements"] = [synthesis.statement_brief(s) for s in statements.active_for(statements.load(vault), name)]
