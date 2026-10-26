@@ -173,7 +173,21 @@ class Where(unittest.TestCase):
 
     def test_step_only(self):
         self.assertEqual(upgrade.where({"step": "hooks", "file": None, "line": None, "why": "守門（hooks/guard.py）該擋沒擋"}),
-                         "hooks 那步：守門（hooks/guard.py）該擋沒擋")
+                         "跑 hook 那步：守門（hooks/guard.py）該擋沒擋")
+
+    def test_every_step_name_is_chinese(self):
+        """裁定 4：給人看的句子裡步驟名寫中文。"""
+        names = {"download": "下載", "compile": "編譯", "selftest": "自我檢查", "import": "載入程式", "version": "版本號",
+                 "vault": "建暫存知識庫", "hooks": "跑 hook", "upgrade": "背景更新"}
+        for step, name in names.items():
+            with self.subTest(step=step):
+                sep = " " if step == "hooks" else ""
+                self.assertEqual(upgrade.where({"step": step, "file": None, "line": None, "why": "原因"}), f"{name}{sep}那步：原因")
+
+    def test_sentences_use_the_chinese_step_name(self):
+        res = {"step": "download", "file": None, "line": None, "why": "清單沒有這一版的下載網址"}
+        self.assertEqual(upgrade.VERIFY_REFUSED.format(version="0.23.1", where=upgrade.where(res)),
+                         "新版 0.23.1 在這台電腦跑不起來（下載那步：清單沒有這一版的下載網址），先不換；什麼都沒動")
 
 
 def failed(version="0.20.2", python=PY):

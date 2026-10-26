@@ -306,8 +306,12 @@ def python_version():
     return f"{sys.version_info[0]}.{sys.version_info[1]}"
 
 
+STEP_NAMES = {"download": "下載", "compile": "編譯", "selftest": "自我檢查", "import": "載入程式", "version": "版本號",
+              "vault": "建暫存知識庫", "hooks": "跑 hook", "upgrade": "背景更新"}  # 給人看的句子用中文（裁定 4）；--json 的 step 照舊英文
+
+
 def where(res):
-    """「hooks/guard.py 第 12 行：SyntaxError」或「hooks 那步：原因」；原因是 why 冒號前的例外名稱（有的話）。"""
+    """「hooks/guard.py 第 12 行：SyntaxError」或「跑 hook 那步：原因」；原因是 why 冒號前的例外名稱（有的話）。"""
     why = str(res.get("why") or "")
     m = re.match(r"([A-Za-z_][A-Za-z0-9_]*): ", why)
     reason = m.group(1) if m else why
@@ -316,7 +320,8 @@ def where(res):
     elif res.get("file"):
         head = str(res["file"])
     else:
-        head = f"{res.get('step')} 那步"
+        name = STEP_NAMES.get(res.get("step"), "自我檢查")
+        head = f"{name}{' ' if name[-1].isascii() else ''}那步"  # 「下載那步」「跑 hook 那步」
     return f"{head}：{reason}" if reason else head
 
 
