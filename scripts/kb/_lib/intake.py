@@ -5,9 +5,9 @@ receive：拖進對話的檔、程式或 skill 交來的檔。照順序判斷（
 不複製、說已經在讀；指紋等於清冊某個 active 條目的現行指紋不複製、說收過了（帶 --name 的不走這條）；其餘複製（原檔不動，D-240）。
 檔名照原檔名，有 title 用它加原副檔名（D-245）；同名加 (2)。from 記來源名（D-242）；from 加 name 是定期同步的（D-241）：
 存 收件匣/<來源>/<項目><原副檔名>，同來源同項目再交就覆蓋（內容一樣不動），那裡的同名檔不是那個來源交的拒絕。
-receive_pasted：這一句貼的圖與文字，從回合記的對話紀錄（transcript）取（D-243）：從檔尾往前找第一則客戶訊息，
+receive_pasted：這一句（或 prev: 上一則）貼的圖與文字，從回合記的對話紀錄（transcript）取（D-243、裁定 8）：從檔尾往前找客戶訊息，
 圖照 media_type 存、不轉檔，系統另存了原圖（inlined_image_paths，~/.claude/uploads/）且份數對得上就用原圖；
-文字取 <pasted_content> 每一段的內文，沒有標記取整則訊息（系統提醒、IDE 帶的不算）。取不到一律丟 Refused（那一句請她另存再拖）。
+文字取 <pasted_content> 每一段的內文，沒有標記取整則訊息（系統提醒、IDE 帶的不算）。取不到一律丟 Refused（圖請她用檔案總管把原圖放進收件匣，文字請她存成檔再拖）。
 寫入前 turn.backup（新收 create、覆蓋 modify），寫完 inventory.register_intake。拒絕丟 Refused，訊息就是給人看的那句（一字不差）。
 """
 import base64
@@ -33,8 +33,9 @@ NAME_MAX = 255  # NTFS 一段名字的上限（UTF-16 字元）
 DEVICE_NAME = "這種名字 Windows 不收，換個名字"
 READING = "這份我已經在讀了：{where}"
 HAVE = "這份收過了：{where}"
-NO_IMAGE = "這張圖我拿不到檔；請把它存到電腦，再拖進對話"
+NO_IMAGE = "這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"  # 桌面版拖圖片檔等於貼圖，不叫她拖（裁定 8）
 NO_TEXT = "這段我拿不到原文；請把它存成檔，再拖進對話"
+NO_PREV = "找不到上一則；請把要存的再貼一次"
 NOT_FROM = "收件匣/{src}/ 裡已經有同名的檔，不是 {src} 交的；請先改名或搬走"
 NAME_NEEDS_FROM = "--name 要配 --from"
 PASTED_NEEDS_TITLE = "--pasted 要給 --title"
@@ -47,11 +48,15 @@ SAME = "沒有變：{rel}"
 IMAGE_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}  # 照原格式存、不轉檔（D-243）
 UPLOAD_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 # 不是客戶說的話（同 hooks/turn.py 的 NOT_A_PROMPT）：背景通知、跨對話訊息
-NOT_A_PROMPT = ("<task-notification", "<cross-session-message", "<agent-message", "[SYSTEM NOTIFICATION")
+NOT_A_PROMPT = ("<task-notification", "<cross-session-message", "<agent-message", "[SYSTEM NOTIFICATION",
+                # 按停止留下的、斜線指令與 ! 指令的紀錄：也不是她貼的（code review，裁定 8 的上一則）
+                "[Request interrupted", "<command-name>", "<command-message>", "<command-args>", "<local-command-",
+                "<bash-input>", "<bash-stdout>", "<bash-stderr>")
 # 系統或 IDE 附在客戶訊息裡的段（桌面版的系統提醒、VS Code 開著的檔與選取）：不算她貼的
 INJECTED = ("<system-reminder", "<ide_")
 _PASTED = re.compile(r"<pasted_content\b[^>]*>(.*?)</pasted_content\b[^>]*>", re.DOTALL)
-_REF = re.compile(r"^(image|text):([1-9][0-9]{0,3})$")
+_REF = re.compile(r"^(prev:)?(image|text):([1-9][0-9]{0,3})$")
+PREV = "prev:"  # 上一則客戶訊息貼的（她被問「要不要存」之後才說存起來，裁定 8）
 READ_CHUNK = 1 << 16
 
 
@@ -258,7 +263,7 @@ def _own_texts(blocks):
 
 
 def _is_customer(d):
-    if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain"):
+    if d.get("type") != "user" or d.get("isMeta") or d.get("isSidechain") or d.get("isCompactSummary"):
         return False
     msg = d.get("message")
     if not isinstance(msg, dict) or msg.get("role") != "user":
@@ -279,29 +284,75 @@ def _is_customer(d):
 def read_message(path):
     """對話紀錄最後一則客戶訊息：{"uuid","blocks","uploads"}；uploads 是它後面 inlined_image_paths 附件給的原圖路徑（照順序）。
     沒有紀錄、讀不到、找不到客戶訊息丟 NotInTranscript。壞行（寫到一半的最後一行）跳過。"""
+    return read_messages(path)[0]
+
+
+def read_messages(path, prev=False):
+    """[這一則]，prev 時 [這一則, 上一則]（沒有上一則就只有這一則）。上一則是緊接在這一則之前的那一則客戶訊息：紀錄有 parentUuid
+    就順著這一則的 parentUuid 往上找（退回、編輯留在檔裡的另一支不算），沒有就照檔案順序；中間只隔 AI 回答、工具結果、附件這類，
+    再往前不找，遇到摺疊的摘要就停（裁定 8）。上一則的原圖是它跟這一則之間的 inlined_image_paths 附件。只要這一則就不往前讀。
+    找不到這一則丟 NotInTranscript。"""
     if not path:
         raise NotInTranscript("回合沒有記對話紀錄")
-    groups = []
+    found, groups = [], []
+    chain, want = False, None
     try:
-        for raw in _lines_backwards(path):
-            if not raw.strip():
+        for d in _records_backwards(path):
+            if not found:
+                if _upload_paths(d) is not None:
+                    groups.append(_upload_paths(d))
+                elif _is_customer(d):
+                    found.append(_message(d, groups))
+                    if not prev:
+                        break
+                    groups, chain, want = [], "parentUuid" in d, d.get("parentUuid")
+                    if chain and not want:
+                        break
                 continue
-            try:
-                d = json.loads(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if not isinstance(d, dict):
-                continue
-            att = d.get("attachment")
-            if d.get("type") == "attachment" and isinstance(att, dict) and att.get("type") == "inlined_image_paths":
-                groups.append([str(p) for p in att.get("paths") or [] if isinstance(p, str)])
-                continue
-            if _is_customer(d):
-                uploads = [p for g in reversed(groups) for p in g]
-                return {"uuid": d.get("uuid"), "blocks": _blocks(d["message"]["content"]), "uploads": uploads}
+            if chain:
+                if d.get("uuid") != want:
+                    continue
+                want = d.get("parentUuid")
+            if d.get("isCompactSummary"):
+                break
+            if _upload_paths(d) is not None:
+                groups.append(_upload_paths(d))
+            elif _is_customer(d):
+                found.append(_message(d, groups))
+                break
+            if chain and not want:
+                break
     except OSError as e:
         raise NotInTranscript(f"對話紀錄讀不到：{type(e).__name__}") from None
-    raise NotInTranscript("找不到客戶的訊息")
+    if not found:
+        raise NotInTranscript("找不到客戶的訊息")
+    return found
+
+
+def _records_backwards(path):
+    """從檔尾往前一筆一筆給紀錄（dict）；壞行（寫到一半的最後一行）跳過。"""
+    for raw in _lines_backwards(path):
+        if not raw.strip():
+            continue
+        try:
+            d = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(d, dict):
+            yield d
+
+
+def _upload_paths(d):
+    """inlined_image_paths 附件 → 原圖路徑清單；不是這種附件回 None。"""
+    att = d.get("attachment")
+    if d.get("type") == "attachment" and isinstance(att, dict) and att.get("type") == "inlined_image_paths":
+        return [str(p) for p in att.get("paths") or [] if isinstance(p, str)]
+    return None
+
+
+def _message(d, groups):
+    return {"uuid": d.get("uuid"), "blocks": _blocks(d["message"]["content"]),
+            "uploads": [p for g in reversed(groups) for p in g]}
 
 
 def _images(msg):
@@ -378,18 +429,31 @@ def _upload_ok(path):
 
 
 def parse_ref(ref):
+    """「image:2」「prev:text:1」→ (種類, 第幾個, 是不是上一則)；認不得回 (None, None, False)。"""
     m = _REF.match(str(ref or "").strip())
-    return (m.group(1), int(m.group(2))) if m else (None, None)
+    return (m.group(2), int(m.group(3)), bool(m.group(1))) if m else (None, None, False)
+
+
+def pasted_list(transcript):
+    """--pasted list：這一則的圖與文字，接著上一則的（ref 加 prev: 前綴、"message" 是 this 或 prev）；拿不到這一則丟 NotInTranscript。"""
+    msgs = read_messages(transcript, prev=True)
+    out = [dict(i, message="this") for i in pasted_items(msgs[0])]
+    if len(msgs) > 1:
+        out += [dict(i, ref=PREV + i["ref"], message="prev") for i in pasted_items(msgs[1])]
+    return out
 
 
 def receive_pasted(vault, ref, title, turn_id, transcript):
-    """存這一句貼的第幾張圖或第幾段文字，回 {"path","id","result","said"}；拿不到丟 Refused。"""
-    kind, n = parse_ref(ref)
+    """存這一句（或 prev: 上一則）貼的第幾張圖或第幾段文字，回 {"path","id","result","said"}；拿不到丟 Refused。"""
+    kind, n, prev = parse_ref(ref)
     miss = NO_IMAGE if kind == "image" else NO_TEXT
     if not title:
         raise Refused(PASTED_NEEDS_TITLE)
     try:
-        msg = read_message(transcript)
+        msgs = read_messages(transcript, prev=prev)
+        if prev and len(msgs) < 2:
+            raise Refused(NO_PREV)
+        msg = msgs[-1]
         if kind == "image":
             data, media, upload = pasted_image(msg, n)
         elif kind == "text":
@@ -417,8 +481,3 @@ def receive_pasted(vault, ref, title, turn_id, transcript):
     _no_credential(rel)
     rel, entry = _write_new(vault, rel, turn_id, put, meta)
     return _item(rel, entry["id"], "new", NEW_PLAIN.format(rel=rel))
-
-
-def pasted_list(transcript):
-    """--pasted list：這一句的圖與文字；拿不到丟 NotInTranscript。"""
-    return pasted_items(read_message(transcript))

@@ -23,6 +23,7 @@ SID = "sid-intake"
 FIX = Path(__file__).resolve().parent / "fixtures" / "intake"
 ID_PATTERN = re.compile(r"[aefsrcp]-[0-9a-f]{8}")
 NEXT = "接著整理：kb cards dispatch --json"
+IMAGE_MISS = "這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"
 PASTE = "第一條 甲方委託乙方裝修。\n第二條 工期 30 天，逾期每日罰 1,000 元。\n\n  （以下空白）"
 
 
@@ -315,7 +316,8 @@ class Pasted(Base):
         self.use("desktop.jsonl")
         png = (FIX / "名片.png").read_bytes()
         self.assertEqual(self.ok("--pasted", "list", extra_env=self.env),
-                         [f"image:1（image/png，{len(png)} 位元組）", f"text:1（{len(PASTE)} 字）"])
+                         ["這一則：", f"image:1（image/png，{len(png)} 位元組）", f"text:1（{len(PASTE)} 字）",
+                          "上一則：", "prev:text:1（10 字）"])
         out = self.ok("--pasted", "text:1", "--title", "2026-10-26 王先生合約條文", extra_env=self.env)
         self.assertEqual(out, ["收進收件匣了：收件匣/2026-10-26 王先生合約條文.txt", NEXT])
         self.assertEqual((self.V / "收件匣" / "2026-10-26 王先生合約條文.txt").read_bytes(), PASTE.encode("utf-8"))
@@ -348,6 +350,40 @@ class Pasted(Base):
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
                          ["這段我拿不到原文；請把它存成檔，再拖進對話"])
 
+    def test_r8_2_save_from_previous_message(self):
+        """裁定 8 #2：AI 問過要不要存、她回「存起來」：從上一則取。"""
+        self.use("vscode.jsonl")  # 上一則是「上一句：幫我看王先生」
+        out = self.ok("--pasted", "prev:text:1", "--title", "王先生", extra_env=self.env)
+        self.assertEqual(out[0], "收進收件匣了：收件匣/王先生.txt")
+        self.assertEqual((self.V / "收件匣" / "王先生.txt").read_text(encoding="utf-8"), "上一句：幫我看王先生")
+        self.assertEqual(self.refused("--pasted", "prev:image:1", "--title", "x", extra_env=self.env), [IMAGE_MISS])
+
+    def test_r8_2_no_previous_message(self):
+        t = self.tmp / "only.jsonl"
+        t.write_text(json.dumps({"type": "user", "uuid": "u", "parentUuid": None,
+                                 "message": {"role": "user", "content": "存起來"}}, ensure_ascii=False) + "\n",
+                     encoding="utf-8")
+        turn.start(self.V, SID, "存起來", transcript=str(t))
+        self.assertEqual(self.refused("--pasted", "prev:text:1", "--title", "x", extra_env=self.env),
+                         ["找不到上一則；請把要存的再貼一次"])
+        self.assertEqual(self.ok("--pasted", "list", extra_env=self.env), ["這一則：", "text:1（3 字）"])
+
+    def test_r8_2_previous_image_uses_its_original_upload(self):
+        img = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode((FIX / "名片.png").read_bytes()).decode()}}
+        up = (self.cfg / "uploads" / "sess" / "c226210d-image.png").as_posix()
+        recs = [{"type": "user", "uuid": "u1", "parentUuid": None, "message": {"role": "user", "content": [img]}},
+                {"type": "attachment", "uuid": "t1", "parentUuid": "u1",
+                 "attachment": {"type": "inlined_image_paths", "paths": [up]}},
+                {"type": "assistant", "uuid": "a1", "parentUuid": "t1", "message": {"role": "assistant", "content": "要存嗎"}},
+                {"type": "user", "uuid": "u2", "parentUuid": "a1", "message": {"role": "user", "content": "存起來"}}]
+        t = self.tmp / "previmg.jsonl"
+        t.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+        turn.start(self.V, SID, "存起來", transcript=str(t))
+        self.ok("--pasted", "prev:image:1", "--title", "名片", extra_env=self.env)
+        self.assertEqual((self.V / "收件匣" / "名片.png").read_bytes(), (FIX / "原圖.png").read_bytes())
+        self.assertNotIn("copy", inventory.entry_for(self.V, "file://收件匣/名片.png")["intake"])
+
     def test_r6_1_without_session_pasted_is_refused(self):
         self.use("desktop.jsonl")
         r = run("intake", "--pasted", "text:1", "--title", "x", cwd=self.V, extra_env=self.env)
@@ -360,7 +396,8 @@ class Pasted(Base):
         ta = turn.start(self.V, "sA", "存起來", transcript=str(a))["turn"]
         self.use("desktop.jsonl")  # SID（B）後說話，current.json 是 B
         r = run("--session", "sA", "intake", "--pasted", "list", cwd=self.V, extra_env=self.env)
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, "text:1（11 字）"))
+        self.assertEqual((r.returncode, r.stdout.strip().splitlines()),
+                         (0, ["這一則：", "text:1（11 字）", "上一則：", "prev:text:1（10 字）"]))
         src = self.tmp / "x.pdf"
         src.write_bytes(b"%PDF a")
         r = run("--session", "sA", "intake", str(src), cwd=self.V, extra_env=self.env)
@@ -370,12 +407,12 @@ class Pasted(Base):
     def test_6_no_transcript(self):
         turn.start(self.V, SID, "存起來")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請把它存到電腦，再拖進對話"])
+                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
                          ["這段我拿不到原文；請把它存成檔，再拖進對話"])
         self.use("vscode.jsonl")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請把它存到電腦，再拖進對話"])
+                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
         self.assertEqual(self.refused("--pasted", "text:2", "--title", "x", extra_env=self.env),
                          ["這段我拿不到原文；請把它存成檔，再拖進對話"])
         self.assertEqual([p.name for p in (self.V / "收件匣").iterdir() if not p.name.startswith(".")], [])

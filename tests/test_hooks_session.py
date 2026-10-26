@@ -1148,8 +1148,8 @@ class InboxLine(unittest.TestCase):
         from kb._lib import env
         self.files(10)
         today = date.today().isoformat()
-        self.assertEqual(self.session.line_inbox(self.V),
-                         "收件匣：10 份沒歸位、最久 0 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
+        self.assertEqual(self.session.line_inbox(self.V),  # 裁定 8 #4：0 天不講「最久」那半句
+                         "收件匣：10 份沒歸位；回答末尾問她要不要一起看，說好再跑 kb asks --all")
         self.assertEqual(env.inbox_reminded(self.V), today)
         self.assertIsNone(self.session.line_inbox(self.V))
         env.set_inbox_reminded(self.V, (date.today() - timedelta(days=7)).isoformat())

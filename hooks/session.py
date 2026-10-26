@@ -298,7 +298,8 @@ def line_agenda(vault):
     return "日程：" + "、".join(parts) if parts else None
 
 
-INBOX_LINE = "收件匣：{n} 份沒歸位、最久 {days} 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+INBOX_LINE = "收件匣：{n} 份沒歸位{oldest}；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+INBOX_OLDEST = "、最久 {days} 天"  # 0 天不講（裁定 8）
 
 
 def _inbox_days(vault, files, today):
@@ -355,7 +356,7 @@ def line_inbox(vault):
     if len(files) < config.get(vault, "inbox_remind_files") and days <= config.get(vault, "inbox_remind_days"):
         return None
     env.set_inbox_reminded(vault, today.isoformat())
-    return INBOX_LINE.format(n=len(files), days=days)
+    return INBOX_LINE.format(n=len(files), oldest=INBOX_OLDEST.format(days=days) if days else "")
 
 
 def line_backup(vault):

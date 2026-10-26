@@ -215,6 +215,85 @@ class Transcript(unittest.TestCase):
         msg = self.message("desktop.jsonl")
         self.assertEqual(msg["uuid"], "u2")
 
+    def test_previous_message_is_the_one_right_before(self):
+        """裁定 8 #2：上一則只認緊接在前的那一則客戶訊息（中間只隔 AI 回答、工具結果這類），再往前不找。"""
+        this, prev = intake.read_messages(FIX / "desktop.jsonl", prev=True)
+        self.assertEqual((this["uuid"], prev["uuid"]), ("u2", "u1"))
+        self.assertEqual(intake.pasted_text(prev, 1), "上一句：幫我看王先生")
+        items = intake.pasted_list(FIX / "desktop.jsonl")
+        self.assertEqual([i["ref"] for i in items], ["image:1", "text:1", "prev:text:1"])
+
+    def test_no_previous_across_compaction_or_at_start(self):
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="kbintake-"))
+        try:
+            lines = [json.dumps({"type": "user", "uuid": "old", "message": {"role": "user", "content": "很久以前"}}),
+                     json.dumps({"type": "user", "uuid": "sum", "isCompactSummary": True,
+                                 "message": {"role": "user", "content": "摘要"}}),
+                     json.dumps({"type": "user", "uuid": "now", "message": {"role": "user", "content": "存起來"}})]
+            p = d / "c.jsonl"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            got = intake.read_messages(p, prev=True)
+            self.assertEqual([m["uuid"] for m in got], ["now"])
+            p.write_text(lines[2] + "\n", encoding="utf-8")
+            self.assertEqual([m["uuid"] for m in intake.read_messages(p, prev=True)], ["now"])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def _jsonl(self, records):
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix="kbintake-"))
+        self.addCleanup(shutil.rmtree, d, True)
+        p = d / "t.jsonl"
+        p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records), encoding="utf-8")
+        return p
+
+    @staticmethod
+    def _user(uid, parent, content, **extra):
+        return dict({"type": "user", "uuid": uid, "parentUuid": parent, "message": {"role": "user", "content": content}}, **extra)
+
+    @staticmethod
+    def _ai(uid, parent):
+        return {"type": "assistant", "uuid": uid, "parentUuid": parent, "message": {"role": "assistant", "content": "好"}}
+
+    def test_previous_skips_interrupt_and_command_records(self):
+        """code review：按停止（[Request interrupted…]）與斜線指令的紀錄不算客戶訊息，上一則還是她貼的那則。"""
+        p = self._jsonl([self._user("u1", None, "合約全文……"), self._ai("a1", "u1"),
+                         self._user("i1", "a1", [{"type": "text", "text": "[Request interrupted by user]"}]),
+                         self._user("c1", "i1", "<command-name>/cost</command-name>"),
+                         self._user("u2", "c1", "存起來")])
+        this, prev = intake.read_messages(p, prev=True)
+        self.assertEqual((this["uuid"], prev["uuid"]), ("u2", "u1"))
+
+    def test_previous_follows_parent_chain_not_file_order(self):
+        """code review：退回、編輯後檔裡還留著被丟掉的那一支（u1），上一則照 parentUuid 是 u0。"""
+        p = self._jsonl([self._user("u0", None, "第一段"), self._ai("a0", "u0"),
+                         self._user("u1", "a0", "丟掉的那支"), self._ai("a1", "u1"),
+                         self._user("u2", "a0", "存起來")])
+        this, prev = intake.read_messages(p, prev=True)
+        self.assertEqual((this["uuid"], prev["uuid"]), ("u2", "u0"))
+
+    def test_previous_message_uploads_are_its_own(self):
+        """code review：上一則的原圖是它跟這一則之間的 inlined_image_paths 附件；這一則的不混進去。"""
+        img = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode((FIX / "名片.png").read_bytes()).decode()}}
+        p = self._jsonl([self._user("u1", None, [img, {"type": "text", "text": "名片"}]),
+                         {"type": "attachment", "uuid": "t1", "parentUuid": "u1",
+                          "attachment": {"type": "inlined_image_paths", "paths": ["X/old.png"]}},
+                         self._ai("a1", "t1"), self._user("u2", "a1", "存起來")])
+        this, prev = intake.read_messages(p, prev=True)
+        self.assertEqual((this["uploads"], prev["uploads"]), ([], ["X/old.png"]))
+        self.assertEqual(intake.pasted_image(prev, 1)[2], "X/old.png")
+
+    def test_only_this_message_does_not_read_further(self):
+        p = self._jsonl([{"broken": True}, self._user("u2", None, "存起來")])
+        self.assertEqual([m["uuid"] for m in intake.read_messages(p)], ["u2"])
+
+    def test_parse_ref_prev(self):
+        self.assertEqual(intake.parse_ref("prev:image:2"), ("image", 2, True))
+        self.assertEqual(intake.parse_ref("text:1"), ("text", 1, False))
+        self.assertEqual(intake.parse_ref("prev:x:1"), (None, None, False))
+
     def test_big_transcript_reads_backwards(self):
         tmp = Path(__file__).resolve().parent / "fixtures" / "intake"
         src = (tmp / "desktop.jsonl").read_text(encoding="utf-8").splitlines()

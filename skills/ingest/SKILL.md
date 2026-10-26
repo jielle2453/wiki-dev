@@ -44,7 +44,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 開場有變動時先派整理再回答客戶這句（D-156、D-196）。下面每段是做事的順序，不是要跟客戶講的話：過場不唸段名、不說英文，要跟客戶說的只有程式給的句子（`announce`、`say`）與最後的回答。
 
-- **收件**：照 `references/intake.md` 跑 `intake`，照輸出說一聲；拿不到照它那句請她另存再拖，不重打（D-243）；有「接著整理」就跳到「拿計畫」，她說了放哪就整理完照 `source-edit move` 搬（D-244）。
+- **收件**：照 `references/intake.md` 跑 `intake`，照輸出說一聲；拿不到照它那句講，不重打（D-243）；有「接著整理」就跳到「拿計畫」，她說了放哪就整理完照 `source-edit move` 搬（D-244）。
 - **看變動**：跑 `changes`；最後一行寫「要套用請跑 kb inventory scan」才跑 `inventory scan`。從 manage 交棒（加資料夾時已入冊），或客戶明說「整理」但沒變動時，直接往下。
 - **拿計畫**：`cards todo --json`，看 `plan` 與 `announce`；`announce` 有句子就先照貼。`asks`、`tell` 留到「回答」才用（背景做完會變）。
 - **照計畫做**：照 `plan` 一步一步做，有 `read` 的先讀（相對路徑相對於本 skill 資料夾），再照 `do` 做。
