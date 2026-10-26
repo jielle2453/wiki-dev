@@ -31,9 +31,10 @@ class Skeleton(unittest.TestCase):
         files = {p.relative_to(SKELETON).as_posix() for p in SKELETON.rglob("*") if p.is_file()}
         self.assertEqual(files, SKELETON_TRACKED)
 
-    def test_settings_json_is_bare_deny_list(self):
+    def test_settings_json_is_bare_deny_list_and_memory_off(self):
+        """空的 deny 清單，加上關掉自動記憶（D-229）。"""
         data = json.loads((SKELETON / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(data, {"permissions": {"deny": []}})
+        self.assertEqual(data, {"permissions": {"deny": []}, "autoMemoryEnabled": False})
 
     def test_claude_md_mentions_five_zones_and_no_plugin_path(self):
         text = (SKELETON / "CLAUDE.md").read_text(encoding="utf-8")

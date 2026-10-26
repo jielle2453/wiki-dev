@@ -1,5 +1,5 @@
 """_lib/build（build 第 2 點，D-190、D-194、D-044；驗收 1、2、5）：步驟順序、每步 done 的前提、redo、沒登記資料夾的短路、
-已是知識庫擋、不空提醒、兩個建置的鎖。環境檢查換成固定的八項（環境本身在 test_scripts_build_cli 測）；todo 的材料用假的。"""
+已是知識庫擋、不空提醒、兩個建置的鎖。環境檢查換成固定的九項（環境本身在 test_scripts_build_cli 測）；todo 的材料用假的。"""
 import json
 import shutil
 import tempfile
