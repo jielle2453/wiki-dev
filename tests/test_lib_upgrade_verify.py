@@ -79,7 +79,7 @@ class Verify(unittest.TestCase):
         before = leftovers()
         got = self.verify(repo_zip())
         self.assertEqual(got, {"ok": True, "version": REPO_VERSION, "python": PY, "step": None, "file": None,
-                               "line": None, "why": None})
+                               "line": None, "why": None, "transient": False})
         self.assertEqual(leftovers(), before)
 
     def test_sha256_mismatch(self):
@@ -164,6 +164,73 @@ class Verify(unittest.TestCase):
         self.assertEqual(seen[0][0], sys.executable)
         self.assertEqual(seen[0][2:], ["selftest", "--json"])
         self.assertTrue(seen[0][1].replace("\\", "/").endswith("/scripts/kb.py"))
+
+
+    def test_transient_only_for_download_and_timeout(self):
+        """裁定 11：下載不到、sha256 不對、逾時是 transient（隔天再試）；新版本身的問題不是。"""
+        self.assertIs(self.verify(fake_kb("print(1)\n"), digest="0" * 64)["transient"], True)
+        self.assertIs(self.verify(zip_of(BAD_GUARD))["transient"], False)
+        self.assertIs(self.verify(fake_kb("print('不是 JSON')\n"))["transient"], False)
+        with mock.patch.object(upgrade, "_download", side_effect=OSError("連不上")):
+            self.assertIs(upgrade.verify(self.V, "0.23.1", {"url": URL, "sha256": "0" * 64})["transient"], True)
+
+    def test_timeout_is_transient_and_cleans_the_selftest_temp(self):
+        """裁定 11、14：逾時是 transient；子行程的 TMP／TEMP 指到 verify 自己的暫存夾，被殺之後它建的夾一起刪掉。"""
+        (self.V / ".system" / "config.json").write_text(json.dumps({"update_verify_seconds": 3}), encoding="utf-8")
+        mark = self.tmp / "暫存夾.txt"
+        body = ("import tempfile, time\n"
+                "d = tempfile.mkdtemp(prefix='wiki-with-willy-selftest-')\n"
+                f"open({str(mark)!r}, 'w', encoding='utf-8').write(d)\n"
+                "time.sleep(60)\n")
+        got = self.verify(fake_kb(body))
+        self.assertEqual((got["ok"], got["step"], got["transient"]), (False, "selftest", True))
+        made = Path(mark.read_text(encoding="utf-8"))
+        self.assertFalse(made.exists(), "被殺的自我檢查留下的暫存夾也刪掉了")
+        self.assertNotEqual(made.parent.resolve(), Path(tempfile.gettempdir()).resolve())
+
+    def test_child_file_and_why_are_cleaned_again(self):
+        """裁定 17：新版回的 file 只收 plugin 根底下的相對路徑；why 再遮一次值、拿掉絕對路徑。"""
+        for file in ("C:/Users/某人/x.py", "/etc/x.py", "../x.py", "a\\..\\..\\x.py"):
+            with self.subTest(file=file):
+                out = {"ok": False, "version": REPO_VERSION, "step": "hooks", "file": file, "line": 3,
+                       "why": "壞在 C:\\Users\\某人\\私密\\x.py，密碼：hunter2abc"}
+                got = self.verify(fake_kb(f"print({json.dumps(json.dumps(out, ensure_ascii=False))})\n"))
+                self.assertIsNone(got["file"])
+                self.assertIsNone(got["line"])
+                self.assertNotIn("某人", got["why"])
+                self.assertNotIn("hunter2abc", got["why"])
+        out = {"ok": False, "version": REPO_VERSION, "step": "import", "file": "scripts/kb/_lib/x.py", "line": 3, "why": "x"}
+        got = self.verify(fake_kb(f"print({json.dumps(json.dumps(out))})\n"))
+        self.assertEqual((got["file"], got["line"]), ("scripts/kb/_lib/x.py", 3))
+
+
+class Download(unittest.TestCase):
+    """裁定 15：下載的逾時是總時間，不是每次讀。"""
+
+    def test_slow_server_is_cut_at_the_total_time(self):
+        class Slow:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, n):
+                time.sleep(0.3)
+                return b"x" * 10
+
+        class Opener:
+            def open(self, req, timeout=None):
+                return Slow()
+        tmp = Path(tempfile.mkdtemp(prefix="kbdl-"))
+        try:
+            start = time.monotonic()
+            with mock.patch.object(upgrade.urllib.request, "build_opener", return_value=Opener()):
+                with self.assertRaises(OSError):
+                    upgrade._download(URL, tmp / "x.zip", 1)
+            self.assertLess(time.monotonic() - start, 3)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class Where(unittest.TestCase):
@@ -356,6 +423,96 @@ class ConversationVerify(WithVerify):
         self.assertEqual(str(cm.exception),
                          "新版 0.20.2 在這台電腦跑不起來（hooks/guard.py 第 2 行：SyntaxError），先不換；什麼都沒動")
         self.assertEqual(self.fake.calls, [])
+
+
+class Round1(WithVerify):
+    """測試第 1 輪後的裁定 11～13：暫時的失敗隔天再試、對話裡說「晚點再說」、換成功或已裝的版本不比它舊時清掉。"""
+
+    def test_download_failure_is_not_cached_and_is_retried_tomorrow(self):
+        self.real_verify()
+        self.serve_zip("0.20.2", zip_of(BAD_GUARD))
+        good = self.download.side_effect
+        self.download.side_effect = OSError("network down")
+        upgrade.background(self.V)
+        saved = env.update_check(self.V)
+        self.assertIsNone(saved["verify_failed"])
+        self.assertTrue(saved["error"])
+        self.assertNotIn("跑不起來", saved["error"])
+        self.assertEqual(self.fake.calls, [])
+        self.download.side_effect = good
+        with mock.patch.object(upgrade, "_today", return_value="2026-10-25"):
+            upgrade.background(self.V)
+        self.assertEqual(self.download.call_count, 2, "隔天照常再抓")
+        self.assertEqual(env.update_check(self.V)["verify_failed"]["step"], "compile")
+
+    def test_sha_mismatch_is_not_cached(self):
+        self.real_verify()
+        self.serve_zip("0.20.2", b"zip")
+        self.zips["https://example.invalid/0.20.2.zip"] = b"another zip"
+        upgrade.background(self.V)
+        self.assertIsNone(env.update_check(self.V)["verify_failed"])
+
+    def test_timeout_is_not_cached(self):
+        self.serve_zip("0.20.2", b"zip")
+        self.fake.verify_result = dict(failed(), step="selftest", file=None, line=None, why="自我檢查超過 90 秒",
+                                       transient=True)
+        upgrade.background(self.V)
+        saved = env.update_check(self.V)
+        self.assertIsNone(saved["verify_failed"])
+        self.assertTrue(saved["error"])
+        self.assertEqual(self.fake.calls, [])
+
+    def test_conversation_download_failure_says_try_later(self):
+        self.real_verify()
+        self.serve_zip("0.21.0", b"zip")
+        self.download.side_effect = OSError("down")
+        self.put_history("0.20.1")
+        with self.assertRaises(backup.Refused) as cm:
+            upgrade.upgrade(self.V)
+        self.assertEqual(str(cm.exception), "現在下載不到新版，晚點再說一次；什麼都沒動")
+        self.assertEqual((backup.snapshots(self.V), self.fake.calls), ([], []))
+        self.assertIsNone(self.history()["pending"])
+
+    def test_conversation_timeout_says_try_later(self):
+        self.serve_zip("0.20.2", b"zip")
+        self.put_history("0.20.1")
+        self.fake.verify_result = dict(failed(), step="selftest", file=None, line=None, why="自我檢查超過 90 秒",
+                                       transient=True)
+        with self.assertRaises(backup.Refused) as cm:
+            upgrade.upgrade(self.V)
+        self.assertEqual(str(cm.exception), "現在下載不到新版，晚點再說一次；什麼都沒動")
+
+    def test_upgrade_success_clears_verify_failed(self):
+        env.set_update_check(self.V, dict(upgrade.BLANK_CHECK, date="2026-10-24", latest="0.20.2", kind="patch",
+                                          allowed=True, verify_failed=failed("0.20.2")))
+        self.serve_zip("0.20.2", b"zip")
+        self.put_history("0.20.1")
+        upgrade.upgrade(self.V)
+        saved = env.update_check(self.V)
+        self.assertIsNone(saved["verify_failed"])
+        self.assertEqual(saved["latest"], "0.20.2", "其他欄留著")
+
+    def test_check_never_says_latest_and_cannot_run_together(self):
+        self.PLUGIN = "0.20.2"
+        self.serve_zip("0.20.2", b"zip")
+        env.set_update_check(self.V, dict(upgrade.BLANK_CHECK, date="2026-10-24", verify_failed=failed("0.20.2")))
+        got = upgrade.check(self.V)
+        self.assertIsNone(got["verify_failed"])
+        self.assertEqual(upgrade.check_lines(got), ["目前是最新版（0.20.2）。"])
+
+    def test_finish_clears_when_installed_is_not_older(self):
+        self.PLUGIN = "0.20.2"
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, dict(upgrade.BLANK_CHECK, date="2026-10-24", verify_failed=failed("0.20.2")))
+        upgrade.finish(self.V, self.turn)
+        self.assertIsNone(env.update_check(self.V)["verify_failed"])
+
+    def test_finish_keeps_a_failure_for_a_newer_version(self):
+        self.PLUGIN = "0.20.2"
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, dict(upgrade.BLANK_CHECK, date="2026-10-24", verify_failed=failed("0.20.3")))
+        upgrade.finish(self.V, self.turn)
+        self.assertEqual(env.update_check(self.V)["verify_failed"]["version"], "0.20.3")
 
 
 class CheckVerifyFailed(WithVerify):

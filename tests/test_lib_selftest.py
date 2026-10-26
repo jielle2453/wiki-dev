@@ -118,6 +118,24 @@ class Broken(unittest.TestCase):
         self.assertIn("該擋沒擋", got["why"])
         self.assertIn("hooks/guard.py", got["why"])
 
+    def test_guard_that_raises_at_run_time(self):
+        """裁定 9：守門執行時丟例外，知識庫裡一律印「守門出錯」的 deny；該擋那例的理由不能是它、該放那例（小知識庫裡讀普通檔）不能 deny。"""
+        self.edit("scripts/kb/guard.py", lambda t: t.replace(
+            "def decide(payload):\n", "def decide(payload):\n    raise RuntimeError('壞了')\n", 1))
+        got = self.run_json()
+        self.assertEqual(got["step"], "hooks")
+        self.assertIn("hooks/guard.py", got["why"])
+
+    def test_hook_that_swallows_an_exception_into_the_log(self):
+        """裁定 10：hook 吞了例外、exit 0，但寫了 .system/hook-errors.log：不過，why 帶那一行。"""
+        self.edit("scripts/kb/_lib/turn.py", lambda t: t.replace(
+            "def start(vault, session_id, prompt, inherit=None):\n",
+            "def start(vault, session_id, prompt, inherit=None):\n    raise RuntimeError('回合壞了')\n", 1))
+        got = self.run_json()
+        self.assertEqual(got["step"], "hooks")
+        self.assertIn("hook-errors.log", got["why"])
+        self.assertIn("RuntimeError", got["why"])
+
     def test_slow_hook_times_out(self):
         cfg = self.root / "config" / "defaults.json"
         data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -181,6 +199,9 @@ class Unit(unittest.TestCase):
         self.assertEqual(self.st.where_in(err, root), ("scripts/kb/guard.py", 40))
         self.assertEqual(self.st.where_in("沒有 traceback", root), (None, None))
         self.assertEqual(self.st.where_in('  File "D:\\別處\\y.py", line 2, in f\n', root), (None, None))
+
+    def test_guard_error_reason_is_read_from_that_copy(self):
+        self.assertEqual(self.st.guard_error_reason(ROOT), "守門出錯，這次不放行。說「檢查」我看原因")
 
     def test_why_has_no_absolute_paths(self):
         why = self.st.clean_why("FileNotFoundError: C:\\Users\\某人\\x.py 和 /tmp/y 都不在")

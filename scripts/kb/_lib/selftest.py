@@ -7,6 +7,7 @@
 why 不含絕對路徑、遮過值（credentials.mask_secrets）。子行程經 _run，逾時殺整棵行程樹。
 """
 import argparse
+import ast
 import contextlib
 import importlib
 import io
@@ -28,6 +29,9 @@ VAULT_NAME = "知識庫"
 SESSION = "selftest"
 STEPS = ("import", "version", "vault", "hooks", "upgrade")
 MARKER = "【wiki-with-willy】kb 指令"  # 開場第一行的前綴（出錯那行也有「【wiki-with-willy】」，所以比到「kb 指令」）
+PLAIN_FILE = "系統/客戶設定檔.md"  # 小知識庫裡一份普通的檔：守門讀它不能 deny（裁定 9）
+GUARD_ERROR_HEAD = "守門出錯"
+ERROR_LOG_REL = ".system/hook-errors.log"  # hook 吞了例外會寫這裡（裁定 10）
 _HOOK_FILE = re.compile(r"[A-Za-z0-9_]+\.py", re.ASCII)
 _TB_FILE = re.compile(r'File "([^"]+)", line (\d+)')
 _ABS_PATH = re.compile(r'(?:[A-Za-z]:[\\/]|\\\\|(?<![\w.])/)[^\s"\'，。、；：）)]*')
@@ -198,6 +202,7 @@ def _cases(event, vault, outside):
     if event == "PreToolUse":
         return [("守門", base(vault, tool_name="Write",
                              tool_input={"file_path": str(Path(v) / ".system" / "sources.json"), "content": "{}"}), vault, "deny"),
+                ("守門", base(vault, tool_name="Read", tool_input={"file_path": str(Path(v) / PLAIN_FILE)}), vault, "read_in_vault"),
                 ("守門", base(outside.parent, tool_name="Read", tool_input={"file_path": out}), outside.parent, "not_deny")]
     if event == "PostToolUse":
         return [("寫後登記", base(vault, tool_name="Write", tool_input={"file_path": out, "content": "x"},
@@ -212,12 +217,40 @@ def _cases(event, vault, outside):
 
 
 def _decision(stdout):
+    """守門輸出的 (決定, 理由)；讀不懂回 (None, None)。"""
     try:
         data = json.loads(stdout)
     except ValueError:
-        return None
+        return None, None
     spec = data.get("hookSpecificOutput") if isinstance(data, dict) else None
-    return spec.get("permissionDecision") if isinstance(spec, dict) else None
+    if not isinstance(spec, dict):
+        return None, None
+    return spec.get("permissionDecision"), spec.get("permissionDecisionReason")
+
+
+def guard_error_reason(root):
+    """這份 hooks/guard.py 的 ERROR_REASON（守門自己出錯時 deny 的理由，裁定 9）；讀不到回「守門出錯」這個開頭。"""
+    try:
+        tree = ast.parse((Path(root) / "hooks" / "guard.py").read_bytes())
+    except (OSError, SyntaxError, ValueError):
+        return GUARD_ERROR_HEAD
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ERROR_REASON" for t in node.targets)
+                and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
+            return node.value.value
+    return GUARD_ERROR_HEAD
+
+
+def _is_guard_error(reason, error_reason):
+    return isinstance(reason, str) and (reason == error_reason or reason.startswith(GUARD_ERROR_HEAD))
+
+
+def _log_lines(vault):
+    """小知識庫 .system/hook-errors.log 現在的行（沒有回空清單）。"""
+    try:
+        return (Path(vault) / ERROR_LOG_REL).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
 
 
 def _context(stdout):
@@ -250,6 +283,7 @@ def _registered(root):
 
 def _step_hooks(root, vault, outside, seconds):
     env = _hook_env(root)
+    error_reason = guard_error_reason(root)
     for event, command in _registered(root):
         parts = command_parts(command)
         if parts is None:
@@ -261,6 +295,7 @@ def _step_hooks(root, vault, outside, seconds):
             raise Failed(f"hooks/hooks.json 的 {event} 指到的 {rel} 不在", "hooks/hooks.json")
         for label, payload, cwd, expect in _cases(event, vault, outside):
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            logged = len(_log_lines(vault))
             try:
                 code, out, err = _run([sys.executable, str(script), *args], data, seconds, cwd, env)
             except subprocess.TimeoutExpired:
@@ -268,12 +303,20 @@ def _step_hooks(root, vault, outside, seconds):
             file, line = where_in(err, root)
             if code != 0:
                 raise Failed(f"{label}（{rel}）結束碼 {code}", file, line)
+            decision, reason = _decision(out)
             if expect == "context" and not (_context(out) or "").startswith(MARKER):
                 raise Failed(f"{label}（{rel}）沒有帶出「{MARKER}」那行", file, line)
-            if expect == "deny" and _decision(out) != "deny":
-                raise Failed(f"{label}（{rel}）該擋沒擋：寫小知識庫的 .system/sources.json", file, line)
-            if expect == "not_deny" and out.strip() and _decision(out) == "deny":
+            if expect == "deny" and (decision != "deny" or _is_guard_error(reason, error_reason)):
+                why = "守門自己出錯" if decision == "deny" else "該擋沒擋"
+                raise Failed(f"{label}（{rel}）{why}：寫小知識庫的 .system/sources.json", file, line)
+            if expect == "read_in_vault" and decision == "deny":
+                why = "守門自己出錯" if _is_guard_error(reason, error_reason) else "擋了不該擋的"
+                raise Failed(f"{label}（{rel}）{why}：讀小知識庫裡的 {PLAIN_FILE}", file, line)
+            if expect == "not_deny" and out.strip() and decision == "deny":
                 raise Failed(f"{label}（{rel}）擋了不該擋的：讀知識庫外面的檔", file, line)
+            new = _log_lines(vault)[logged:]
+            if new:
+                raise Failed(f"{label}（{rel}）寫了 {ERROR_LOG_REL}：{new[0]}", file, line)
 
 
 def _step_upgrade(root, vault, seconds):

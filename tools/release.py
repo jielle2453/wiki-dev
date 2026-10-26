@@ -8,7 +8,7 @@ build：從 tag 用 git archive 取檔，照 D-213 要放的清單（含 agents/
 zip 裡只有清單上的、plugin.json 與 hooks/hooks.json 引用的路徑都在、版本號等於 tag、CHANGELOG 最新一段有「給客戶的一句話」、
 config/skeleton_history.json 有這一版且跟 tag 裡的骨架一致；小修（D-217，前兩位跟上一個 tag 相同）不准動骨架檔、各 schema 版本常數、
 _lib/migrate.py；每個 .py 照 Python 3.10 的語法 parse 得過；打好的 zip 解開跑它自己的 kb selftest --json（開發機的 Python，D-230）。
-問題一次全列，有問題不留 zip。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
+問題一次全列；zip 先寫暫存名，全部過了才改成正式名（有問題不留、也不動先前打好的同名 zip）。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
 publish：build → gh release create 傳 zip → 更新公開 repo 的 marketplace.json（版本、網址、sha256）並推 → 每 30 秒從外面抓清單，
 抓到新版（最多等 --wait 分鐘）才改 rollout.json 並推（D-218：名單不能比清單先更新）；超過停下來、名單沒改，清單與 zip 已經推了，之後用 rollout 補。
 中途失敗（例如推清單時斷線）直接重跑 publish：release 已經有了就補傳同一個 zip，不重建。
@@ -351,11 +351,17 @@ def build(repo, tag, out_dir=None):
         previous = collect(repo, prev_tag)
     found = problems(files, version, previous) + syntax_problems(files)
     dest = Path(out_dir or repo / "dist").resolve() / f"{PLUGIN_NAME}-{version}.zip"
-    _write_zip(files, dest)
-    found += selftest_problems(dest)
+    tmp = dest.with_name(f".{dest.name}.tmp")  # 先寫暫存名，全部過了才改名（裁定 16：重打失敗不動先前打好的那份）
+    _write_zip(files, tmp)
+    try:
+        found += selftest_problems(tmp)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     if found:
-        dest.unlink()
+        tmp.unlink(missing_ok=True)
         raise ReleaseError("不能發行：\n" + "\n".join(f"- {p}" for p in found))
+    os.replace(str(tmp), str(dest))
     return {"zip": dest, "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(), "version": version, "files": len(files),
             "skipped": skipped}
 

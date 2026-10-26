@@ -74,6 +74,8 @@ NO_SOURCE = "清單沒有這一版的下載網址"
 VERIFY_BG = "新版 {version} 在這台電腦跑不起來（{where}），沒有換"
 VERIFY_REFUSED = "新版 {version} 在這台電腦跑不起來（{where}），先不換；什麼都沒動"
 VERIFY_LINE = "新版 {version} 在這台電腦跑不起來（{where}），先沒換"
+DOWNLOAD_LATER = "現在下載不到新版，晚點再說一次；什麼都沒動"  # 下載不到、逾時這類跟新版好壞無關的（裁定 12）
+VERIFY_RETRY_BG = "新版 {version} 這次沒驗成（{where}），沒有換；下次照常再試"
 
 
 class UpdateError(Exception):
@@ -101,15 +103,19 @@ def _get(url, timeout):
 
 
 def _download(url, dest, timeout):
-    """抓一個 https 網址的檔寫到 dest（超過 DOWNLOAD_MAX_BYTES 丟 ValueError）；連不上、逾時、不是 https 丟 OSError／ValueError。"""
+    """抓一個 https 網址的檔寫到 dest（超過 DOWNLOAD_MAX_BYTES 丟 ValueError）；連不上、不是 https 丟 OSError／ValueError。
+    timeout 是總時間（裁定 15）：每讀一塊都看一次，超過丟 TimeoutError（伺服器慢慢吐也不會拖過它）。"""
     if not str(url).startswith("https://"):
         raise ValueError("只收 https 網址")
+    deadline = time.monotonic() + timeout
     req = urllib.request.Request(url, headers={"User-Agent": "wiki-with-willy"})
     opener = urllib.request.build_opener(_HttpsOnlyRedirect())
     got = 0
     with opener.open(req, timeout=timeout) as r, open(dest, "wb") as f:
         while True:
-            chunk = r.read(1024 * 1024)
+            if time.monotonic() > deadline:
+                raise TimeoutError("下載超過時間")
+            chunk = r.read(64 * 1024)
             if not chunk:
                 break
             got += len(chunk)
@@ -358,14 +364,18 @@ def _selftest_output(text):
 
 def verify(vault, latest, source):
     """換版之前在這台電腦驗新版（D-230）：抓 zip、核 sha256、zip slip、編譯、跑新版的 kb selftest。
-    回 {"ok","version","python","step","file","line","why"}；step 是 download｜compile｜selftest，或新版自我檢查回的那一步。不丟。"""
-    res = {"ok": False, "version": latest, "python": python_version(), "step": None, "file": None, "line": None, "why": None}
+    回 {"ok","version","python","step","file","line","why","transient"}；step 是 download｜compile｜selftest，或新版自我檢查回的那一步。
+    transient（裁定 11）：跟新版好壞無關的失敗（下載不到、sha256 不對、逾時、起不來）是 true，隔天照常再試；新版本身的問題
+    （編譯、新版的自我檢查回不過、沒有自我檢查、輸出看不懂、版本不對）是 false，記成 verify_failed。不丟。
+    新版的自我檢查在 verify 自己的暫存夾裡跑（TMP／TEMP 也指過去），被殺掉留下的東西跟著一起刪（裁定 14）。"""
+    res = {"ok": False, "version": latest, "python": python_version(), "step": None, "file": None, "line": None, "why": None,
+           "transient": False}
 
-    def fail(step, why, file=None, line=None):
-        res.update(step=step, why=why, file=file, line=line)
+    def fail(step, why, file=None, line=None, transient=False):
+        res.update(step=step, why=why, file=file, line=line, transient=transient)
         return res
     if source is None:
-        return fail("download", NO_SOURCE)
+        return fail("download", NO_SOURCE, transient=True)
     seconds = config.get(vault, "update_verify_seconds")
     deadline = time.monotonic() + seconds
     tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix=VERIFY_PREFIX)))
@@ -375,47 +385,63 @@ def verify(vault, latest, source):
             _download(source["url"], zip_path, seconds)
             data = zip_path.read_bytes()
         except (OSError, ValueError) as e:
-            return fail("download", f"下載不到（{type(e).__name__}）")
+            return fail("download", f"下載不到（{type(e).__name__}）", transient=True)
         if hashlib.sha256(data).hexdigest() != str(source["sha256"]).lower():
-            return fail("download", "下載的檔跟清單的指紋對不上")
+            return fail("download", "下載的檔跟清單的指紋對不上", transient=True)
         root = tmp / "plugin"
         try:
             with zipfile.ZipFile(str(zip_path)) as z:
                 names = z.namelist()
                 if any(_unsafe_member(n) for n in names):
-                    return fail("download", "zip 裡有不安全的路徑")
+                    return fail("download", "zip 裡有不安全的路徑", transient=True)
                 z.extractall(str(root))
         except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError):
-            return fail("download", "不是完整的 zip 檔")
+            return fail("download", "不是完整的 zip 檔", transient=True)
         bad = _compile_all(root)
         if bad:
             return fail("compile", bad[2], bad[0], bad[1])
         left = deadline - time.monotonic()
         if left <= 0:
-            return fail("selftest", f"超過 {seconds} 秒")
+            return fail("selftest", f"超過 {seconds} 秒", transient=True)
+        child_tmp = tmp / "temp"
+        child_tmp.mkdir()
+        child_env = dict(os.environ, PYTHONIOENCODING="utf-8", TMP=str(child_tmp), TEMP=str(child_tmp), TMPDIR=str(child_tmp))
         argv = [sys.executable, str(root / "scripts" / "kb.py"), "selftest", "--json"]
         try:
-            code, out = _call(argv, left, env=dict(os.environ, PYTHONIOENCODING="utf-8"), cwd=str(tmp))
+            code, out = _call(argv, left, env=child_env, cwd=str(tmp))
         except subprocess.TimeoutExpired:
-            return fail("selftest", f"自我檢查超過 {seconds} 秒")
+            return fail("selftest", f"自我檢查超過 {seconds} 秒", transient=True)
         except OSError as e:
-            return fail("selftest", f"自我檢查起不來（{type(e).__name__}）")
+            return fail("selftest", f"自我檢查起不來（{type(e).__name__}）", transient=True)
         got = _selftest_output(out)
         if got is None:
             return fail("selftest", "這一版沒有自我檢查" if code == 2 else f"自我檢查的輸出看不懂（結束碼 {code}）")
         if got.get("ok") is not True:
             step = got.get("step") if got.get("step") in ("import", "version", "vault", "hooks", "upgrade") else "selftest"
-            line = got.get("line") if isinstance(got.get("line"), int) and not isinstance(got.get("line"), bool) else None
-            file = got.get("file") if isinstance(got.get("file"), str) else None
-            return fail(step, str(got.get("why") or "自我檢查沒過")[:300], file, line)
+            file = _child_file(got.get("file"))
+            line = got.get("line") if file and isinstance(got.get("line"), int) and not isinstance(got.get("line"), bool) else None
+            return fail(step, _clean_why(got.get("why") or "自我檢查沒過"), file, line)
         if got.get("version") != latest:
-            return fail("selftest", f"新版自己說是 {got.get('version')}，不是 {latest}")
+            return fail("selftest", _clean_why(f"新版自己說是 {got.get('version')}，不是 {latest}"))
         res["ok"] = True
         return res
-    except Exception as e:  # noqa: BLE001  驗不了也是不過，不丟
-        return fail(res["step"] or "selftest", type(e).__name__)
+    except Exception as e:  # noqa: BLE001  驗不了也是不過，不丟；隔天再試
+        return fail(res["step"] or "selftest", type(e).__name__, transient=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _child_file(file):
+    """新版回的 file 只收 plugin 根底下的相對路徑（/ 分隔、沒有 ..、不是絕對、沒有磁碟代號、沒有反斜線）；其他回 None（裁定 17）。"""
+    if not isinstance(file, str) or not file or "\\" in file or ":" in file or _unsafe_member(file):
+        return None
+    return file[:200]
+
+
+def _clean_why(text):
+    """新版回的 why 再清一次：絕對路徑拿掉、遮值、壓一行（裁定 17，跟 kb selftest 自己的 clean_why 同一支）。"""
+    from kb._lib import selftest
+    return selftest.clean_why(str(text))
 
 
 # ---------- 歷史（.system/upgrade-history.json） ----------
@@ -599,7 +625,8 @@ def _check(vault):
         return out, None
     out.update(latest=got["latest"], allowed=got["allowed"], note=got["note"], kind=kind(plugin, got["latest"]))
     failed = (env.update_check(vault) or {}).get("verify_failed")
-    if isinstance(failed, dict) and failed.get("version") == got["latest"]:
+    if (isinstance(failed, dict) and failed.get("version") == got["latest"] and out["allowed"]
+            and out["kind"] in ("patch", "minor", "major")):  # 已裝的不比它舊、或說最新版時不給（裁定 13）
         out["verify_failed"] = failed
     if out["kind"] == "downgrade" and out["allowed"]:
         name = _snapshot_for_downgrade(vault, hist)
@@ -661,6 +688,17 @@ def _check_for_action(vault):
     return info, source
 
 
+def _clear_verify_failed(vault, installed):
+    """update_check 記的驗不過，那一版不比 installed 新就清掉（換成功、已經裝上那一版或更新的，裁定 13）；其他欄留著。寫不了不擋。"""
+    try:
+        chk = env.update_check(vault)
+        failed = (chk or {}).get("verify_failed")
+        if isinstance(failed, dict) and kind(installed, failed.get("version")) not in ("patch", "minor", "major"):
+            env.set_update_check(vault, dict(chk, verify_failed=None))
+    except (OSError, ValueError):
+        pass
+
+
 def _clear_pending(vault):
     try:
         hist = load_history(vault)
@@ -694,6 +732,8 @@ def upgrade(vault):
     with backup.acquire(vault):
         checked = verify(vault, latest, source)
         if not checked["ok"]:
+            if checked.get("transient"):
+                raise backup.Refused(DOWNLOAD_LATER)
             raise backup.Refused(VERIFY_REFUSED.format(version=latest, where=where(checked)))
         if k in ("minor", "major"):
             try:
@@ -728,6 +768,7 @@ def upgrade(vault):
         if got != latest:  # GitHub 快取還給舊清單：版本沒換到；快照留著
             _clear_pending(vault)
             raise backup.Refused(NOT_YET)
+    _clear_verify_failed(vault, latest)
     return {"sentence": SUCCESS.format(version=latest), "kind": k, "to": latest,
             "snapshot": snapshot.name if snapshot else None}
 
@@ -791,8 +832,10 @@ def _pending_snapshot(vault, hist, plugin):
 def finish(vault, turn_id):
     """kb upgrade --finish。回 {"already": True, "to": X}（一樣版本、第一次記錄）或
     {"already": False, "from","to","kind","snapshot","migrated","migrate_skipped","cards_migrated",
-    "skeleton_created","skeleton_replaced","skeleton_ask","note","by"}。鎖被占丟 backup.Refused，什麼都沒動。"""
+    "skeleton_created","skeleton_replaced","skeleton_ask","note","by"}。鎖被占丟 backup.Refused，什麼都沒動。
+    已裝的版本不比 update_check 記的驗不過那一版舊時，那筆清掉（裁定 13：例如她在外面換上了那一版）。"""
     plugin = plugin_version()
+    _clear_verify_failed(vault, plugin)
     hist = load_history(vault)
     if hist is None:
         ensure_history(vault)
@@ -882,8 +925,8 @@ def background(vault):
 
 
 def _auto_patch(vault, latest, source):
-    """換小修：先驗新版（D-230），驗不過不換、回 {"verify_failed", "error"}；update_check 已經記著同一版、同一個 Python 驗不過的，
-    不再抓、不再驗，直接沿用。背景整理有動靜或鎖被占就這次不換（明天再說）；成功回 {"auto_patched": latest}，失敗回 {"error": 句子}。"""
+    """換小修：先驗新版（D-230），驗不過不換：新版本身的問題回 {"verify_failed", "error"}，下載不到、逾時這類只回 {"error"}
+    （裁定 11，下次照常再試）；update_check 已經記著同一版、同一個 Python 驗不過的，不再抓、不再驗，直接沿用。背景整理有動靜或鎖被占就這次不換（明天再說）；成功回 {"auto_patched": latest}，失敗回 {"error": 句子}。"""
     failed = (env.update_check(vault) or {}).get("verify_failed")
     if isinstance(failed, dict) and failed.get("version") == latest and failed.get("python") == python_version():
         return {"verify_failed": failed, "error": VERIFY_BG.format(version=latest, where=where(failed))}
@@ -894,7 +937,10 @@ def _auto_patch(vault, latest, source):
             identity = plugin_identity(vault)
             checked = verify(vault, latest, source)
             if not checked["ok"]:
-                return {"verify_failed": checked, "error": VERIFY_BG.format(version=latest, where=where(checked))}
+                if checked.get("transient"):  # 下載不到、逾時這類：只記 error，下次照常再試（裁定 11）
+                    return {"error": VERIFY_RETRY_BG.format(version=latest, where=where(checked))}
+                failed = {k: v for k, v in checked.items() if k != "transient"}
+                return {"verify_failed": failed, "error": VERIFY_BG.format(version=latest, where=where(failed))}
             run_update(identity, config.get(vault, "update_run_seconds"))
             if installed_version(identity) != latest:
                 return {"error": NOT_YET}

@@ -301,7 +301,19 @@ class Verify(Base):
 
     def test_selftest_runs_on_the_built_zip(self):
         got = release.build(self.repo, "v0.20.0", self.tmp / "dist")
-        self.assertEqual(self.selftests, [Path(got["zip"])])
+        self.assertEqual(len(self.selftests), 1)
+        self.assertEqual(self.selftests[0].parent, Path(got["zip"]).parent)
+
+    def test_failed_rebuild_keeps_the_good_zip_of_the_same_tag(self):
+        """裁定 16：先寫暫存名，全部檢查過才改名；同一個 tag 重打失敗，先前打好的那份不動、也不留暫存檔。"""
+        got = release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        good = Path(got["zip"]).read_bytes()
+        self.selftest_result = {"ok": False, "step": "hooks", "why": "x"}
+        with self.assertRaises(release.ReleaseError):
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertEqual(Path(got["zip"]).read_bytes(), good)
+        self.assertEqual(sorted(p.name for p in (self.tmp / "dist").iterdir()), ["wiki-with-willy-0.20.0.zip"])
+        self.assertNotEqual(self.selftests[-1], Path(got["zip"]), "自我檢查跑在暫存名上")
 
     def test_all_problems_listed_together_with_the_selftest(self):
         write(self.repo, "scripts/kb/_lib/new.py", "type X = int\n")
