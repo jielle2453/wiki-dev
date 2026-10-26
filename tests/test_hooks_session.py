@@ -1120,3 +1120,112 @@ class LintFixCounted(unittest.TestCase):
             self.assertEqual(cards.unsorted(V), before)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class InboxLine(unittest.TestCase):
+    """收件匣第 6 點（D-045）：收件匣最上層放太久或太多，開場提醒一行，每台電腦每 inbox_remind_every_days 天最多一次。"""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_inbox", HOOK)
+        self.session = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.session)
+        self.tmp, self.V, self.raw = make_vault()
+        self.inbox = self.V / "收件匣"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def files(self, n, days_old=0):
+        stamp = time.time() - days_old * 86400
+        for i in range(n):
+            p = self.inbox / f"f{i}-{days_old}.txt"
+            p.write_text("x", encoding="utf-8")
+            os.utime(p, (stamp, stamp))
+
+    def test_ten_files_prints_once_then_after_seven_days(self):
+        from datetime import date, timedelta
+        from kb._lib import env
+        self.files(10)
+        today = date.today().isoformat()
+        self.assertEqual(self.session.line_inbox(self.V),  # 裁定 8 #4：0 天不講「最久」那半句
+                         "收件匣：10 份沒歸位；回答末尾問她要不要一起看，說好再跑 kb asks --all")
+        self.assertEqual(env.inbox_reminded(self.V), today)
+        self.assertIsNone(self.session.line_inbox(self.V))
+        env.set_inbox_reminded(self.V, (date.today() - timedelta(days=7)).isoformat())
+        self.assertIsNotNone(self.session.line_inbox(self.V))
+        env.set_inbox_reminded(self.V, (date.today() - timedelta(days=6)).isoformat())
+        self.assertIsNone(self.session.line_inbox(self.V))
+
+    def test_nine_new_files_not_printed_and_not_recorded(self):
+        from kb._lib import env
+        self.files(9)
+        self.assertIsNone(self.session.line_inbox(self.V))
+        self.assertIsNone(env.inbox_reminded(self.V))
+
+    def test_one_old_file_prints(self):
+        """裁定 6 #4：天數只算清冊有 first_seen 的；修改時間舊、還沒入清冊的不算天數。"""
+        from datetime import datetime, timedelta
+        from kb._lib import inventory, turn
+        from kb._lib import sources as sources_lib
+        self.files(1, days_old=8)
+        self.assertIsNone(self.session.line_inbox(self.V))
+        inventory.apply(self.V, inventory.scan(self.V, sources_lib.load(self.V)), turn.start(self.V, None, "")["turn"])
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        old = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%S")
+        for e in data["entries"]:
+            if any("收件匣" in l["uri"] for l in e["locations"]):
+                e["first_seen"] = old
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.session.line_inbox(self.V),
+                         "收件匣：1 份沒歸位、最久 8 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
+
+    def test_subfolders_and_dot_files_do_not_count(self):
+        sub = self.inbox / "公司系統"
+        sub.mkdir()
+        stamp = time.time() - 30 * 86400
+        for i in range(12):
+            p = sub / f"{i}.md"
+            p.write_text("x", encoding="utf-8")
+            os.utime(p, (stamp, stamp))
+        (self.inbox / ".hidden").write_text("x", encoding="utf-8")
+        self.assertIsNone(self.session.line_inbox(self.V))
+
+    def test_files_the_inventory_skips_do_not_count(self):
+        """code review：清冊不讀的（~$、desktop.ini、Thumbs.db 這類）不算進份數與天數。"""
+        stamp = time.time() - 30 * 86400
+        for name in ("~$報價.docx", "desktop.ini", "Thumbs.db", "x.tmp"):
+            p = self.inbox / name
+            p.write_text("x", encoding="utf-8")
+            os.utime(p, (stamp, stamp))
+        self.assertIsNone(self.session.line_inbox(self.V))
+
+    def test_inventory_first_seen_wins_over_mtime(self):
+        from kb._lib import inventory, turn
+        self.files(1)
+        t = turn.start(self.V, None, "")["turn"]
+        report = inventory.scan(self.V, __import__("kb._lib.sources", fromlist=["load"]).load(self.V))
+        inventory.apply(self.V, report, t)
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        for e in data["entries"]:
+            if any("收件匣" in l["uri"] for l in e["locations"]):
+                e["first_seen"] = "2020-01-01T00:00:00"
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.assertIn("份沒歸位、最久", self.session.line_inbox(self.V))
+
+    def test_version_line_hides_it_and_does_not_record(self):
+        """裁定 2：版本那行印了就不印收件匣那行、不記 inbox_reminded（下次開場再提醒）。"""
+        from unittest import mock
+        from kb._lib import env
+        self.files(10)
+        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；說「升級」我帶你做。"):
+            self.assertIsNone(self.session.line_inbox(self.V))
+        self.assertIsNone(env.inbox_reminded(self.V))
+        self.assertIsNotNone(self.session.line_inbox(self.V))
+
+    def test_in_status_lines_after_agenda(self):
+        self.files(10)
+        lines = self.session.status_lines(self.V, "startup", "sid")
+        self.assertTrue(any(ln.startswith("收件匣：10 份") for ln in lines), lines)

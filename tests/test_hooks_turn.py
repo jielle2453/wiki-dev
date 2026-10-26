@@ -366,3 +366,25 @@ class AgentMessages(unittest.TestCase):
         r = run_hook(prompt_payload(self.V, "整理到哪了？"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.turns.exists())
+
+
+class Transcript(unittest.TestCase):
+    """收件匣第 3 點：payload 有 transcript_path 就記進回合檔（kb intake --pasted 從那裡取貼的圖與文字）。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        self.turns = self.V / ".system" / "turns"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_transcript_path_recorded(self):
+        r = run_hook(prompt_payload(self.V, "存起來", transcript_path="C:/x/sess.jsonl"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sess = json.loads((self.turns / f"{SID}.json").read_text(encoding="utf-8"))
+        self.assertEqual(sess["transcript"], "C:/x/sess.jsonl")
+
+    def test_without_transcript_path_no_key(self):
+        run_hook(prompt_payload(self.V, "存起來"))
+        sess = json.loads((self.turns / f"{SID}.json").read_text(encoding="utf-8"))
+        self.assertNotIn("transcript", sess)

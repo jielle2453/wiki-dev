@@ -1,0 +1,9 @@
+{"type": "user", "uuid": "u1", "parentUuid": null, "message": {"role": "user", "content": "上一句：幫我看王先生"}}
+{"type": "assistant", "uuid": "a1", "parentUuid": "u1", "message": {"role": "assistant", "content": [{"type": "text", "text": "好"}]}}
+{"type": "user", "uuid": "m1", "parentUuid": "a1", "isMeta": true, "message": {"role": "user", "content": "<local-command-caveat>x</local-command-caveat>"}}
+{"type": "user", "uuid": "u2", "parentUuid": "m1", "message": {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGM4ISd3Qk6OAUIBAB8mBBG4glMAAAAAAElFTkSuQmCC"}}, {"type": "text", "text": "<system-reminder>\nThe user started this session without choosing a project folder.\n</system-reminder>"}, {"type": "text", "text": "這是名片，還有合約內容，存起來\n\n<pasted_content id=\"ab12\">\n第一條 甲方委託乙方裝修。\n第二條 工期 30 天，逾期每日罰 1,000 元。\n\n  （以下空白）\n</pasted_content id=\"ab12\">"}]}}
+{"type": "attachment", "uuid": "t1", "parentUuid": "u2", "attachment": {"type": "total_tokens_reminder"}}
+{"type": "assistant", "uuid": "a2", "parentUuid": "t2", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "kb intake --pasted list"}}]}}
+{"type": "user", "uuid": "r1", "parentUuid": "a2", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]}, "toolUseResult": {"stdout": "ok"}}
+{"type": "user", "uuid": "n1", "parentUuid": "r1", "message": {"role": "user", "content": "<task-notification>背景做完了</task-notification>"}}
+{"type": "assistant", "uuid": "a3", "parentUuid": "n1", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_2", "name": "Bash", "input": {"command": "kb intake --pasted image:1"}}]}}

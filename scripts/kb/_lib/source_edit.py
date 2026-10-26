@@ -321,10 +321,11 @@ def check_from(vault, sources, path):
     raise Refused(SYSTEM.format(name=name if zone == "Z1" else parts[0]))
 
 
-def check_to(vault, sources, dest, target_text):
-    """目的地夾要存在、在准許的位置；不行丟 Refused。"""
+def check_to(vault, sources, dest, target_text, make=False):
+    """目的地夾要存在、在准許的位置；不行丟 Refused。make：登記實體的 <型別>/<名稱> 還沒有夾、搬的時候先建（收件匣裁定 1），
+    不存在照收。"""
     dest = Path(dest)
-    if not dest.is_dir():
+    if not dest.is_dir() and not make:
         raise Refused(NO_FOLDER.format(target=target_text))
     parts = _parts(vault, dest)
     if parts == []:
@@ -521,17 +522,56 @@ def excludes_under(vault, path):
 
 # ---------- 搬、改名 ----------
 
+def missing_entity_dir(vault, dest, cwd):
+    """--to 是實體清單裡 active 實體的 <型別>/<名稱>（也收 知識庫/<型別>/<名稱> 與絕對路徑）、型別夾在、那個夾還不在：
+    回要建的相對路徑（登記的型別名與名稱）；其他回 None，照舊由 resolve_folder 判（收件匣裁定 1：只建這一層）。"""
+    from kb._lib import entities
+    text = str(dest or "").strip().replace("\\", "/")
+    head, _sep, rest = text.partition("/")
+    if os.path.isabs(text):
+        path = Path(text)
+    elif head.casefold() == inventory.KNOWLEDGE.casefold() and rest:
+        path = Path(vault) / rest
+    else:
+        path = Path(cwd) / text
+    parts = _parts(vault, path)
+    if not parts or len(parts) != 2 or os.path.lexists(path) or not (Path(vault) / parts[0]).is_dir():
+        return None
+    try:
+        data = entities.load(vault)
+    except ValueError:
+        return None
+    e, _hit = entities.find(data, parts[1])
+    if (e is None or e.get("status") != "active" or entities.is_self(e) or not e.get("type")
+            or entities.key(e["type"]) != entities.key(parts[0]) or entities.key(e["name"]) != entities.key(parts[1])):
+        return None
+    if entities.key(e["type"]) not in {entities.key(t) for t in _types(vault)}:
+        return None
+    return f"{parts[0]}/{e['name']}"
+
+
+def _periodic_source(entries):
+    """定期交來的（kb intake --from --name，D-241）：回來源名；不是回 None。"""
+    for e in entries:
+        info = (e or {}).get("intake") or {}
+        if info.get("from") and info.get("name"):
+            return info["from"]
+    return None
+
+
 def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
     """move（dest）或 rename（new_name）的事前檢查與影響，不動任何東西。不行丟 Refused。"""
     entry, src = resolve(vault, sources, target, cwd)
     check_from(vault, sources, src)
     folder = src.is_dir()
+    make_dir = None
     if new_name is not None:
         name = _check_name(src, new_name, folder)
         dest_dir = src.parent
     else:
-        dest_dir = resolve_folder(vault, sources, dest, cwd)
-        check_to(vault, sources, dest_dir, str(dest))
+        make_dir = missing_entity_dir(vault, dest, cwd)
+        dest_dir = Path(vault) / make_dir if make_dir else resolve_folder(vault, sources, dest, cwd)
+        check_to(vault, sources, dest_dir, str(dest), make=bool(make_dir))
         name = src.name
         dn, sn = normalize(str(dest_dir), None), normalize(str(src), None)
         if folder and inside(dn, sn):
@@ -550,7 +590,7 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
     if folder and dparts is not None and _parts(vault, src) is None and credential_inside(vault, src):
         raise Refused(CREDENTIAL)  # 同理：知識庫裡不查憑證樣式
     try:
-        if _dev(src.parent) != _dev(dest_dir):
+        if _dev(src.parent) != _dev(dest_dir.parent if make_dir else dest_dir):
             raise Refused(other_disk(src.parent, dest_dir))
     except OSError as e:
         raise Refused(NOT_FOUND.format(target=target)) from e
@@ -565,7 +605,8 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
             "existing_is_dir": bool(existing and os.path.isdir(dst)),
             "files": len(_files_under(src)), "cards": len(_cards_of(vault, card_ids)),
             "excludes": [rest for _s, _e, rest in moved_ex], "_moved_ex": moved_ex,
-            "signs": [Path(f).name for f in _files_under(src) if Path(f).name.startswith("~$")][:SIGNS_MAX]}
+            "signs": [Path(f).name for f in _files_under(src) if Path(f).name.startswith("~$")][:SIGNS_MAX],
+            "make_dir": make_dir, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
     plan["download"] = None
     src_root, dst_root = onedrive_root(src), onedrive_root(dest_dir)
     # 只在雲端、而且兩邊在同一個 OneDrive 根才說搬不會下載（第六輪：Dropbox 一類、個人與公司兩個根之間不算）
@@ -608,8 +649,12 @@ def check_lines(plan, op):
         lines = [f"要搬：{plan['name']}（{plan['files']} 份，卡 {plan['cards']} 張）從 {from_word} 搬到 {to_word}"]
     else:
         lines = [f"要搬：{plan['name']} 從 {from_word} 搬到 {to_word}"]
+    if plan.get("make_dir"):
+        lines.append(f"{plan['make_dir']} 還沒有夾，會先建一個")
     if plan["kind"] == "file":
         lines.append("卡會跟著改" if plan["cards"] else "這份還沒有卡")
+    if plan.get("periodic") and op != "rename":
+        lines.append(f"這份是 {plan['periodic']} 定期交來的；搬走之後下次交來會在收件匣再收一份")
     if plan["excludes"]:
         lines.append("裡面不讀的夾：" + "、".join(plan["excludes"]))
     if plan["existing"]:
@@ -719,19 +764,32 @@ def do_move(vault, plan, turn_id, op, replace=False):
         if versions:
             from kb._lib.io import write_text_atomic
             write_text_atomic(sp, original.decode("utf-8"))
+    made = Path(vault) / plan["make_dir"] if plan.get("make_dir") else None
+
+    def unmake():
+        if made is not None:
+            try:
+                made.rmdir()
+            except OSError:
+                pass
     replaced = None
     try:
+        if made is not None:  # 實體夾還沒有：先建這一層（收件匣裁定 1）
+            made.mkdir()
         if plan["existing"]:
             replaced = _replace_into(vault, plan, turn_id)
         else:
             _rename(src, dst)
     except Refused:
+        unmake()
         restore_sources()
         raise
     except PermissionError as e:
+        unmake()
         restore_sources()
         raise Refused(OPEN.format(name=plan["name"])) from e
     except OSError as e:
+        unmake()
         restore_sources()
         if getattr(e, "errno", None) == 18 or getattr(e, "winerror", None) == 17:  # EXDEV、ERROR_NOT_SAME_DEVICE
             raise Refused(other_disk(Path(src).parent, plan["dest_dir"])) from e
@@ -745,6 +803,8 @@ def do_move(vault, plan, turn_id, op, replace=False):
         sources = sources_lib.load(vault)
         to_uri = uri_of(vault, sources, dst)
         undo.file(turn.VERSIONS_REL.as_posix() + f"/{turn_id}/moves.jsonl")
+        if made is not None:  # 資料夾帳：退回時先搬回檔、再拿掉空夾
+            undo.folder(turn_id, "make", plan["make_dir"])
         if plan["from_uri"] and to_uri:
             turn.record_move(vault, turn_id, op, plan["kind"], plan["from_uri"], to_uri)
         if versions:
@@ -770,11 +830,13 @@ def do_move(vault, plan, turn_id, op, replace=False):
         for rel in _synthesis_rels(vault, got["touched"]):  # 綜合卡快取也收進倒回的範圍（第二輪修）
             undo.file(rel)
         changed += [{"path": rel, "action": "modify"} for rel in cards.refresh_synthesis(vault, got["touched"], turn_id)]
+        undo.flush()
     except Exception as e:  # noqa: BLE001  改名之後的任何失敗都要倒回去或說實話
         try:
             _rename(dst, src)
         except Exception:  # noqa: BLE001
             raise Refused(PARTIAL) from e
+        unmake()
         from kb._lib import ledger
         for step in (restore_sources, undo.rollback):  # 各自做：一個失敗另一個照做（不讀的夾不能因此變可讀）
             try:

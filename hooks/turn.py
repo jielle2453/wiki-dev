@@ -8,6 +8,7 @@ payload 有 source 且不是 user／sdk。
 停了就不再自動整理（D-156、D-200）：背景整理（card-maker）客戶說停，AI 跑 kb cards stop，那支在目前回合記 ingest_stopped；
 主對話自己整理時按了停止鈕：上一句是中斷補記的、且那句的回合檔記了 ingest（kb cards todo 跑過）→ 這一句的回合檔記
 ingest_stopped，印一次 additionalContext。之後每句把 ingest_stopped 帶下去，同一個 session 不再印。
+payload 的 transcript_path 記進回合檔（收件匣第 3 點，只存路徑）。
 其餘不輸出。任何例外寫 .system/hook-errors.log，永遠 exit 0，不能擋住客戶提問。
 hook 不是從 scripts/ 跑的，所以這裡動 sys.path（hooks/*.py 是唯一例外，CLAUDE.md 三）。
 """
@@ -60,7 +61,7 @@ def main():
                 previous = turn._read_turn(turn._session_file(vault, sid))  # start 會換掉它，先讀
             except BaseException as e:  # noqa: BLE001  讀不到上一句只少補記，回合照開
                 _log(e, payload)
-        data = turn.start(vault, sid, prompt)
+        data = turn.start(vault, sid, prompt, transcript=payload.get("transcript_path"))  # kb intake --pasted 從紀錄取貼的東西
         try:
             journal.begin_turn(vault, previous, data)  # 補記上一句的中斷與這一句開口，同月一把鎖（L1）
         except BaseException as e:  # noqa: BLE001  日誌失敗不影響開回合

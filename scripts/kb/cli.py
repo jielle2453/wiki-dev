@@ -51,6 +51,8 @@ COMMANDS = {
                           "done 這一步做完，redo 回到做過的一步，adopt 收舊 llm-wiki，report 交付報告"),
     "output": ("kb.output_cli", "成品：save 把做好的檔放進 AI 產出（登記、退回拿得掉），link 登記線上文件，drop-draft 收掉草稿，"
                                "links 列出存成連結的線上文件"),
+    "intake": ("kb.intake_cli", "收件匣：把拖進對話的檔、程式交來的檔存進收件匣（原檔不動）；--pasted 存這一則（或上一則）貼的圖或文字；"
+                                "--from 記來源，加 --name 定期同步同一份"),
     "backup": ("kb.backup_cli", "備份：把整個知識庫備份成一個 zip；--to 指定放哪（第一次要給），--check 只看不做"),
     "restore": ("kb.restore_cli", "還原：list 列備份與快照，check 演練會回到什麼樣子，apply 還原（先拍快照）"),
     "upgrade": ("kb.upgrade_cli", "升級：--check 查有沒有新版，直接跑是升級，--finish 換版後的新對話轉格式，--downgrade 退回舊版，"

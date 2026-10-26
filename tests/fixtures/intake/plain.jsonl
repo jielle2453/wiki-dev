@@ -1,0 +1,4 @@
+{"type": "user", "uuid": "u1", "parentUuid": null, "message": {"role": "user", "content": "上一句：幫我看王先生"}}
+{"type": "assistant", "uuid": "a1", "parentUuid": "u1", "message": {"role": "assistant", "content": [{"type": "text", "text": "好"}]}}
+{"type": "user", "uuid": "p2", "parentUuid": "a1", "message": {"role": "user", "content": "只有一段文字，沒有標記"}}
+{"type": "assistant", "uuid": "a2", "parentUuid": "t2", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "kb intake --pasted list"}}]}}

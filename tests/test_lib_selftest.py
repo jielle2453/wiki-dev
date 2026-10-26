@@ -132,8 +132,8 @@ class Broken(unittest.TestCase):
     def test_hook_that_swallows_an_exception_into_the_log(self):
         """裁定 10：hook 吞了例外、exit 0，但寫了 .system/hook-errors.log：不過，why 帶那一行。"""
         self.edit("scripts/kb/_lib/turn.py", lambda t: t.replace(
-            "def start(vault, session_id, prompt, inherit=None):\n",
-            "def start(vault, session_id, prompt, inherit=None):\n    raise RuntimeError('回合壞了')\n", 1))
+            "def start(vault, session_id, prompt, inherit=None, transcript=None):\n",
+            "def start(vault, session_id, prompt, inherit=None, transcript=None):\n    raise RuntimeError('回合壞了')\n", 1))
         got = self.run_json()
         self.assertEqual(got["step"], "hooks")
         self.assertIn("hook-errors.log", got["why"])
