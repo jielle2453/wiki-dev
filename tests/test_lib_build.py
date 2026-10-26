@@ -213,8 +213,9 @@ class Steps(Base):
         """標籤字典驗收 12：tags 這步 do、read；補標籤批次在跑擋；還有沒補完的擋；第八節空的過。"""
         self.at("tags")
         got = build.view(self.D, self.data())
-        self.assertEqual((got["do"], got["read"], got["after"]),
-                         (["kb profile show --json"], "references/steps.md 標籤", "kb build done tags"))
+        self.assertEqual((got["do"], got["read"], got["after"], got["tag_suggest_cards_max"]),
+                         (["kb profile show --json"], "references/steps.md 標籤", "kb build done tags", 50))
+        self.assertNotIn("tag_suggest_cards_max", build.view(self.D, dict(self.data(), step="finish")))
         turn.SESSION = "sid-a"
         now = datetime.now().strftime(build.TIME)
         self.fake_todo()
