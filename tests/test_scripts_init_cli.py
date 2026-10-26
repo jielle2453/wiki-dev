@@ -263,12 +263,12 @@ class InitProfile(unittest.TestCase):
         from kb._lib import profile
         self.put_schema1()
         r = run_kb("init", str(self.V), "--check", cwd=self.tmp)
-        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第四、五、六、七節")
+        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第四、五、六、七、八節")
         self.assertEqual(self.json()["schema_version"], 1, "--check 不寫")
         out = self.init().splitlines()
-        self.assertEqual(out, [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第四、五、六、七節"])
+        self.assertEqual(out, [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第四、五、六、七、八節"])
         data = self.json()
-        self.assertEqual(data["schema_version"], 4)
+        self.assertEqual(data["schema_version"], 5)
         self.assertEqual(data["preferences"], [])
         self.assertEqual([(s["type"], [x["name"] for x in s["sections"]], s["source"]) for s in data["synthesis_sections"]],
                          [("案子", ["時程", "金額"], "inferred")])
@@ -300,11 +300,11 @@ class InitProfile(unittest.TestCase):
         self.put_schema2()
         old_md = self.md().read_text(encoding="utf-8")
         r = run_kb("init", str(self.V), "--check", cwd=self.tmp)
-        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第六、七節")
+        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第六、七、八節")
         self.assertEqual(self.json()["schema_version"], 2, "--check 不寫")
-        self.assertEqual(self.init().splitlines(), [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第六、七節"])
+        self.assertEqual(self.init().splitlines(), [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第六、七、八節"])
         data = self.json()
-        self.assertEqual((data["schema_version"], data["preferences"]), (4, []))
+        self.assertEqual((data["schema_version"], data["preferences"]), (5, []))
         text = self.md().read_text(encoding="utf-8")
         head = text[:text.index("\n## 六、")]
         self.assertEqual(head, old_md, "前五節一字不差")
@@ -333,11 +333,11 @@ class InitProfile(unittest.TestCase):
         self.put_schema3()
         old_md = self.md().read_text(encoding="utf-8")
         r = run_kb("init", str(self.V), "--check", cwd=self.tmp)
-        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第七節")
+        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第七、八節")
         self.assertEqual(self.json()["schema_version"], 3, "--check 不寫")
-        self.assertEqual(self.init().splitlines(), [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第七節"])
+        self.assertEqual(self.init().splitlines(), [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第七、八節"])
         data = self.json()
-        self.assertEqual((data["schema_version"], data["templates"]), (4, []))
+        self.assertEqual((data["schema_version"], data["templates"]), (5, []))
         text = self.md().read_text(encoding="utf-8")
         self.assertTrue(old_md.startswith(text[:text.index("\n## 七、")]))
         self.assertIn("\n## 七、做文件用的範本\n", text)
@@ -346,6 +346,35 @@ class InitProfile(unittest.TestCase):
 
     def test_schema3_changed_md_left_alone(self):
         self.put_schema3()
+        with open(self.md(), "a", encoding="utf-8", newline="\n") as f:
+            f.write("客戶加的一行\n")
+        before = (self.md().read_bytes(), (self.V / ".system" / "profile.json").read_bytes())
+        self.assertEqual(self.init().splitlines()[-1], "設定檔有沒套用的改動，先 kb profile apply 再跑 kb init 升級")
+        self.assertEqual((self.md().read_bytes(), (self.V / ".system" / "profile.json").read_bytes()), before)
+
+    def put_schema4(self):
+        self.init()
+        fix = ROOT / "tests" / "fixtures" / "profile"
+        shutil.copy2(fix / "schema4.json", self.V / ".system" / "profile.json")
+        shutil.copy2(fix / "schema4.md", self.md())
+
+    def test_schema4_unchanged_md_upgraded_to_5(self):
+        """標籤字典驗收 2：md 沒改過 → JSON 升 5、md 多第八節、前七節一字不差。"""
+        from kb._lib import profile
+        self.put_schema4()
+        old_md = self.md().read_text(encoding="utf-8")
+        r = run_kb("init", str(self.V), "--check", cwd=self.tmp)
+        self.assertEqual(r.stdout.splitlines()[-1], "設定檔升級：補第八節")
+        self.assertEqual(self.init().splitlines(), [f"{self.V} 已是知識庫，沒有缺的", "設定檔升級：補第八節"])
+        data = self.json()
+        self.assertEqual((data["schema_version"], data["tags"]), (5, []))
+        text = self.md().read_text(encoding="utf-8")
+        self.assertEqual(text[:text.index("\n## 八、")], old_md.rstrip("\n") + "\n")
+        self.assertIn("\n## 八、標籤\n", text)
+        self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
+
+    def test_schema4_changed_md_left_alone(self):
+        self.put_schema4()
         with open(self.md(), "a", encoding="utf-8", newline="\n") as f:
             f.write("客戶加的一行\n")
         before = (self.md().read_bytes(), (self.V / ".system" / "profile.json").read_bytes())

@@ -7,7 +7,7 @@ apply：check 的判斷之後，刪了有東西的型別夾那列擋（D-058）�
 建的夾與拿掉的空夾記進回合的資料夾帳（D-142），退回時改得回來。
 apply --from <路徑>（build 第 4 點，D-052）：事先填好的設定檔 md 先照 apply 同一支解析驗過（讀不懂回節與列、什麼都不寫），
 再把 系統/客戶設定檔.md 備進回合、換成那份，照 apply 那條路做；apply 拒絕（exit 3）就把原本的 md 寫回去。
-show：六節的表（--json 給每節的欄、能填什麼、主鍵、列與指令範本，加 pending_edit）。只讀。
+show：八節的表（--json 給每節的欄、能填什麼、主鍵、列與指令範本，加 pending_edit）。只讀。
 add／remove：note 在對話裡改一節的一列（profile.edited）→ render_text → parse_md（跟 apply 同一支驗證）→ 跟 apply 同一條路寫；
 md 有手改未套用時一律拒絕、不動檔、給結果清單（D-110 補）；偏好的條數與字數上限在 edited 擋（D-137）。
 type rename／merge／remove：會搬夾的型別操作（D-139、D-143）；--check 只算影響、回問題與結果清單，不寫任何檔；
@@ -44,11 +44,11 @@ def add_arguments(sub):
     ck = subs.add_parser("check", help="看客戶設定檔改了什麼", description="設定檔 md 跟 JSON 比，印差異與型別夾對帳；不寫檔。")
     ap = subs.add_parser("apply", help="套用客戶設定檔", description="把改過的設定檔套進 JSON、建缺的型別夾；寫前先備份。")
     ap.add_argument("--from", dest="from_md", help="事先填好的設定檔 md（建置那天用）：先換成它再套用")
-    sh = subs.add_parser("show", help="看客戶設定檔六節", description="印六節的表；--json 給欄位、能填什麼與指令範本。不寫檔。")
+    sh = subs.add_parser("show", help="看客戶設定檔八節", description="印八節的表；--json 給欄位、能填什麼與指令範本。不寫檔。")
     ad = subs.add_parser("add", help="加或改一列", description="加一列；主鍵已有就改那一列。寫前先備份。")
     rm = subs.add_parser("remove", help="拿掉一列", description="照主鍵拿掉一列。寫前先備份。")
     for p in (ad, rm):
-        p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本")
+        p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
         p.add_argument("fields", nargs="*", help="欄=值（例：偏好=回答先講結論）")
     ty = subs.add_parser("type", help="型別改名、合併、拿掉", description="會搬資料夾的型別操作；先 --check 看影響。")
     tys = ty.add_subparsers(dest="type_command", metavar="<動作>", required=True)
@@ -97,6 +97,10 @@ def _detail_lines(st):
     lines += [f"- 範本 多了 {n}" for n in d["templates"]["added"]]
     lines += [f"- 範本 少了 {n}" for n in d["templates"]["removed"]]
     lines += [f"- 範本 {n} 換了底" for n in d["templates"]["changed"]]
+    new_tags = {(t["type"], t["field"]): t for t in new.get("tags") or []}
+    lines += [f"- 標籤 {t}的{f} 多了（{'、'.join(new_tags[(t, f)]['words'])}）" for t, f in d["tags"]["added"]]
+    lines += [f"- 標籤 {t}的{f} 少了" for t, f in d["tags"]["removed"]]
+    lines += [f"- 標籤 {t}的{f} 改了" for t, f in d["tags"]["changed"]]
     return lines
 
 
@@ -724,7 +728,8 @@ def _rename_type(vault, data, row, new, members, imp, turn_id):
         types = [dict(t, name=new, source="corrected", date=today) if t is row else t for t in data["types"]]
         synth = [dict(s, type=new) if profile._key(s["type"]) == profile._key(old) else s
                  for s in data["synthesis_sections"]]
-        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth), turn_id, undo)
+        tags = [dict(t, type=new) if profile._key(t["type"]) == profile._key(old) else t for t in data.get("tags") or []]
+        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags), turn_id, undo)
         # 綜合卡檔頭在搬夾之前改：備份記在舊位置，退回時先把夾改回去再還原，不會在新名底下多出檔
         changed += entities.retype(vault, old, new, turn_id, undo)
         for f in imp["folders"]:
@@ -751,7 +756,8 @@ def _merge_type(vault, data, row, dst, members, imp, turn_id):
             _move(vault, undo, turn_id, f"{AI_DIR}/{src}", f"{AI_DIR}/{dst['name']}/{src}")
         types = [t for t in data["types"] if t is not row]
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(src)]
-        changed += _write_profile(vault, dict(data, types=types, synthesis_sections=synth), turn_id, undo)
+        tags = [t for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(src)]
+        changed += _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags), turn_id, undo)
         changed += entities.retype(vault, src, dst["name"], turn_id, undo)  # 已移除、已合併的條目也換掉舊型別
         left = _item_count(vault / src) if (vault / src).is_dir() else 0
         if (vault / src).is_dir() and not left:
@@ -773,7 +779,8 @@ def _remove_type(vault, data, row, turn_id):
     def act(undo):
         types = [t for t in data["types"] if t is not row]
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(name)]
-        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth), turn_id, undo)
+        tags = [t for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(name)]
+        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags), turn_id, undo)
         if (vault / name).is_dir():
             os.rmdir(vault / name)
             undo.rmdir(name)
