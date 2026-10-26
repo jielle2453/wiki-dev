@@ -70,11 +70,11 @@ def mentions(vault, word):
 
 
 def _tags(vault, rel, prof, type_):
-    from kb._lib import cards, synthesis
+    from kb._lib import synthesis
     if not rel:
         return []
     try:
-        front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
+        front = synthesis.read_front((Path(vault) / rel).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
         return []
     return [{"field": f, "words": synthesis.tag_words(v)} for f, v in synthesis.card_tags(front, prof, type_)]

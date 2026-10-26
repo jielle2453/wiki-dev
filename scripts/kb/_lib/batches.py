@@ -716,7 +716,12 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
                     break
                 continue
             if kind == "synthesis":
-                approval = _approval(vault, jt, left[kind], st)
+                tag_flag = job.get("tag_approved")
+                approval = _approval(vault, jt, left[kind], st, job, run)
+                changed = changed or job.get("tag_approved") != tag_flag
+                if approval is WAIT:  # 補標籤的還在跑，別的原因的等它做完再問（裁定 17）
+                    approval = None
+                    break
                 if approval:
                     break
             size = st["synthesis_batch_size"] if kind == "synthesis" else st["card_batch_size"]
@@ -788,19 +793,32 @@ def _same_turn_failed(data, session_id, turn_id):
     return got
 
 
-def _approval(vault, jt, items, st):
+WAIT = object()  # _approval：先不派綜合卡，等在跑的做完
+
+
+def _approval(vault, jt, items, st, job=None, run=()):
     """job 回合已改的既有綜合卡加這次要派的 synthesis_stale、synthesis_broken 張數超過上限、回合沒同意：回問句與指令（D-075）。
     broken 也算：寫回同一個路徑的也是改既有綜合卡，守門的 before_write 一樣會數（第一輪修）。
-    要改的全是只補標籤的（標籤字典實作疑義 1）：不問，直接對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行。"""
+    要改的全是只補標籤的（標籤字典實作疑義 1）：不問，直接對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行，
+    job 記 tag_approved。之後同一個整理要派別的原因的（裁定 17）：補標籤的綜合卡批次還在跑回 WAIT；做完了撤回核准、照上面問。"""
     data = turn.turn_data(vault, jt) or {}
-    if data.get("approved"):
-        return None
     counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")]
+    tag_all = bool(counted) and all(tag_only(bucket, i) for bucket, i in counted)
+    if data.get("approved"):
+        if not (job or {}).get("tag_approved") or tag_all or not counted:
+            return None
+        if any(b.get("kind") == "synthesis" for b in run):
+            return WAIT
+        turn.change_turn(vault, jt, lambda d: d.update(approved=False) or True)
+        job.pop("tag_approved", None)
+        data = turn.turn_data(vault, jt) or {}
     n = len(data.get("ai_synthesis") or []) + len(counted)
     if n <= st["big_change_synthesis_max"]:
         return None
-    if counted and all(tag_only(bucket, i) for bucket, i in counted):
+    if tag_all:
         turn.approve(vault, turn_id=jt)
+        if job is not None:
+            job["tag_approved"] = True
         return None
     return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
 

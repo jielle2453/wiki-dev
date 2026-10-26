@@ -213,6 +213,7 @@ def refusal(vault, data, name, ignore=None):
 TAG_FORMAT = "--tag 要寫成 欄=詞（多個詞用逗號分開）"
 TAG_NO_FIELD = "第八節沒有「{field}」這個標籤欄；有：{have}"
 TAG_NO_WORD = "「{field}」的字典沒有「{word}」；有：{have}"
+TAG_NO_TYPE = "第八節沒有哪個型別同時有這些欄"
 _TAG_SPLIT = re.compile(r"[,，、]")
 
 
@@ -236,7 +237,7 @@ def tag_filter(vault, conds, data=None):
     """照標籤篩（kb entity list --tag）：不同欄是且、同欄的詞是或，比對照 key。只看 active、不是客戶自己的實體；
     型別沒有這些欄的不列。有那一行且詞對得上算符合；沒有綜合卡或沒有那一行算還沒標過；有那一行沒對上算不符合。
     回 {"tag": [{"field","words"}]（照字典的寫法）, "counts": [{"type","total","matched","untagged"}], "matched": [編號]}；
-    欄或詞不在第八節丟 EntityRefused。"""
+    欄或詞不在第八節、沒有型別同時有這些欄丟 EntityRefused。"""
     from kb._lib import synthesis
     prof = _profile(vault)
     rows = prof.get("tags") or []
@@ -272,6 +273,8 @@ def tag_filter(vault, conds, data=None):
                 untagged += 1
         counts.append({"type": t["name"], "total": len(members), "matched": len(hits), "untagged": untagged})
         matched += hits
+    if not counts:  # 欄分屬不同型別（裁定 16）
+        raise EntityRefused(TAG_NO_TYPE)
     return {"tag": tag, "counts": counts, "matched": matched}
 
 
@@ -282,7 +285,7 @@ def _tag_state(front, tag):
     missing = False
     for c in tag:
         v = synthesis.front_tag(front, c["field"])
-        if v is None:
+        if v is None or v == "":  # 沒有那一行、或空著（裁定 14）都是還沒標過
             missing = True
             continue
         if not {key(w) for w in synthesis.tag_words(v)} & {key(w) for w in c["words"]}:

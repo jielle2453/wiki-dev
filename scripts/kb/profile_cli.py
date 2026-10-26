@@ -245,7 +245,11 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
         turn.record_folder(vault, turn_id, "make", name)
     merged = profile.merge(old, new, first=old.get("applied") is None)
     data = dict(old, **merged, applied=profile.now())
-    profile.write_locked(vault, data, turn_id)
+    try:
+        retagged = _write_with_tag_plan(vault, data, tag_plan, turn_id)
+    except Refused as e:
+        _refuse(as_json, st, e.line)
+        return 3
     removed_dirs, kept_dirs = _remove_empty_dirs(vault, st["removed_empty"])
     for name in removed_dirs:
         turn.record_folder(vault, turn_id, "remove", name)
@@ -254,7 +258,6 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
             kinds = set(profile.unskipped_kinds(old, merged)) | _stale_skip_kinds(vault, merged)
             unskipped = inventory.unskip_kinds(vault, kinds, turn_id)
             about = entities.sync_self(vault, merged["about"], turn_id)
-            retagged = _apply_tag_plan(vault, tag_plan, turn_id)
             marked = _mark_retag(vault, _retag_reasons(old.get("tags"), merged["tags"], tag_plan["renamed_to"]), turn_id)
     except Refused as e:
         if as_json:
@@ -482,7 +485,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
                                known_types=[t["name"] for t in old["types"]], **lim,
                                resolve=profile.template_resolver(vault, merged))
     except profile.ProfileError as e:
-        raise Refused(e.message) from e
+        raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
     turn_id = turn.current(vault)["turn"]
     created = _make_dirs(vault, profile.folder_check(vault, new["types"], old["types"])["to_create"], turn_id)
     profile.write_locked(vault, dict(old, **new), turn_id)
@@ -965,6 +968,8 @@ HAND_QUESTION_MANY = "第八節拿掉了 {n} 個有綜合卡用到的詞或欄�
 HAND_SINGLE = "{type}／{field} 有 {n} 張卡標了兩個以上的詞；要改成單選得先拿掉多的"
 HAND_REVERT_NOTE = "設定檔第八節要客戶自己改回原樣（我不能改這個檔），改好再照她說的跑 kb profile tag merge 或 rename"
 DROP_NONE = "第八節沒有拿掉卡上用到的詞或欄，不用 --drop-tags"
+STUCK = "{n} 張綜合卡的標籤行改不了（{names}），這次沒有改；先看那幾張的檔頭再試"
+FROM_WITH_TAGS = "apply --from 不能跟 --drop-tags、--rename-tag 一起用"
 RENAME_NONE = "--rename-tag {type} {field} {old} {new} 對不上第八節的改動（要拿掉一個有卡用到的詞、多一個詞）"
 
 
@@ -1035,12 +1040,13 @@ def _retag_cards(vault, rels, field, fn, new_field, turn_id, undo):
     那張卡有健檢記的要更新，照新指紋再記一次（標了補標籤又改字典，記號不掉）。回改到的路徑。"""
     from kb.lint import state
     fixes = {f["path"]: f for f in state.fixes(vault)}
-    written = []
+    written, stuck = [], []
     for rel in rels:
         p = vault / rel
         text = p.read_bytes().decode("utf-8")
         new = synthesis.retag(text, field, fn, new_field)
-        if new == text:
+        if new == text:  # 算進影響卻改不了：整個不做（裁定 11），呼叫端的 _Undo 倒回已改的
+            stuck.append(rel.split("/")[1] if rel.count("/") == 2 else rel)
             continue
         undo.file(rel)
         turn.backup(vault, rel, turn_id, by="program")
@@ -1049,6 +1055,8 @@ def _retag_cards(vault, rels, field, fn, new_field, turn_id, undo):
         if rel in fixes:
             undo.file(LINT_POSIX)
             state.add_fix(vault, rel, fixes[rel].get("reason"), fixes[rel].get("ids") or [], turn_id)
+    if stuck:
+        raise Refused(STUCK.format(n=len(stuck), names="、".join(stuck)))
     return written
 
 
@@ -1076,7 +1084,7 @@ def _tag_validated(vault, data, tags):
                                   known_types=[t["name"] for t in data["types"]], **lim,
                                   resolve=profile.template_resolver(vault, merged))
     except profile.ProfileError as e:
-        raise Refused(e.message) from e
+        raise Refused(getattr(e, "plain", None) or e.message) from e
     return [dict(t, source=old.get("source"), date=old.get("date")) if old is not None else t
             for t, old in zip(parsed["tags"], tags)]
 
@@ -1307,12 +1315,17 @@ def _hand_refusal(left, pairs):
     return Refused(line, {"question": question, "results": results})
 
 
-def _apply_tag_plan(vault, plan, turn_id):
-    """apply 套用第八節之後：--rename-tag 的卡換詞、--drop-tags 的卡拿掉詞或整行。回改到的卡。"""
+def _write_with_tag_plan(vault, data, plan, turn_id):
+    """apply 寫設定檔；有 --rename-tag 的卡換詞、--drop-tags 的卡拿掉詞或整行時，設定檔兩檔與卡在同一個 _Undo 裡，
+    中途失敗全部倒回（裁定 15）。回改到的卡。"""
     if not plan["renames"] and not plan["drops"]:
+        profile.write_locked(vault, data, turn_id)
         return []
 
     def act(undo):
+        undo.file(profile.PROFILE_POSIX)
+        undo.file(profile.MD_POSIX)
+        profile.write_locked(vault, data, turn_id)
         written = []
         for _t, field, was, now, rels in plan["renames"]:
             written += _retag_cards(vault, rels, field, _word_fn(was, now), None, turn_id, undo)
@@ -1374,6 +1387,9 @@ def run(args):
                 return _refuse_payload(as_json, e, check=check,
                                        extra={"op": args.tag_command, "type": args.type, "field": args.field,
                                               "word": args.word} if check else None)
+        if getattr(args, "from_md", None) and (getattr(args, "drop_tags", False) or getattr(args, "rename_tag", None)):
+            print(FROM_WITH_TAGS)  # 裁定 20
+            return 3
         return _apply(vault, as_json, conversation, getattr(args, "from_md", None), getattr(args, "drop_tags", False),
                       [tuple(x.strip() for x in r) for r in getattr(args, "rename_tag", None) or []])
     except entities.EntityRefused as e:  # 型別合併時逐個實體換型別的拒絕（含還原失敗的 PartialWrite）

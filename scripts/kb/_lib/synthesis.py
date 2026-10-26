@@ -181,27 +181,63 @@ def _front_text(front, tags=()):
     return "\n".join(out) + "\n"
 
 
+def blank_keys(text):
+    """檔頭裡 KEYS 以外、冒號後面空著、底下也沒有清單項的鍵（還沒標過，裁定 14）。"""
+    lines = str(text).lstrip("﻿").splitlines()
+    out, pending = [], None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith(("  - ", "- ")):
+            pending = None
+            continue
+        if not line.strip():
+            continue
+        if pending:
+            out.append(pending)
+        key, sep, raw = line.partition(":")
+        pending = key.strip() if sep and not line.startswith(" ") and key.strip() not in KEYS and not raw.strip() else None
+    if pending:
+        out.append(pending)
+    return out
+
+
+def read_front(text):
+    """cards.parse_front，另把空著的標籤鍵記成 ""（還沒標過），跟 []（看過、沒有）分開（裁定 14）。解析不了丟 ValueError。"""
+    from kb._lib import cards
+    front = cards.parse_front(text)
+    for k in blank_keys(text):
+        front[k] = ""
+    return front
+
+
 def card_tags(front, prof, type_):
-    """卡檔頭上、第八節這個型別有的標籤行 [(欄, 值)]，照第八節的順序；第八節已沒有的欄不帶。"""
+    """卡檔頭上、第八節這個型別有的標籤行 [(欄, 值)]，照第八節的順序；值 "" 是空著（還沒標過）。"""
     have = {entities.key(k): v for k, v in front.items() if k not in KEYS}
     return [(t["field"], have[entities.key(t["field"])]) for t in profile.tags_for(prof, type_)
             if entities.key(t["field"]) in have]
 
 
+def extra_tags(front, prof, type_):
+    """卡檔頭上 KEYS 與第八節那個型別的欄以外的鍵（她自己加的屬性，裁定 13）[(鍵, 值)]，照卡上的順序。"""
+    fields = {entities.key(t["field"]) for t in profile.tags_for(prof, type_)}
+    return [(k, v) for k, v in front.items() if k not in KEYS and entities.key(k) not in fields]
+
+
 def header_tags(vault, entity, prof):
     """header_for 要帶的標籤行：這個實體的綜合卡在、讀得懂就帶卡上現有的（字典外的詞、單選寫了兩個的那一欄留空，
-    不把錯的帶回去）；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
-    from kb._lib import cards
+    不把錯的帶回去），接著照原樣帶字典外的鍵（裁定 13）；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
     p = Path(vault) / card_rel(entity)
     if p.is_file():
         try:
-            front = cards.parse_front(p.read_text(encoding="utf-8"))
+            front = read_front(p.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             front = None
         if front is not None:
-            rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, entity.get("type"))}
-            return [(f, v if _tag_ok(rows[entities.key(f)], v) else None)
-                    for f, v in card_tags(front, prof, entity.get("type"))]
+            type_ = entity.get("type")
+            rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, type_)}
+            return ([(f, v if _tag_ok(rows[entities.key(f)], v) else None) for f, v in card_tags(front, prof, type_)]
+                    + extra_tags(front, prof, type_))
     return [(t["field"], None) for t in profile.tags_for(prof, entity.get("type"))]
 
 
@@ -236,8 +272,8 @@ def tag_words(v):
 
 
 def tagged_cards(vault, type_name, data=None):
-    """這個型別 active、不是客戶自己、有綜合卡的實體：[(實體, 相對路徑, 檔頭)]，讀不懂的卡跳過（kb profile tag、補標籤用）。"""
-    from kb._lib import cards
+    """這個型別 active、不是客戶自己、有綜合卡的實體：[(實體, 相對路徑, 檔頭)]，讀不懂的卡跳過（kb profile tag、補標籤用）。
+    檔頭照 read_front：空著的標籤鍵是 ""。"""
     data = data if data is not None else entities.load(vault)
     out = []
     for e in data["entities"]:
@@ -248,7 +284,7 @@ def tagged_cards(vault, type_name, data=None):
         if not rel:
             continue
         try:
-            front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
+            front = read_front((Path(vault) / rel).read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         out.append((e, rel, front))
@@ -265,8 +301,9 @@ def front_tag(front, field):
 
 def tag_changes(vault, turn_ids):
     """這幾個回合寫過的綜合卡（回合帳裡 <型別>/<名稱>/<名稱>.md），標籤行跟那一回合的備份比多了的詞（新寫的卡全部算）：
-    [(名稱, [(欄, [新加的詞])])]，照第一次寫的順序；拿掉的不算（標籤字典第五節）。只讀。"""
-    from kb._lib import cards, turn
+    [(名稱, [(欄, [新加的詞])])]，照第一次寫的順序；拿掉的不算（標籤字典第五節）。只讀。
+    那一回合第一次備份是程式改的（by program：kb profile tag、apply 改名合併、快取重渲染）不算，只算 AI 寫卡帶出的（裁定 12）。"""
+    from kb._lib import turn
     prof = entities._profile(vault)
     types = {entities.key(t["name"]) for t in prof.get("types") or []}
     olds, order = {}, []
@@ -276,6 +313,9 @@ def tag_changes(vault, turn_ids):
             parts = rel.split("/")
             if (len(parts) != 3 or parts[2] != f"{parts[1]}.md" or entities.key(parts[0]) not in types
                     or rel in olds):
+                continue
+            if row.get("by") == "program":
+                olds[rel] = None  # 佔住：同一張卡別的回合的備份也不再看
                 continue
             old = None
             if row.get("action") != "create":
@@ -288,8 +328,8 @@ def tag_changes(vault, turn_ids):
     out = []
     for rel in order:
         try:
-            front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
-            before = cards.parse_front(olds[rel]) if olds[rel] is not None else {}
+            front = read_front((Path(vault) / rel).read_text(encoding="utf-8"))
+            before = read_front(olds[rel]) if olds[rel] is not None else {}
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         had = {entities.key(f): {entities.key(w) for w in tag_words(v)}
@@ -308,28 +348,47 @@ DROP = object()  # retag 的 fn 回它：拿掉那一行
 
 
 def retag(text, field, fn, new_field=None):
-    """只改檔頭裡「field:」那一行（kb profile tag，D-237）：fn(現在的值) 回新值（清單、一個詞，或 DROP 拿掉那一行）；
-    new_field 給了換鍵。其他行與內文原樣（含換行字元）；沒有那一行原樣回。"""
+    """只改檔頭裡「field:」那一欄（kb profile tag，D-237）：fn(現在的值) 回新值（清單、一個詞，或 DROP 拿掉那一欄）；
+    new_field 給了換鍵。跟 cards.parse_front 認同樣的寫法（一行 [a, b]、底下一項一行的清單、分隔線行尾有空白），
+    改完寫回一行 [a, b]，拿掉時底下的清單項一起拿掉（裁定 11）。空著的（還沒標過）換詞不動、換鍵保持空著、拿掉照拿（裁定 14）。
+    其他行與內文原樣（含換行字元）；沒有那一欄原樣回。"""
     from kb._lib import cards
     lines = text.splitlines(keepends=True)
-    for i, line in enumerate(lines):
-        bare = line.rstrip("\r\n")
-        if i == 0:
-            if bare.lstrip("﻿") != "---":
-                return text
-            continue
-        if bare == "---":
+    if not lines or lines[0].rstrip("\r\n").lstrip("﻿").strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        bare = lines[i].rstrip("\r\n")
+        if bare.strip() == "---":
             return text
         key, sep, raw = bare.partition(":")
-        if not sep or bare.startswith(" ") or entities.key(key.strip()) != entities.key(field):
+        if (not sep or bare.startswith((" ", "- ")) or not key.strip()
+                or entities.key(key.strip()) != entities.key(field)):
             continue
-        value = fn([] if not raw.strip() else cards._value(raw))
-        if value is DROP:
-            lines[i] = ""
+        j, items = i + 1, []
+        while j < len(lines) and lines[j].startswith(("  - ", "- ")):
+            items.append(cards._scalar(lines[j].rstrip("\r\n").split("- ", 1)[1]))
+            j += 1
+        eol = lines[i][len(bare):]
+        name = new_field or key.strip()
+        if raw.strip():
+            value = cards._value(raw)
+            if items and isinstance(value, list):
+                value += items
+        elif items:
+            value = items
+        else:  # 空著：還沒標過
+            if fn("") is DROP:
+                lines[i:j] = []
+            elif new_field:
+                lines[i:j] = [f"{name}:{eol}"]
+            return "".join(lines)
+        new = fn(value)
+        if new is DROP:
+            lines[i:j] = []
         else:
-            if isinstance(value, list):
-                value = list(dict.fromkeys(value))
-            lines[i] = f"{new_field or key.strip()}: {tag_value_text(value)}" + line[len(bare):]
+            if isinstance(new, list):
+                new = list(dict.fromkeys(new))
+            lines[i:j] = [f"{name}: {tag_value_text(new)}{eol}"]
         return "".join(lines)
     return text
 
@@ -390,9 +449,8 @@ def _body_lines(text):
 
 def problems(vault, rel, text, data, mounts, prof, know=None):
     """綜合卡的問題 [(代號, 原因)]，照 validate 的順序；GATING 的一出就只回它一個。know 沒給自己讀。"""
-    from kb._lib import cards
     try:
-        front = cards.parse_front(text)
+        front = read_front(text)
     except ValueError as e:
         return [("parse", f"檔頭解析不了：{e}")]
     for k in KEYS:
@@ -460,6 +518,8 @@ def _tag_dictionary(vault, prof, type_):
 
 
 def _tag_problems(vault, front, prof, type_):
+    """只驗第八節裡這個型別的欄（詞要在字典裡、單選只能一個）；字典外的鍵不擋（她自加的屬性，裁定 13）；
+    空著的算還沒標過，放行（裁定 14）。"""
     extra = [k for k in front if k not in KEYS]
     if not extra:
         return []
@@ -469,9 +529,8 @@ def _tag_problems(vault, front, prof, type_):
     for k in extra:
         row = fields.get(entities.key(k))
         if row is None:
-            return [("tag", f"檔頭的「{k}」不是這類卡的標籤欄（第八節沒有）")]
-        v = front[k]
-        words = v if isinstance(v, list) else [v]
+            continue
+        words = tag_words(front[k])
         if not row.get("multi") and len(words) > 1:
             return [("tag", f"「{row['field']}」只能選一個詞")]
         known = {entities.key(w) for w in row.get("words") or []}

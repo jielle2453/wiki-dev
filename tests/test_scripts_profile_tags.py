@@ -64,6 +64,96 @@ class Base(unittest.TestCase):
         p = self.V / ".system" / "lint.json"
         return {f["path"]: f["reason"] for f in json.loads(p.read_text(encoding="utf-8"))["synthesis_fix"]} if p.is_file() else {}
 
+    def run_in_process(self, *argv):
+        import contextlib
+        import io
+        import os
+        from kb import cli
+        out = io.StringIO()
+        cwd = os.getcwd()
+        os.chdir(self.V)
+        try:
+            with contextlib.redirect_stdout(out):
+                code = cli.main(list(argv))
+        finally:
+            os.chdir(cwd)
+        return code, out.getvalue().splitlines()
+
+
+class TestRoundOne(Base):
+    """測試第 1 輪後裁定 11、15、19、20、21。"""
+
+    def test_block_list_card_merged(self):
+        """裁定 11：Obsidian 存的清單（一項一行）照認，改完寫回一行、底下的項目不留。"""
+        T.write_synthesis(self.V, LI, "內湖李", LI_REL, ["工種:", "  - 水電", "  - 磁磚"])
+        r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.line(LI_REL, "工種"), "工種: [木作, 磁磚]")
+        self.assertNotIn("  - 水電", self.card(LI_REL))
+        from kb._lib import synthesis
+        self.assertEqual(synthesis.validate(self.V, LI_REL), (True, ""))
+
+    def test_unchangeable_card_counts_as_failure(self):
+        """裁定 11：算進影響、卻改不了的卡不印成功；整個不做。"""
+        from unittest import mock
+        from kb._lib import synthesis
+        before = tree(self.V)
+        with mock.patch.object(synthesis, "retag", side_effect=lambda text, *a, **k: text):
+            code, lines = self.run_in_process("profile", "tag", "merge", "案子", "工種", "水電", "--into", "木作")
+        self.assertEqual(code, 3)
+        self.assertEqual(lines, ["2 張綜合卡的標籤行改不了（信義王、內湖李），這次沒有改；先看那幾張的檔頭再試"])
+        self.assertEqual(tree(self.V), before)
+
+    def test_drop_tags_failure_rolls_back_profile_too(self):
+        """裁定 15：apply --drop-tags 改卡中途失敗，設定檔兩檔與卡一起倒回。"""
+        from unittest import mock
+        from kb._lib import synthesis
+        md = self.V / profile.MD_POSIX
+        md.write_text(md.read_text(encoding="utf-8").replace("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |",
+                                                             "| 案子 | 工種 | 木作、磁磚、系統櫃 |"),
+                      encoding="utf-8", newline="\n")
+        before = tree(self.V)
+        real = synthesis.retag
+        calls = []
+
+        def flaky(text, *a, **k):
+            calls.append(1)
+            if len(calls) == 2:
+                raise PermissionError(13, "被別的程式開著")
+            return real(text, *a, **k)
+        with mock.patch.object(synthesis, "retag", side_effect=flaky):
+            code, lines = self.run_in_process("profile", "apply", "--drop-tags")
+        self.assertEqual(code, 3)
+        self.assertEqual(tree(self.V), before)
+        self.assertEqual(self.kb("apply", "--drop-tags").returncode, 0, "倒回後重試走得通")
+
+    def test_reserved_type_words_allowed_and_fullwidth_comma_refused(self):
+        """裁定 19：詞與欄名不套型別保留字；詞另擋全形逗號。"""
+        r = self.kb("add", "標籤", "型別=案子", "欄名=系統", "詞=收件匣、知識庫")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        r = self.kb("add", "標籤", "型別=案子", "欄名=工種", "詞=甲，乙")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("含不能用的字元", r.stdout)
+
+    def test_apply_from_with_tag_flags_refused(self):
+        """裁定 20：apply --from 同時給 --drop-tags／--rename-tag 拒絕。"""
+        md = self.V / profile.MD_POSIX
+        for flags in (("--drop-tags",), ("--rename-tag", "案子", "工種", "水電", "水電工程")):
+            r = self.kb("apply", "--from", str(md), *flags)
+            self.assertEqual((r.returncode, r.stdout.strip()), (3, "apply --from 不能跟 --drop-tags、--rename-tag 一起用"))
+
+    def test_add_errors_talk_fields(self):
+        """裁定 21：經 add 改的錯誤句講欄位，不講節與列。"""
+        cases = [(("型別=不存在", "欄名=在意", "詞=醫療"), "型別「不存在」不在設定檔第一節"),
+                 (("型別=案子", "欄名=旅行", "詞=甲、甲"), "「旅行」的詞有重複：甲"),
+                 (("型別=案子", "欄名=名稱", "詞=甲"), "欄名「名稱」不能用（是綜合卡檔頭原有的鍵）"),
+                 (("型別=案子", "欄名=旅行", "詞=甲", "可多選=要"), "可多選只能打 ✓ 或留空"),
+                 (("型別=案子", "欄名=旅行", "詞=甲[乙"), "詞「甲[乙」不能用（含不能用的字元）")]
+        for fields, want in cases:
+            with self.subTest(fields=fields):
+                r = self.kb("add", "標籤", *fields)
+                self.assertEqual((r.returncode, r.stdout.strip()), (3, want))
+
 
 class AddTag(Base):
     def test_add_field_then_word_marks_retag(self):

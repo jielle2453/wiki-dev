@@ -483,7 +483,7 @@ def _parse_templates(rows, resolve):
 
 TAG_WORDS_MAX = 30
 TAG_RESERVED = ("標籤",)  # 欄名另擋：綜合卡檔頭原有的鍵（synthesis.KEYS）與這個
-_TAG_WORD_CHARS = re.compile(r"[,\[\]、]")
+_TAG_WORD_CHARS = re.compile(r"[,，\[\]、]")
 
 
 def split_words(raw):
@@ -491,10 +491,21 @@ def split_words(raw):
     return [w.strip() for w in str(raw or "").split("、") if w.strip()]
 
 
+def _tag_name_problem(name):
+    """標籤的欄名與詞共用的字元規則：型別名那套去掉保留字（不是資料夾名，裁定 19）。"""
+    if not name:
+        return "空的"
+    if _BAD_CHARS.search(name) or any(c in name for c in SHELL_CHARS):
+        return "含不能用的字元"
+    if name.startswith(".") or name.endswith(".") or name != name.rstrip():
+        return "不能以點開頭，也不能以點或空白結尾"
+    return None
+
+
 def tag_field_problem(field):
-    """標籤欄名不能用的原因（括號裡那句），能用回 None：照型別名的字元規則，不准是綜合卡檔頭原有的鍵或「標籤」。"""
+    """標籤欄名不能用的原因（括號裡那句），能用回 None：照標籤的字元規則，不准是綜合卡檔頭原有的鍵或「標籤」。"""
     from kb._lib import synthesis
-    why = type_name_problem(field)
+    why = _tag_name_problem(field)
     if why:
         return why
     if _TAG_WORD_CHARS.search(field) or field.startswith(("-", "#")):
@@ -505,8 +516,8 @@ def tag_field_problem(field):
 
 
 def tag_word_problem(word, max_chars=TYPE_NAME_MAX):
-    """標籤詞不能用的原因，能用回 None：照實體名稱的字元規則，另擋 [ ] , 、。"""
-    why = type_name_problem(word)
+    """標籤詞不能用的原因，能用回 None：照標籤的字元規則，另擋 [ ] , ， 、。"""
+    why = _tag_name_problem(word)
     if not why and (_TAG_WORD_CHARS.search(word) or any(c in word for c in SHELL_CHARS)):
         why = "含不能用的字元"
     if not why and len(word) > max_chars:
@@ -514,9 +525,16 @@ def tag_word_problem(word, max_chars=TYPE_NAME_MAX):
     return why
 
 
+def _err8(row, text, plain):
+    """第八節的錯：message 照節與列講（手改 md 的 apply），plain 照欄位講（kb profile add 與 tag 指令，裁定 21）。"""
+    e = ProfileError(8, row, f"第 8 節第 {row} 列{text}")
+    e.plain = plain
+    raise e
+
+
 def _parse_tags(rows, types, known_types=(), max_chars=TYPE_NAME_MAX):
     """第八節（D-233）：型別要在第一節（第一節這次拿掉的型別整批丟掉，同第四節）；同型別欄名不重複；
-    每欄 1～TAG_WORDS_MAX 個詞、同欄不重複（比對照 _key）；可多選 ✓ 或空白。"""
+    每欄 1～TAG_WORDS_MAX 個詞、同欄不重複（比對照 _key）；可多選 ✓ 或空白。錯了的 ProfileError 另帶 plain。"""
     names = {_key(t["name"]): t["name"] for t in types}
     dropped = {_key(n) for n in known_types} - set(names)
     out, seen = [], {}
@@ -525,29 +543,29 @@ def _parse_tags(rows, types, known_types=(), max_chars=TYPE_NAME_MAX):
         if _key(tname) in dropped:
             continue
         if _key(tname) not in names:
-            _err(8, m, f"的型別「{tname}」不在第 1 節")
+            _err8(m, f"的型別「{tname}」不在第 1 節", f"型別「{tname}」不在設定檔第一節")
         why = tag_field_problem(field)
         if why:
-            _err(8, m, f"的欄名「{field}」不能用（{why}）")
+            _err8(m, f"的欄名「{field}」不能用（{why}）", f"欄名「{field}」不能用（{why}）")
         key = (_key(tname), _key(field))
         if key in seen:
-            _err(8, m, f"跟第 {seen[key]} 列重複（型別 {tname} 的欄 {field}）")
+            _err8(m, f"跟第 {seen[key]} 列重複（型別 {tname} 的欄 {field}）", f"「{tname}」已經有「{field}」這一欄")
         seen[key] = m
         words = split_words(raw_words)
         if not words:
-            _err(8, m, "的可選的詞是空的")
+            _err8(m, "的可選的詞是空的", f"「{field}」的詞是空的")
         if len(words) > TAG_WORDS_MAX:
-            _err(8, m, f"的可選的詞太多（最多 {TAG_WORDS_MAX} 個）")
+            _err8(m, f"的可選的詞太多（最多 {TAG_WORDS_MAX} 個）", f"「{field}」的詞太多（最多 {TAG_WORDS_MAX} 個）")
         taken = set()
         for w in words:
             why = tag_word_problem(w, max_chars)
             if why:
-                _err(8, m, f"的詞「{w}」不能用（{why}）")
+                _err8(m, f"的詞「{w}」不能用（{why}）", f"詞「{w}」不能用（{why}）")
             if _key(w) in taken:
-                _err(8, m, f"的詞「{w}」重複")
+                _err8(m, f"的詞「{w}」重複", f"「{field}」的詞有重複：{w}")
             taken.add(_key(w))
         if multi and multi not in REQUIRED_MARKS:
-            _err(8, m, "的可多選只能打 ✓ 或留空")
+            _err8(m, "的可多選只能打 ✓ 或留空", "可多選只能打 ✓ 或留空")
         source, when = _source_date(8, m, extra)
         out.append({"type": names[_key(tname)], "field": field, "words": words, "multi": bool(multi),
                     "source": source, "date": when})
@@ -1248,7 +1266,7 @@ def _edit_tags(out, op, f, today, absent, *_limits):
     row = next((t for t in rows if _key(t["type"]) == _key(tname) and _key(t["field"]) == _key(field)), None)
     multi = f.get("可多選", "")
     if multi and multi not in REQUIRED_MARKS:
-        _err(8, rows.index(row) + 1 if row is not None else len(rows) + 1, "的可多選只能打 ✓ 或留空")
+        _err8(rows.index(row) + 1 if row is not None else len(rows) + 1, "的可多選只能打 ✓ 或留空", "可多選只能打 ✓ 或留空")
     if row is None:
         rows.append({"type": tname, "field": field, "words": words, "multi": bool(multi), "source": "corrected",
                      "date": today})

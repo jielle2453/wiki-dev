@@ -376,6 +376,27 @@ class BigChange(Base):
         self.out = {"synthesis_stale": [self.tag_only(i) for i in range(10)] + [dict(self.tag_only(10), added=[{"id": "f-1"}])]}
         self.assertIsNotNone(self.dispatch()["approval"], "內容也要改的不算只補標籤")
 
+    def test_tag_approval_not_reused_for_other_reasons(self):
+        """裁定 17：補標籤自動核准之後，同一個整理再要派別的原因的大量綜合卡：補標籤的批次還在跑先等，
+        做完撤回核准、照 D-075 問。"""
+        self.out = {"synthesis_stale": [self.tag_only(i) for i in range(12)]}
+        self.dispatch()
+        self.assertTrue(turn.turn_data(self.V, self.t).get("approved"))
+        data = turn.turn_data(self.V, self.t)
+        data["ai_synthesis"] = [f"案子/甲{i}/甲{i}.md" for i in range(12)]
+        turn.save_turn(self.V, data)
+        self.out = {"synthesis_stale": [{"entity_id": f"e-x{i}", "name": f"丙{i}"} for i in range(3)]}
+        got = self.dispatch()
+        self.assertEqual((got["batches"], got["approval"], got["done"]), ([], None, False), "補標籤的還在跑：先等")
+        self.assertTrue(turn.turn_data(self.V, self.t).get("approved"))
+        self.edit(lambda d: [b.update(status="done") for b in d["batches"]])
+        got = self.dispatch()
+        self.assertEqual(got["batches"], [])
+        self.assertEqual(got["approval"]["question"], "這次要更新 15 張綜合卡，比平常多；要繼續嗎？")
+        self.assertFalse(turn.turn_data(self.V, self.t).get("approved"), "撤回補標籤的核准")
+        turn.approve(self.V, turn_id=self.t)
+        self.assertEqual({b["kind"] for b in self.dispatch()["batches"]}, {"synthesis"}, "她說好之後照派")
+
 
 class Stop(Base):
     def test_stop_releases_and_lists_agents(self):

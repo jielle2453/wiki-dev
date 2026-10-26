@@ -79,6 +79,16 @@ class Tell(Base):
         (self.V / batches.BATCHES_POSIX).write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(plan._tagged_tell(self.V), [], "更早就收尾的不算")
 
+    def test_program_rename_or_merge_not_told(self):
+        """裁定 12：tag 指令、apply 改名合併是程式改的，不算「標了」。"""
+        r = run_kb("profile", "tag", "merge", "案子", "工種", "木作", "--into", "水電", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(plan._tagged_tell(self.V), [])
+        r = run_kb("profile", "tag", "rename", "案子", "工種", "水電", "--to", "水電工程", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(plan._tagged_tell(self.V), [])
+        self.assertNotIn("標了", "".join(json.loads(run_kb("asks", "--json", cwd=self.V).stdout)["tell"]))
+
     def test_asks_and_todo_carry_it(self):
         self.rewrite(0, ["工種: [木作, 水電]"])
         for args in (("asks", "--json"), ("cards", "todo", "--json")):

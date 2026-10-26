@@ -38,6 +38,22 @@ class Base(unittest.TestCase):
 
 
 class TagFilter(Base):
+    def test_blank_is_untagged_but_empty_list_is_not(self):
+        """裁定 14：「工種:」空著算還沒標過；「工種: []」算看過、沒有。"""
+        T.write_synthesis(self.V, E.DAAN, "大安陳", T.DAAN_REL, ["工種:", "階段: 報價"])
+        T.write_synthesis(self.V, LIN, "北投林", "案子/北投林/北投林.md", ["工種: []"])
+        lines = self.kb("entity", "list", "--tag", "工種=木作").stdout.splitlines()
+        self.assertEqual(lines[0], "案子 5 個中 1 個符合；另有 2 個還沒照字典標過")
+        from kb._lib import synthesis
+        self.assertEqual(synthesis.validate(self.V, T.DAAN_REL), (True, ""), "空著的驗卡放行")
+
+    def test_fields_in_different_types_refused(self):
+        """裁定 16：欄分屬不同型別、沒有型別同時有這些欄 → exit 3。"""
+        T.set_tags(self.V, T.DEFAULT_TAGS + (T.tag("業主", "在意", ["醫療"]),))
+        for extra in ((), ("--json",)):
+            r = self.kb("entity", "list", "--tag", "在意=醫療", "--tag", "工種=水電", *extra)
+            self.assertEqual((r.returncode, r.stdout.strip()), (3, "第八節沒有哪個型別同時有這些欄"))
+
     def test_and_across_fields(self):
         r = self.kb("entity", "list", "--tag", "工種=水電", "--tag", "階段=施工")
         lines = r.stdout.splitlines()
