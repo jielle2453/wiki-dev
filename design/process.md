@@ -173,7 +173,7 @@ superpowers 選用、預設停用（2026-10-20）：它在每個對話開頭注�
 1. **一題一個 issue 認領。** 開工前在 issue 把自己設成負責人（assignee），狀態 label 改「設計中」；還沒有 issue 的先開（寫法見 conventions「issue 的寫法」）。
 2. **誰認領誰拍板。** 那一題的決策由負責人定。
 3. **這幾類要對方在 issue 留言同意才做：** 改架構原則、改 `rules/core.md`、放寬守門、改 process 或 conventions、修訂已定的決策（D-nnn）、會改客戶資料格式的大升級。
-4. **發行用 issue 當鎖。** 先看有沒有開著的「發行」issue，有就等它關；沒有就 pull、定版號，開「發行 vX.Y.Z」issue 指給自己，發完關掉。鎖只鎖發行那幾步，平常開發不受影響。
+4. **發行用 issue 的狀態當鎖。** 先看有沒有別的 issue 是「發行中」，有就等它關；沒有就 pull、定版號，把要發的 issue 狀態改成「發行中」，發完關掉。鎖只鎖發行那幾步，平常開發不受影響。（2026-10-26 改：原本另開「發行 vX.Y.Z」issue）
 5. **pull 與 push。** 開工先 pull，做完就 push，不准 force push；`design/` 改完當下就 push。實作 session 照舊不 push。
 6. **編號只由設計 session 給，而且分段。** jielle2453：決策 D-229～D-499、待辦 B-432～B-599；jacky：決策從 D-500、待辦從 B-600 起。事故 I-nnn 不分段，寫之前先 pull。實作、測試、確認 session 不給編號，發現寫在回報或報告（步驟 7 由設計 session 記進 backlog）。`decisions.md`、`backlog.md` 用 `merge=union`（`.gitattributes`），兩邊同時加條目會都留下；同一條被兩邊改過會留新舊兩版，`tests/test_design_numbering.py` 看到重複編號就紅，合併後跑一次、留對的那版，索引也看一眼。
 7. **意見不合就維持現狀。** 從 issue 來的題留言在 issue，其他記進 backlog「待決」，之後再談。
