@@ -8,10 +8,15 @@
 退回（清單比現在舊）：先 --check 看升級前的快照與 restore check 的結果，她說好才 --downgrade：restore apply 還原快照、再換版。
 名單（D-216）：rollout.json 的那一版 for 是 "all"、或含這個知識庫的 vault_id 才算她可以拿；其他當沒有新版。
 抓不到清單、名單一律安靜（D-219）：只記進 env.json 的 update_check.error，不印、不出錯。
-外部的東西都經 _get（網路）、_call（claude.exe）、_popen（背景子行程）、_which，測試換替身，不連網、不跑真的 Claude。
+換版之前先驗（D-230，verify）：抓清單那一版的 zip（_download）、核 sha256、檢查 zip slip、用她的 Python 編譯每個 .py、跑新版自帶的
+kb selftest；不過就不換。背景小修與對話裡的 kb upgrade 都驗（--downgrade 不驗）；背景驗不過記進 update_check.verify_failed，
+同一版、同一個 Python 不再每天重抓。
+外部的東西都經 _get（網路）、_download（下載 zip）、_call（claude.exe、新版的自我檢查）、_popen（背景子行程）、_which，
+測試換替身，不連網、不跑真的 Claude。
 鎖：跟備份、還原同一把（.system/revert.lock，backup.acquire）；背景整理還有動靜時擋（backup.batch_running）。
 只呼叫 backup、restore、vault 的函式，不改它們。
 """
+import hashlib
 import json
 import os
 import re
@@ -22,6 +27,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +68,13 @@ WITHDRAWN_OPENING = "這一版 {version} 撤回了；用起來有問題的話說
 PENDING_OPENING = "上次升級到 {version} 還沒換好；說「升級」我再試一次。"
 REUSE_SNAPSHOT_SECONDS = 24 * 3600  # 沿用上次沒換成的升級前快照，只限一天內拍的
 
+DOWNLOAD_MAX_BYTES = 100 * 1024 * 1024  # 一份 zip 的上限（現在一版不到 2 MB）
+VERIFY_PREFIX = "wiki-with-willy-verify-"
+NO_SOURCE = "清單沒有這一版的下載網址"
+VERIFY_BG = "新版 {version} 在這台電腦跑不起來（{where}），沒有換"
+VERIFY_REFUSED = "新版 {version} 在這台電腦跑不起來（{where}），先不換；什麼都沒動"
+VERIFY_LINE = "新版 {version} 在這台電腦跑不起來（{where}），先沒換"
+
 
 class UpdateError(Exception):
     """換版這一步做不到：訊息是給人看的那句（一字不差）。"""
@@ -85,6 +98,24 @@ def _get(url, timeout):
     opener = urllib.request.build_opener(_HttpsOnlyRedirect())
     with opener.open(req, timeout=timeout) as r:
         return r.read(FETCH_MAX_BYTES).decode("utf-8")
+
+
+def _download(url, dest, timeout):
+    """抓一個 https 網址的檔寫到 dest（超過 DOWNLOAD_MAX_BYTES 丟 ValueError）；連不上、逾時、不是 https 丟 OSError／ValueError。"""
+    if not str(url).startswith("https://"):
+        raise ValueError("只收 https 網址")
+    req = urllib.request.Request(url, headers={"User-Agent": "wiki-with-willy"})
+    opener = urllib.request.build_opener(_HttpsOnlyRedirect())
+    got = 0
+    with opener.open(req, timeout=timeout) as r, open(dest, "wb") as f:
+        while True:
+            chunk = r.read(1024 * 1024)
+            if not chunk:
+                break
+            got += len(chunk)
+            if got > DOWNLOAD_MAX_BYTES:
+                raise ValueError("檔案太大")
+            f.write(chunk)
 
 
 class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
@@ -231,8 +262,19 @@ def clean_note(text):
     return " ".join(words)[:NOTE_MAX_CHARS].strip() or None
 
 
+def _source_of(entry):
+    """清單那一筆的 source（tools/release.py 寫的 {"source": "archive", "url", "sha256"}）→ {"url", "sha256"}；不是 archive、缺欄回 None。"""
+    src = entry.get("source") if isinstance(entry, dict) else None
+    if not isinstance(src, dict) or src.get("source") != "archive":
+        return None
+    url, digest = src.get("url"), src.get("sha256")
+    if not (isinstance(url, str) and url and isinstance(digest, str) and digest):
+        return None
+    return {"url": url, "sha256": digest}
+
+
 def fetch(vault):
-    """抓清單與名單。回 {"latest", "allowed", "note"}；網址空丟 NotConfigured，抓不到或看不懂丟 Offline。"""
+    """抓清單與名單。回 {"latest", "allowed", "note", "source"}；網址空丟 NotConfigured，抓不到或看不懂丟 Offline。"""
     manifest_url = config.get(vault, "update_manifest_url")
     rollout_url = config.get(vault, "update_rollout_url")
     if not manifest_url:
@@ -255,7 +297,120 @@ def fetch(vault):
     row = versions.get(latest) if isinstance(versions, dict) else None
     if isinstance(row, dict):
         note = clean_note(row.get("note"))
-    return {"latest": latest, "allowed": allowed(roster, latest, vid), "note": note}
+    return {"latest": latest, "allowed": allowed(roster, latest, vid), "note": note, "source": _source_of(entry)}
+
+
+# ---------- 換版之前先驗（D-230） ----------
+
+def python_version():
+    return f"{sys.version_info[0]}.{sys.version_info[1]}"
+
+
+def where(res):
+    """「hooks/guard.py 第 12 行：SyntaxError」或「hooks 那步：原因」；原因是 why 冒號前的例外名稱（有的話）。"""
+    why = str(res.get("why") or "")
+    m = re.match(r"([A-Za-z_][A-Za-z0-9_]*): ", why)
+    reason = m.group(1) if m else why
+    if res.get("file") and res.get("line"):
+        head = f"{res['file']} 第 {res['line']} 行"
+    elif res.get("file"):
+        head = str(res["file"])
+    else:
+        head = f"{res.get('step')} 那步"
+    return f"{head}：{reason}" if reason else head
+
+
+def _unsafe_member(name):
+    return backup._unsafe_member(name)
+
+
+def _compile_all(root):
+    """解出來的每個 .py 用目前這個 Python 編譯（只在記憶體）；第一個錯回 (相對路徑, 行號, why)，都過回 None。"""
+    for p in sorted(root.rglob("*.py")):
+        rel = p.relative_to(root).as_posix()
+        try:
+            compile(p.read_bytes(), rel, "exec", dont_inherit=True)
+        except SyntaxError as e:
+            return rel, e.lineno, f"{type(e).__name__}: {e.msg}"
+        except ValueError as e:  # 原始碼有 NUL 這類
+            return rel, None, f"{type(e).__name__}: {e}"
+    return None
+
+
+def _selftest_output(text):
+    """子行程輸出裡最後一行讀得懂的 JSON 物件；沒有回 None。"""
+    for ln in reversed(str(text).splitlines()):
+        ln = ln.strip()
+        if ln.startswith("{"):
+            try:
+                data = json.loads(ln)
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                return data
+    return None
+
+
+def verify(vault, latest, source):
+    """換版之前在這台電腦驗新版（D-230）：抓 zip、核 sha256、zip slip、編譯、跑新版的 kb selftest。
+    回 {"ok","version","python","step","file","line","why"}；step 是 download｜compile｜selftest，或新版自我檢查回的那一步。不丟。"""
+    res = {"ok": False, "version": latest, "python": python_version(), "step": None, "file": None, "line": None, "why": None}
+
+    def fail(step, why, file=None, line=None):
+        res.update(step=step, why=why, file=file, line=line)
+        return res
+    if source is None:
+        return fail("download", NO_SOURCE)
+    seconds = config.get(vault, "update_verify_seconds")
+    deadline = time.monotonic() + seconds
+    tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix=VERIFY_PREFIX)))
+    try:
+        zip_path = tmp / "new.zip"
+        try:
+            _download(source["url"], zip_path, seconds)
+            data = zip_path.read_bytes()
+        except (OSError, ValueError) as e:
+            return fail("download", f"下載不到（{type(e).__name__}）")
+        if hashlib.sha256(data).hexdigest() != str(source["sha256"]).lower():
+            return fail("download", "下載的檔跟清單的指紋對不上")
+        root = tmp / "plugin"
+        try:
+            with zipfile.ZipFile(str(zip_path)) as z:
+                names = z.namelist()
+                if any(_unsafe_member(n) for n in names):
+                    return fail("download", "zip 裡有不安全的路徑")
+                z.extractall(str(root))
+        except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError):
+            return fail("download", "不是完整的 zip 檔")
+        bad = _compile_all(root)
+        if bad:
+            return fail("compile", bad[2], bad[0], bad[1])
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return fail("selftest", f"超過 {seconds} 秒")
+        argv = [sys.executable, str(root / "scripts" / "kb.py"), "selftest", "--json"]
+        try:
+            code, out = _call(argv, left, env=dict(os.environ, PYTHONIOENCODING="utf-8"), cwd=str(tmp))
+        except subprocess.TimeoutExpired:
+            return fail("selftest", f"自我檢查超過 {seconds} 秒")
+        except OSError as e:
+            return fail("selftest", f"自我檢查起不來（{type(e).__name__}）")
+        got = _selftest_output(out)
+        if got is None:
+            return fail("selftest", "這一版沒有自我檢查" if code == 2 else f"自我檢查的輸出看不懂（結束碼 {code}）")
+        if got.get("ok") is not True:
+            step = got.get("step") if got.get("step") in ("import", "version", "vault", "hooks", "upgrade") else "selftest"
+            line = got.get("line") if isinstance(got.get("line"), int) and not isinstance(got.get("line"), bool) else None
+            file = got.get("file") if isinstance(got.get("file"), str) else None
+            return fail(step, str(got.get("why") or "自我檢查沒過")[:300], file, line)
+        if got.get("version") != latest:
+            return fail("selftest", f"新版自己說是 {got.get('version')}，不是 {latest}")
+        res["ok"] = True
+        return res
+    except Exception as e:  # noqa: BLE001  驗不了也是不過，不丟
+        return fail(res["step"] or "selftest", type(e).__name__)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ---------- 歷史（.system/upgrade-history.json） ----------
@@ -418,20 +573,29 @@ def run_update(identity, seconds=60):
 # ---------- 查（--check） ----------
 
 def check(vault):
-    """當場查一次（不用背景結果、什麼都不寫）。回 spec 的 --check --json 那個物件；退回時多 restore（restore check 的結果）。"""
+    """當場查一次（什麼都不寫）。回 spec 的 --check --json 那個物件；退回時多 restore（restore check 的結果）；
+    verify_failed 是背景記的驗不過（只在那一版就是清單現在這一版時給）。"""
+    return _check(vault)[0]
+
+
+def _check(vault):
+    """check 的本體，另回清單那一版的 source（kb upgrade 驗新版要用，--check 不印）。"""
     plugin = plugin_version()
     try:
         hist = load_history(vault)
     except ValueError:
         hist = None
     out = {"plugin": plugin, "vault": hist["current"] if hist else plugin, "latest": None, "kind": None, "allowed": False,
-           "note": None, "snapshot_for_downgrade": None, "error": None}
+           "note": None, "snapshot_for_downgrade": None, "error": None, "verify_failed": None}
     try:
         got = fetch(vault)
     except Offline as e:
         out["error"] = str(e)
-        return out
+        return out, None
     out.update(latest=got["latest"], allowed=got["allowed"], note=got["note"], kind=kind(plugin, got["latest"]))
+    failed = (env.update_check(vault) or {}).get("verify_failed")
+    if isinstance(failed, dict) and failed.get("version") == got["latest"]:
+        out["verify_failed"] = failed
     if out["kind"] == "downgrade" and out["allowed"]:
         name = _snapshot_for_downgrade(vault, hist)
         out["snapshot_for_downgrade"] = name
@@ -441,7 +605,7 @@ def check(vault):
                 out["restore"] = restore.check(vault, name)
             except (backup.Refused, OSError, ValueError):
                 pass
-    return out
+    return out, got["source"]
 
 
 def check_lines(res):
@@ -463,6 +627,8 @@ def check_lines(res):
         lines.append(NEWER_LINE.format(plugin=res["plugin"], latest=res["latest"], note=res["note"]))
     else:
         lines.append(NEWER_LINE_NO_NOTE.format(plugin=res["plugin"], latest=res["latest"]))
+    if res.get("verify_failed"):
+        lines.append(VERIFY_LINE.format(version=res["latest"], where=where(res["verify_failed"])))
     if res["vault"] != res["plugin"]:
         lines.append(VAULT_BEHIND_LINE.format(vault=res["vault"]))
     return lines
@@ -483,11 +649,11 @@ def _guard_ready(vault, what):
 
 
 def _check_for_action(vault):
-    """kb upgrade／--downgrade 開頭那次 --check；連不上、不在名單、沒新版各丟那句。回 check 的結果。"""
-    info = check(vault)
+    """kb upgrade／--downgrade 開頭那次 --check；連不上丟那句。回 (check 的結果, 清單那一版的 source)。"""
+    info, source = _check(vault)
     if info["error"]:
         raise backup.Refused(OFFLINE_RETRY)
-    return info
+    return info, source
 
 
 def _clear_pending(vault):
@@ -509,8 +675,9 @@ def _room_for_snapshot(vault):
 
 
 def upgrade(vault):
-    """kb upgrade：大升級先拍快照、記 pending、換版；小修直接換。回 {"sentence","kind","to","snapshot"}；不行丟 backup.Refused（那一句）。"""
-    info = _check_for_action(vault)
+    """kb upgrade：先在這台電腦驗新版（D-230，不管 update_check 記過什麼每次都驗），大升級再拍快照、記 pending、換版；小修直接換。
+    回 {"sentence","kind","to","snapshot"}；不行丟 backup.Refused（那一句）。"""
+    info, source = _check_for_action(vault)
     if info["kind"] == "downgrade" and info["allowed"]:
         raise backup.Refused(USE_DOWNGRADE.format(version=info["plugin"]))
     if not info["allowed"] or info["kind"] in (None, "none", "downgrade"):
@@ -520,6 +687,9 @@ def upgrade(vault):
     seconds = config.get(vault, "update_run_seconds")
     snapshot = None
     with backup.acquire(vault):
+        checked = verify(vault, latest, source)
+        if not checked["ok"]:
+            raise backup.Refused(VERIFY_REFUSED.format(version=latest, where=where(checked)))
         if k in ("minor", "major"):
             try:
                 hist = ensure_history(vault)
@@ -559,8 +729,8 @@ def upgrade(vault):
 
 def downgrade(vault, conversation=False):
     """kb upgrade --downgrade：restore apply 還原升級前的快照 → 換版（降版）。回 {"sentence","to","snapshot"}。
-    快照不在、背景整理在跑、鎖被占、不是退回的狀態各丟那一句，什麼都沒動。"""
-    info = _check_for_action(vault)
+    快照不在、背景整理在跑、鎖被占、不是退回的狀態各丟那一句，什麼都沒動。要回去的是她之前跑過的版本，不驗（D-230）。"""
+    info, _source = _check_for_action(vault)
     if not (info["kind"] == "downgrade" and info["allowed"]):
         raise backup.Refused(UP_TO_DATE.format(version=info["plugin"]))
     name = info["snapshot_for_downgrade"]
@@ -666,17 +836,19 @@ def finish(vault, turn_id):
 
 # ---------- 背景查新版與小修（開場叫的子行程） ----------
 
-BLANK_CHECK = {"latest": None, "kind": None, "allowed": False, "note": None, "auto_patched": None, "error": None}
+BLANK_CHECK = {"latest": None, "kind": None, "allowed": False, "note": None, "auto_patched": None, "error": None,
+               "verify_failed": None}
 
 
 def _save_check(vault, **fields):
+    """整份換掉：沒給的欄回到 BLANK_CHECK（verify_failed 也是：換成功、清單換了新版本、不再是小修都清掉）。"""
     env.set_update_check(vault, dict(BLANK_CHECK, date=_today(), **fields))
 
 
 def _save_error(vault, e):
-    """連不上：只記錯誤與日期，上一次查到的結果留著（開場只用上一次的）。"""
+    """連不上：只記錯誤與日期，上一次查到的結果留著（開場只用上一次的；驗不過的紀錄也留著）。"""
     prev = env.update_check(vault) or {}
-    keep = {k: prev.get(k) for k in ("latest", "kind", "allowed", "note")}
+    keep = {k: prev.get(k) for k in ("latest", "kind", "allowed", "note", "verify_failed")}
     _save_check(vault, error=str(e) or type(e).__name__, **{k: v for k, v in keep.items() if v is not None})
 
 
@@ -698,19 +870,26 @@ def background(vault):
         k = kind(plugin, got["latest"])
         fields = {"latest": got["latest"], "kind": k, "allowed": got["allowed"], "note": got["note"]}
         if k == "patch" and got["allowed"]:
-            fields.update(_auto_patch(vault, got["latest"]))
+            fields.update(_auto_patch(vault, got["latest"], got["source"]))
         _save_check(vault, **fields)
     except Exception as e:  # noqa: BLE001
         _save_error(vault, e)
 
 
-def _auto_patch(vault, latest):
-    """換小修：背景整理有動靜或鎖被占就這次不換（明天再說）；成功回 {"auto_patched": latest}，失敗回 {"error": 句子}。"""
+def _auto_patch(vault, latest, source):
+    """換小修：先驗新版（D-230），驗不過不換、回 {"verify_failed", "error"}；update_check 已經記著同一版、同一個 Python 驗不過的，
+    不再抓、不再驗，直接沿用。背景整理有動靜或鎖被占就這次不換（明天再說）；成功回 {"auto_patched": latest}，失敗回 {"error": 句子}。"""
+    failed = (env.update_check(vault) or {}).get("verify_failed")
+    if isinstance(failed, dict) and failed.get("version") == latest and failed.get("python") == python_version():
+        return {"verify_failed": failed, "error": VERIFY_BG.format(version=latest, where=where(failed))}
     if backup.batch_running(vault):
         return {}
     try:
         with backup.acquire(vault):
             identity = plugin_identity(vault)
+            checked = verify(vault, latest, source)
+            if not checked["ok"]:
+                return {"verify_failed": checked, "error": VERIFY_BG.format(version=latest, where=where(checked))}
             run_update(identity, config.get(vault, "update_run_seconds"))
             if installed_version(identity) != latest:
                 return {"error": NOT_YET}
