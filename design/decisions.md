@@ -1727,8 +1727,7 @@ U-1 已收進 D-081（2026-10-15）。
 
 ## D-229 日程每次寫完就匯出一份到她設定的資料夾（補 D-067）
 - 日期：2026-10-26
-- 選了：`agenda.render()` 結尾（不論 日程.md 有沒有重寫）匯出 `willy-agenda.json`（`willy-agenda/1`，條目 11 個欄位＋條目與整檔指紋＋active 實體名單）到知識庫設定 `agenda_export_dir` 的資料夾；空的就不匯出，內容沒變不寫。她說「日程放到 G 槽雲端硬碟」由 manage 先說明、說好才 `kb agenda export --set`；`--off` 關、`--status` 查。匯出失敗不擋日程寫入，寫 hook-errors.log 與 `.system/agenda_export.json`，開場講一次。格式與指紋算法由 willy 管，改了要升 schema。spec：`specs/2026-10-26-日程匯出.md`。
+- 選了：`agenda.render()` 結尾（不論 日程.md 有沒有重寫）匯出 `willy-agenda.json`（`willy-agenda/1`，條目 11 個欄位＋條目與整檔指紋＋active 實體名單）到知識庫設定 `agenda_export_dir` 的資料夾；空的就不匯出，內容沒變不寫。由服務人員用 `kb agenda export --set` 設定、`--off` 關、`--status` 查，不進任何 skill。willy 只負責輸出這份 JSON，拿去做什麼（手機頁面、Google 日曆、通知）是跟客戶談的客製。匯出失敗不擋日程寫入，寫 hook-errors.log 與 `.system/agenda_export.json`，開場不講。格式與指紋算法由 willy 管，改了要升 schema。spec：`specs/2026-10-26-日程匯出.md`。
 - 為什麼：手機頁面與通知要的是她剛說完的事馬上出現；原本靠客製程式每 5 分鐘叫 `kb agenda list` 匯出，慢、要設排程，格式又寫在 willy 以外，willy 改欄位沒人知道。render 是所有寫日程路徑（`_mutate`、實體改名合併、`refresh_md`）的匯合點，一個點涵蓋背景製卡與非對話的 kb 呼叫。日程是正本、匯出檔只是另一份視圖，跟 日程.md 同一個地位（D-067），所以失敗不退回寫入。
 - 放棄了：Stop hook 觸發（漏掉沒有對話的寫入，且與其他 hook 並存未驗證）；排程輪詢（慢、要另設）；直接呼叫雲端 API（要帳號授權）；一起匯出客戶綜合卡摘要（是客製頁面要的形狀，留在客製程式）；willy 讀手機寫回的改動檔（另一題）。
 - 重談條件：匯出拖慢日程寫入到她感覺得到；需要匯出到不只一個地方；消費端需要的欄位超出 `willy-agenda/1`。
-- 補（2026-10-26，實作疑義）：manage 的問法放 `skills/manage/references/日程匯出.md`，本文只加一行指過去；本文 3000 字上限（D-070）不放寬。開場「日程放不到」只講一次的記號放 `agenda_export.json` 的 `reported_error`。
