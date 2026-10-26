@@ -42,6 +42,8 @@ class Fake:
         self.calls = []
         self.mode = "ok"  # ok｜stale（清單快取還給舊版，版本沒換）｜fail｜timeout
         self.target = None
+        self.verifies = []  # verify 的替身（換版前先驗新版）：記下 (版本, source)，回 verify_result 或過
+        self.verify_result = None
         self.installed = self.base / "installed_plugins.json"
         self.root = self.base / "plugins" / "cache" / MARKET / "wiki-with-willy" / "0.20.1"
         self.root.mkdir(parents=True)
@@ -54,6 +56,12 @@ class Fake:
         self.installed.write_text(json.dumps({"version": 2, "plugins": {
             "別的外掛@其他市集": [{"scope": "user", "installPath": "X:/別處", "version": "1.0.0"}],
             f"wiki-with-willy@{MARKET}": [record]}}), encoding="utf-8")
+
+    def verify(self, vault, latest, source):
+        self.verifies.append((latest, source))
+        if self.verify_result is not None:
+            return dict(self.verify_result)
+        return {"ok": True, "version": latest, "python": "3.11", "step": None, "file": None, "line": None, "why": None}
 
     def get(self, url, timeout):
         self.gets.append((url, timeout))
@@ -98,6 +106,8 @@ class Base(unittest.TestCase):
             mock.patch.object(upgrade, "find_claude", return_value="C:/fake/claude.exe"),
             mock.patch.object(upgrade, "_today", return_value="2026-10-24"),
         ]
+        self.verify_patch = mock.patch.object(upgrade, "verify", side_effect=self.fake.verify)
+        self.patches.append(self.verify_patch)
         for p in self.patches:
             p.start()
         self.turn = turn.start(self.V, None, "升級")["turn"]
@@ -416,7 +426,8 @@ class Fetch(Base):
     def test_returns_latest_allowed_and_note(self):
         self.serve("0.21.0", mine=True)
         got = upgrade.fetch(self.V)
-        self.assertEqual(got, {"latest": "0.21.0", "allowed": True, "note": "日程可以匯出成 Excel"})
+        self.assertEqual(got, {"latest": "0.21.0", "allowed": True, "note": "日程可以匯出成 Excel",
+                               "source": {"url": "https://example.invalid/0.21.0.zip", "sha256": "0" * 64}})
         self.assertEqual({u for u, _t in self.fake.gets}, {MANIFEST_URL, ROLLOUT_URL})
         self.assertTrue(all(t == 5 for _u, t in self.fake.gets))
 
@@ -498,7 +509,8 @@ class Check(Base):
         self.put_history("0.20.1")
         got = upgrade.check(self.V)
         self.assertEqual(got, {"plugin": "0.20.1", "vault": "0.20.1", "latest": "0.21.0", "kind": "minor", "allowed": True,
-                               "note": "日程可以匯出成 Excel", "snapshot_for_downgrade": None, "error": None})
+                               "note": "日程可以匯出成 Excel", "snapshot_for_downgrade": None, "error": None,
+                               "verify_failed": None})
         self.assertEqual(upgrade.check_lines(got), ["現在 0.20.1；最新 0.21.0（日程可以匯出成 Excel），說「升級」就幫你升。"])
 
     def test_check_latest_when_same_version(self):
@@ -827,6 +839,11 @@ class DowngradeFlow(Base):
         self.assertFalse((self.V / "案子" / "信義王" / "升級後.txt").exists())
         self.assertEqual(upgrade.installed_version({"market": MARKET, "scope": "user", "project": None}), "0.20.0")
 
+    def test_downgrade_does_not_verify(self):
+        """換版前先驗新版 驗收 6：要回去的是她之前跑過的版本，不驗。"""
+        upgrade.downgrade(self.V)
+        self.assertEqual(self.fake.verifies, [])
+
     def test_update_failure_after_restore_says_the_vault_is_already_restored(self):
         """還原已經成功、換版才失敗：第一行還是「更新沒成功：…」，第二行照實說知識庫已經還原、不要再退回一次。"""
         self.fake.mode = "fail"
@@ -1057,7 +1074,8 @@ class Background(Base):
         self.serve("0.21.0", mine=True)
         upgrade.background(self.V)
         self.assertEqual(self.check_saved(), {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
-                                              "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None})
+                                              "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None,
+                                              "verify_failed": None})
         self.assertEqual(self.fake.calls, [])
 
     def test_patch_for_her_is_applied_in_background(self):

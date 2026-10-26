@@ -7,21 +7,27 @@
 build：從 tag 用 git archive 取檔，照 D-213 要放的清單（含 agents/）打 zip 到 dist/（.gitignore 有），位元組可重現；最後檢查：
 zip 裡只有清單上的、plugin.json 與 hooks/hooks.json 引用的路徑都在、版本號等於 tag、CHANGELOG 最新一段有「給客戶的一句話」、
 config/skeleton_history.json 有這一版且跟 tag 裡的骨架一致；小修（D-217，前兩位跟上一個 tag 相同）不准動骨架檔、各 schema 版本常數、
-_lib/migrate.py。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
+_lib/migrate.py；每個 .py 照 Python 3.10 的語法 parse 得過；打好的 zip 解開跑它自己的 kb selftest --json（開發機的 Python，D-230）。
+問題一次全列；zip 先寫暫存名，全部過了才改成正式名（有問題不留、也不動先前打好的同名 zip）。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
 publish：build → gh release create 傳 zip → 更新公開 repo 的 marketplace.json（版本、網址、sha256）並推 → 每 30 秒從外面抓清單，
 抓到新版（最多等 --wait 分鐘）才改 rollout.json 並推（D-218：名單不能比清單先更新）；超過停下來、名單沒改，清單與 zip 已經推了，之後用 rollout 補。
 中途失敗（例如推清單時斷線）直接重跑 publish：release 已經有了就補傳同一個 zip，不重建。
 rollout：只改名單（rollout.json 那一版的 for）並推；撤回就是 --none（D-217）。公開 repo 的 clone 要先是最新的，而且不能有沒 commit 的改動。
-失敗印原因、exit 1。外部的東西都經 _run（git、gh）、_fetch（抓清單）、_sleep、_clock，測試換替身。只用標準函式庫，不碰 plugin 的程式。
+失敗印原因、exit 1。外部的東西都經 _run（git、gh）、_fetch（抓清單）、_selftest（跑 zip 裡的自我檢查）、_sleep、_clock，測試換替身。
+只用標準函式庫，不 import plugin 的程式（自我檢查開子行程跑）。
 """
 import argparse
+import ast
 import hashlib
 import io
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.request
 import zipfile
@@ -43,6 +49,8 @@ VAULT_ID = re.compile(r"kb-[0-9a-f]{8}", re.ASCII)  # 整串比對（fullmatch�
 _NUM = r"(?:0|[1-9]\d*)"
 VERSION = re.compile(rf"({_NUM})\.({_NUM})\.({_NUM})", re.ASCII)  # 跟客戶端 _lib/upgrade.parse_version 同一套，整串比對
 TAG = re.compile(rf"v?({_NUM}\.{_NUM}\.{_NUM})", re.ASCII)
+PY_FLOOR = (3, 10)  # 客戶電腦上最舊會遇到的 Python（D-230）
+SELFTEST_SECONDS = 180
 
 
 class ReleaseError(Exception):
@@ -76,6 +84,33 @@ def _fetch(url, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": "wiki-with-willy-release"})
     with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
         return r.read().decode("utf-8")
+
+
+def _selftest(zip_path):
+    """把 zip 解到暫存夾、跑它的 kb selftest --json（開發機的 Python）；回那個物件，跑不起來或輸出看不懂也回 ok false（不丟）。"""
+    tmp = Path(tempfile.mkdtemp(prefix="wiki-with-willy-release-"))
+    try:
+        with zipfile.ZipFile(str(zip_path)) as z:
+            z.extractall(str(tmp / "plugin"))
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        env.pop("CLAUDE_PLUGIN_ROOT", None)
+        try:
+            r = subprocess.run([sys.executable, str(tmp / "plugin" / "scripts" / "kb.py"), "selftest", "--json"],
+                               cwd=str(tmp), env=env, capture_output=True, timeout=SELFTEST_SECONDS, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "step": "selftest", "why": f"超過 {SELFTEST_SECONDS} 秒"}
+        except OSError as e:
+            return {"ok": False, "step": "selftest", "why": f"起不來（{type(e).__name__}）"}
+        for ln in reversed(r.stdout.decode("utf-8", errors="replace").splitlines()):
+            try:
+                data = json.loads(ln)
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                return data
+        return {"ok": False, "step": "selftest", "why": f"輸出看不懂（結束碼 {r.returncode}）"}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 _sleep = time.sleep
@@ -257,6 +292,29 @@ def _history_problems(files, version):
     return out
 
 
+def syntax_problems(files):
+    """每個 .py 照 Python 3.10 的語法 parse（D-230：她的 Python 可能比開發機舊）；回問題清單。"""
+    out = []
+    for rel in sorted(files):
+        if rel.endswith(".py"):
+            try:
+                ast.parse(files[rel], filename=rel, feature_version=PY_FLOOR)
+            except SyntaxError as e:
+                out.append(f"{rel} 第 {e.lineno} 行：Python 3.10 不認得這種寫法")
+            except ValueError:
+                out.append(f"{rel}：原始碼裡有 Python 讀不了的字元")
+    return out
+
+
+def selftest_problems(zip_path):
+    got = _selftest(zip_path)
+    if isinstance(got, dict) and got.get("ok") is True:
+        return []
+    got = got if isinstance(got, dict) else {}
+    where = f"{got['file']} 第 {got['line']} 行：" if got.get("file") and got.get("line") else ""
+    return [f"自我檢查沒過：{got.get('step') or 'selftest'}：{where}{got.get('why') or '沒有說明'}"]
+
+
 def check_zip(path, version):
     """對一個現成的 zip 做最後檢查（不含小修規則，那要跟上一個 tag 比）。"""
     files = {}
@@ -291,11 +349,19 @@ def build(repo, tag, out_dir=None):
     previous = None
     if prev_tag and kind(tag_version(prev_tag), version) == "patch":
         previous = collect(repo, prev_tag)
-    found = problems(files, version, previous)
-    if found:
-        raise ReleaseError("不能發行：\n" + "\n".join(f"- {p}" for p in found))
+    found = problems(files, version, previous) + syntax_problems(files)
     dest = Path(out_dir or repo / "dist").resolve() / f"{PLUGIN_NAME}-{version}.zip"
-    _write_zip(files, dest)
+    tmp = dest.with_name(f".{dest.name}.tmp")  # 先寫暫存名，全部過了才改名（裁定 16：重打失敗不動先前打好的那份）
+    _write_zip(files, tmp)
+    try:
+        found += selftest_problems(tmp)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    if found:
+        tmp.unlink(missing_ok=True)
+        raise ReleaseError("不能發行：\n" + "\n".join(f"- {p}" for p in found))
+    os.replace(str(tmp), str(dest))
     return {"zip": dest, "sha256": hashlib.sha256(dest.read_bytes()).hexdigest(), "version": version, "files": len(files),
             "skipped": skipped}
 
