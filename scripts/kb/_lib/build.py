@@ -83,7 +83,7 @@ REPORT_UNREADABLE = "讀不到寫好的建置報告：{}"
 ADOPT_PLACE = "切段的暫存位置不對（.system/temp 是連結），沒有寫"
 SAMPLE_RUNNING = "抽樣還在背景做，做完再往下"
 TERMINAL = "終端機"  # 沒有守門插的 --session：終端機跑的
-ENV_KEYS = ("python", "kb", "trust", "sac", "pdf", "office", "disk", "old_wiki")
+ENV_KEYS = ("python", "kb", "trust", "memory", "sac", "pdf", "office", "disk", "old_wiki")  # 九項
 
 
 class Refused(Exception):
@@ -555,6 +555,42 @@ def _env_trust(p):
     return _item("trust", "fail", "這個資料夾還沒按過信任：在這個資料夾開對話、跳出「是否信任」時按信任，不然每一步都會被問")
 
 
+MEMORY_KEY = "autoMemoryEnabled"
+
+
+def _read_settings(f):
+    """一個 .claude 設定檔：沒這個檔回 None；讀不了、JSON 壞了、不是物件丟 ValueError。"""
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        raise ValueError(f.name) from e
+    if not isinstance(data, dict):
+        raise ValueError(f.name)
+    return data
+
+
+def _env_memory(p):
+    """這個資料夾有沒有關自動記憶（D-229）：settings.local.json 有這個鍵就以它為準，否則看 settings.json。只讀。"""
+    d = Path(p) / ".claude"
+    try:
+        shared, local = _read_settings(d / "settings.json"), _read_settings(d / "settings.local.json")
+    except ValueError:
+        return _item("memory", "warn", "看不出自動記憶有沒有關（.claude 裡的設定檔讀不了）")
+    off = _item("memory", "ok", "自動記憶關了：要記的事都記進知識庫")
+    if local is not None and MEMORY_KEY in local:
+        if local[MEMORY_KEY] is False:
+            return off
+        return _item("memory", "warn", "自動記憶被 .claude\\settings.local.json 打開了：要記的事可能記到知識庫外面；"
+                                       "請服務人員把那一行拿掉")
+    if shared is None:
+        return _item("memory", "ok", "還沒建知識庫；建好就會關自動記憶")
+    if shared.get(MEMORY_KEY) is False:
+        return off
+    return _item("memory", "warn", "這個知識庫沒關自動記憶：要記的事可能記到知識庫外面；升級到新版時會補上")
+
+
 def _env_pdf():
     if not _pdfium_installed():
         return _item("pdf", "fail", "還沒裝 PDF 元件，PDF 會讀不到", fix="kb office setup")
@@ -649,7 +685,7 @@ def _env_old_wiki(p):
 
 
 def env_items(cwd):
-    """八項（ENV_KEYS 的順序），每項 {"key","level","text"}（缺選配多 fix）。只讀；哪一項出錯就那項回 warn。"""
+    """九項（ENV_KEYS 的順序），每項 {"key","level","text"}（缺選配多 fix）。只讀；哪一項出錯就那項回 warn。"""
     p = Path(cwd).resolve()
 
     def safe(key, fn, *a):
@@ -659,6 +695,7 @@ def env_items(cwd):
             return _item(key, "warn", f"看不出來（{type(e).__name__}）")
     pdf = safe("pdf", _env_pdf)
     got = {"python": safe("python", _env_python), "kb": safe("kb", _env_kb), "trust": safe("trust", _env_trust, p),
+           "memory": safe("memory", _env_memory, p),
            "sac": safe("sac", _env_sac, pdf["level"] == "fail" and pdf["text"].startswith("PDF 元件被擋")),
            "pdf": pdf, "office": safe("office", _env_office), "disk": safe("disk", _env_disk, p),
            "old_wiki": safe("old_wiki", _env_old_wiki, p)}

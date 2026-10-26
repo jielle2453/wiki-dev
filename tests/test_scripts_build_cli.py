@@ -108,7 +108,7 @@ class StatusStart(Base):
 
 
 class Env(Base):
-    """env 八項：替身在行程裡換掉外部的東西；只讀。"""
+    """env 九項：替身在行程裡換掉外部的東西；只讀。"""
 
     def setUp(self):
         super().setUp()
@@ -157,8 +157,74 @@ class Env(Base):
         self.assertEqual(got["office"], ("ok", "有 Office（Word、Excel）"))
         self.assertEqual(got["disk"], ("ok", "剩 120 GB"))
         self.assertEqual(got["old_wiki"], ("ok", "沒有舊的 llm-wiki"))
+        self.assertEqual(got["memory"], ("ok", "還沒建知識庫；建好就會關自動記憶"))
         self.assertEqual(got["python"][0], "ok")
         self.assertEqual(tree_hashes(self.tmp), before)
+
+    def test_nine_items_in_order(self):
+        self.assertEqual(build.ENV_KEYS, ("python", "kb", "trust", "memory", "sac", "pdf", "office", "disk", "old_wiki"))
+        self.assertEqual(list(self.env()), list(build.ENV_KEYS))
+
+    def settings(self, name, data):
+        (self.D / ".claude").mkdir(exist_ok=True)
+        text = data if isinstance(data, str) else json.dumps(data)
+        (self.D / ".claude" / name).write_text(text, encoding="utf-8")
+
+    def test_memory_off(self):
+        self.settings("settings.json", {"permissions": {"deny": []}, "autoMemoryEnabled": False})
+        self.assertEqual(self.env()["memory"], ("ok", "自動記憶關了：要記的事都記進知識庫"))
+
+    def test_memory_local_false_wins(self):
+        """settings.local.json 的優先序比較高：它說 false 就是關了。"""
+        self.settings("settings.json", {"permissions": {"deny": []}})
+        self.settings("settings.local.json", {"autoMemoryEnabled": False})
+        self.assertEqual(self.env()["memory"], ("ok", "自動記憶關了：要記的事都記進知識庫"))
+
+    def test_memory_local_true_opens_it(self):
+        self.settings("settings.json", {"permissions": {"deny": []}, "autoMemoryEnabled": False})
+        self.settings("settings.local.json", {"autoMemoryEnabled": True})
+        self.assertEqual(self.env()["memory"], ("warn", "自動記憶被 .claude\\settings.local.json 打開了：要記的事可能記到知識庫外面；"
+                                                        "請服務人員把那一行拿掉"))
+
+    def test_memory_not_off_in_vault(self):
+        want = ("warn", "這個知識庫沒關自動記憶：要記的事可能記到知識庫外面；升級到新版時會補上")
+        self.settings("settings.json", {"permissions": {"deny": []}})
+        self.assertEqual(self.env()["memory"], want)
+        self.settings("settings.json", {"permissions": {"deny": []}, "autoMemoryEnabled": True})
+        self.assertEqual(self.env()["memory"], want)
+        self.settings("settings.local.json", {"permissions": {"allow": []}})  # local 沒有這個鍵：照 settings.json
+        self.assertEqual(self.env()["memory"], want)
+
+    def test_memory_no_settings_yet(self):
+        self.assertEqual(self.env()["memory"], ("ok", "還沒建知識庫；建好就會關自動記憶"))
+
+    def test_memory_unreadable(self):
+        want = ("warn", "看不出自動記憶有沒有關（.claude 裡的設定檔讀不了）")
+        self.settings("settings.json", "{壞的")
+        self.assertEqual(self.env()["memory"], want)
+        self.settings("settings.json", {"permissions": {"deny": []}, "autoMemoryEnabled": False})
+        self.settings("settings.local.json", "[1, 2")
+        self.assertEqual(self.env()["memory"], want)
+
+    def test_memory_exception_only_that_item(self):
+        saved = build._env_memory
+
+        def boom(p):
+            raise KeyError("x")
+        build._env_memory = boom
+        try:
+            got = self.env()
+        finally:
+            build._env_memory = saved
+        self.assertEqual(got["memory"], ("warn", "看不出來（KeyError）"))
+        self.assertEqual(list(got), list(build.ENV_KEYS))
+        self.assertEqual(got["trust"], ("ok", "這個資料夾按過信任"))
+        self.assertEqual(got["old_wiki"], ("ok", "沒有舊的 llm-wiki"))
+
+    def test_memory_ok_right_after_build_start(self):
+        self.start()
+        got = {i["key"]: (i["level"], i["text"]) for i in json.loads(self.ok("build", "env", "--json"))["items"]}
+        self.assertEqual(got["memory"], ("ok", "自動記憶關了：要記的事都記進知識庫"))
 
     def test_trust(self):
         self.trust(self.tmp / "別的夾")
@@ -222,7 +288,7 @@ class Env(Base):
         V = self.tmp / "vault"
         shutil.copytree(FIXTURES / "inventory" / "vault", V)
         before = tree_hashes(V)
-        self.assertEqual(len(json.loads(self.ok("build", "env", "--json", cwd=V))["items"]), 8)
+        self.assertEqual(len(json.loads(self.ok("build", "env", "--json", cwd=V))["items"]), 9)
         self.assertEqual(tree_hashes(V), before)
 
 
