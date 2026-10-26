@@ -164,6 +164,20 @@ class NoFolders(Base):
         self.assertEqual(rows[-1]["command"], "intake")
         self.assertIn("收件匣/a.pdf", rows[-1]["note"])
 
+    def test_13_outside_conversation_gets_its_own_0000_turn(self):
+        """驗收 13（D-502）：current.json 是已答完的對話回合，沒帶 --session 跑 kb intake → 備份在自己的 0000 回合，
+        不掛進那句對話；記一段程式段。"""
+        turn.set_done(self.V, SID)
+        r = run("intake", str(self.outside("合約.pdf", b"%PDF late")), cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(NEXT, r.stdout)
+        self.assertEqual(turn.entries(self.V, self.t), [])
+        (e,) = self.entries()
+        self.assertTrue(e["created_turn"].endswith("-0000"), e["created_turn"])
+        self.assertEqual({x["path"]: x["action"] for x in turn.entries(self.V, e["created_turn"])}["收件匣/合約.pdf"], "create")
+        rows = [x for m in journal.months(self.V) for x in journal.read_lines(self.V, m) if x.get("kind") == "program"]
+        self.assertEqual(rows[-1]["command"], "intake")
+
     def test_8_revert_removes_and_revert_of_revert_brings_back(self):
         self.ok(str(self.outside("合約.pdf", b"%PDF wang")))
         (e,) = self.entries()
