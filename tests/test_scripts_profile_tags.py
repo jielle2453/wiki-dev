@@ -1,0 +1,280 @@
+"""標籤字典第一節第 3～5 點、第二節（D-236、D-237；驗收 4、7、8、實作疑義 2）黑箱：
+kb profile add 標籤 → 第八節多一列、有綜合卡的實體記「補標籤」、cards todo 的 synthesis_stale 帶 reason；remove 標籤拒絕；
+kb profile tag rename／merge／remove（詞與欄）--check 回影響與結果清單、不寫；做了只動那一行、其他行與內文位元組不變、
+回合有每張卡的備份、versions revert 全部回得去；手改 md 拿掉有卡用到的詞 apply 拒絕，--rename-tag、--drop-tags 照做。"""
+import json
+import re
+import shutil
+import unittest
+from pathlib import Path
+
+from tests import _entities as E
+from tests import _tags as T
+from tests.test_scripts_inventory_cli import run_kb
+from kb._lib import entities, profile, turn  # noqa: E402
+
+LI = "e-aaaa0001"
+ZHANG = "e-aaaa0002"
+LI_REL = "案子/內湖李/內湖李.md"
+SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json")
+
+
+def tree(V):
+    out = {}
+    for p in sorted(Path(V).rglob("*")):
+        rel = p.relative_to(V).as_posix()
+        if p.is_dir() or any(rel.startswith(s) for s in SKIP) or rel.endswith((".lock", "hook-errors.log", "ledger.tsv")):
+            continue
+        out[rel] = p.read_bytes()
+    return out
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp, self.V, self.raw = E.make_entity_vault(with_entities=True)
+        self.t = turn.start(self.V, None, "")["turn"]
+        data = entities.load(self.V)["entities"]
+        data += [E.entity(LI, "內湖李", card=True), E.entity(ZHANG, "士林張")]
+        E.put_entities(self.V, data)
+        T.set_tags(self.V)
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 木作]", "階段: 施工"])
+        T.write_synthesis(self.V, E.DAAN, "大安陳", T.DAAN_REL, ["工種: [木作]", "階段: 報價"])
+        T.write_synthesis(self.V, LI, "內湖李", LI_REL, ["工種: [水電]"])
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def kb(self, *args):
+        return run_kb("profile", *args, cwd=self.V)
+
+    def json_of(self, *args):
+        r = self.kb(*args, "--json")
+        return r.returncode, json.loads(r.stdout)
+
+    def tags(self):
+        return {(t["type"], t["field"]): t["words"] for t in profile.load(self.V)["tags"]}
+
+    def card(self, rel):
+        return (self.V / rel).read_text(encoding="utf-8")
+
+    def line(self, rel, field):
+        return next((x for x in self.card(rel).splitlines() if x.startswith(f"{field}:")), None)
+
+    def fixes(self):
+        p = self.V / ".system" / "lint.json"
+        return {f["path"]: f["reason"] for f in json.loads(p.read_text(encoding="utf-8"))["synthesis_fix"]} if p.is_file() else {}
+
+
+class AddTag(Base):
+    def test_add_field_then_word_marks_retag(self):
+        r = self.kb("add", "標籤", "型別=案子", "欄名=預算", "詞=高、中", "可多選=✓")
+        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "已加標籤欄：案子的預算（高、中）；3 張案子的綜合卡要補標籤"))
+        self.assertEqual(self.tags()[("案子", "預算")], ["高", "中"])
+        self.assertEqual(self.fixes(), {T.XINYI_REL: "補標籤（預算）", T.DAAN_REL: "補標籤（預算）", LI_REL: "補標籤（預算）"})
+        r = self.kb("add", "標籤", "型別=案子", "欄名=工種", "詞=油漆、拆除")
+        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "已加標籤的詞：案子的工種多了油漆、拆除；3 張案子的綜合卡要補標籤"))
+        self.assertEqual(self.fixes()[T.XINYI_REL], "補標籤（預算）、補標籤（工種：油漆／拆除）")
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        got = {i["path"]: i.get("reason") for i in todo["synthesis_stale"]}
+        self.assertEqual(got[LI_REL], "補標籤（預算）、補標籤（工種：油漆／拆除）")
+        self.assertEqual(todo["profile"]["tags"]["案子"][0]["field"], "工種")
+
+    def test_remove_refused(self):
+        r = self.kb("remove", "標籤", "型別=案子", "欄名=工種")
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "拿掉標籤的詞或欄用 kb profile tag remove（會先算有幾張卡用到）"))
+
+    def test_bad_word_refused_writes_nothing(self):
+        before = tree(self.V)
+        r = self.kb("add", "標籤", "型別=案子", "欄名=工種", "詞=油[漆")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("不能用（含不能用的字元）", r.stdout)
+        self.assertEqual(tree(self.V), before)
+
+
+class TagCommands(Base):
+    def test_merge_check_shape(self):
+        before = tree(self.V)
+        code, got = self.json_of("tag", "merge", "案子", "工種", "水電", "--into", "木作", "--check")
+        self.assertEqual(code, 0)
+        self.assertEqual(got, {
+            "op": "merge", "type": "案子", "field": "工種", "word": "水電", "target": "木作",
+            "impact": {"cards": 2, "both": 1},
+            "question": "案子卡有 2 張標了水電，其中 1 張也標了木作；併起來 2 張都只剩木作。要併嗎？",
+            "results": [{"n": 1, "label": "併成木作", "do": ["kb profile tag merge 案子 工種 水電 --into 木作"], "strict": True,
+                         "fill": []},
+                        {"n": 2, "label": "先不要", "do": [], "strict": False, "fill": []}],
+            "refusal": None})
+        r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作", "--check")
+        self.assertEqual(r.stdout.splitlines()[0], "案子卡有 2 張標了水電，其中 1 張也標了木作")
+        self.assertEqual(tree(self.V), before, "--check 不寫")
+
+    def test_merge_does_and_reverts(self):
+        before = tree(self.V)
+        body_before = {rel: self.card(rel) for rel in (T.XINYI_REL, T.DAAN_REL, LI_REL)}
+        r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout.strip(), "已把「水電」併進「木作」：2 張卡只剩木作；不對可以說退回")
+        self.assertEqual(self.tags()[("案子", "工種")], ["木作", "磁磚", "系統櫃"])
+        self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [木作]")
+        self.assertEqual(self.line(LI_REL, "工種"), "工種: [木作]")
+        self.assertEqual(self.card(T.DAAN_REL), body_before[T.DAAN_REL])
+        self.assertEqual(self.card(T.XINYI_REL), body_before[T.XINYI_REL].replace("工種: [水電, 木作]", "工種: [木作]"),
+                         "其他行與內文不變")
+        files = self.V / ".system" / "versions" / turn.current(self.V)["turn"] / "files"
+        for rel in (T.XINYI_REL, LI_REL, profile.PROFILE_POSIX, profile.MD_POSIX):
+            self.assertTrue((files / rel).is_file(), rel)
+        self.assertEqual(re.findall(r"[aefsrcp]-[0-9a-f]{8}", r.stdout), [])
+        rv = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(rv.returncode, 0, rv.stdout)
+        self.assertEqual(tree(self.V), before)
+
+    def test_rename_word(self):
+        code, got = self.json_of("tag", "rename", "案子", "工種", "水電", "--to", "水電工程", "--check")
+        self.assertEqual((code, got["impact"], got["results"][0]["do"], got["results"][0]["strict"]),
+                         (0, {"cards": 2, "both": 0}, ["kb profile tag rename 案子 工種 水電 --to 水電工程"], False))
+        before = tree(self.V)
+        r = self.kb("tag", "rename", "案子", "工種", "水電", "--to", "水電工程")
+        self.assertEqual(r.stdout.strip(), "已把「工種」的「水電」改叫「水電工程」：2 張卡跟著改；不對可以說退回")
+        self.assertEqual(self.tags()[("案子", "工種")], ["水電工程", "木作", "磁磚", "系統櫃"])
+        self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [水電工程, 木作]")
+        run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(tree(self.V), before)
+
+    def test_rename_word_to_existing_points_to_merge(self):
+        r = self.kb("tag", "rename", "案子", "工種", "水電", "--to", "木作")
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (3, "「木作」已經在「工種」的字典裡；要併在一起用 kb profile tag merge 案子 工種 水電 --into 木作"))
+
+    def test_remove_word_single_and_multi(self):
+        before = tree(self.V)
+        code, got = self.json_of("tag", "remove", "案子", "階段", "施工", "--check")
+        self.assertEqual((got["impact"], got["results"][0]["strict"]), ({"cards": 1, "both": 0}, True))
+        r = self.kb("tag", "remove", "案子", "階段", "施工")
+        self.assertEqual(r.stdout.strip(), "已從「階段」拿掉「施工」：1 張卡上一起拿掉；不對可以說退回")
+        self.assertEqual(self.line(T.XINYI_REL, "階段"), "階段: []")
+        self.assertEqual(self.tags()[("案子", "階段")], ["報價", "完工"])
+        run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(tree(self.V), before)
+        self.kb("tag", "remove", "案子", "工種", "水電")
+        self.assertEqual(self.line(LI_REL, "工種"), "工種: []")
+        self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [木作]")
+
+    def test_rename_and_remove_field(self):
+        before = tree(self.V)
+        code, got = self.json_of("tag", "rename", "案子", "工種", "--to", "做什麼", "--check")
+        self.assertEqual((got["impact"], got["field"], got["target"]), ({"cards": 3, "both": 0}, "工種", "做什麼"))
+        r = self.kb("tag", "rename", "案子", "工種", "--to", "做什麼")
+        self.assertEqual(r.stdout.strip(), "已把標籤欄「工種」改叫「做什麼」：3 張卡跟著改；不對可以說退回")
+        self.assertEqual(self.line(T.XINYI_REL, "做什麼"), "做什麼: [水電, 木作]")
+        self.assertIsNone(self.line(T.XINYI_REL, "工種"))
+        run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(tree(self.V), before)
+        r = self.kb("tag", "remove", "案子", "階段", "--check")
+        self.assertIn("案子卡有 2 張寫了「階段」這一行", r.stdout.splitlines()[0])
+        r = self.kb("tag", "remove", "案子", "階段")
+        self.assertEqual(r.stdout.strip(), "已拿掉標籤欄「階段」：2 張卡拿掉這一行；不對可以說退回")
+        self.assertIsNone(self.line(T.XINYI_REL, "階段"))
+        self.assertNotIn(("案子", "階段"), self.tags())
+        run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(tree(self.V), before)
+
+    def test_refusals(self):
+        before = tree(self.V)
+        cases = [
+            (("tag", "remove", "案子", "預算"), "第八節沒有「預算」這個標籤欄；有：工種、階段"),
+            (("tag", "remove", "案子", "工種", "油漆"), "「工種」的字典沒有「油漆」；有：水電、木作、磁磚、系統櫃"),
+            (("tag", "merge", "案子", "工種", "水電", "--into", "油漆"), "「工種」的字典沒有「油漆」；有：水電、木作、磁磚、系統櫃"),
+            (("tag", "merge", "案子", "工種", "水電", "--into", "水電"), "「水電」跟「水電」是同一個"),
+            (("tag", "rename", "案子", "工種", "--to", "階段"), "「案子」已經有「階段」這個標籤欄"),
+            (("tag", "rename", "案子", "工種", "水電", "--to", "水[電"), None),
+        ]
+        for args, want in cases:
+            with self.subTest(args=args):
+                r = self.kb(*args)
+                self.assertEqual(r.returncode, 3, r.stdout)
+                if want:
+                    self.assertEqual(r.stdout.strip(), want)
+        self.assertEqual(tree(self.V), before)
+
+    def test_keeps_retag_mark_after_rewrite(self):
+        """補標籤記號跟著卡的新指紋：tag 指令改了卡，之前標的補標籤還算數。"""
+        self.kb("add", "標籤", "型別=案子", "欄名=預算", "詞=高")
+        self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作")
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        self.assertEqual({i["path"] for i in todo["synthesis_stale"] if i.get("reason")}, {T.XINYI_REL, T.DAAN_REL, LI_REL})
+
+
+class TypeOps(Base):
+    def test_type_rename_keeps_tags(self):
+        r = self.kb("type", "rename", "案子", "--to", "工程")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(set(self.tags()), {("工程", "工種"), ("工程", "階段")})
+        from kb._lib import synthesis
+        self.assertEqual(synthesis.validate(self.V, "工程/信義王/信義王.md"), (True, ""))
+
+    def test_type_remove_drops_tags(self):
+        T.set_tags(self.V, T.DEFAULT_TAGS + (T.tag("業主", "在意", ["醫療"]),))
+        r = self.kb("type", "remove", "業主")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn(("業主", "在意"), self.tags())
+
+
+class HandEdit(Base):
+    def edit_md(self, old, new):
+        md = self.V / profile.MD_POSIX
+        text = md.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        md.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+
+    def test_drop_used_word_refused_then_drop_tags(self):
+        self.edit_md("| 案子 | 階段 | 報價、施工、完工 |", "| 案子 | 階段 | 報價、完工 |")
+        before = tree(self.V)
+        code, got = self.json_of("apply")
+        self.assertEqual(code, 3)
+        self.assertEqual(got["message"], "第八節拿掉了「案子／階段」的「施工」，有 1 張綜合卡用到；沒有套用")
+        labels = [(r["label"], r["do"], r["strict"]) for r in got["results"]]
+        self.assertEqual(labels, [("卡上的施工一起拿掉，照你改的套用", ["kb profile apply --drop-tags"], True),
+                                  ("其實是要併到別的詞：先把第八節那格改回去，再跟我說施工併到哪個", [], False),
+                                  ("先不套用", [], False)])
+        self.assertTrue(got["results"][1].get("note"))
+        self.assertEqual(tree(self.V), before)
+        r = self.kb("apply", "--drop-tags")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.line(T.XINYI_REL, "階段"), "階段: []")
+        self.assertEqual(self.tags()[("案子", "階段")], ["報價", "完工"])
+
+    def test_one_out_one_in_offers_rename_tag(self):
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |", "| 案子 | 工種 | 水電工程、木作、磁磚、系統櫃 |")
+        code, got = self.json_of("apply")
+        self.assertEqual(code, 3)
+        first = got["results"][0]
+        self.assertEqual((first["label"], first["do"], first["strict"]),
+                         ("「水電」改叫「水電工程」，卡上一起換", ["kb profile apply --rename-tag 案子 工種 水電 水電工程"], False))
+        r = self.kb("apply", "--rename-tag", "案子", "工種", "水電", "水電工程")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [水電工程, 木作]")
+        self.assertEqual(self.line(LI_REL, "工種"), "工種: [水電工程]")
+
+    def test_unused_removal_applies(self):
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |", "| 案子 | 工種 | 水電、木作、磁磚 |")
+        r = self.kb("apply")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.tags()[("案子", "工種")], ["水電", "木作", "磁磚"])
+
+    def test_flags_without_matching_removal_refused(self):
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |", "| 案子 | 工種 | 水電、木作、磁磚 |")
+        r = self.kb("apply", "--drop-tags")
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "第八節沒有拿掉卡上用到的詞或欄，不用 --drop-tags"))
+        r = self.kb("apply", "--rename-tag", "案子", "工種", "水電", "水電工程")
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (3, "--rename-tag 案子 工種 水電 水電工程 對不上第八節的改動（要拿掉一個有卡用到的詞、多一個詞）"))
+
+    def test_add_word_by_hand_marks_retag(self):
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |", "| 案子 | 工種 | 水電、木作、磁磚、系統櫃、油漆 |")
+        r = self.kb("apply")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.fixes()[LI_REL], "補標籤（工種：油漆）")
+
+
+if __name__ == "__main__":
+    unittest.main()

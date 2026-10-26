@@ -217,6 +217,41 @@ def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, 
         tags if tags is not None else header_tags(vault, entity, prof))
 
 
+def tag_words(v):
+    """標籤行的值攤成詞的清單（單選的一個詞也算一個）。"""
+    if isinstance(v, list):
+        return list(v)
+    return [v] if v not in (None, "") else []
+
+
+def tagged_cards(vault, type_name, data=None):
+    """這個型別 active、不是客戶自己、有綜合卡的實體：[(實體, 相對路徑, 檔頭)]，讀不懂的卡跳過（kb profile tag、補標籤用）。"""
+    from kb._lib import cards
+    data = data if data is not None else entities.load(vault)
+    out = []
+    for e in data["entities"]:
+        if (e.get("status") != "active" or entities.is_self(e) or not e.get("type")
+                or entities.key(e["type"]) != entities.key(type_name)):
+            continue
+        rel = card_rel(e) if (Path(vault) / card_rel(e)).is_file() else (entities.locate(vault, e) if e.get("card") else None)
+        if not rel:
+            continue
+        try:
+            front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        out.append((e, rel, front))
+    return out
+
+
+def front_tag(front, field):
+    """檔頭上 field 那一行的值（比對照 entities.key）；沒有這一行回 None。"""
+    for k, v in front.items():
+        if k not in KEYS and entities.key(k) == entities.key(field):
+            return v
+    return None
+
+
 DROP = object()  # retag 的 fn 回它：拿掉那一行
 
 
