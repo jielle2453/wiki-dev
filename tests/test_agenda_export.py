@@ -4,14 +4,19 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
 from tests import _entities as E
 from tests.test_hooks_session import payload, run as run_hook
-from tests.test_scripts_inventory_cli import run_kb
-from kb._lib import agenda, config
+from tests.test_scripts_inventory_cli import KB, ROOT, run_kb
+from kb._lib import agenda, config, turn
+from kb._lib.io import FileLock
 
 STATE = ".system/agenda_export.json"
 CONFIG = ".system/config.json"
@@ -224,6 +229,107 @@ class Off(Base):
         self.assertNotIn("agenda_export_dir", self.client_config())
         self.add("驗收", "2026-12-01")
         self.assertEqual(target.read_bytes(), before)
+
+
+class Concurrency(Base):
+    """第二輪（T-1～T-3）：匯出在 agenda.json 的鎖外、自己一把鎖並在鎖裡重讀；實體存檔也匯出。"""
+
+    def lib_add(self, text, date="2026-11-30"):
+        return agenda.add(self.V, agenda.kind_of("到期"), date, text, ["信義王"], turn.current(self.V)["turn"])[0]["id"]
+
+    def wait_for(self, cond, seconds=20):
+        end = time.time() + seconds
+        while time.time() < end:
+            if cond():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def ids_in_agenda(self):
+        return {i["id"] for i in agenda.load(self.V)["items"]}
+
+    def test_agenda_lock_released_while_export_hangs(self):
+        """T-1：匯出卡住期間 agenda.json 的鎖已放開，另一個行程拿得到鎖、寫得進日程，不用等匯出。"""
+        self.set_dir()
+        entered, release = threading.Event(), threading.Event()
+        real = agenda._export_locked
+
+        def hang(vault, folder):
+            entered.set()
+            release.wait(30)
+            return real(vault, folder)
+        agenda._export_locked = hang
+        try:
+            first = threading.Thread(target=self.lib_add, args=("交屋",))
+            first.start()
+            self.assertTrue(entered.wait(10), "第一個寫入沒走到匯出")
+            with FileLock(agenda._path(self.V), timeout=2):  # 匯出還卡著，鎖拿得到
+                pass
+            other = subprocess.Popen([sys.executable, str(KB), "agenda", "add", "--kind", "到期", "--date", "2026-12-01",
+                                      "--text", "驗收", "--entity", "信義王"], cwd=str(self.V), stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+            try:
+                got = self.wait_for(lambda: any(i["text"] == "驗收" for i in agenda.load(self.V)["items"]))
+                self.assertFalse(release.is_set())
+                self.assertTrue(got, "另一個行程在匯出卡住時寫不進日程")
+            finally:
+                release.set()
+                first.join(30)
+                out, err = other.communicate(timeout=60)
+            self.assertEqual(other.returncode, 0, out.decode("utf-8", "replace") + err.decode("utf-8", "replace"))
+        finally:
+            agenda._export_locked = real
+        self.assertEqual({r["text"] for r in self.exported()["items"]}, {"交屋", "驗收"})  # 日程不掉條目、匯出也跟上
+
+    def test_slow_first_export_last_file_is_latest(self):
+        """T-3：兩個寫入幾乎同時、第一個的匯出被拖慢（讀完舊資料才停），兩個都結束後匯出檔等於最新的 agenda.json。"""
+        self.set_dir()
+        entered, release = threading.Event(), threading.Event()
+        real = agenda.export_payload
+        calls = []
+
+        def slow(vault, data):
+            payload = real(vault, data)
+            calls.append(len(data["items"]))
+            if len(calls) == 1:
+                entered.set()
+                release.wait(30)
+            return payload
+        agenda.export_payload = slow
+        try:
+            first = threading.Thread(target=self.lib_add, args=("交屋",))
+            first.start()
+            self.assertTrue(entered.wait(10))
+            second = threading.Thread(target=self.lib_add, args=("驗收", "2026-12-01"))
+            second.start()
+            self.assertTrue(self.wait_for(lambda: len(self.ids_in_agenda()) == 2))
+            time.sleep(0.3)  # 第二個的匯出在等匯出的鎖
+            release.set()
+            first.join(30)
+            second.join(30)
+        finally:
+            agenda.export_payload = real
+        self.assertEqual(calls, [1, 2])  # 第二個在鎖裡重讀，拿到的是兩條
+        data = self.exported()
+        latest = agenda.load(self.V)["items"]
+        self.assertEqual([r["id"] for r in data["items"]], [i["id"] for i in latest])
+        self.assertEqual([r["fp"] for r in data["items"]], [fp_of(i) for i in latest])
+
+    def test_entity_add_remove_updates_names(self):
+        """T-2：kb entity add／停用一個實體後，不寫日程，匯出檔的 entities 名單立刻跟上。"""
+        self.set_dir()
+        self.add()
+        agenda_before = (self.V / agenda.AGENDA_POSIX).read_bytes()
+        names = lambda: {e["name"] for e in self.exported()["entities"]}  # noqa: E731
+        self.assertIn("王宅", names())
+        r = run_kb("entity", "add", "--type", "案子", "--name", "新客戶甲", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("新客戶甲", names())
+        r = run_kb("entity", "remove", "王宅", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("王宅", names())
+        self.assertIn("新客戶甲", names())
+        self.assertEqual((self.V / agenda.AGENDA_POSIX).read_bytes(), agenda_before)  # 日程沒寫
 
 
 if __name__ == "__main__":

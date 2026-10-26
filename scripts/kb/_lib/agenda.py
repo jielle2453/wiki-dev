@@ -8,8 +8,9 @@ lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 pr
 重渲染前比對 日程.md 有沒有被手改（_lib/renders，D-223）：改了條目就存她那份、待處理開一條 handedit；比對用改之前的資料
 與上次寫的那天重算她看到的那份。
 只經 kb agenda 與 entities 寫；今天的日期集中在 _today（測試換掉它），逾期、今天、接下來的算法只看 open（D-129）。
-日程匯出（D-229）：render 最後一律 export：設定了 agenda_export_dir 就把 willy-agenda/1 寫到 <夾>/willy-agenda.json
-（exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
+日程匯出（D-229）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
+agenda_export_dir 就在匯出自己的鎖裡重讀 agenda.json 與實體，把 willy-agenda/1 寫到 <夾>/willy-agenda.json（T-3；
+exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
 """
 import copy
 import datetime as dt
@@ -145,6 +146,8 @@ def _mutate(vault, turn_id, fn):
             turn.backup(vault, AGENDA_POSIX, turn_id)
             write_json_atomic(p, data)
             render(vault, turn_id, data, base=before)
+    if changed:
+        safe_export(vault)  # 放開 agenda.json 的鎖之後（T-1）
     return result
 
 
@@ -418,6 +421,7 @@ def refresh_md(vault, turn_id=None):
     """實體狀態變了（擱置段在甘特圖上）：有 agenda.json 才重渲染 md，沒有就不建檔。"""
     if _path(vault).exists():
         render(vault, turn_id)
+        safe_export(vault)
 
 
 # ---------- 給 cards.todo、開場、plan ----------
@@ -768,19 +772,9 @@ def _hand_edited(vault, turn_id, base, now=None):
 def render(vault, turn_id=None, data=None, today=None, base=None):
     """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
     寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。
-    最後不論 md 有沒有寫都 export（D-229）；export 的任何錯都不改 render 的行為與回傳。"""
-    data = data if data is not None else load(vault)
-    try:
-        return _render_md(vault, turn_id, data, today, base)
-    finally:
-        try:
-            export(vault, data)
-        except Exception:  # noqa: BLE001  export 自己已吞錯；這層保證 render 不受影響
-            pass
-
-
-def _render_md(vault, turn_id, data, today, base):
+    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-229、T-1）。"""
     from kb._lib import renders
+    data = data if data is not None else load(vault)
     text = render_text(vault, data, today)
     target = Path(vault) / MD_POSIX
     if _hand_edited(vault, turn_id, base if base is not None else data, data) == renders.KEEP_FAILED:
@@ -856,16 +850,14 @@ def export_state(vault):
 
 
 def update_export_state(vault, **fields):
-    """在鎖裡讀改寫匯出狀態檔；值是 None 的鍵拿掉。失敗只記 log。"""
+    """讀改寫匯出狀態檔（呼叫端持有匯出的鎖，就是這個檔的鎖）；值是 None 的鍵拿掉。失敗只記 log。"""
     p = Path(vault) / EXPORT_STATE_POSIX
     try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with FileLock(p):
-            state = export_state(vault)
-            state.update(fields)
-            state = {k: v for k, v in state.items() if v is not None}
-            state["schema_version"] = 1
-            write_json_atomic(p, state)
+        state = export_state(vault)
+        state.update(fields)
+        state = {k: v for k, v in state.items() if v is not None}
+        state["schema_version"] = 1
+        write_json_atomic(p, state)
     except Exception as e:  # noqa: BLE001
         from kb._lib import ledger
         ledger.log_error(vault, f"{EXPORT_STATE_POSIX} 沒寫成：{type(e).__name__}: {e}", source="agenda_export")
@@ -875,19 +867,33 @@ def _now_stamp():
     return dt.datetime.now().astimezone().isoformat(timespec="microseconds")  # 同一秒的成功與失敗也分得出先後
 
 
-def export(vault, data=None):
+def export(vault):
     """設定了 agenda_export_dir 就匯出；沒設定回 None、什麼都不寫。成功回 {"ok": True, "dir", "written", "items"}；
-    任何例外吞掉、寫 hook-errors.log，回 {"ok": False, "dir", "reason"}（reason 是給她聽的白話）。"""
+    任何例外吞掉、寫 hook-errors.log，回 {"ok": False, "dir", "reason"}（reason 是給她聽的白話）。
+    整段在匯出自己的鎖裡（agenda_export.json 的，不是 agenda.json 的），鎖裡才讀 agenda.json 與實體、不收呼叫端的資料：
+    兩個寫入的匯出排隊，後一個讀到的一定是最新內容（T-3）。"""
     from kb._lib import ledger
     folder = ""
     try:
         folder = config.get(vault, "agenda_export_dir").strip()
         if not folder:
             return None
+        lock_path = Path(vault) / EXPORT_STATE_POSIX
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(lock_path):
+            return _export_locked(vault, folder)
+    except Exception as e:  # noqa: BLE001  拿不到匯出的鎖：只記 log，狀態檔不碰
+        ledger.log_error(vault, f"日程匯出到 {folder} 失敗：{type(e).__name__}: {e}", source="agenda_export")
+        return {"ok": False, "dir": folder, "reason": EXPORT_FAILED}
+
+
+def _export_locked(vault, folder):
+    """export 的本體，呼叫端持有匯出的鎖。"""
+    from kb._lib import ledger
+    try:
         if not Path(folder).is_dir():
             raise FileNotFoundError(f"{folder} 不是資料夾或不在")
-        data = data if data is not None else load(vault)
-        payload = export_payload(vault, data)
+        payload = export_payload(vault, load(vault))
         target = Path(folder) / EXPORT_NAME
         written = not _same_export(target, payload)
         if written:
@@ -904,3 +910,11 @@ def export(vault, data=None):
         return {"ok": False, "dir": folder, "reason": reason}
     update_export_state(vault, last_ok_at=_now_stamp())
     return {"ok": True, "dir": folder, "written": written, "items": len(payload["items"])}
+
+
+def safe_export(vault):
+    """寫日程或實體的路徑放開鎖之後叫（T-1）：export 已吞錯，這層再保證呼叫端的行為與回傳不變。"""
+    try:
+        export(vault)
+    except Exception:  # noqa: BLE001
+        pass

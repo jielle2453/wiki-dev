@@ -296,8 +296,7 @@ def _save_dir(vault, folder, turn_id):
 
 
 def _export_now(vault):
-    with kio.FileLock(agenda._path(vault)):  # 跟寫日程時的匯出同一把鎖，兩邊不會同時寫那份檔
-        return agenda.export(vault)
+    return agenda.export(vault)  # export 自己拿匯出的鎖；不握 agenda.json 的鎖，匯出夾再慢也不卡日程（T-1、T-3）
 
 
 def _export_out(as_json, got):
