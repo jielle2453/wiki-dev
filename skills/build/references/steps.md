@@ -1,6 +1,6 @@
 # 建置的每一步
 
-步名對照（`kb build done|redo <步>` 用左邊的）：env 環境、setup 訪談、inventory 盤點、sample 抽樣、cards 全量整理、names 確認名字、synthesis 綜合卡、adopt 收舊 wiki、finish 交付報告。跟她說話只用中文的步名。
+步名對照（`kb build done|redo <步>` 用左邊的）：env 環境、setup 訪談、inventory 盤點、sample 抽樣、cards 全量整理、names 確認名字、synthesis 綜合卡、adopt 收舊 wiki、tags 標籤、finish 交付報告。跟她說話只用中文的步名。
 
 每一步都是：先講要做什麼、問好不好 → 說好才做 → 做完跑 `kb build done <步>` → 講下一步、問要不要繼續（D-194）。
 
@@ -65,6 +65,13 @@
 ## 收舊 wiki
 
 照 `adopt.md`。
+
+## 標籤
+
+- 先問她平常會不會照條件找（例：做水電的廠商、在意醫療的客戶）；她說不用就 `kb build done tags`（第八節空的也過）。
+- 要的話：`kb profile show --json` 看第一節的型別與第八節已有的欄；`kb entity list --json` 找各型別有綜合卡的實體，一個型別讀一輪它們的綜合卡（超過 50 張就挑 50 張讀，設定 `tag_suggest_cards_max`），提出最常出現的幾類條件、每類的詞與各有幾張（例：工種：水電 3、木作 2、磁磚 1），一欄一行列給她。只用卡上寫得到的，不自己編條件。
+- 她刪、改名、說好之後，一欄一個指令：`kb profile add 標籤 型別=<型別> 欄名=<欄> 詞=<詞、詞…>`，一張卡能同時有好幾個詞的加 `可多選=✓`。
+- 加完那個型別的綜合卡都標成要補標籤：`kb cards dispatch --json` 做到 `done`（只改檔頭的標籤行，內文不動），補完再 `kb build done tags`；被擋照那句講。
 
 ## 交付報告
 

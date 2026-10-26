@@ -127,9 +127,9 @@ class Start(Base):
 class Steps(Base):
     def test_sequence(self):
         self.assertEqual(build.sequence({}), ["env", "setup", "inventory", "sample", "cards", "names", "synthesis",
-                                              "finish", "done"])
+                                              "tags", "finish", "done"])
         self.assertEqual(build.sequence({"adopt": "C:/舊"}), ["env", "setup", "inventory", "sample", "cards", "names",
-                                                             "synthesis", "adopt", "finish", "done"])
+                                                             "synthesis", "adopt", "tags", "finish", "done"])
         self.assertEqual(build.sequence({"no_sources": True}), ["env", "setup", "finish", "done"])
         self.assertEqual(build.sequence({"no_sources": True, "adopt": "x"}), ["env", "setup", "adopt", "finish", "done"])
 
@@ -151,9 +151,10 @@ class Steps(Base):
             {"schema_version": 1, "sources": [{"id": "src-1", "alias": "案子", "spec": str(raw), "excludes": []}]},
             ensure_ascii=False), encoding="utf-8")
         self.fake_todo()
-        lines = [build.done(self.D, s)[2] for s in ("setup", "inventory", "sample", "cards", "names", "synthesis")]
+        lines = [build.done(self.D, s)[2] for s in ("setup", "inventory", "sample", "cards", "names", "synthesis", "tags")]
         self.assertEqual(lines[0], "建置：訪談 做完了，下一步 盤點")
-        self.assertEqual(lines[-1], "建置：綜合卡 做完了，下一步 交付報告")
+        self.assertEqual(lines[-2], "建置：綜合卡 做完了，下一步 標籤")
+        self.assertEqual(lines[-1], "建置：標籤 做完了，下一步 交付報告")
         self.assertEqual(self.refused(build.done, self.D, "finish"), "建置報告還沒寫，先跑 kb build report --from <寫好的那份>")
         self.put(report="2026-10-23T10:00:00")
         self.assertEqual(build.done(self.D, "finish")[2], "建置：交付報告 做完了，建置完成")
@@ -207,6 +208,27 @@ class Steps(Base):
         self.at("synthesis")
         self.fake_todo(synthesis_new=[{"entity_id": "e-2", "name": "陳宅", "confirmed": True}])
         self.assertEqual(self.refused(build.done, self.D, "synthesis"), "還有 1 張綜合卡沒寫好，寫完再往下")
+
+    def test_tags_step_view_and_checks(self):
+        """標籤字典驗收 12：tags 這步 do、read；補標籤批次在跑擋；還有沒補完的擋；第八節空的過。"""
+        self.at("tags")
+        got = build.view(self.D, self.data())
+        self.assertEqual((got["do"], got["read"], got["after"]),
+                         (["kb profile show --json"], "references/steps.md 標籤", "kb build done tags"))
+        turn.SESSION = "sid-a"
+        now = datetime.now().strftime(build.TIME)
+        self.fake_todo()
+        (self.D / batches.BATCHES_POSIX).write_text(json.dumps({"schema_version": 1, "agents": [], "jobs": [
+            {"job": "j-1", "session_id": "sid-a", "status": "open"}], "batches": [
+            {"batch": "b-1", "job": "j-1", "kind": "synthesis", "items": ["e-1"], "created": now, "status": "open"}]}),
+            encoding="utf-8")
+        self.assertEqual(self.refused(build.done, self.D, "tags"), "還有 1 批在背景整理，做完再往下")
+        (self.D / batches.BATCHES_POSIX).unlink()
+        self.fake_todo(synthesis_stale=[{"entity_id": "e-1", "name": "王宅", "path": "案子/王宅/王宅.md",
+                                         "reason": "補標籤（工種）", "added": [], "changed": [], "removed": []}])
+        self.assertEqual(self.refused(build.done, self.D, "tags"), "還有 1 張綜合卡沒補完標籤，補完再往下")
+        self.fake_todo()
+        self.assertEqual(build.done(self.D, "tags")[2], "建置：標籤 做完了，下一步 交付報告")
 
     def test_redo(self):
         self.at("cards")

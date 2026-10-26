@@ -42,7 +42,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" build status --json
 1. 跑 `build status --json`。印的是一句話（exit 3）就原句照貼、停下；那句是「另一個對話正在建置」，照分辨的接手那條。`not_empty` 是 true：先提一句「這個夾裡已經有東西」，問服務人員要不要換位置，說不換才往下。
 2. 照 `step` 讀 `read`（相對於本 skill 資料夾），照那一節先講這一步要做什麼、問好不好，說好才照 `do` 做；指令裡 `<…>` 的空格填她說的。
 3. 做完跑 `after`（`kb build done <步>`）。被擋就照那句講、把缺的補做完再跑一次；過了講下一步要做什麼、問要不要繼續，說好回到 1。
-4. 抽樣、全量整理、綜合卡、收舊 wiki 這幾步派背景的製卡助手：先 Read `${CLAUDE_PLUGIN_ROOT}/skills/ingest/SKILL.md` 骨架裡「讀派工結果」那一點，照它做（批次用 Agent 工具背景派、收到通知再派）。收到通知後對她只說 dispatch 給的 `say`，不另外加話；她問別的照常回答。
+4. 抽樣、全量整理、綜合卡、收舊 wiki、標籤這幾步派背景的製卡助手：先 Read `${CLAUDE_PLUGIN_ROOT}/skills/ingest/SKILL.md` 骨架裡「讀派工結果」那一點，照它做（批次用 Agent 工具背景派、收到通知再派）。收到通知後對她只說 dispatch 給的 `say`，不另外加話；她問別的照常回答。
 5. `step` 走到報告那步做完，對話裡講三句重點（資料去了哪、怎麼開始問、還有什麼要她決定），問她要不要現在試問一個問題。
 
 ## 共通

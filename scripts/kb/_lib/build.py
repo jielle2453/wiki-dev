@@ -1,7 +1,8 @@
 """建置（build 第 2 點，D-189～D-194、D-201、D-202）：.system/build.json schema 1 與 kb build 九個子子命令的本體。
 
 建置在 cwd 建（桌面版開對話時選的那個資料夾，hook 才管得到）。步驟照 STEPS：env → setup → inventory → sample → cards → names
-→ synthesis → adopt（記了舊 wiki 才有）→ finish → done；setup 做完時沒登記任何資料夾（no_sources）就跳過 inventory～synthesis（D-044）。
+→ synthesis → adopt（記了舊 wiki 才有）→ tags（標籤字典第六節，D-238）→ finish → done；setup 做完時沒登記任何資料夾（no_sources）
+就跳過 inventory～synthesis 與 tags（D-044）。tags 做完的前提：補標籤的批次不在跑、沒有只差補標籤的綜合卡（第八節空的照過）。
 認知識庫只看 .system/（D-190 再補）：cwd 有 .system/ 但沒有 build.json、或建置做完了 → 擋（ALREADY）；cwd 在別的知識庫裡面也擋。
 build.json 讀改寫都在它的鎖裡、寫前備進回合（by program）；壞檔丟 Unreadable 帶檔名。同時兩個建置（D-194）：記著的 session
 不是這一個、lock_until 還沒到 → BUSY（說最後動作的時間；那個對話關掉了就說「接手建置」）；這個 session 每打一次 kb build
@@ -40,10 +41,10 @@ from kb._lib.paths import read_manifest
 
 BUILD_POSIX = ".system/build.json"
 SCHEMA_VERSION = 1
-STEPS = ("env", "setup", "inventory", "sample", "cards", "names", "synthesis", "adopt", "finish", "done")
+STEPS = ("env", "setup", "inventory", "sample", "cards", "names", "synthesis", "adopt", "tags", "finish", "done")
 STEP_TEXT = {"env": "環境", "setup": "訪談", "inventory": "盤點", "sample": "抽樣", "cards": "全量整理", "names": "確認名字",
-             "synthesis": "綜合卡", "adopt": "收舊 wiki", "finish": "交付報告", "done": "完成"}
-SOURCE_STEPS = ("inventory", "sample", "cards", "names", "synthesis")  # 沒登記資料夾就跳過（D-044）
+             "synthesis": "綜合卡", "adopt": "收舊 wiki", "tags": "標籤", "finish": "交付報告", "done": "完成"}
+SOURCE_STEPS = ("inventory", "sample", "cards", "names", "synthesis", "tags")  # 沒登記資料夾就跳過（D-044）
 LOCK_MINUTES = 30
 REPORT_POSIX = "系統/建置報告.md"
 REPORT_HEADS = ("你的資料去了哪", "怎麼開始問", "我猜的請改", "讀不到的", "要你決定的", "數字")  # D-066
@@ -74,6 +75,7 @@ LEFT_NAMES = "還有 {n} 個名字沒確認，確認完再往下"
 LEFT_SYNTHESIS = "還有 {n} 張綜合卡沒寫好，寫完再往下"
 RUNNING_ADOPT = "還在背景讀舊的 wiki，讀完再往下"
 ADOPT_SYNTHESIS = "剛記的口述、裁示要寫進 {n} 張綜合卡，先跑 kb cards dispatch 更新完再往下"
+LEFT_TAGS = "還有 {n} 張綜合卡沒補完標籤，補完再往下"
 NO_REPORT = "建置報告還沒寫，先跑 kb build report --from <寫好的那份>"
 REPORT_OK = "建置報告寫好了：" + REPORT_POSIX
 REPORT_MISSING = "建置報告少了一段：{}"
@@ -267,6 +269,7 @@ def view(vault, data):
         "cards": ["kb cards todo --json", "kb cards dispatch --json"],
         "names": ["kb cards todo --json"],
         "synthesis": ["kb cards dispatch --json"],
+        "tags": ["kb profile show --json"],
         "adopt": [f"kb build adopt {_arg(data.get('adopt') or '')} --check --json",
                   f"kb build adopt {_arg(data.get('adopt') or '')} --extract --json", "kb cards dispatch --adopt --json"],
         "finish": ["kb build report --facts --json", f"kb build report --from {_arg(_workspace_report(vault))}"],
@@ -446,6 +449,15 @@ def _check(vault, data, step):
         n = sum(1 for _b, k, _i in parts["synthesis"] if k not in skip)
         if n:
             raise Refused(ADOPT_SYNTHESIS.format(n=n))
+    elif step == "tags":
+        run = _running(vault, ("synthesis",))
+        if run:
+            raise Refused(RUNNING.format(n=len(run)))
+        parts = batches.split(vault, batches._collect(vault))
+        skip = _given_up(vault)
+        n = sum(1 for b, k, i in parts["synthesis"] if k not in skip and batches.tag_only(b, i))
+        if n:
+            raise Refused(LEFT_TAGS.format(n=n))
     elif step == "finish":
         if not data.get("report"):
             raise Refused(NO_REPORT)

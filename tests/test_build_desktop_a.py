@@ -300,7 +300,7 @@ class AdoptStepFinish(unittest.TestCase):
         self.assertEqual(str(cm.exception), "剛記的口述、裁示要寫進 1 張綜合卡，先跑 kb cards dispatch 更新完再往下")
         self.assertTrue((self.D / ".system" / "temp" / "adopt").is_dir())
         self.out = {}
-        self.assertEqual(build.done(self.D, "adopt")[2], "建置：收舊 wiki 做完了，下一步 交付報告")
+        self.assertEqual(build.done(self.D, "adopt")[2], "建置：收舊 wiki 做完了，下一步 標籤")
         self.assertFalse((self.D / ".system" / "temp" / "adopt").exists())
 
 
