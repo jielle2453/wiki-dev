@@ -296,9 +296,12 @@ def _list(vault, as_json, tag_args=None):
     for e in data["entities"]:
         if keep is not None and e.get("id") not in keep:
             continue
-        has_card = bool(e.get("card")) and entities.locate(vault, e) is not None if e.get("type") else False
-        rows.append(dict(e, mounted=len(mounts.get(e["name"], [])) if e.get("status") == "active" else 0,
-                         has_card=has_card))
+        where = entities.locate(vault, e) if e.get("card") and e.get("type") else None
+        row = dict(e, mounted=len(mounts.get(e["name"], [])) if e.get("status") == "active" else 0,
+                   has_card=where is not None)
+        if got is not None:
+            row["synthesis"] = where  # --tag：符合的綜合卡在哪（相對總資料夾），回答只讀這幾張
+        rows.append(row)
     if as_json:
         payload = {"entities": rows} if got is None else {"entities": rows, "counts": got["counts"], "tag": got["tag"]}
         print(json.dumps(payload, ensure_ascii=False))

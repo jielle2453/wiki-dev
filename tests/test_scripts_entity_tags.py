@@ -67,6 +67,9 @@ class TagFilter(Base):
         self.assertEqual(got["tag"], [{"field": "工種", "words": ["水電"]}, {"field": "階段", "words": ["施工"]}])
         self.assertEqual([e["name"] for e in got["entities"]], ["信義王", "內湖李"])
         self.assertTrue(all("mounted" in e and "has_card" in e for e in got["entities"]))
+        self.assertEqual([e["synthesis"] for e in got["entities"]], [T.XINYI_REL, "案子/內湖李/內湖李.md"])
+        plain = json.loads(self.kb("entity", "list", "--json").stdout)["entities"]
+        self.assertFalse(any("synthesis" in e for e in plain), "沒帶 --tag 跟以前一樣")
 
     def test_refusals(self):
         cases = [
