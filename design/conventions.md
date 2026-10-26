@@ -118,7 +118,7 @@ llm-wiki-j/
 | commit | 第一行 `<題目>: <一句話>`；結尾 `Spec: design/specs/<檔名>` 加各 session 自己的 Co-Authored-By；用 `git commit -- <檔>` 只提交自己改的檔，不 `-a`（I-093） |
 | author | email 用這台機器的 global 設定（2026-10-12 已設）。實作 session `git -c user.name="實作:<題目>" commit`，設計 session `git -c user.name="設計" commit`，都只改 user.name。測試與確認 session 只 commit 自己的報告，user.name 用「<題目>測試」「<題目>確認」。另一台電腦 email 用自己的 |
 | 行尾 | `.gitattributes`：`* text=auto eol=lf` |
-| 不進 repo | `__pycache__/`、`*.pyc`、`.claude/settings.local.json`、`*.tmp`、測試環境、任何客戶資料 |
+| 不進 repo | `__pycache__/`、`*.pyc`、`.pytest_cache/`、`.claude/settings.local.json`、`*.tmp`、測試環境、任何客戶資料 |
 | 版號對齊 | 測試檢查 `plugin.json` 與 CHANGELOG 最新一段一致 |
 
 ## 四、技術基線
@@ -127,14 +127,14 @@ llm-wiki-j/
 |---|---|
 | 目標環境 | 客戶用 Claude Code 桌面版，Windows；plugin 由公開清單網址的 marketplace 裝在整台電腦（D-171、D-172）。開發、實作、測試用 CLI 或 VS Code；確認 session 用桌面版，plugin 用本機快照市集只裝在測試知識庫（local 範圍，process 六、B-093） |
 | Python | 3.10 以上 |
-| 相依 | 核心只用標準函式庫。唯一選配是 `pypdfium2`（PDF 抽文字與掃描頁轉圖，D-099 修訂），缺了降級並明講；不用 markitdown、pdfplumber、poppler |
+| 相依 | 核心只用標準函式庫。開發機另裝 `pytest`、`pytest-xdist`（`python -m pip install --user pytest pytest-xdist`），只用來平行跑測試，不進 plugin。唯一選配是 `pypdfium2`（PDF 抽文字與掃描頁轉圖，D-099 修訂），缺了降級並明講；不用 markitdown、pdfplumber、poppler |
 | 編碼 | 我們自己的檔（JSON、md、設定、腳本輸出）一律 UTF-8，讀寫帶 `encoding=`；腳本開頭 `sys.stdout.reconfigure(encoding="utf-8")`。客戶原檔由 `kb convert` 偵測：整份試 UTF-8，再試 cp950，都不行標「讀不到：編碼」明講，不靜默取代字元（I-003）。另存的純文字一律 UTF-8，CSV 帶 BOM 給 Excel |
 | 平台 | Windows 優先；`pathlib`；長路徑與 Git Bash 路徑都要認 |
 | 腳本入口 | 唯一入口 `scripts/kb.py <子命令>`，呼叫寫 `python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令>`。統一 `--json`、`--help`。不用 `python -m`。模型用 Bash 工具呼叫、一次一個指令、路徑加引號、不 cd |
 | 門檻 | 全在 `config/defaults.json`；客戶端 `.system/config.json` 覆寫 |
 | 狀態檔 | `.system/*.json` 每個帶 `schema_version`；升級含遷移 |
 | 真相模式 | JSON 為真，`系統/*.md` 是渲染視圖，頂端三行：這是什麼、怎麼用、由程式產生改了會被覆蓋（D-067）；格式住程式，範例在 `tests/fixtures/` |
-| 測試 | `unittest`，`tests/test_<模組>.py`，`python -m unittest discover tests`，全綠才算改完 |
+| 測試 | 用 `unittest` 寫，`tests/test_<模組>.py`。全套用 `python -m pytest -n auto -q tests` 平行跑（2026-10-26 實測 32 核心約 100 秒，原本 11～13 分鐘；issue #11），沒裝 pytest 的照舊 `python -m unittest discover tests`，結果一樣。開發中只跑 spec「相關測試」列的檔；全套在三個點跑：實作 commit 之後、測試、發行改版號後。全綠才算改完 |
 | 預算 | 常駐字數、`rules/core.md` 行數、每個 `SKILL.md` 行數各有上限，`tests/test_budget.py` 守。初始值見 D-070 |
 | 權限 | repo `.claude/settings.json` 放行測試與 `kb.py`；客戶端 settings 不放行任何路徑，讀取與 `kb.py` 由守門 hook allow（D-073），高風險子命令放 `permissions.ask` |
 
