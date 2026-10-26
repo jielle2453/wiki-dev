@@ -1337,7 +1337,7 @@ def _plain_sections(sections):
 
 def card_types_for_todo(data):
     """給 cards todo --json 的 profile 塊：去掉 source、date；多型別、每類段落、關於你（實體與綜合卡第 10 點）、
-    標籤字典（tags，照型別分組）。"""
+    標籤字典（tags，照型別分組）、偏好（preferences，第六節每條的那句，製卡者照寫卡有關的做，D-503）。"""
     return {"card_types": [{"name": c["name"], "sections": _plain_sections(c.get("sections"))}
                            for c in data.get("card_types") or []],
             "exclusions": [{"kind": e["kind"], "action": e["action"]} for e in data.get("exclusions") or []],
@@ -1346,7 +1346,8 @@ def card_types_for_todo(data):
                                    for s in data.get("synthesis_sections") or []],
             "about": [{"name": a["name"], "kind": a.get("kind"), "aliases": list(a.get("aliases") or [])}
                       for a in data.get("about") or []],
-            "tags": tag_groups(data)}
+            "tags": tag_groups(data),
+            "preferences": [p["text"] for p in data.get("preferences") or []]}
 
 
 def tag_groups(data):

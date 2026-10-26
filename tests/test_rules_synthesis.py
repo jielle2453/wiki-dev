@@ -1,4 +1,4 @@
-"""rules/synthesis.md（note 改知識第 8 點，驗收 14）：編號 S-01～S-33 連號不重複；S-11、S-12、S-14、S-26 寫到口述，
+"""rules/synthesis.md（note 改知識第 8 點，驗收 14）：編號 S-01～S-34 連號不重複；S-11、S-12、S-14、S-26 寫到口述，
 S-30～S-32 寫口述為準、不採用、兩個依據都標。"""
 import re
 import unittest
@@ -15,7 +15,7 @@ class SynthesisRules(unittest.TestCase):
 
     def test_numbering_is_contiguous(self):
         found = re.findall(r"^- (S-\d{2}) ", self.text, re.MULTILINE)
-        self.assertEqual(found, [f"S-{i:02d}" for i in range(1, 34)])
+        self.assertEqual(found, [f"S-{i:02d}" for i in range(1, 35)])
 
     def test_changed_rules_mention_statements(self):
         self.assertIn("〔s-", self.rules["S-11"])
