@@ -37,9 +37,9 @@ def add_arguments(sub):
 
 
 def _note(vault, text, target=None):
-    t = turn.turn_data(vault, target) if target else turn.current(vault)
+    t = turn.turn_data(vault, target) if target else turn.last(vault)  # 補記剛答完那句，不開 0000（D-502 裁定 3）
     if t is None:
-        print(NO_SUCH_TURN.format(target))
+        print(NO_SUCH_TURN.format(target or ""))
         return 3
     note = credentials.mask_secrets(" ".join(str(text).split()))  # 先壓空白再遮（M2「一律」，驗收 37）
     journal.update_turn(vault, turn.journal_key(t), note=note, note_by="ai")  # 退回後接著的回合寫回原回合那行
@@ -52,7 +52,10 @@ def _note(vault, text, target=None):
 
 
 def _redact(vault, text):
-    t = turn.current(vault)
+    t = turn.last(vault)  # 同 _note：補記剛答完那句
+    if t is None:
+        print(NO_SUCH_TURN.format(""))
+        return 3
     head = turn.prompt_head(vault, text)
     journal.update_turn(vault, turn.journal_key(t), prompt=head)
     turn.set_prompt_head(vault, t.get("session_id"), head)
