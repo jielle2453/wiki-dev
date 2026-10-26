@@ -252,6 +252,47 @@ def front_tag(front, field):
     return None
 
 
+def tag_changes(vault, turn_ids):
+    """這幾個回合寫過的綜合卡（回合帳裡 <型別>/<名稱>/<名稱>.md），標籤行跟那一回合的備份比多了的詞（新寫的卡全部算）：
+    [(名稱, [(欄, [新加的詞])])]，照第一次寫的順序；拿掉的不算（標籤字典第五節）。只讀。"""
+    from kb._lib import cards, turn
+    prof = entities._profile(vault)
+    types = {entities.key(t["name"]) for t in prof.get("types") or []}
+    olds, order = {}, []
+    for tid in turn_ids:
+        for row in turn.entries(vault, tid):
+            rel = str(row.get("path") or "")
+            parts = rel.split("/")
+            if (len(parts) != 3 or parts[2] != f"{parts[1]}.md" or entities.key(parts[0]) not in types
+                    or rel in olds):
+                continue
+            old = None
+            if row.get("action") != "create":
+                try:
+                    old = (Path(vault) / turn.VERSIONS_REL / tid / "files" / rel).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+            olds[rel] = old
+            order.append(rel)
+    out = []
+    for rel in order:
+        try:
+            front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
+            before = cards.parse_front(olds[rel]) if olds[rel] is not None else {}
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        had = {entities.key(f): {entities.key(w) for w in tag_words(v)}
+               for f, v in card_tags(before, prof, front.get("型別"))}
+        added = []
+        for f, v in card_tags(front, prof, front.get("型別")):
+            more = [w for w in tag_words(v) if entities.key(w) not in had.get(entities.key(f), set())]
+            if more:
+                added.append((f, more))
+        if added:
+            out.append((front.get("名稱") or rel.split("/")[1], added))
+    return out
+
+
 DROP = object()  # retag 的 fn 回它：拿掉那一行
 
 
