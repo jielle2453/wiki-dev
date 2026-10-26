@@ -189,15 +189,26 @@ def card_tags(front, prof, type_):
 
 
 def header_tags(vault, entity, prof):
-    """header_for 要帶的標籤行：這個實體的綜合卡在、讀得懂就帶卡上現有的；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
+    """header_for 要帶的標籤行：這個實體的綜合卡在、讀得懂就帶卡上現有的（字典外的詞、單選寫了兩個的那一欄留空，
+    不把錯的帶回去）；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
     from kb._lib import cards
     p = Path(vault) / card_rel(entity)
     if p.is_file():
         try:
-            return card_tags(cards.parse_front(p.read_text(encoding="utf-8")), prof, entity.get("type"))
+            front = cards.parse_front(p.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
-            pass
+            front = None
+        if front is not None:
+            rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, entity.get("type"))}
+            return [(f, v if _tag_ok(rows[entities.key(f)], v) else None)
+                    for f, v in card_tags(front, prof, entity.get("type"))]
     return [(t["field"], None) for t in profile.tags_for(prof, entity.get("type"))]
+
+
+def _tag_ok(row, v):
+    words = tag_words(v)
+    known = {entities.key(w) for w in row.get("words") or []}
+    return all(entities.key(w) in known for w in words) and (row.get("multi") or len(words) <= 1)
 
 
 def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, prof=None, know=None, tags=None):

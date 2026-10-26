@@ -87,6 +87,13 @@ class Header(Base):
         self.assertIn(("tag", "檔頭的「工種」不是這類卡的標籤欄（第八節沒有）"), found)
         self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-2:], ["階段: 施工", "---"], "壞卡的 header 也不帶拿掉的欄")
 
+    def test_invalid_words_blanked_in_header(self):
+        """壞卡（詞不在字典、單選寫兩個）的 header 不把錯的詞帶回去：那一欄留空給製卡者重標，對的照留。"""
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 油漆]", "階段: [報價, 施工]"])
+        self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-3:], ["工種:", "階段:", "---"])
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電]", "階段: 驗收"])
+        self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-3:], ["工種: [水電]", "階段:", "---"])
+
     def test_card_without_tag_lines_gets_none_in_stale_header(self):
         T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, [])
         E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
