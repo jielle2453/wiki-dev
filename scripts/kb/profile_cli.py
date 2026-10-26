@@ -662,6 +662,7 @@ def _plan_merge(vault, data, name, target):
             raise Refused(f"「{dst['name']}」底下已經有「{e['name']}」，沒有合併；先改名或搬走")
     if (vault / AI_DIR / row["name"]).is_dir() and (vault / AI_DIR / dst["name"] / row["name"]).exists():
         raise Refused(f"「{AI_DIR}/{dst['name']}」底下已經有「{row['name']}」，沒有合併；先改名或搬走")
+    _merged_tags(data, row["name"], dst["name"])  # 第八節併過去超過詞數上限先擋（裁定 6）
     folders = [{"from": f"{row['name']}/{e['name']}", "to": f"{dst['name']}/{e['name']}"} for e in members
                if (vault / row["name"] / e["name"]).is_dir()]
     if (vault / AI_DIR / row["name"]).is_dir():
@@ -782,6 +783,30 @@ def _rename_type(vault, data, row, new, members, imp, turn_id):
     return f"已把型別「{old}」改名叫「{new}」：{imp['entities']} 個實體、{imp['file_cards']} 張檔案卡跟著搬；不對可以說退回", changed
 
 
+TAGS_TOO_MANY = "併過去之後「{type}／{field}」會有 {n} 個詞，超過 {max} 個；先拿掉一些再併"
+
+
+def _merged_tags(data, src, dst):
+    """型別合併時的第八節（裁定 6）：來源型別的列併進目標——同名欄併詞（目標的在前）、可多選任一有勾就勾，
+    目標沒有的欄整列帶過去（型別換成目標）；卡上的標籤行照留就驗得過。併完超過 TAG_WORDS_MAX 個詞丟 Refused。"""
+    out = [dict(t) for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(src)]
+    for t in data.get("tags") or []:
+        if profile._key(t["type"]) != profile._key(src):
+            continue
+        hit = next((x for x in out if profile._key(x["type"]) == profile._key(dst)
+                    and profile._key(x["field"]) == profile._key(t["field"])), None)
+        if hit is None:
+            out.append(dict(t, type=dst))
+            continue
+        have = {profile._key(w) for w in hit["words"]}
+        hit["words"] = list(hit["words"]) + [w for w in t["words"] if profile._key(w) not in have]
+        hit["multi"] = bool(hit.get("multi") or t.get("multi"))
+        if len(hit["words"]) > profile.TAG_WORDS_MAX:
+            raise Refused(TAGS_TOO_MANY.format(type=dst, field=hit["field"], n=len(hit["words"]),
+                                               max=profile.TAG_WORDS_MAX))
+    return out
+
+
 def _merge_type(vault, data, row, dst, members, imp, turn_id):
     src = row["name"]
 
@@ -797,7 +822,7 @@ def _merge_type(vault, data, row, dst, members, imp, turn_id):
             _move(vault, undo, turn_id, f"{AI_DIR}/{src}", f"{AI_DIR}/{dst['name']}/{src}")
         types = [t for t in data["types"] if t is not row]
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(src)]
-        tags = [t for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(src)]
+        tags = _merged_tags(data, src, dst["name"])
         changed += _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags), turn_id, undo)
         changed += entities.retype(vault, src, dst["name"], turn_id, undo)  # 已移除、已合併的條目也換掉舊型別
         left = _item_count(vault / src) if (vault / src).is_dir() else 0
@@ -932,9 +957,12 @@ FIELD_TAKEN = "「{type}」已經有「{to}」這個標籤欄"
 SAME_WORD = "「{word}」跟「{to}」是同一個"
 SAME_NAME = "「{word}」本來就叫這個名字"
 LAST_WORD = "「{field}」只剩「{word}」這個詞；要拿掉整欄用 {cmd}"
-HAND_DROP = "第八節拿掉了「{type}／{field}」的「{word}」，有 {n} 張綜合卡用到；沒有套用"
-HAND_DROP_FIELD = "第八節拿掉了「{type}／{field}」這一欄，有 {n} 張綜合卡用到；沒有套用"
+HAND_DROP = "第八節拿掉了「{type}／{field}」的「{word}」，有 {n} 張綜合卡用到"
+HAND_DROP_FIELD = "第八節拿掉了「{type}／{field}」這一欄，有 {n} 張綜合卡用到"
+HAND_NOT_APPLIED = "沒有套用"
 HAND_QUESTION = "{line}：是改名、要從卡上拿掉，還是要併到別的詞？"
+HAND_QUESTION_MANY = "第八節拿掉了 {n} 個有綜合卡用到的詞或欄：是改名、要從卡上拿掉，還是要併到別的詞？"
+HAND_SINGLE = "{type}／{field} 有 {n} 張卡標了兩個以上的詞；要改成單選得先拿掉多的"
 HAND_REVERT_NOTE = "設定檔第八節要客戶自己改回原樣（我不能改這個檔），改好再照她說的跑 kb profile tag merge 或 rename"
 DROP_NONE = "第八節沒有拿掉卡上用到的詞或欄，不用 --drop-tags"
 RENAME_NONE = "--rename-tag {type} {field} {old} {new} 對不上第八節的改動（要拿掉一個有卡用到的詞、多一個詞）"
@@ -1175,6 +1203,7 @@ def _tag_plan(vault, st, drop_tags, rename_tags):
     plan = {"renames": [], "drops": [], "renamed_to": set()}
     old = st["data"].get("tags") or [] if st["data"] else []
     new = (st["new"] or {}).get("tags") or [] if st["state"] == "changed" else old
+    _check_single(vault, old, new)
     removals, pairs = _tag_removals(vault, old, new)
     left = list(removals)
     for type_name, field, was, now in rename_tags or ():
@@ -1198,6 +1227,19 @@ def _tag_plan(vault, st, drop_tags, rename_tags):
     if left:
         raise _hand_refusal(left, pairs)
     return plan
+
+
+def _check_single(vault, old, new):
+    """手改拿掉可多選的勾、卡上那一欄已有兩個以上的詞（裁定 7）：丟 Refused，結果清單只有先不套用；旗標也不放過。"""
+    for t in new:
+        was = _tag_row(old, t["type"], t["field"])
+        if t.get("multi") or was is None or not was.get("multi"):
+            continue
+        n = sum(1 for _e, _rel, f in synthesis.tagged_cards(vault, t["type"])
+                if len(synthesis.tag_words(synthesis.front_tag(f, t["field"]))) > 1)
+        if n:
+            line = HAND_SINGLE.format(type=t["type"], field=t["field"], n=n)
+            raise Refused(line, {"question": line, "results": [_result(1, "先不套用")]})
 
 
 def _tag_removals(vault, old, new):
@@ -1226,15 +1268,29 @@ def _tag_removals(vault, old, new):
     return out, pairs
 
 
+def _drop_line(r):
+    if r["word"] is None:
+        return HAND_DROP_FIELD.format(type=r["type"], field=r["field"], n=len(r["cards"]))
+    return HAND_DROP.format(type=r["type"], field=r["field"], word=r["word"], n=len(r["cards"]))
+
+
 def _hand_refusal(left, pairs):
+    """手改拿掉有卡用到的詞或欄：一個一句「…；沒有套用」，好幾個一行一個、最後一行「沒有套用」（裁定 8）。"""
     first = left[0]
-    n = len(first["cards"])
-    if first["word"] is None:
-        line = HAND_DROP_FIELD.format(type=first["type"], field=first["field"], n=n)
+    if len(left) > 1:
+        line = "\n".join([_drop_line(r) for r in left] + [HAND_NOT_APPLIED])
+        question = HAND_QUESTION_MANY.format(n=len(left))
+        drop_label = ("卡上的這幾個詞一起拿掉，照你改的套用" if all(r["word"] for r in left)
+                      else "卡上的這幾個詞與欄一起拿掉，照你改的套用")
+        revert_label = "其實是要併到別的詞：先把第八節那幾格改回去，再跟我說要併到哪個"
+    elif first["word"] is None:
+        line = f"{_drop_line(first)}；{HAND_NOT_APPLIED}"
+        question = HAND_QUESTION.format(line=_drop_line(first))
         drop_label = f"卡上的「{first['field']}」這一行一起拿掉，照你改的套用"
         revert_label = f"其實是改名：先把第八節那格改回去，再跟我說「{first['field']}」改叫什麼"
     else:
-        line = HAND_DROP.format(type=first["type"], field=first["field"], word=first["word"], n=n)
+        line = f"{_drop_line(first)}；{HAND_NOT_APPLIED}"
+        question = HAND_QUESTION.format(line=_drop_line(first))
         drop_label = f"卡上的{first['word']}一起拿掉，照你改的套用"
         revert_label = f"其實是要併到別的詞：先把第八節那格改回去，再跟我說{first['word']}併到哪個"
     results = []
@@ -1248,7 +1304,7 @@ def _hand_refusal(left, pairs):
     results.append(_result(len(results) + 1, drop_label, [cmd("profile", "apply", "--drop-tags")], True))
     results.append(dict(_result(len(results) + 1, revert_label), note=HAND_REVERT_NOTE))
     results.append(_result(len(results) + 1, "先不套用"))
-    return Refused(line, {"question": HAND_QUESTION.format(line=line.rsplit("；", 1)[0]), "results": results})
+    return Refused(line, {"question": question, "results": results})
 
 
 def _apply_tag_plan(vault, plan, turn_id):

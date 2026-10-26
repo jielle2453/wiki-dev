@@ -218,6 +218,33 @@ class TypeOps(Base):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertNotIn(("業主", "在意"), self.tags())
 
+    def test_type_merge_merges_tags_and_reverts(self):
+        """裁定 6：合併時來源型別的列併進目標（同名欄併詞、目標沒有的欄整列帶過去、可多選任一有勾），卡上標籤行照留、驗得過。"""
+        T.set_tags(self.V, T.DEFAULT_TAGS + (T.tag("業主", "工種", ["油漆", "水電"], False),))
+        before = tree(self.V)
+        r = self.kb("type", "merge", "案子", "--into", "業主")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        rows = {(t["type"], t["field"]): t for t in profile.load(self.V)["tags"]}
+        self.assertEqual(set(rows), {("業主", "工種"), ("業主", "階段")})
+        self.assertEqual(rows[("業主", "工種")]["words"], ["油漆", "水電", "木作", "磁磚", "系統櫃"])
+        self.assertTrue(rows[("業主", "工種")]["multi"])
+        self.assertEqual((rows[("業主", "階段")]["words"], rows[("業主", "階段")]["multi"]), (["報價", "施工", "完工"], False))
+        from kb._lib import synthesis
+        self.assertEqual(self.line("業主/信義王/信義王.md", "工種"), "工種: [水電, 木作]")
+        self.assertEqual(synthesis.validate(self.V, "業主/信義王/信義王.md"), (True, ""))
+        rv = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(rv.returncode, 0, rv.stdout)
+        self.assertEqual(tree(self.V), before)
+
+    def test_type_merge_too_many_words_refused(self):
+        T.set_tags(self.V, (T.tag("案子", "工種", [f"甲{i}" for i in range(20)]),
+                            T.tag("業主", "工種", [f"乙{i}" for i in range(20)])))
+        before = tree(self.V)
+        r = self.kb("type", "merge", "案子", "--into", "業主")
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (3, "併過去之後「業主／工種」會有 40 個詞，超過 30 個；先拿掉一些再併"))
+        self.assertEqual(tree(self.V), before)
+
 
 class HandEdit(Base):
     def edit_md(self, old, new):
@@ -274,6 +301,37 @@ class HandEdit(Base):
         r = self.kb("apply")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertEqual(self.fixes()[LI_REL], "補標籤（工種：油漆）")
+
+    def test_unticking_multi_with_multi_word_cards_refused(self):
+        """裁定 7：手改拿掉可多選的勾、卡上有兩個以上的詞 → 拒絕、結果清單只有先不套用；沒有這種卡照常套用。"""
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 | ✓ |", "| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |  |")
+        before = tree(self.V)
+        code, got = self.json_of("apply")
+        self.assertEqual(code, 3)
+        self.assertEqual(got["message"], "案子／工種 有 1 張卡標了兩個以上的詞；要改成單選得先拿掉多的")
+        self.assertEqual([(r["label"], r["do"]) for r in got["results"]], [("先不套用", [])])
+        self.assertEqual(tree(self.V), before)
+        r = self.kb("apply", "--drop-tags")
+        self.assertEqual(r.returncode, 3, "旗標也不放過")
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電]", "階段: 施工"])
+        r = self.kb("apply")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertFalse(next(t for t in profile.load(self.V)["tags"] if t["field"] == "工種")["multi"])
+
+    def test_several_removals_all_listed(self):
+        """裁定 8：一次拿掉好幾個有卡用到的詞，拒絕句一行一個全部列出。"""
+        self.edit_md("| 案子 | 工種 | 水電、木作、磁磚、系統櫃 |", "| 案子 | 工種 | 磁磚、系統櫃 |")
+        self.edit_md("| 案子 | 階段 | 報價、施工、完工 |", "| 案子 | 階段 | 報價、完工 |")
+        code, got = self.json_of("apply")
+        self.assertEqual(code, 3)
+        self.assertEqual(got["message"].splitlines(), [
+            "第八節拿掉了「案子／工種」的「水電」，有 2 張綜合卡用到",
+            "第八節拿掉了「案子／工種」的「木作」，有 2 張綜合卡用到",
+            "第八節拿掉了「案子／階段」的「施工」，有 1 張綜合卡用到",
+            "沒有套用"])
+        self.assertEqual(got["results"][0]["label"], "卡上的這幾個詞一起拿掉，照你改的套用")
+        r = self.kb("apply")
+        self.assertEqual(r.stdout.strip().splitlines()[0], "第八節拿掉了「案子／工種」的「水電」，有 2 張綜合卡用到")
 
 
 if __name__ == "__main__":
