@@ -31,7 +31,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 1. **討論與決策**（設計）。每個抉擇當場寫進 `decisions.md`。你說「可以」才算定；只在對話裡講過的不算。
 2. **寫 spec**（設計）。一題的大小以實作 session 一次對話做得完為準。**驗收準則沒寫完，spec 不算完。** 你看過說可以，狀態改「定稿」才交出去。從 issue 來的題，先看 `backlog.md` 索引同一區，相關的列進 spec 一起做、做完一起關。每一步換階段時，spec 的狀態與 issue 的狀態 label 一起改（開發中、測試中、確認中、發行中；issue 沒有「定稿」，spec 定稿時 issue 還是設計中）；發行後關 issue。
 3. **實作**（新 session，在 repo）。只給 spec。只改「可以動」列的檔。有疑義停下來回報，不自己決定。寫的時候只跑 spec「相關測試」列的檔（`python -m pytest -q <檔>…`）；做完 commit，**commit 之後**才跑全套一次看 exit code（全套的跑法見 conventions 技術基線「測試」；`test_repo_hygiene` 只查已追蹤的檔，commit 前的綠不算，I-112），紅了修完再 commit。回報之前對自己的 diff 跑一次 `/code-review high`，修掉正確性的問題（風格的不用）再 commit。不 push。回報改了哪些檔、commit hash、測試結果、疑義，以及 spec 以外發現的問題（不寫進 backlog）。
-4. **測試**（新 session，在實作的 worktree）。只給 spec。逐條驗，每條寫過或不過附證據。不改程式。報告存 worktree 的 `design/reports/<題目>-測試.md`，只 commit 這份報告。報告寫好後，照 spec 就修得好的發現（驗收不過、正確性的錯）直接 SendMessage 給實作 session 修，修完只驗那幾條加無退步，最多兩輪。要改 spec 或客戶看得到的發現回設計 session；兩輪後還沒過也回設計 session。設計 session 收到時才記裁定。派測試的設計 session 要在派工時把實作 session 的名字給它。
+4. **測試**（新 session，在實作的 worktree）。只給 spec。逐條驗，每條寫過或不過附證據。不改程式。報告存 worktree 的 `design/reports/<題目>-測試.md`，只 commit 這份報告。
 5. **確認**（新 session，在測試 vault；也可以你親自做）。先還原來源。照「確認情境」操作，記實際輸出與落差。不改程式。報告存實作 worktree 的 `design/reports/<題目>-確認.md`，只 commit 這份報告。確認情境分兩種，spec 裡各自標：
    - **自動**：客戶的話與預期結果。在 `<測試環境>` 的知識庫複本用 `claude -p --plugin-dir <worktree>`，一句一個新對話跑，判過或不過，附回答原文。權限模式用預設，不准 auto 或 `--dangerously-skip-permissions`（auto 會替守門擋掉，守門有洞也測不出）。守門的情境看 `.system/ledger.tsv` 有沒有那筆 deny、理由對不對，只看原檔沒變不算過。
    - **人眼**：開場訊息、桌面版畫面、甘特圖這類只有人看得到的；要客戶按「允許」的動作（`-p` 沒人按）；只有市集安裝才有的（升級換版、按停止、關對話，`--plugin-dir` 跟市集安裝不同，B-093）。只有這些請人看。
@@ -42,7 +42,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 
 ### 小題走輕流程
 
-一批小修（每條幾行、不改客戶資料格式、不用新的 D）走輕流程：spec 只寫三節，要做的事（一條一列：哪個檔、哪一句或函式、改成怎樣）、可以動／不可以動、驗收準則（一條一個指令或預期輸出）；實作加一輪測試，測試照步驟 4 直接回實作；只有客戶看得到的幾條要確認，優先自動；做著做著發現要決定的就拿出這批，另起一題。
+一批小修（每條幾行、不改客戶資料格式、不用新的 D）走輕流程：spec 只寫三節，要做的事（一條一列：哪個檔、哪一句或函式、改成怎樣）、可以動／不可以動、驗收準則（一條一個指令或預期輸出）；實作加一輪測試，測試結果回設計 session；只有客戶看得到的幾條要確認，優先自動；做著做著發現要決定的就拿出這批，另起一題。
 
 ### 各步驟用哪個 skill
 
