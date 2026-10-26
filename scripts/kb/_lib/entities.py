@@ -11,9 +11,11 @@ schema 1 讀進來在記憶體補上，寫的時候寫 2。實體本身在不在
 檔頭格式與驗證住 synthesis.py。drift 只讀：認出客戶在檔案總管改了實體夾名、卡名、刪夾（D-057）。
 note 改知識：alias 加與拿掉別名（D-148）；rename／merge 連口述與裁示的實體名稱一起換（同日程，同一套 _Undo），remove 照留。
 日程匯出（D-500 第二輪）：存過 entities.json 的函式放開鎖之後叫 _export_agenda，匯出的實體名單立刻跟上（T-2）。
+照標籤篩（標籤字典第四節，D-235）：parse_tag_args 讀 --tag 欄=詞[,詞]、tag_filter 照綜合卡檔頭的標籤行篩，只讀。
 """
 import os
 import posixpath
+import re
 import secrets
 import unicodedata
 from datetime import date
@@ -204,6 +206,91 @@ def refusal(vault, data, name, ignore=None):
     if hit is not None:
         return f"{problem}；是同一件就掛它，不是就加區分詞（例：{name}-大安）"
     return problem
+
+
+# ---------- 照標籤篩（D-235） ----------
+
+TAG_FORMAT = "--tag 要寫成 欄=詞（多個詞用逗號分開）"
+TAG_NO_FIELD = "第八節沒有「{field}」這個標籤欄；有：{have}"
+TAG_NO_WORD = "「{field}」的字典沒有「{word}」；有：{have}"
+TAG_NO_TYPE = "第八節沒有哪個型別同時有這些欄"
+_TAG_SPLIT = re.compile(r"[,，、]")
+
+
+def parse_tag_args(raw):
+    """--tag 欄=詞[,詞]（逗號或頓號）→ [(欄, [詞…])]，同一欄寫兩次併在一起；寫法不對丟 EntityRefused（TAG_FORMAT）。"""
+    out = []
+    for arg in raw or []:
+        field, sep, rest = str(arg).partition("=")
+        words = [w.strip() for w in _TAG_SPLIT.split(rest) if w.strip()]
+        if not sep or not field.strip() or not words:
+            raise EntityRefused(TAG_FORMAT)
+        hit = next((x for x in out if key(x[0]) == key(field.strip())), None)
+        if hit is None:
+            out.append((field.strip(), words))
+        else:
+            hit[1].extend(w for w in words if key(w) not in {key(x) for x in hit[1]})
+    return out
+
+
+def tag_filter(vault, conds, data=None):
+    """照標籤篩（kb entity list --tag）：不同欄是且、同欄的詞是或，比對照 key。只看 active、不是客戶自己的實體；
+    型別沒有這些欄的不列。有那一行且詞對得上算符合；沒有綜合卡或沒有那一行算還沒標過；有那一行沒對上算不符合。
+    回 {"tag": [{"field","words"}]（照字典的寫法）, "counts": [{"type","total","matched","untagged"}], "matched": [編號]}；
+    欄或詞不在第八節、沒有型別同時有這些欄丟 EntityRefused。"""
+    from kb._lib import synthesis
+    prof = _profile(vault)
+    rows = prof.get("tags") or []
+    fields = list(dict.fromkeys(t["field"] for t in rows))
+    tag = []
+    for field, words in conds:
+        mine = [t for t in rows if key(t["field"]) == key(field)]
+        if not mine:
+            raise EntityRefused(TAG_NO_FIELD.format(field=field, have="、".join(fields) or "（還沒有）"))
+        known = list(dict.fromkeys(w for t in mine for w in t["words"]))
+        shown = []
+        for w in words:
+            hit = next((x for x in known if key(x) == key(w)), None)
+            if hit is None:
+                raise EntityRefused(TAG_NO_WORD.format(field=mine[0]["field"], word=w, have="、".join(known)))
+            shown.append(hit)
+        tag.append({"field": mine[0]["field"], "words": shown})
+    data = data if data is not None else load(vault)
+    counts, matched = [], []
+    for t in prof.get("types") or []:
+        have = {key(r["field"]) for r in profile.tags_for(prof, t["name"])}
+        if not all(key(c["field"]) in have for c in tag):
+            continue
+        members = [e for e in data["entities"] if e.get("status") == "active" and not is_self(e) and e.get("type")
+                   and key(e["type"]) == key(t["name"])]
+        fronts = {e["id"]: front for e, _rel, front in synthesis.tagged_cards(vault, t["name"], data)}
+        hits, untagged = [], 0
+        for e in members:
+            state = _tag_state(fronts.get(e["id"]), tag)
+            if state == "match":
+                hits.append(e["id"])
+            elif state == "untagged":
+                untagged += 1
+        counts.append({"type": t["name"], "total": len(members), "matched": len(hits), "untagged": untagged})
+        matched += hits
+    if not counts:  # 欄分屬不同型別（裁定 16）
+        raise EntityRefused(TAG_NO_TYPE)
+    return {"tag": tag, "counts": counts, "matched": matched}
+
+
+def _tag_state(front, tag):
+    from kb._lib import synthesis
+    if front is None:
+        return "untagged"
+    missing = False
+    for c in tag:
+        v = synthesis.front_tag(front, c["field"])
+        if v is None or v == "":  # 沒有那一行、或空著（裁定 14）都是還沒標過
+            missing = True
+            continue
+        if not {key(w) for w in synthesis.tag_words(v)} & {key(w) for w in c["words"]}:
+            return "no"
+    return "untagged" if missing else "match"
 
 
 def _profile(vault):

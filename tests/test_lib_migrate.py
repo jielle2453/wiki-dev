@@ -86,6 +86,25 @@ class ApplyProfile(Base):
         self.assertTrue(self.saved("系統/客戶設定檔.md").is_file())
         self.assertEqual(migrate.pending(self.V), [])
 
+    def test_schema4_adds_section_eight_and_reverts(self):
+        """標籤字典驗收 2：schema 4（md 沒改過）→ 寫回 schema 5、md 多第八節、兩檔備進回合、versions revert 回得去。"""
+        from tests.test_scripts_inventory_cli import run_kb
+        shutil.copy2(PROFILE_FIX / "schema4.json", self.V / ".system" / "profile.json")
+        shutil.copy2(PROFILE_FIX / "schema4.md", self.V / "系統" / "客戶設定檔.md")
+        (self.V / ".system" / "sources.json").write_text('{"schema_version": 1, "sources": []}', encoding="utf-8")
+        md =self.V / "系統" / "客戶設定檔.md"
+        before = ((self.V / ".system" / "profile.json").read_bytes(), md.read_bytes())
+        got = migrate.apply(self.V, self.turn)
+        self.assertEqual(got["migrated"], [".system/profile.json"])
+        data = read(self.V, ".system/profile.json")
+        self.assertEqual((data["schema_version"], data["tags"]), (5, []))
+        self.assertIn("\n## 八、標籤\n", md.read_text(encoding="utf-8"))
+        self.assertEqual((self.saved(".system/profile.json").read_bytes(), self.saved("系統/客戶設定檔.md").read_bytes()),
+                         before)
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(((self.V / ".system" / "profile.json").read_bytes(), md.read_bytes()), before)
+
     def test_hand_edited_md_is_skipped_and_files_untouched(self):
         """md 有沒套用的手改：不重渲染（會蓋掉她的改動），列進 skipped，請先 kb profile apply。"""
         self.put_profile_v1()

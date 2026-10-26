@@ -55,7 +55,7 @@ def message(text, **kw):
 class Defaults(unittest.TestCase):
     def test_shape(self):
         d = profile.defaults(DAY)
-        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (4, None, None, []))
+        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (5, None, None, []))
         self.assertEqual((d["synthesis_sections"], d["about"], d["preferences"], d["templates"]), ([], [], [], []))
         self.assertEqual([c["name"] for c in d["card_types"]],
                          ["報價", "合約", "會議紀錄", "型錄", "進度表", "範本", "說明", "其他"])
@@ -118,7 +118,7 @@ class Parse(unittest.TestCase):
     def test_three_sections_empty_is_ok(self):
         self.assertEqual(profile.parse_md(md_with(cards=[], exclusions=[])),
                          {"types": [], "card_types": [], "exclusions": [], "synthesis_sections": [], "about": [],
-                          "preferences": [], "templates": []})
+                          "preferences": [], "templates": [], "tags": []})
 
     def test_missing_section(self):
         text = md_with().replace("## 二、卡型與段落", "## 卡型與段落")
@@ -513,7 +513,7 @@ class SchemaOneMigration(unittest.TestCase):
         p = self.V / ".system" / "profile.json"
         before = p.read_bytes()
         data = profile.load(self.V)
-        self.assertEqual(data["schema_version"], 4)
+        self.assertEqual(data["schema_version"], 5)
         self.assertEqual([(s["type"], [x["name"] for x in s["sections"]], s["source"]) for s in data["synthesis_sections"]],
                          [("案子", ["時程", "金額"], "inferred")])
         self.assertEqual((data["about"], data["preferences"]), ([], []))
@@ -620,7 +620,7 @@ class SchemaTwoLoad(unittest.TestCase):
     def test_load_adds_preferences_in_memory(self):
         before = (self.V / ".system" / "profile.json").read_bytes()
         data = profile.load(self.V)
-        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (4, [], []))
+        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (5, [], []))
         self.assertEqual((self.V / ".system" / "profile.json").read_bytes(), before)
         self.assertEqual(profile.stored_schema(self.V), 2)
         self.assertEqual(profile.status(self.V)["state"], "ok")
@@ -732,7 +732,7 @@ class Edited(unittest.TestCase):
         self.assertEqual((got3["about"], res["message"]), ([], "已拿掉關於你：林美華"))
 
     def test_bad_section_and_column(self):
-        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本")
+        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
         self.assertEqual(self.err("偏好", "add", 名稱="x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好")
         self.assertEqual(self.err("卡型", "remove", 提示="x"), "「卡型」這一節沒有「提示」欄；欄是 卡型、段落")
 
@@ -744,7 +744,9 @@ class SectionsSchema(unittest.TestCase):
         d["preferences"] = [pref("回答先講結論")]
         got = profile.sections_schema(d)
         self.assertEqual([s["name"] for s in got], list(profile.SECTION_NAMES))
-        types, cards, ex, synth, about, prefs, templates = got
+        types, cards, ex, synth, about, prefs, templates, tags = got
+        self.assertEqual((tags["number"], tags["key"], tags["remove"]), (8, ["型別", "欄名"], None))
+        self.assertEqual(tags["add"], "kb profile add 標籤 型別={型別} 欄名={欄名} 詞={詞} 可多選={可多選}")
         self.assertEqual((templates["key"], templates["add"], templates["remove"]),
                          (["文件"], "kb profile add 範本 文件={文件} 底={底}", "kb profile remove 範本 文件={文件}"))
         self.assertEqual((types["number"], types["key"], types["remove"]), (1, ["名稱"], None))
@@ -840,8 +842,130 @@ class SchemaFour(unittest.TestCase):
             shutil.copy2(PROFILE / "schema3.json", V / ".system" / "profile.json")
             shutil.copy2(PROFILE / "schema3.md", V / "系統" / "客戶設定檔.md")
             data = profile.load(V)
-            self.assertEqual((data["schema_version"], data["templates"]), (4, []))
+            self.assertEqual((data["schema_version"], data["templates"]), (5, []))
             self.assertEqual(profile.stored_schema(V), 3)
+            self.assertEqual(profile.status(V)["state"], "ok")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+SECTION8 = ("\n## 八、標籤\n想照什麼條件找人或找案子？一列一個欄，詞用頓號分開；只能從這些詞挑，字典外的我會先問你。不用的型別不用填。\n"
+            "\n| 型別 | 欄名 | 可選的詞 | 可多選 | 來源 | 日期 |\n|---|---|---|---|---|---|\n")
+
+
+def tag(type_, field, words, multi=True, source="corrected", date=DAY):
+    return {"type": type_, "field": field, "words": list(words), "multi": multi, "source": source, "date": date}
+
+
+def client_md(rows):
+    """第一節有「客戶」（對象）的 md，第八節插 rows。"""
+    d = profile.defaults(DAY)
+    d["types"] = [{"name": "客戶", "category": "party", "note": "", "source": "interview", "date": DAY}]
+    return with_rows(profile.render_text(d), "八", rows)
+
+
+class SchemaFive(unittest.TestCase):
+    """標籤字典第一節（D-233）：第八節標籤，schema 4 在記憶體補空清單；驗證每種錯各一句。"""
+
+    def test_render_has_section_eight(self):
+        text = profile.render_text(profile.defaults(DAY))
+        self.assertTrue(text.endswith(SECTION8), text[-300:])
+        self.assertEqual(profile.defaults(DAY)["tags"], [])
+        self.assertEqual(profile.SCHEMA_VERSION, 5)
+
+    def test_round_trip(self):
+        d = profile.defaults(DAY)
+        d["types"] = [{"name": "客戶", "category": "party", "note": "", "source": "interview", "date": DAY}]
+        d["tags"] = [tag("客戶", "在意", ["醫療", "意外", "旅遊", "子女教育", "退休"]),
+                     tag("客戶", "階段", ["準客戶", "保戶", "流失"], multi=False)]
+        text = profile.render_text(d)
+        self.assertIn("| 客戶 | 在意 | 醫療、意外、旅遊、子女教育、退休 | ✓ | 糾正 | 2026-10-19 |\n"
+                      "| 客戶 | 階段 | 準客戶、保戶、流失 |  | 糾正 | 2026-10-19 |\n", text)
+        self.assertEqual(profile.parse_md(text)["tags"], d["tags"])
+
+    def test_schema4_md_without_section_eight(self):
+        text = (PROFILE / "schema4.md").read_text(encoding="utf-8")
+        self.assertEqual(message(text), "少了第 8 節（## 八、…）")
+        self.assertIsNone(profile.parse_md(text, legacy=4)["tags"])
+
+    def test_tag_errors(self):
+        many = "、".join(f"詞{i}" for i in range(31))
+        cases = [
+            (["| 廠商 | 在意 | 醫療 |  |"], "第 8 節第 1 列的型別「廠商」不在第 1 節"),
+            (["| 客戶 | 在意 | 醫療 |  |", "| 客戶 | 在意 | 意外 |  |"], "第 8 節第 2 列跟第 1 列重複（型別 客戶 的欄 在意）"),
+            (["| 客戶 | 名稱 | 醫療 |  |"], "第 8 節第 1 列的欄名「名稱」不能用（是綜合卡檔頭原有的鍵）"),
+            (["| 客戶 | 標籤 | 醫療 |  |"], "第 8 節第 1 列的欄名「標籤」不能用（是綜合卡檔頭原有的鍵）"),
+            (["| 客戶 | 在$意 | 醫療 |  |"], "第 8 節第 1 列的欄名「在$意」不能用（含不能用的字元）"),
+            (["| 客戶 | 在意 | 醫療、醫療 |  |"], "第 8 節第 1 列的詞「醫療」重複"),
+            (["| 客戶 | 在意 | 醫[療 |  |"], "第 8 節第 1 列的詞「醫[療」不能用（含不能用的字元）"),
+            (["| 客戶 | 在意 | 醫]療 |  |"], "第 8 節第 1 列的詞「醫]療」不能用（含不能用的字元）"),
+            (["| 客戶 | 在意 | 醫療,意外 |  |"], "第 8 節第 1 列的詞「醫療,意外」不能用（含不能用的字元）"),
+            (["| 客戶 | 在意 |  |  |"], "第 8 節第 1 列的可選的詞是空的"),
+            ([f"| 客戶 | 在意 | {many} |  |"], "第 8 節第 1 列的可選的詞太多（最多 30 個）"),
+            (["| 客戶 | 在意 | 醫療 | 要 |"], "第 8 節第 1 列的可多選只能打 ✓ 或留空"),
+            (["| 客戶 | 在意 |"], "第 8 節第 1 列欄數不對（要 4 欄或 6 欄）"),
+        ]
+        for rows, want in cases:
+            with self.subTest(want=want):
+                with self_raises() as cm:
+                    profile.parse_md(client_md(rows))
+                self.assertEqual((cm.error.message, cm.error.section, cm.error.row), (want, 8, len(rows)))
+
+    def test_words_compare_by_key(self):
+        self.assertEqual(message(client_md(["| 客戶 | 在意 | ABC、abc |  |"])), "第 8 節第 1 列的詞「abc」重複")
+
+    def test_dropped_type_rows_are_dropped(self):
+        """第一節拿掉的型別（known_types 有、第一節沒有）在第八節的列整批丟掉，同第四節。"""
+        text = with_rows(profile.render_text(profile.defaults(DAY)), "八", ["| 客戶 | 在意 | 醫療 | ✓ |"])
+        self.assertEqual(profile.parse_md(text, known_types=["客戶"])["tags"], [])
+
+    def test_diff_merge_summary(self):
+        old = profile.parse_md(client_md(["| 客戶 | 在意 | 醫療 | ✓ | 確認 | 2026-10-19 |"]))
+        new = profile.parse_md(client_md(["| 客戶 | 在意 | 醫療、意外 | ✓ |", "| 客戶 | 階段 | 準客戶 |  |"]))
+        d = profile.diff(old, new)
+        self.assertEqual(d["tags"], {"added": [["客戶", "階段"]], "removed": [], "changed": [["客戶", "在意"]]})
+        self.assertEqual(profile.summary_short(d), "標籤 +1 ~1")
+        merged = profile.merge(old, new, today="2026-10-26")
+        self.assertEqual(merged["tags"], [tag("客戶", "在意", ["醫療", "意外"], True, "confirmed", "2026-10-26"),
+                                          tag("客戶", "階段", ["準客戶"], False, "confirmed", "2026-10-26")])
+
+    def test_edited_add_field_then_words(self):
+        d = dict(profile.defaults(DAY), **profile.parse_md(client_md([])))
+        out, res = profile.edited(d, "標籤", "add", {"型別": "客戶", "欄名": "在意", "詞": "醫療、意外", "可多選": "✓"},
+                                  today="2026-10-26")
+        self.assertEqual(out["tags"], [tag("客戶", "在意", ["醫療", "意外"], True, date="2026-10-26")])
+        self.assertEqual(res["message"], "已加標籤欄：客戶的在意（醫療、意外）")
+        d["tags"] = out["tags"]
+        out, res = profile.edited(d, "標籤", "add", {"型別": "客戶", "欄名": "在意", "詞": "寵物"}, today="2026-10-26")
+        self.assertEqual(out["tags"][0]["words"], ["醫療", "意外", "寵物"])
+        self.assertTrue(out["tags"][0]["multi"], "可多選照原本的")
+        self.assertEqual(res["message"], "已加標籤的詞：客戶的在意多了寵物")
+        _out, res = profile.edited(d, "標籤", "add", {"型別": "客戶", "欄名": "在意", "詞": "醫療"})
+        self.assertEqual((res["changed"], res["message"]), (False, "沒有要改的：標籤「客戶／在意」已經是這樣"))
+        with self.assertRaises(profile.ProfileError) as cm:
+            profile.edited(d, "標籤", "remove", {"型別": "客戶", "欄名": "在意"})
+        self.assertEqual(cm.exception.message, "拿掉標籤的詞或欄用 kb profile tag remove（會先算有幾張卡用到）")
+        with self.assertRaises(profile.ProfileError) as cm:
+            profile.edited(d, "標籤", "add", {"型別": "客戶", "欄名": "階段"})
+        self.assertEqual(cm.exception.message, "少了「詞」；這一節要給 型別、欄名、詞")
+
+    def test_tags_for_and_todo_block(self):
+        d = profile.defaults(DAY)
+        d["tags"] = [tag("客戶", "在意", ["醫療"]), tag("案子", "工種", ["水電"], False), tag("客戶", "階段", ["保戶"], False)]
+        self.assertEqual([t["field"] for t in profile.tags_for(d, "客戶")], ["在意", "階段"])
+        self.assertEqual(profile.card_types_for_todo(d)["tags"],
+                         {"客戶": [{"field": "在意", "words": ["醫療"], "multi": True},
+                                   {"field": "階段", "words": ["保戶"], "multi": False}],
+                          "案子": [{"field": "工種", "words": ["水電"], "multi": False}]})
+
+    def test_load_schema4_adds_tags_in_memory(self):
+        tmp, V, _raw = make_inv_vault()
+        try:
+            shutil.copy2(PROFILE / "schema4.json", V / ".system" / "profile.json")
+            shutil.copy2(PROFILE / "schema4.md", V / "系統" / "客戶設定檔.md")
+            data = profile.load(V)
+            self.assertEqual((data["schema_version"], data["tags"]), (5, []))
+            self.assertEqual(profile.stored_schema(V), 4)
             self.assertEqual(profile.status(V)["state"], "ok")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

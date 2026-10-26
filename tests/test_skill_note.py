@@ -136,10 +136,11 @@ class RuleChange(unittest.TestCase):
         self.assertFalse(any(ln.startswith("- **這版記不起來的話**") for ln in self.body.splitlines()))
 
     def test_merge_asks_why_before_check(self):
-        """測試第二輪後裁定 27（N-3b）：骨架的型別合併先問一句為什麼要併，再 --check（跟 preference.md 一致）。"""
+        """D-239（標籤字典裁定 26，取代 N-3b 的順序）：骨架那行先 --check，原句講明結果就直接做；沒講清楚才問，
+        型別合併問的時候先問一句為什麼要併。"""
         line = next(ln for ln in self.section("## 骨架", "## 共通").splitlines() if "合併" in ln and "--check" in ln)
-        self.assertIn("為什麼", line)
-        self.assertLess(line.index("為什麼"), line.index("--check"))
+        for want in ("為什麼", "原句講明結果就直接做", "沒講清楚才"):
+            self.assertIn(want, line)
 
     def test_principles_have_new_codes(self):
         part = self.section("## 原則", "## 骨架")
