@@ -1,5 +1,7 @@
 # card-maker spike 報告（B-032、B-108，CLI 部分）
 
+> 代號說明（2026-10-25 補）：A～H 是各次 `claude -p` 實驗（A～D 用 Opus，E～H 用 Sonnet），A2 是 A 次的第二組；結論表的 1～9 是題號。
+
 日期：2026-10-22
 跑的人：spike session（CLI 部分；桌面版那節沒做，留給使用者）
 給誰看：設計 session（llm-wiki-j-22）

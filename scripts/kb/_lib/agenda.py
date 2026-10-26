@@ -8,7 +8,7 @@ lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 pr
 重渲染前比對 日程.md 有沒有被手改（_lib/renders，D-223）：改了條目就存她那份、待處理開一條 handedit；比對用改之前的資料
 與上次寫的那天重算她看到的那份。
 只經 kb agenda 與 entities 寫；今天的日期集中在 _today（測試換掉它），逾期、今天、接下來的算法只看 open（D-129）。
-日程匯出（D-229）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
+日程匯出（D-500）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
 agenda_export_dir 就在匯出自己的鎖裡重讀 agenda.json 與實體，把 willy-agenda/1 寫到 <夾>/willy-agenda.json（T-3；
 exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
 """
@@ -772,7 +772,7 @@ def _hand_edited(vault, turn_id, base, now=None):
 def render(vault, turn_id=None, data=None, today=None, base=None):
     """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
     寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。
-    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-229、T-1）。"""
+    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-500、T-1）。"""
     from kb._lib import renders
     data = data if data is not None else load(vault)
     text = render_text(vault, data, today)
@@ -794,7 +794,7 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
     return True
 
 
-# ---------- 匯出（D-229） ----------
+# ---------- 匯出（D-500） ----------
 
 EXPORT_NAME = "willy-agenda.json"
 EXPORT_SCHEMA = "willy-agenda/1"
@@ -898,7 +898,7 @@ def _export_locked(vault, folder):
         written = not _same_export(target, payload)
         if written:
             write_text_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-    except Exception as e:  # noqa: BLE001  匯出只是一份視圖，不能擋日程（D-229）
+    except Exception as e:  # noqa: BLE001  匯出只是一份視圖，不能擋日程（D-500）
         if isinstance(e, FileNotFoundError):
             reason = EXPORT_NO_DIR
         elif isinstance(e, OSError):

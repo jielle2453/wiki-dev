@@ -1,4 +1,4 @@
-"""日程匯出（D-229，spec 2026-10-26-日程匯出）：kb agenda export --set／--off／--status、每次寫日程就匯出 willy-agenda.json、
+"""日程匯出（D-500，spec 2026-10-26-日程匯出）：kb agenda export --set／--off／--status、每次寫日程就匯出 willy-agenda.json、
 內容沒變不寫、失敗不擋日程（hook-errors.log、agenda_export.json）、開場不講。驗收準則一條一個測試。"""
 import hashlib
 import json

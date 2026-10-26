@@ -151,7 +151,7 @@ build 指令 `disable-model-invocation`：模型不代叫，客戶或服務人�
 
 **事務層。** 取 plugin 幾乎不動。每句話一個回合，目前回合按 session 分（D-074），備份、日誌、摘要、大改動計數掛同一代號；守門按第九節路徑表決定備份、登記或擋，攔檔案工具與指令字串，認得 MCP 工具名，被擋留痕；大改動達門檻擋，客戶同意後 `kb turn approve` 解除這一回合（D-075）；退回只從最近一次沒退過的開始，退回本身走同一個備份所以可再退；併入讀檔守門；待處理為 JSON；退回是規則加腳本；備份有保留期，`kb backup` 做完、健檢時、客戶說空間不夠時清（D-207）。第一版不以 git 為前提。
 
-**規則層。** plugin 給結構，llm-wiki 給紀律。三種規則物理分開：plugin 通用規則隨 plugin 升級；客戶設定每條標日期與來源（訪談、推測、確認、糾正），規則不論建置時或使用中加的都住這；裁示是個案不是規則，掛具體檔或實體，帶日期與原因，數量封頂，同類到門檻由 lint 提議升格成設定檔一條（D-041）；事實的更正寫綜合卡不寫這兩處。`rules/core.md` 唯一常駐，十二條編號 R-01 到 R-12（清單在 D-059），其中出處優先序：檔案高於使用者陳述高於推導，衝突時兩者並存各標出處、回答同時講兩邊；被兩個以上 skill 讀的放 `rules/` 按需。帶頻率的規則必有上次執行欄位。對話歧義寫原則加例子，不寫案例表。事故不住規則。核心規則裡不出現任何功能名。
+**規則層。** plugin 給結構，llm-wiki 給紀律。三種規則物理分開：plugin 通用規則隨 plugin 升級；客戶設定每條標日期與來源（訪談、推測、確認、糾正），規則不論建置時或使用中加的都住這；裁示是個案不是規則，掛具體檔或實體，帶日期與原因，數量封頂，同類到門檻由 lint 提議升格成設定檔一條（D-041）；事實的更正寫綜合卡不寫這兩處。`rules/core.md` 唯一常駐，十四條編號 R-01 到 R-14（起始清單在 D-059；條數會漂，以 `rules/core.md` 為準），其中出處優先序：檔案高於使用者陳述高於推導，衝突時兩者並存各標出處、回答同時講兩邊；被兩個以上 skill 讀的放 `rules/` 按需。帶頻率的規則必有上次執行欄位。對話歧義寫原則加例子，不寫案例表。事故不住規則。核心規則裡不出現任何功能名。
 
 **維運層。** 取 llm-wiki 機制，接 plugin 的內容健檢。`kb lint` 一個 runner 加可插檢查項，兩種輸出：客戶一句白話、服務人員數字。守門留痕，太久沒留痕報失聯，趨勢只報變差。升級走 `kb upgrade`，`lint/checks/skeleton.py` 只唯讀呼叫同一函式；`drift.py` 查的是客戶總資料夾的檔案引用了不存在的東西。環境檢查缺什麼降級並明講。測試案例從 `incidents.md` 來。CHANGELOG 是版本唯一真相。
 
@@ -183,7 +183,7 @@ build 指令 `disable-model-invocation`：模型不代叫，客戶或服務人�
 
 MCP 來源的邊界：**Claude 取、腳本記**。MCP 工具只有 Claude 叫得到，skill 教 Claude 抓內容，再交 `kb ingest push` 做指紋與登記。主動推送在 session 外沒有 hook，只能由外部排程跑 `kb agenda brief` 產文字再送。
 
-補漏洞型的延伸（OCR、圖片製卡、舊格式自動轉、本地搜尋索引、索引拆年份、舊卡補欄位、API 製卡、Mac）全部落在既有位置，不加分類。清單在 `backlog.md`。
+補漏洞型的延伸（OCR、圖片製卡、舊格式自動轉、本地搜尋索引、索引拆年份、舊卡補欄位、API 製卡、Mac）全部落在既有位置，不加分類。清單在 `backlog.md`「延後的」那一區，每條的「事」最後寫它屬於補漏洞或哪種槽位。
 
 **什麼時候加 skill：** 有一組客戶會說的話對不到六個描述、進來後要判斷、常駐預算還有餘額，三個都成立才加。**該拆：** 本文超過上限、描述要列兩組不相關的話、出現兩種真相來源。**該併：** 兩個描述在路由表上撞、本文只剩「去讀某份 reference」。**該搬 `rules/`：** 一份 reference 被兩個以上 skill 讀。
 
@@ -194,51 +194,40 @@ MCP 來源的邊界：**Claude 取、腳本記**。MCP 工具只有 Claude 叫�
 ## 九、目錄
 
 ```
-llm-wiki-j/
+llm-wiki-j/                           本清單會漂，以 git ls-files 為準
 ├─ .claude-plugin/plugin.json
 ├─ .claude/settings.json              放行測試與 kb.py
 ├─ README.md  CLAUDE.md  CHANGELOG.md  LICENSE  .gitattributes  .gitignore
 ├─ rules/
 │  ├─ core.md                         唯一常駐，每條有編號
-│  ├─ synthesis.md                    綜合卡連帶處理，ingest／answer／note／lint 共讀
-│  └─ next-step.md                    建議下一步，build／answer／lint 共讀
-├─ config/defaults.json
+│  └─ synthesis.md                    綜合卡怎麼寫，寫綜合卡前讀
+├─ config/defaults.json  skeleton_history.json
 ├─ skills/
-│  ├─ ingest/SKILL.md + references/{local,external,formats,changes,carding,versioning}.md
 │  ├─ answer/SKILL.md + references/{find,verify}.md
-│  ├─ note/SKILL.md + references/{preference,agenda,correction,ruling}.md
-│  ├─ produce/SKILL.md + references/{draft,office,placement,export}.md
-│  ├─ lint/SKILL.md + references/{content,system,questions}.md
-│  ├─ manage/SKILL.md + references/{sources,files,ops}.md
-│  └─ build/SKILL.md + references/{steps,adopt}.md   disable-model-invocation，建置一個指令（D-190）
-├─ commands/                          全部 disable-model-invocation
-│  └─ upgrade.md  migrate.md          升級那份 spec 定；備份、還原、搬家、換帳號不做指令（D-203、D-205、D-206、D-210）
-├─ hooks/{hooks.json,session.py,turn.py,guard.py,output_log.py,stop.py,subagent.py,session_end.py}
+│  ├─ build/SKILL.md + references/{adopt,steps}.md
+│  ├─ ingest/SKILL.md + references/{carding,commands,redo}.md
+│  ├─ lint/SKILL.md + references/report.md
+│  ├─ manage/SKILL.md + references/{files,ops,sources}.md
+│  ├─ note/SKILL.md + references/{agenda,correction,password,preference,record-answer,ruling}.md
+│  └─ produce/SKILL.md + references/{draft,make}.md
 ├─ agents/card-maker.md
+├─ hooks/{hooks.json,guard.py,output_log.py,session.py,session_end.py,stop.py,subagent.py,turn.py}
 ├─ scripts/
 │  ├─ kb.py                           唯一入口
 │  └─ kb/
-│     ├─ cli.py
-│     ├─ init.py env.py inventory.py changes.py update.py batch.py convert.py reindex.py
-│     ├─ versions.py source_edit.py folders.py ai_output.py intake.py office.py agenda.py profile.py entity.py
-│     ├─ upgrade.py backup.py relocate.py guard_status.py search.py unlock.py
-│     ├─ sources/{file.py,...}  sinks/{...}
-│     ├─ lint/runner.py + checks/   十七項見 D-064
-│     └─ _lib/{paths,io,hash,config,sources,turn,journal,migrate}.py
-├─ templates/{card,synthesis,build-report,health-report}.md + selfcheck/{check.docx,check.xlsx}   卡範本兩份固定（D-037）、報告範本兩份（D-066）；卡型、實體型別、客戶格式調整都是客戶設定檔裡的建議段落組
+│     ├─ cli.py                       子命令註冊表
+│     ├─ agenda_cli  asks_cli  backup_cli  build  cards  changes  convert  entity  finding_cli  folders  guard  guard_cli  init  inventory_cli  journal_cli  lint_cli  lookup_cli  moved_cli  office_cli  output_cli  pending_cli  profile_cli  restore_cli  ruling_cli  source_edit  statement_cli  tally_cli  turn_cli  unlock  upgrade_cli  version  versions
+│     ├─ lint/{runner,report,state}.py + checks/
+│     └─ _lib/{agenda,backup,batches,build,cards,clean,cmdparse,config,content_fp,credentials,entities,env,extract,findings,inventory,io,journal,ledger,lookup,migrate,moved,office,output,paths,pending,plan,profile,purge,renders,restore,rulings,skeleton,source_edit,sources,statements,synthesis,turn,unlock,upgrade,vault}.py
+├─ tools/release.py                   發行程式，不進 zip
+├─ templates/{build-report,card,health-report,synthesis}.md
 ├─ skeleton/
-│  ├─ .skeleton-policy
 │  ├─ CLAUDE.md
 │  ├─ .claude/settings.json           只有 deny 憑證樣式、ask 高風險子命令；不放 additionalDirectories、不放 plugin 路徑（D-073）
-│  ├─ AI 產出/  收件匣/  檔案索引/    空夾；型別夾由 build-setup 依設定檔建
-│  ├─ 總目錄.md                        我的檔案：可摺清單連到檔案卡（D-105）
-│  └─ 系統/{待處理,日程,客戶設定檔,裁示,建置報告}.md + 工作日誌/ 健檢報告/
-├─ tests/
-│  ├─ test_lib_*.py  test_hooks_*.py  test_scripts_*.py  test_lint_checks.py
-│  ├─ test_skeleton_check.py  test_budget.py  test_coverage.py  test_version_sync.py  test_guard_cli.py
-│  ├─ evals/<skill>.json                 每個 skill 20 句觸發測試（D-091）
-│  └─ fixtures/                       含每份渲染檔的範例輸出（D-067）
-└─ design/
+│  └─ AI 產出/  收件匣/  檔案索引/  系統/   空夾；型別夾由建置依設定檔建
+├─ tests/                             unittest；evals/<skill>.json 每個 skill 20 句觸發測試（D-091）；fixtures/
+├─ design/
+└─ 計畫中，還沒有：commands/（升級、遷移等指令）、scripts/kb/sources/ 與 sinks/（新來源與輸出去處）、rules/next-step.md
 ```
 
 客戶端：
@@ -259,10 +248,11 @@ llm-wiki-j/
 └─ 隱藏屬性：CLAUDE.md  .claude/settings.json  .system/
    .system/                           程式獨占，每個 json 帶 schema_version
    ├─ sources.json  inventory.json  pending.json  profile.json  agenda.json  rulings.json  entities.json
-   ├─ config.json  env.json  skeleton.json  upgrade-history.json
-   ├─ turns/<session>.json  versions/<回合>/  snapshots/<時間>/
+   ├─ statements.json  findings.json  unlock.json  vault.json  batches.json  build.json（建置中）
+   ├─ config.json  env.json  skeleton.json  upgrade-history.json  lint.json  renders.json  set_aside.json
+   ├─ turns/<session>.json  versions/<回合>/  snapshots/  journal/  handedits/
    ├─ guard-status/<機器>.json  ledger.tsv  hook-errors.log
-   └─ temp/  node/
+   └─ temp/                           （本清單會漂，以 kb init 與各狀態檔的程式為準）
 
 客戶原檔區：在外面，位置是客戶原本的，只讀
 ```

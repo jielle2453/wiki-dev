@@ -10,7 +10,7 @@ schema 1 讀進來在記憶體補上，寫的時候寫 2。實體本身在不在
 只准程式寫、讀改寫整段在 FileLock 裡（I-080），寫前備進回合（D-074）。綜合卡的搬、刪也在這裡（在同一把鎖裡），
 檔頭格式與驗證住 synthesis.py。drift 只讀：認出客戶在檔案總管改了實體夾名、卡名、刪夾（D-057）。
 note 改知識：alias 加與拿掉別名（D-148）；rename／merge 連口述與裁示的實體名稱一起換（同日程，同一套 _Undo），remove 照留。
-日程匯出（D-229 第二輪）：存過 entities.json 的函式放開鎖之後叫 _export_agenda，匯出的實體名單立刻跟上（T-2）。
+日程匯出（D-500 第二輪）：存過 entities.json 的函式放開鎖之後叫 _export_agenda，匯出的實體名單立刻跟上（T-2）。
 """
 import os
 import posixpath
@@ -1026,7 +1026,7 @@ def _agenda_follow(vault, mapping, turn_id):
 
 
 def _export_agenda(vault):
-    """entities.json 存好、放開實體的鎖之後叫（D-229 第二輪，T-2）：日程匯出的實體名單立刻跟上；改名合併動到的日程也在這裡匯出。
+    """entities.json 存好、放開實體的鎖之後叫（D-500 第二輪，T-2）：日程匯出的實體名單立刻跟上；改名合併動到的日程也在這裡匯出。
     匯出已吞錯，不改呼叫端的行為與回傳。"""
     from kb._lib import agenda
     agenda.safe_export(vault)

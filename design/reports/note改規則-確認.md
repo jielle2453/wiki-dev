@@ -1,5 +1,7 @@
 # note 改規則 確認報告
 
+> 代號說明（2026-10-25 補）：G-1～G-10 是落差清單的編號，H-1、H-2 是重跑第 6、7 步時新記的落差；F-1、F-4 指 note改規則-測試第一輪的發現。
+
 日期：2026-10-21
 確認 session：在 `C:\Users\Jie\Desktop\llm-wiki-test\ingest-check\知識庫` 跑，plugin 由 `--plugin-dir "C:\Users\Jie\Desktop\llm-wiki-j-note改規則"` 載入（spec/note改規則，實作到 06522ed）。
 依據：main 上 `design/specs/2026-10-20-note改規則.md` 的「確認情境」1～11 步（第 9 步預期是 D-156 版）。

@@ -1,5 +1,7 @@
 # manage 測試報告
 
+> 代號說明（2026-10-25 補）：R-1～R-4 是第一輪 code-review 的問題（跟核心規則 R-01 那種無關），S-1 是 security-review 的問題，R2-1 是第二輪 code-review 的問題，嚴重度寫在代號前面。裁定 N、驗收 N 指 manage spec。
+
 日期：2026-10-16
 給誰看：設計 session（llm-wiki-j-18）與實作 session。
 什麼時候更新：驗收 11 補跑後補一節；之後不改。

@@ -6,7 +6,7 @@
 人讀輸出不印內部編號（a-…、f-…，確認後裁定 6）：客戶聽不懂，AI 還會唸出來；要編號的取 --json。
 list 可篩（answer 第 8 點）：--from／--to 照 parse_date（YYYY-MM-DD），期間條目跟那段有重疊就列；--entity 可重複，別名與合併過的
 照登記的名稱認。
-export（D-229）：不帶參數立刻匯出一次；--set 先試寫一個暫存檔、過了才寫進 .system/config.json（寫前備進回合）再匯出；--off 只清設定、
+export（D-500）：不帶參數立刻匯出一次；--set 先試寫一個暫存檔、過了才寫進 .system/config.json（寫前備進回合）再匯出；--off 只清設定、
 不刪已經匯出的檔；--status 印設定與 .system/agenda_export.json。匯出失敗與拒絕 exit 1（spec 定的），白話原因。
 """
 import argparse
