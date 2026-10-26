@@ -790,15 +790,30 @@ def _same_turn_failed(data, session_id, turn_id):
 
 def _approval(vault, jt, items, st):
     """job 回合已改的既有綜合卡加這次要派的 synthesis_stale、synthesis_broken 張數超過上限、回合沒同意：回問句與指令（D-075）。
-    broken 也算：寫回同一個路徑的也是改既有綜合卡，守門的 before_write 一樣會數（第一輪修）。"""
+    broken 也算：寫回同一個路徑的也是改既有綜合卡，守門的 before_write 一樣會數（第一輪修）。
+    要改的全是只補標籤的（標籤字典實作疑義 1）：不問，直接對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行。"""
     data = turn.turn_data(vault, jt) or {}
     if data.get("approved"):
         return None
-    n = len(data.get("ai_synthesis") or []) + sum(1 for bucket, _k, _i in items
-                                                   if bucket in ("synthesis_stale", "synthesis_broken"))
+    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")]
+    n = len(data.get("ai_synthesis") or []) + len(counted)
     if n <= st["big_change_synthesis_max"]:
         return None
+    if counted and all(tag_only(bucket, i) for bucket, i in counted):
+        turn.approve(vault, turn_id=jt)
+        return None
     return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
+
+
+TAG_REASON = "補標籤"
+
+
+def tag_only(bucket, item):
+    """只補標籤的綜合卡項目：synthesis_stale、健檢記的原因全是「補標籤（…）」、內容沒有要改的（added／changed／removed 空）。"""
+    if bucket != "synthesis_stale" or item.get("added") or item.get("changed") or item.get("removed"):
+        return False
+    reasons = [r for r in str(item.get("reason") or "").split("、") if r]
+    return bool(reasons) and all(r.startswith(TAG_REASON) for r in reasons)
 
 
 # ---------- adopt（build 第 6 點，D-193） ----------

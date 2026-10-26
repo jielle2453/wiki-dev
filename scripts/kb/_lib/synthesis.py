@@ -11,6 +11,9 @@ entity_drift（D-057）；前兩桶每項帶這個實體的口述、裁示與推
 本來就要更新的那項多 reason 與 ids，本來不用更新的也列一項（added／changed／removed 是空的），整理時照現有流程改寫；
 卡被改寫之後指紋變了，那筆就不算（lint.state.fixes）。
 檔頭用 cards.parse_front 解析（同一套 YAML 子集）。
+標籤行（標籤字典第三節，D-234）：KEYS 之後、照設定檔第八節那個型別的欄一欄一行（可多選 [a, b]、單選一個詞、看過沒有寫 []）；
+沒有那一行是還沒照字典標過。problems 驗欄與詞在字典裡、單選不超過一個；設定檔讀不到時不驗標籤行（寫 log）。
+header_for 帶卡上現有的標籤行（第八節已沒有的欄不帶），還沒有綜合卡的照第八節列出欄、值留空；retag 只改一行（kb profile tag）。
 """
 import re
 from datetime import date, datetime
@@ -146,7 +149,21 @@ def related(data, mounts, entity):
 
 # ---------- 檔頭 ----------
 
-def _front_text(front):
+def tag_value_text(v):
+    """標籤行的值：清單 [a, b]（空的 []）、單一個詞照寫、None 是留空給製卡者填。"""
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return f"[{', '.join(v)}]"
+    return str(v)
+
+
+def tag_line(field, v):
+    text = tag_value_text(v)
+    return f"{field}: {text}" if text else f"{field}:"
+
+
+def _front_text(front, tags=()):
     out = ["---"]
     for k in KEYS:
         if k not in front:
@@ -159,12 +176,33 @@ def _front_text(front):
             out.append(f"{k}: [{', '.join(v)}]")
         else:
             out.append(f"{k}: {v}")
+    out.extend(tag_line(f, v) for f, v in tags)
     out.append("---")
     return "\n".join(out) + "\n"
 
 
-def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, prof=None, know=None):
-    """印給製卡者照抄的綜合卡檔頭（資料與介面格式那個樣子）。data、mounts、prof、know 沒給自己讀。"""
+def card_tags(front, prof, type_):
+    """卡檔頭上、第八節這個型別有的標籤行 [(欄, 值)]，照第八節的順序；第八節已沒有的欄不帶。"""
+    have = {entities.key(k): v for k, v in front.items() if k not in KEYS}
+    return [(t["field"], have[entities.key(t["field"])]) for t in profile.tags_for(prof, type_)
+            if entities.key(t["field"]) in have]
+
+
+def header_tags(vault, entity, prof):
+    """header_for 要帶的標籤行：這個實體的綜合卡在、讀得懂就帶卡上現有的；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
+    from kb._lib import cards
+    p = Path(vault) / card_rel(entity)
+    if p.is_file():
+        try:
+            return card_tags(cards.parse_front(p.read_text(encoding="utf-8")), prof, entity.get("type"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            pass
+    return [(t["field"], None) for t in profile.tags_for(prof, entity.get("type"))]
+
+
+def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, prof=None, know=None, tags=None):
+    """印給製卡者照抄的綜合卡檔頭（資料與介面格式那個樣子）。data、mounts、prof、know 沒給自己讀。
+    tags 是標籤行 [(欄, 值)]；沒給照 header_tags（卡上現有的，或照第八節留空）。"""
     data = data if data is not None else entities.load(vault)
     mounts = mounts if mounts is not None else entities.mounts(vault, data)
     prof = prof if prof is not None else entities._profile(vault)
@@ -175,7 +213,38 @@ def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, 
         "名稱": entity["name"], "別名": list(entity.get("aliases") or []), "範本版本": TEMPLATE_VERSION,
         "整理到": synced_lines(mounts_of_it, stmts, ruls, redo_ids(vault, know, mounts_of_it), finds),
         "更新日": today or date.today().isoformat(),
-        "檔案卡": card_lines(mounts_of_it), "相關實體": related(data, mounts, entity)})
+        "檔案卡": card_lines(mounts_of_it), "相關實體": related(data, mounts, entity)},
+        tags if tags is not None else header_tags(vault, entity, prof))
+
+
+DROP = object()  # retag 的 fn 回它：拿掉那一行
+
+
+def retag(text, field, fn, new_field=None):
+    """只改檔頭裡「field:」那一行（kb profile tag，D-237）：fn(現在的值) 回新值（清單、一個詞，或 DROP 拿掉那一行）；
+    new_field 給了換鍵。其他行與內文原樣（含換行字元）；沒有那一行原樣回。"""
+    from kb._lib import cards
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        bare = line.rstrip("\r\n")
+        if i == 0:
+            if bare.lstrip("﻿") != "---":
+                return text
+            continue
+        if bare == "---":
+            return text
+        key, sep, raw = bare.partition(":")
+        if not sep or bare.startswith(" ") or entities.key(key.strip()) != entities.key(field):
+            continue
+        value = fn([] if not raw.strip() else cards._value(raw))
+        if value is DROP:
+            lines[i] = ""
+        else:
+            if isinstance(value, list):
+                value = list(dict.fromkeys(value))
+            lines[i] = f"{new_field or key.strip()}: {tag_value_text(value)}" + line[len(bare):]
+        return "".join(lines)
+    return text
 
 
 def replace_front(text, updates):
@@ -282,7 +351,48 @@ def problems(vault, rel, text, data, mounts, prof, know=None):
     body = _body_lines(text)
     if f"# {entry['name']}" not in body or "## 現況" not in body:
         out.append(("body", f"正文要有 # {entry['name']} 與 ## 現況"))
+    out += _tag_problems(vault, front, prof, entry.get("type"))
     return out
+
+
+def _tag_dictionary(vault, prof, type_):
+    """驗標籤行用的這個型別的欄 {key: 第八節那列}；設定檔讀不到回 None（不驗，寫 log）。
+    prof 的第八節是空的時再讀一次設定檔確認（entities._profile 讀不到時給的是預設值）。"""
+    rows = profile.tags_for(prof, type_)
+    if not rows and not (prof or {}).get("tags"):
+        try:
+            real = profile.load(vault)
+        except ValueError:
+            real = None
+        if real is None:
+            from kb._lib import ledger
+            ledger.log_error(vault, "設定檔讀不到，綜合卡的標籤行沒有驗", source="synthesis")
+            return None
+        rows = profile.tags_for(real, type_)
+    return {entities.key(t["field"]): t for t in rows}
+
+
+def _tag_problems(vault, front, prof, type_):
+    extra = [k for k in front if k not in KEYS]
+    if not extra:
+        return []
+    fields = _tag_dictionary(vault, prof, type_)
+    if fields is None:
+        return []
+    for k in extra:
+        row = fields.get(entities.key(k))
+        if row is None:
+            return [("tag", f"檔頭的「{k}」不是這類卡的標籤欄（第八節沒有）")]
+        v = front[k]
+        words = v if isinstance(v, list) else [v]
+        if not row.get("multi") and len(words) > 1:
+            return [("tag", f"「{row['field']}」只能選一個詞")]
+        known = {entities.key(w) for w in row.get("words") or []}
+        for w in words:
+            if entities.key(w) not in known:
+                return [("tag", f"「{w}」不在「{row['field']}」的字典裡：先問客戶要不要加"
+                                f"（kb profile add 標籤 型別={row['type']} 欄名={row['field']} 詞={w}），不要自己加")]
+    return []
 
 
 def safe_problems(vault, rel, text, data, mounts, prof, know=None):

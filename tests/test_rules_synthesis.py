@@ -1,4 +1,4 @@
-"""rules/synthesis.md（note 改知識第 8 點，驗收 14）：編號 S-01～S-32 連號不重複；S-11、S-12、S-14、S-26 寫到口述，
+"""rules/synthesis.md（note 改知識第 8 點，驗收 14）：編號 S-01～S-33 連號不重複；S-11、S-12、S-14、S-26 寫到口述，
 S-30～S-32 寫口述為準、不採用、兩個依據都標。"""
 import re
 import unittest
@@ -15,7 +15,7 @@ class SynthesisRules(unittest.TestCase):
 
     def test_numbering_is_contiguous(self):
         found = re.findall(r"^- (S-\d{2}) ", self.text, re.MULTILINE)
-        self.assertEqual(found, [f"S-{i:02d}" for i in range(1, 33)])
+        self.assertEqual(found, [f"S-{i:02d}" for i in range(1, 34)])
 
     def test_changed_rules_mention_statements(self):
         self.assertIn("〔s-", self.rules["S-11"])
@@ -38,6 +38,13 @@ class SynthesisRules(unittest.TestCase):
         self.assertIn("findings", self.rules["S-17"])
         self.assertIn("〔c-…〕", self.rules["S-17"])
         self.assertIn("依據有變，待重算", self.rules["S-17"])
+
+    def test_tags(self):
+        """標籤字典驗收 14：S-33 標籤照字典、只用字典的詞、看過沒有寫 []、字典外的回報不寫進檔頭。"""
+        rule = self.rules["S-33"]
+        for word in ("profile.tags", "字典", "[]", "回報"):
+            self.assertIn(word, rule)
+        self.assertIn("## 九、標籤", self.text)
 
     def test_no_reasons_or_decision_codes(self):
         """conventions 二：rules/ 不寫理由，決策編號不出現。"""

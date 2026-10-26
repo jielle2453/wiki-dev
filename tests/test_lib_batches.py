@@ -348,6 +348,34 @@ class BigChange(Base):
         self.out = {"synthesis_stale": [{"entity_id": f"e-{i}"} for i in range(10)]}
         self.assertIsNone(self.dispatch()["approval"])
 
+    @staticmethod
+    def tag_only(i, reason="補標籤（工種）"):
+        return {"entity_id": f"e-{i}", "path": f"案子/甲{i}/甲{i}.md", "reason": reason, "ids": [],
+                "added": [], "changed": [], "removed": []}
+
+    def test_tag_only_over_the_limit_approves_job_turn(self):
+        """標籤字典驗收 13、實作疑義 1：全是補標籤 12 張 → 不問、派、job 回合記 approved；守門寫第 11 張起不擋。"""
+        self.out = {"synthesis_stale": [self.tag_only(i) for i in range(11)]
+                    + [self.tag_only(11, "補標籤（工種）、補標籤（階段：完工）")]}
+        got = self.dispatch()
+        self.assertIsNone(got["approval"])
+        self.assertEqual({b["kind"] for b in got["batches"]}, {"synthesis"})
+        self.assertTrue(turn.turn_data(self.V, self.t).get("approved"))
+        for i in range(12):
+            p = self.V / f"案子/甲{i}/甲{i}.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("舊卡", encoding="utf-8")
+            ok, code, _reason = turn.before_write(self.V, str(p), str(self.V), "Z1", SID, self.t)
+            self.assertEqual((ok, code), (True, ""), i)
+
+    def test_one_other_reason_still_asks(self):
+        self.out = {"synthesis_stale": [self.tag_only(i) for i in range(10)] + [self.tag_only(10, "出處點不開")]}
+        got = self.dispatch()
+        self.assertEqual(got["approval"]["question"], "這次要更新 11 張綜合卡，比平常多；要繼續嗎？")
+        self.assertFalse(turn.turn_data(self.V, self.t).get("approved"))
+        self.out = {"synthesis_stale": [self.tag_only(i) for i in range(10)] + [dict(self.tag_only(10), added=[{"id": "f-1"}])]}
+        self.assertIsNotNone(self.dispatch()["approval"], "內容也要改的不算只補標籤")
+
 
 class Stop(Base):
     def test_stop_releases_and_lists_agents(self):
