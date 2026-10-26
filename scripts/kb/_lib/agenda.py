@@ -8,9 +8,14 @@ lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 pr
 重渲染前比對 日程.md 有沒有被手改（_lib/renders，D-223）：改了條目就存她那份、待處理開一條 handedit；比對用改之前的資料
 與上次寫的那天重算她看到的那份。
 只經 kb agenda 與 entities 寫；今天的日期集中在 _today（測試換掉它），逾期、今天、接下來的算法只看 open（D-129）。
+日程匯出（D-500）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
+agenda_export_dir 就在匯出自己的鎖裡重讀 agenda.json 與實體，把 willy-agenda/1 寫到 <夾>/willy-agenda.json（T-3；
+exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
 """
 import copy
 import datetime as dt
+import hashlib
+import json
 import re
 import secrets
 from pathlib import Path
@@ -141,6 +146,8 @@ def _mutate(vault, turn_id, fn):
             turn.backup(vault, AGENDA_POSIX, turn_id)
             write_json_atomic(p, data)
             render(vault, turn_id, data, base=before)
+    if changed:
+        safe_export(vault)  # 放開 agenda.json 的鎖之後（T-1）
     return result
 
 
@@ -414,6 +421,7 @@ def refresh_md(vault, turn_id=None):
     """實體狀態變了（擱置段在甘特圖上）：有 agenda.json 才重渲染 md，沒有就不建檔。"""
     if _path(vault).exists():
         render(vault, turn_id)
+        safe_export(vault)
 
 
 # ---------- 給 cards.todo、開場、plan ----------
@@ -763,7 +771,8 @@ def _hand_edited(vault, turn_id, base, now=None):
 
 def render(vault, turn_id=None, data=None, today=None, base=None):
     """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
-    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。"""
+    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。
+    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-500、T-1）。"""
     from kb._lib import renders
     data = data if data is not None else load(vault)
     text = render_text(vault, data, today)
@@ -783,3 +792,129 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
     write_text_atomic(target, text)
     renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))
     return True
+
+
+# ---------- 匯出（D-500） ----------
+
+EXPORT_NAME = "willy-agenda.json"
+EXPORT_SCHEMA = "willy-agenda/1"
+EXPORT_STATE_POSIX = ".system/agenda_export.json"
+EXPORT_FIELDS = ("id", "kind", "start", "date", "time", "text", "entities", "status", "source", "lead_days")
+FP_FIELDS = ("kind", "date", "start", "time", "text", "entities", "status", "lead_days")  # 手機寫回靠它判衝突，改了要升 schema
+EXPORT_NO_DIR = "資料夾不存在"
+EXPORT_NO_WRITE = "資料夾寫不進去"
+EXPORT_FAILED = "程式出錯，詳見 .system/hook-errors.log"
+
+
+def item_fp(it):
+    """條目指紋：FP_FIELDS 照鍵排序的 JSON 取 sha256 前 12 碼。"""
+    body = json.dumps({k: it.get(k) for k in FP_FIELDS}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+
+
+def export_payload(vault, data):
+    """willy-agenda/1：全部條目（含完成、取消）只取 EXPORT_FIELDS 加 fp；實體只列 active、不是她自己的。"""
+    from kb._lib import entities, paths
+    items = []
+    for it in data["items"]:
+        row = {k: it.get(k) for k in EXPORT_FIELDS}
+        row["fp"] = item_fp(it)
+        items.append(row)
+    names = [{"id": e.get("id"), "name": e.get("name"), "type": e.get("type")} for e in entities.load(vault)["entities"]
+             if e.get("status") == "active" and not entities.is_self(e)]
+    return {"schema": EXPORT_SCHEMA, "exported_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "willy_version": (paths.read_manifest() or {}).get("version"),
+            "fp": hashlib.sha256("".join(r["fp"] for r in items).encode("utf-8")).hexdigest()[:12],
+            "items": items, "entities": names}
+
+
+def _same_export(target, payload):
+    """資料夾裡那份跟這次的除了 exported_at 都一樣嗎；讀不到、壞的都當不一樣。"""
+    try:
+        old = read_json(target)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(old, dict):
+        return False
+    strip = lambda d: {k: v for k, v in d.items() if k != "exported_at"}  # noqa: E731
+    return strip(old) == strip(payload)
+
+
+def export_state(vault):
+    """.system/agenda_export.json；沒有或讀不到回空的。"""
+    try:
+        state = read_json(Path(vault) / EXPORT_STATE_POSIX)
+    except (OSError, ValueError):
+        state = None
+    return state if isinstance(state, dict) else {}
+
+
+def update_export_state(vault, **fields):
+    """讀改寫匯出狀態檔（呼叫端持有匯出的鎖，就是這個檔的鎖）；值是 None 的鍵拿掉。失敗只記 log。"""
+    p = Path(vault) / EXPORT_STATE_POSIX
+    try:
+        state = export_state(vault)
+        state.update(fields)
+        state = {k: v for k, v in state.items() if v is not None}
+        state["schema_version"] = 1
+        write_json_atomic(p, state)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"{EXPORT_STATE_POSIX} 沒寫成：{type(e).__name__}: {e}", source="agenda_export")
+
+
+def _now_stamp():
+    return dt.datetime.now().astimezone().isoformat(timespec="microseconds")  # 同一秒的成功與失敗也分得出先後
+
+
+def export(vault):
+    """設定了 agenda_export_dir 就匯出；沒設定回 None、什麼都不寫。成功回 {"ok": True, "dir", "written", "items"}；
+    任何例外吞掉、寫 hook-errors.log，回 {"ok": False, "dir", "reason"}（reason 是給她聽的白話）。
+    整段在匯出自己的鎖裡（agenda_export.json 的，不是 agenda.json 的），鎖裡才讀 agenda.json 與實體、不收呼叫端的資料：
+    兩個寫入的匯出排隊，後一個讀到的一定是最新內容（T-3）。"""
+    from kb._lib import ledger
+    folder = ""
+    try:
+        folder = config.get(vault, "agenda_export_dir").strip()
+        if not folder:
+            return None
+        lock_path = Path(vault) / EXPORT_STATE_POSIX
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(lock_path):
+            return _export_locked(vault, folder)
+    except Exception as e:  # noqa: BLE001  拿不到匯出的鎖：只記 log，狀態檔不碰
+        ledger.log_error(vault, f"日程匯出到 {folder} 失敗：{type(e).__name__}: {e}", source="agenda_export")
+        return {"ok": False, "dir": folder, "reason": EXPORT_FAILED}
+
+
+def _export_locked(vault, folder):
+    """export 的本體，呼叫端持有匯出的鎖。"""
+    from kb._lib import ledger
+    try:
+        if not Path(folder).is_dir():
+            raise FileNotFoundError(f"{folder} 不是資料夾或不在")
+        payload = export_payload(vault, load(vault))
+        target = Path(folder) / EXPORT_NAME
+        written = not _same_export(target, payload)
+        if written:
+            write_text_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    except Exception as e:  # noqa: BLE001  匯出只是一份視圖，不能擋日程（D-500）
+        if isinstance(e, FileNotFoundError):
+            reason = EXPORT_NO_DIR
+        elif isinstance(e, OSError):
+            reason = EXPORT_NO_WRITE
+        else:
+            reason = EXPORT_FAILED
+        ledger.log_error(vault, f"日程匯出到 {folder} 失敗：{type(e).__name__}: {e}", source="agenda_export")
+        update_export_state(vault, last_error_at=_now_stamp(), last_error=reason)
+        return {"ok": False, "dir": folder, "reason": reason}
+    update_export_state(vault, last_ok_at=_now_stamp())
+    return {"ok": True, "dir": folder, "written": written, "items": len(payload["items"])}
+
+
+def safe_export(vault):
+    """寫日程或實體的路徑放開鎖之後叫（T-1）：export 已吞錯，這層再保證呼叫端的行為與回傳不變。"""
+    try:
+        export(vault)
+    except Exception:  # noqa: BLE001
+        pass

@@ -10,6 +10,7 @@ schema 1 讀進來在記憶體補上，寫的時候寫 2。實體本身在不在
 只准程式寫、讀改寫整段在 FileLock 裡（I-080），寫前備進回合（D-074）。綜合卡的搬、刪也在這裡（在同一把鎖裡），
 檔頭格式與驗證住 synthesis.py。drift 只讀：認出客戶在檔案總管改了實體夾名、卡名、刪夾（D-057）。
 note 改知識：alias 加與拿掉別名（D-148）；rename／merge 連口述與裁示的實體名稱一起換（同日程，同一套 _Undo），remove 照留。
+日程匯出（D-500 第二輪）：存過 entities.json 的函式放開鎖之後叫 _export_agenda，匯出的實體名單立刻跟上（T-2）。
 """
 import os
 import posixpath
@@ -267,6 +268,7 @@ def add(vault, type_, name, turn_id):
             entry.update(_new_progress())
         data["entities"].append(entry)
         _save(vault, data, turn_id)
+    _export_agenda(vault)
     return entry, True
 
 
@@ -278,6 +280,7 @@ def confirm(vault, ref, turn_id):
         entry["source"] = "confirmed"
         entry["date"] = _today()
         _save(vault, data, turn_id)
+    _export_agenda(vault)
     return entry
 
 
@@ -299,6 +302,7 @@ def accept(vault, ref, turn_id):
         entry["date"] = _today()
         entry["judged_turn"] = turn_id
         _save(vault, data, turn_id)
+    _export_agenda(vault)
     return entry, "accepted"
 
 
@@ -321,6 +325,7 @@ def set_card(vault, entity_id, value, turn_id):
             return False
         entry["card"] = bool(value)
         _save(vault, data, turn_id)
+    _export_agenda(vault)
     return True
 
 
@@ -682,6 +687,7 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
             return touched, changed, moved
 
         touched, changed, moved_files = act(undo) if undo is not None else _guarded(vault, act)
+    _export_agenda(vault)
     return {"entity": entry, "old_name": old_name, "via_alias": hit == "alias", "cards": [r for r, _n in touched],
             "changed": changed, "moved_files": moved_files, "card": target if loc else None}
 
@@ -753,6 +759,7 @@ def retype(vault, old_type, new_type, turn_id, undo):
             if e.get("status") == "active" and e.get("card"):
                 _refresh_fields(vault, e, prof, turn_id, changed, undo)
         _save(vault, data, turn_id, undo)
+    _export_agenda(vault)
     return changed + [{"path": ENTITIES_POSIX, "action": "modify"}]
 
 
@@ -809,6 +816,7 @@ def merge(vault, src_ref, dst_ref, turn_id):
 
         changed = _guarded(vault, act)
         target_card = bool(dst.get("card")) and locate(vault, dst) is not None
+    _export_agenda(vault)
     return {"source": src, "target": dst, "added": added, "changed": changed, "target_card": target_card}
 
 
@@ -832,6 +840,7 @@ def remove(vault, ref, turn_id):
             return changed
 
         changed = _guarded(vault, act)
+    _export_agenda(vault)
     return {"entity": entry, "changed": changed}
 
 
@@ -845,6 +854,7 @@ def rebuild(vault, ref, turn_id):
             raise EntityRefused(f"「{entry['name']}」的綜合卡還在，不用重寫")
         entry["card"] = False
         _save(vault, data, turn_id)
+    _export_agenda(vault)
     return {"entity": entry, "changed": [{"path": ENTITIES_POSIX, "action": "modify"}]}
 
 
@@ -959,6 +969,7 @@ def alias(vault, ref, add=None, remove=None, turn_id=None):
             return changed
 
         out["changed"] = _guarded(vault, act)
+    _export_agenda(vault)
     return out
 
 
@@ -1014,6 +1025,13 @@ def _agenda_follow(vault, mapping, turn_id):
     return []
 
 
+def _export_agenda(vault):
+    """entities.json 存好、放開實體的鎖之後叫（D-500 第二輪，T-2）：日程匯出的實體名單立刻跟上；改名合併動到的日程也在這裡匯出。
+    匯出已吞錯，不改呼叫端的行為與回傳。"""
+    from kb._lib import agenda
+    agenda.safe_export(vault)
+
+
 def _agenda_md(vault, turn_id):
     """實體清單寫完之後重渲染日程.md（擱置段、名稱住實體清單）；內容沒變不寫。回給日誌的 changed。"""
     from kb._lib import agenda
@@ -1062,6 +1080,7 @@ def set_progress(vault, ref, progress, turn_id, evidence=None, note=None, source
             return closed
 
         closed = _guarded(vault, act)
+    _export_agenda(vault)
     how = f"客戶 {_today()} 回答：{PROGRESS_TEXT[progress]}"
     done = False
     try:
@@ -1162,4 +1181,6 @@ def sync_self(vault, about, turn_id):
                 dirty = True
         if dirty:
             _save(vault, data, turn_id)
+    if dirty:
+        _export_agenda(vault)
     return out
