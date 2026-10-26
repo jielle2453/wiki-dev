@@ -4,11 +4,14 @@ kb intake --pasted image:<n>|text:<n> --title <檔名>（存貼的圖或文字�
 人讀一份一行，有新收或更新、又是對話裡跑的，最後一行「接著整理：kb cards dispatch --json」；--json 回 {"items","next"}。
 拒絕句一字不差；多份路徑各自判斷，有一份被拒其他照收、exit 3。人讀不印清冊編號。
 總資料夾只從 cwd 往上找（不收 --vault，同 convert、output）。對話裡跑的把收到的條目記進回合的 touched（kb asks 當成跟這一句有關），
-終端機跑的記一段工作日誌程式段（D-085）。回合照 turn.current()（對話外跑的照 D-502 自己一個回合）。
+終端機跑的記一段工作日誌程式段（D-085）。回合：守門替主對話插的全域 --session 在時用那個對話的回合（.system/turns/<sid>.json，
+兩個對話開同一個知識庫時不會記到別句，收件匣裁定 6），沒有就照 turn.current()（終端機、對話外跑的照 D-502 自己一個回合）。
+--pasted 只認 --session 那個對話還沒答完的回合記的對話紀錄；沒有 --session 一律拿不到。多份路徑時被拒那行前面加「<原檔名>：」。
 """
 import argparse
 import json
 import os
+from pathlib import Path
 
 from kb import journal_cli
 from kb._lib import intake, inventory, turn
@@ -44,12 +47,34 @@ def _refused(as_json, line):
     return 3
 
 
+def _session_turn(vault):
+    """--session 那個對話自己的回合檔（.system/turns/<sid>.json）；沒有 --session 或讀不到回 None，不退到 current.json。"""
+    if not turn.SESSION:
+        return None
+    return turn._read_turn(turn._session_file(vault, turn.SESSION))
+
+
+def _turn(vault):
+    """這次呼叫算哪個回合：有 --session 用那個對話的回合檔；沒有 --session（終端機、對話外）或那份讀不到才照 turn.current()。"""
+    return _session_turn(vault) or turn.current(vault)
+
+
 def _transcript(vault):
-    """這一句的對話紀錄：只在對話裡、還沒答完的回合才有（對話結束後在終端機跑的、別的回合都不取，免得拿到別句貼的東西）。"""
-    data = turn.current(vault)
-    if not data.get("session_id") or data.get("done"):
+    """這一句的對話紀錄：只認 --session 那個對話、還沒答完的回合（終端機、對話答完、別的對話的都不取，免得拿到別句貼的東西）。"""
+    data = _session_turn(vault)
+    if not data or data.get("done"):
         return None
     return data.get("transcript")
+
+
+def _touch(vault, turn_id, ids):
+    """收到的條目記進這次呼叫的回合 touched：turn.touch 只看 --turn 或 current.json，--session 的回合要借 OVERRIDE 指過去。"""
+    saved = turn.OVERRIDE
+    turn.OVERRIDE = turn_id
+    try:
+        turn.touch(vault, files=ids)
+    finally:
+        turn.OVERRIDE = saved
 
 
 def _list(vault, as_json):
@@ -69,6 +94,7 @@ def _receive(vault, args, turn_id):
     if args.pasted:
         return [intake.receive_pasted(vault, args.pasted, args.title, turn_id, _transcript(vault))], False
     got, refused = [], False
+    many = len(args.paths) > 1
     for raw in args.paths:  # 一份出錯不擋其他份：已經收好的照樣記日誌、touched
         try:
             got.append(intake.receive(vault, raw, turn_id, os.getcwd(), title=args.title, from_=args.source,
@@ -76,14 +102,22 @@ def _receive(vault, args, turn_id):
             continue
         except intake.Refused as e:
             why = str(e)
-        except TimeoutError:
-            why = LOCK_BUSY
         except OSError as e:
-            from kb.finding_cli import rel_of
-            why = f"檔案被別的程式開著或沒有權限：{rel_of(vault, e)}"
+            why = _os_error(vault, e)
+        if many:  # 多份時 AI 不用靠順序對（收件匣裁定 6）
+            why = f"{Path(raw).name}：{why}"
         got.append({"path": raw, "id": None, "result": "refused", "said": why})
         refused = True
     return got, refused
+
+
+def _os_error(vault, e):
+    if isinstance(e, TimeoutError):
+        return LOCK_BUSY
+    if intake.too_long(e):
+        return intake.TOO_LONG
+    from kb.finding_cli import rel_of
+    return f"檔案被別的程式開著或沒有權限：{rel_of(vault, e)}"
 
 
 def run(args):
@@ -107,21 +141,18 @@ def run(args):
         if args.pasted and args.pasted.strip() == "list":
             return _list(vault, as_json)
         conversation = journal_cli.in_conversation(vault)
-        turn_id = turn.current(vault)["turn"]
+        turn_id = _turn(vault)["turn"]
         items, refused = _receive(vault, args, turn_id)
     except intake.Refused as e:
         return _refused(as_json, str(e))
-    except TimeoutError:
-        return _refused(as_json, LOCK_BUSY)
     except ValueError as e:
         return _refused(as_json, f"狀態檔讀不到：{e}")
     except OSError as e:
-        from kb.finding_cli import rel_of
-        return _refused(as_json, f"檔案被別的程式開著或沒有權限：{rel_of(vault, e)}")
+        return _refused(as_json, _os_error(vault, e))
     wrote = [i for i in items if i["result"] in WROTE]
     if wrote:
         if conversation:
-            turn.touch(vault, files=[i["id"] for i in wrote])
+            _touch(vault, turn_id, [i["id"] for i in wrote])
         journal_cli.record_program_or_warn(
             vault, "；".join(i["said"] for i in wrote),
             [{"path": i["path"], "action": "create" if i["result"] == "new" else "modify"} for i in wrote]

@@ -70,7 +70,8 @@ class RegisterIntake(Base):
         self.assertEqual(e2["id"], e["id"])
         self.assertEqual(len(e2["fingerprints"]), 2)
         self.assertEqual(e2["fingerprints"][-1]["turn"], t2)
-        self.assertEqual(e2["intake"]["received"], "2026-10-27T09:00:00")
+        self.assertEqual(e2["intake"]["received"], e["intake"]["received"])  # 裁定 6 #3：記第一次收的，覆蓋看指紋的 time
+        self.assertEqual(e2["fingerprints"][-1]["time"], "2026-10-27T09:00:00")
         self.assertEqual(e2["locations"][0]["size"], len(b"v2-longer"))
         self.assertEqual(sum(1 for x in inventory.load(self.V)["entries"] if x["origin"] == "intake"), 1)
 
@@ -241,6 +242,21 @@ class Names(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(intake.Refused):
                 intake.check_name(bad)
         self.assertEqual(intake.check_name("王先生合約.jpg"), "王先生合約.jpg")
+
+    def test_too_long_errors(self):
+        """裁定 6 #5：路徑太長的幾種 OSError 都認得；一般的找不到路徑不算。"""
+        import errno
+        self.assertTrue(intake.too_long(OSError(errno.ENAMETOOLONG, "x")))
+        e = FileNotFoundError(2, "x", "C:/" + "a" * 300)
+        e.winerror = 3
+        self.assertTrue(intake.too_long(e))
+        short = FileNotFoundError(2, "x", "C:/a/b.pdf")
+        short.winerror = 3
+        self.assertFalse(intake.too_long(short))
+        self.assertFalse(intake.too_long(PermissionError(13, "x", "C:/a")))
+        with self.assertRaises(intake.Refused) as c:
+            intake.check_name("字" * 256)
+        self.assertEqual(str(c.exception), intake.TOO_LONG)
 
     def test_titled_name_keeps_original_extension(self):
         self.assertEqual(intake.titled("王先生合約", ".jpg"), "王先生合約.jpg")

@@ -301,12 +301,35 @@ def line_agenda(vault):
 INBOX_LINE = "收件匣：{n} 份沒歸位、最久 {days} 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
 
 
+def _inbox_days(vault, files, today):
+    """收件匣最上層最舊一份放了幾天：只算清冊裡有 first_seen 的 active 條目；還沒入清冊的（剛丟進來、修改時間可能很舊）當 0
+    （收件匣裁定 6）。清冊讀不到當 0。"""
+    from datetime import date
+    from kb._lib import inventory
+
+    keys = {inventory.uri_key(inventory.make_uri(inventory.INBOX, f.name)) for f in files}
+    try:
+        entries = inventory.load(vault)["entries"]
+    except ValueError:
+        return 0
+    oldest = today
+    for e in entries:
+        if e.get("status") != "active" or not any(inventory.uri_key(loc.get("uri", "")) in keys
+                                                   for loc in e.get("locations") or []):
+            continue
+        try:
+            oldest = min(oldest, date.fromisoformat(str(e.get("first_seen") or "")[:10]))
+        except ValueError:
+            continue
+    return (today - oldest).days
+
+
 def line_inbox(vault):
     """收件匣第 6 點（D-045）：收件匣最上層（不含子夾、跳過 . 開頭）的檔數到 inbox_remind_files，或最舊一份（清冊 first_seen，
-    沒有用修改時間）超過 inbox_remind_days 天，而且這台電腦上次提醒是 inbox_remind_every_days 天前或沒提醒過，才印並記今天
+    還沒入清冊的不算天數）超過 inbox_remind_days 天，而且這台電腦上次提醒是 inbox_remind_every_days 天前或沒提醒過，才印並記今天
     （env.json 的 inbox_reminded）；不成立不印、不記。版本那行（有新版、撤回、換了版）印了就不印也不記，下次開場再提醒
     （收件匣裁定 2：開場預算，收件匣不急）。出錯由 status_lines 記 log。"""
-    from datetime import date, datetime
+    from datetime import date
     from kb._lib import config, env, inventory
 
     if line_version(vault):
@@ -328,24 +351,7 @@ def line_inbox(vault):
                 return None
         except ValueError:
             pass
-    seen = {}
-    try:
-        for e in inventory.load(vault)["entries"]:
-            if e.get("status") != "active":
-                continue
-            for loc in e.get("locations") or []:
-                seen.setdefault(inventory.uri_key(loc.get("uri", "")), str(e.get("first_seen") or ""))
-    except ValueError:
-        pass
-    oldest = today
-    for f in files:
-        first = seen.get(inventory.uri_key(inventory.make_uri(inventory.INBOX, f.name)), "")
-        try:
-            day = date.fromisoformat(first[:10]) if first else datetime.fromtimestamp(f.stat().st_mtime).date()
-        except ValueError:
-            day = datetime.fromtimestamp(f.stat().st_mtime).date()
-        oldest = min(oldest, day)
-    days = (today - oldest).days
+    days = _inbox_days(vault, files, today)  # 份數到了也要讀：句子裡要講最久幾天
     if len(files) < config.get(vault, "inbox_remind_files") and days <= config.get(vault, "inbox_remind_days"):
         return None
     env.set_inbox_reminded(vault, today.isoformat())

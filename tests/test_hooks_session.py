@@ -1164,7 +1164,20 @@ class InboxLine(unittest.TestCase):
         self.assertIsNone(env.inbox_reminded(self.V))
 
     def test_one_old_file_prints(self):
+        """裁定 6 #4：天數只算清冊有 first_seen 的；修改時間舊、還沒入清冊的不算天數。"""
+        from datetime import datetime, timedelta
+        from kb._lib import inventory, turn
+        from kb._lib import sources as sources_lib
         self.files(1, days_old=8)
+        self.assertIsNone(self.session.line_inbox(self.V))
+        inventory.apply(self.V, inventory.scan(self.V, sources_lib.load(self.V)), turn.start(self.V, None, "")["turn"])
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        old = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%S")
+        for e in data["entries"]:
+            if any("收件匣" in l["uri"] for l in e["locations"]):
+                e["first_seen"] = old
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(self.session.line_inbox(self.V),
                          "收件匣：1 份沒歸位、最久 8 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
 

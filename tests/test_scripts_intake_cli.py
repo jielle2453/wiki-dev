@@ -124,8 +124,28 @@ class NoFolders(Base):
     def test_many_paths_one_refused_others_kept(self):
         a, b = self.outside("a.pdf", b"a"), self.outside("帳密.xlsx", b"b")
         out = self.refused(str(a), str(b))
-        self.assertEqual(out, ["收進收件匣了：收件匣/a.pdf（原檔沒動）", "這個檔名像密碼或金鑰，不收", NEXT])
+        self.assertEqual(out, ["收進收件匣了：收件匣/a.pdf（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收", NEXT])
         self.assertEqual(self.inbox_files(), ["a.pdf"])
+
+    def test_r6_2_deleted_file_is_received_again(self):
+        """裁定 6 #2：收件匣那份在檔案總管被刪、清冊還沒掃，再拖同一份照新收。"""
+        src = self.outside("合約.pdf", b"%PDF-1.4 wang")
+        self.ok(str(src))
+        (self.V / "收件匣" / "合約.pdf").unlink()
+        self.assertEqual(self.ok(str(src))[0], "收進收件匣了：收件匣/合約.pdf（原檔沒動）")
+        self.assertTrue((self.V / "收件匣" / "合約.pdf").is_file())
+
+    def test_r6_5_name_too_long(self):
+        src = self.outside("a.pdf", b"a")
+        self.assertEqual(self.refused(str(src), "--title", "字" * 300), ["檔名太長，換短一點的名字"])
+        self.assertEqual(self.inbox_files(), [])
+        self.assertNotIn("收件匣/" + "字" * 300 + ".pdf", [e["path"] for e in turn.entries(self.V, self.t)])
+
+    def test_r6_6_many_paths_refusals_carry_file_name(self):
+        a, b, c = self.outside("m1.txt", b"1"), self.outside("帳密.xlsx", b"2"), self.tmp / "沒有.txt"
+        out = self.refused(str(a), str(b), str(c))
+        self.assertEqual(out, ["收進收件匣了：收件匣/m1.txt（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收",
+                               f"沒有.txt：找不到這個檔：{c}", NEXT])
 
     def test_json(self):
         r = self.kb(str(self.outside("a.pdf", b"a")), "--json")
@@ -267,6 +287,10 @@ class Pasted(Base):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def kb(self, *args, **kw):
+        """裁定 6 #1：主對話的 kb intake 守門會插 --session；--pasted 只認那個對話的回合。"""
+        return run("--session", SID, "intake", *args, cwd=self.V, **kw)
+
     def use(self, name):
         text = (FIX / name).read_text(encoding="utf-8").replace("<UPLOADS>", (self.cfg / "uploads").as_posix())
         p = self.tmp / name
@@ -309,6 +333,25 @@ class Pasted(Base):
         turn.set_done(self.V, SID)
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
                          ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+
+    def test_r6_1_without_session_pasted_is_refused(self):
+        self.use("desktop.jsonl")
+        r = run("intake", "--pasted", "text:1", "--title", "x", cwd=self.V, extra_env=self.env)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "這段我拿不到原文；請把它存成檔，再拖進對話"))
+
+    def test_r6_1_two_conversations_each_read_their_own(self):
+        """裁定 6 #1：兩個對話開同一個知識庫，A 的 --pasted 讀 A 的紀錄，不是 current.json 那個（B 最後說話）。"""
+        a = self.tmp / "plain.jsonl"
+        a.write_text((FIX / "plain.jsonl").read_text(encoding="utf-8"), encoding="utf-8")
+        ta = turn.start(self.V, "sA", "存起來", transcript=str(a))["turn"]
+        self.use("desktop.jsonl")  # SID（B）後說話，current.json 是 B
+        r = run("--session", "sA", "intake", "--pasted", "list", cwd=self.V, extra_env=self.env)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "text:1（11 字）"))
+        src = self.tmp / "x.pdf"
+        src.write_bytes(b"%PDF a")
+        r = run("--session", "sA", "intake", str(src), cwd=self.V, extra_env=self.env)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("收件匣/x.pdf", [e["path"] for e in turn.entries(self.V, ta)])
 
     def test_6_no_transcript(self):
         turn.start(self.V, SID, "存起來")

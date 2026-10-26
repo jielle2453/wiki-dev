@@ -28,6 +28,8 @@ EXCLUDED = "這個位置你說過不讀"
 CREDENTIAL = "這個檔名像密碼或金鑰，不收"
 BAD_NAME = '檔名不能有 \\ / : * ? " < > | $ ` 這些字元'
 HIDDEN_NAME = "這種名字知識庫不會讀，換個名字"
+TOO_LONG = "檔名太長，換短一點的名字"
+NAME_MAX = 255  # NTFS 一段名字的上限（UTF-16 字元）
 DEVICE_NAME = "這種名字 Windows 不收，換個名字"
 READING = "這份我已經在讀了：{where}"
 HAVE = "這份收過了：{where}"
@@ -75,7 +77,22 @@ def check_name(name):
         raise Refused(HIDDEN_NAME)
     if clean.split(".")[0].strip().upper() in DEVICE_NAMES:
         raise Refused(DEVICE_NAME)
+    if len(clean.encode("utf-16-le")) // 2 > NAME_MAX:
+        raise Refused(TOO_LONG)
     return clean
+
+
+PATH_MAX = 260  # Windows 沒開長路徑時整條路徑的上限
+
+
+def too_long(e):
+    """寫檔的 OSError 是不是路徑太長：ENAMETOOLONG、Windows 的 ERROR_FILENAME_EXCED_RANGE（206），或整條路徑超過 260 字時
+    Windows 回的「找不到路徑」（3）。"""
+    import errno
+    win = getattr(e, "winerror", None)
+    names = [str(x) for x in (getattr(e, "filename", None), getattr(e, "filename2", None)) if x]
+    return (getattr(e, "errno", None) == errno.ENAMETOOLONG or win == 206
+            or (win == 3 and any(len(n) >= PATH_MAX for n in names)))
 
 
 def titled(title, ext):
@@ -104,11 +121,16 @@ def _entry_at(vault, rel):
     return e if e and e.get("status") == "active" else None
 
 
-def _same_content(vault, digest):
+def _same_content(vault, sources, digest):
+    """現行指紋相同、而且至少一個位置在磁碟上真的有檔的 active 條目（檔在 kb 外被刪、清冊還沒掃的不算，收件匣裁定 6）。"""
     for e in inventory.load(vault)["entries"]:
         fps = e.get("fingerprints") or []
-        if e.get("status") == "active" and fps and fps[-1].get("sha256") == digest and e.get("locations"):
-            return e
+        if e.get("status") != "active" or not fps or fps[-1].get("sha256") != digest:
+            continue
+        for loc in e.get("locations") or []:
+            path = inventory.path_of(vault, sources, loc.get("uri", ""))
+            if path is not None and Path(path).is_file():
+                return dict(e, locations=[loc])
     return None
 
 
@@ -168,7 +190,7 @@ def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None):
     digest = inventory.sha256_of(path)
     if name:
         return _periodic(vault, path, rel, digest, turn_id, meta)
-    have = _same_content(vault, digest)
+    have = _same_content(vault, sources, digest)
     if have is not None:
         where = _where(have["locations"][0].get("uri", ""))
         return _item(where, have["id"], "have", HAVE.format(where=where))
@@ -251,10 +273,7 @@ def _is_customer(d):
     images = [b for b in blocks if b.get("type") == "image"]
     if not texts and not images:
         return False
-    first = texts[0].lstrip() if texts else ""
-    if isinstance(msg.get("content"), str) and first.startswith("<system-reminder"):
-        return False
-    return not first.startswith(NOT_A_PROMPT)
+    return not (texts[0].lstrip() if texts else "").startswith(NOT_A_PROMPT)
 
 
 def read_message(path):

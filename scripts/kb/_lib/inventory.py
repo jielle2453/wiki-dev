@@ -283,7 +283,7 @@ def register_intake(vault, rel, turn_id, meta, fresh=False):
     """kb intake 收進收件匣的檔（收件匣第 2 點，D-242）：同位置有 active 條目就追加指紋（位置大小時間跟著更新，同 register_output），
     沒有就新建一筆 origin intake、created_turn 是這回合；同位置的舊非 active 條目改 superseded。
     fresh（新收的檔，呼叫端剛建）：一律新建；同位置還記著 active 的（檔在 kb 外被刪、掃描還沒記不見）也改 superseded，不接到舊條目上。
-    選填欄 intake = meta（from、name、original_name、pasted、copy，沒有的不寫）加 received（這次寫進來的時間）。回那一筆。"""
+    選填欄 intake = meta（from、name、original_name、pasted、copy，沒有的不寫）加 received（第一次收進來的時間，覆蓋時不改）。回那一筆。"""
     uri = "file://" + str(rel).replace("\\", "/")
     key = uri_key(uri)
     target = Path(vault) / rel
@@ -303,7 +303,9 @@ def register_intake(vault, rel, turn_id, meta, fresh=False):
                 fps.append({"sha256": digest, "time": now, "turn": turn_id})
             entry["locations"] = [_loc_of(target, loc["uri"]) if uri_key(loc.get("uri", "")) == key else loc
                                   for loc in entry["locations"]]
-            entry["intake"] = dict(entry.get("intake") or {}, **info, received=now)
+            got = dict(entry.get("intake") or {}, **info)
+            got.setdefault("received", now)  # 第一次收的時間；覆蓋看那筆指紋的 time（收件匣裁定 6）
+            entry["intake"] = got
             _set_read(entry, "ok")
             _write(vault, data["entries"])
             return entry

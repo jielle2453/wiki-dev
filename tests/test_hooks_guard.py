@@ -459,3 +459,26 @@ class SubagentTurn(unittest.TestCase):
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" version > 總目錄.md')
         self.assertNotIn("updatedInput", out)
         self.assertEqual(out["permissionDecision"], "deny")
+
+
+class IntakeSession(unittest.TestCase):
+    """收件匣裁定 6 #1：主對話的單一 kb intake 呼叫插 --session（同 build），--pasted 才認得是哪個對話。"""
+    SID = "sid-intake"
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_intake_gets_session(self):
+        kb = f'python "{ROOT}/scripts/kb.py"'
+        for args in ("intake --pasted list", "intake --pasted image:1 --title 名片", 'intake "D:/下載/合約.pdf"'):
+            for tool in ("Bash", "PowerShell"):
+                with self.subTest(args=args, tool=tool):
+                    data = payload(tool, f"{kb} {args}", self.V)
+                    data["session_id"] = self.SID
+                    r = run_hook(data)
+                    out = json.loads(r.stdout)["hookSpecificOutput"]
+                    self.assertEqual(out["permissionDecision"], "allow")
+                    self.assertEqual(out["updatedInput"]["command"], f"{kb} --session {self.SID} {args}")

@@ -45,7 +45,7 @@ AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
 SESSION_SUBS = {("cards", "dispatch"), ("cards", "status"), ("cards", "stop")}
-SESSION_CMDS = ("build",)  # 這個子命令的每個子子命令都插
+SESSION_CMDS = ("build", "intake")  # 這些子命令都插（intake：--pasted 要認得是哪個對話的紀錄，收件匣裁定 6）
 QUOTES = "\"'"
 
 
