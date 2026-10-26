@@ -46,7 +46,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 ## 骨架
 
-- 分辨問法，照 `references/find.md` 挑程式：某個實體用 `kb lookup`，按卡型、年、實體列卡用 `kb cards list`；最近改了什麼用 `kb journal recent --changed`、以前聊過什麼用 `--find`，這週要做什麼用 `kb agenda list --from --to`；有沒有要我確認的、看待處理用 `kb asks --all --json`。
+- 分辨問法，照 `references/find.md` 挑程式：某個實體用 `kb lookup`，按卡型、年、實體列卡用 `kb cards list`；最近改了什麼用 `kb journal recent --changed`、以前聊過什麼用 `--find`，這週要做什麼用 `kb agenda list --from --to`；有沒有要我確認的、看待處理用 `kb asks --all --json`。照條件找人或案子（「在意醫療的客戶有誰」）：條件是設定檔第八節的標籤就先用 `kb entity list` 篩，只讀篩出來的綜合卡（`references/find.md` 第九節）。
 - 讀綜合卡與需要的那幾張卡；原檔改過還沒重做的卡，照原檔答。
 - 有數字：工具之間先說一句粗估、標明還沒核對；逐份 `kb convert` 讀卡上〔位置〕那頁對過，再交 `kb tally` 加總、附逐筆表（`references/verify.md`）。要核的份數超過程式給的門檻先問。
 - 對不上：卡抄錯用 `kb cards redo`，兩份原檔寫法不同用 `kb pending add`，說法看 `references/verify.md`。
