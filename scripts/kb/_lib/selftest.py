@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -330,6 +331,15 @@ def _step_upgrade(root, vault, seconds):
         raise Failed(f"kb upgrade --background 結束碼 {code}", file, line)
 
 
+def _remove(base):
+    """刪暫存小知識庫；Windows 上剛結束的子行程或防毒偶爾還握著檔，刪不掉就等一下再試幾次。"""
+    for _ in range(10):
+        shutil.rmtree(base, ignore_errors=True)
+        if not os.path.exists(base):
+            return
+        time.sleep(0.2)
+
+
 # ---------- 主體 ----------
 
 def run():
@@ -358,7 +368,7 @@ def run():
         result.update(step=step, why=type(e).__name__)
     finally:
         if base is not None:
-            shutil.rmtree(base, ignore_errors=True)
+            _remove(base)
     if result["ok"]:
         result.update(step=None, file=None, line=None, why=None)
     return result

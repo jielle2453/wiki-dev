@@ -16,17 +16,20 @@ PLUGIN_PARTS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills
 SELFTEST_PREFIX = "wiki-with-willy-selftest-"
 
 
-def run_selftest(kb_py, cwd, *extra):
+def run_selftest(kb_py, cwd, *extra, tmpdir=None):
+    """tmpdir 有給就當這次的 TMP／TEMP：別的對話同時在跑測試也會在系統暫存夾建同名開頭的夾，只看自己這份才不會誤判。"""
     envv = dict(os.environ, PYTHONIOENCODING="utf-8")
     envv.pop("CLAUDE_PLUGIN_ROOT", None)
+    if tmpdir is not None:
+        Path(tmpdir).mkdir(parents=True, exist_ok=True)
+        envv.update(TMP=str(tmpdir), TEMP=str(tmpdir))
     r = subprocess.run([sys.executable, str(kb_py), "selftest", *extra], capture_output=True, text=True,
                        encoding="utf-8", cwd=str(cwd), env=envv, timeout=300)
     return r
 
 
-def leftovers():
-    base = Path(tempfile.gettempdir())
-    return {p.name for p in base.iterdir() if p.name.startswith(SELFTEST_PREFIX)}
+def leftovers(tmpdir):
+    return {p.name for p in Path(tmpdir).iterdir() if p.name.startswith(SELFTEST_PREFIX)}
 
 
 def snapshot(folder):
@@ -59,14 +62,14 @@ class InRepo(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_passes_in_the_repo_and_touches_nothing(self):
-        before_tmp = leftovers()
+        own_tmp = self.tmp / "temp"
         before = snapshot(self.V)
-        r = run_selftest(KB, self.V, "--json")
+        r = run_selftest(KB, self.V, "--json", tmpdir=own_tmp)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         got = json.loads(r.stdout)
         version = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
         self.assertEqual(got, {"ok": True, "version": version, "step": None, "file": None, "line": None, "why": None})
-        self.assertEqual(leftovers(), before_tmp)
+        self.assertEqual(leftovers(own_tmp), set())
         self.assertEqual(snapshot(self.V), before)
 
     def test_human_line(self):
@@ -92,12 +95,12 @@ class Broken(unittest.TestCase):
         p.write_text(fn(p.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
 
     def run_json(self):
-        before = leftovers()
-        r = run_selftest(self.kb, self.tmp, "--json")
+        own_tmp = self.tmp / "temp"
+        r = run_selftest(self.kb, self.tmp, "--json", tmpdir=own_tmp)
         self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
         got = json.loads(r.stdout)
         self.assertIs(got["ok"], False)
-        self.assertEqual(leftovers(), before)
+        self.assertEqual(leftovers(own_tmp), set())
         self.assertNotIn(str(self.tmp), json.dumps(got, ensure_ascii=False))
         self.assertNotIn(str(self.tmp).replace("\\", "/"), json.dumps(got, ensure_ascii=False))
         return got

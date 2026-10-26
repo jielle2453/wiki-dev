@@ -53,8 +53,8 @@ def fake_kb(body):
     return zip_of({".claude-plugin/plugin.json": "{}", "scripts/kb.py": body})
 
 
-def leftovers():
-    return {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.name.startswith(VERIFY_PREFIX)}
+def leftovers(tmpdir):
+    return {p.name for p in Path(tmpdir).iterdir() if p.name.startswith(VERIFY_PREFIX)}
 
 
 class Verify(unittest.TestCase):
@@ -76,11 +76,13 @@ class Verify(unittest.TestCase):
         return got
 
     def test_good_zip_passes_with_the_new_versions_own_selftest(self):
-        before = leftovers()
-        got = self.verify(repo_zip())
+        own_tmp = self.tmp / "temp"  # 只看自己這份：別的對話同時在跑測試也會在系統暫存夾建同名開頭的夾
+        own_tmp.mkdir()
+        with mock.patch.object(tempfile, "tempdir", str(own_tmp)):
+            got = self.verify(repo_zip())
         self.assertEqual(got, {"ok": True, "version": REPO_VERSION, "python": PY, "step": None, "file": None,
                                "line": None, "why": None, "transient": False})
-        self.assertEqual(leftovers(), before)
+        self.assertEqual(leftovers(own_tmp), set())
 
     def test_sha256_mismatch(self):
         got = self.verify(fake_kb("print(1)\n"), digest="0" * 64)
@@ -190,10 +192,10 @@ class Verify(unittest.TestCase):
 
     def test_child_file_and_why_are_cleaned_again(self):
         """裁定 17：新版回的 file 只收 plugin 根底下的相對路徑；why 再遮一次值、拿掉絕對路徑。"""
-        for file in ("C:/Users/某人/x.py", "/etc/x.py", "../x.py", "a\\..\\..\\x.py"):
+        for file in ("D:/私人/某人/x.py", "/etc/x.py", "../x.py", "a\\..\\..\\x.py"):
             with self.subTest(file=file):
                 out = {"ok": False, "version": REPO_VERSION, "step": "hooks", "file": file, "line": 3,
-                       "why": "壞在 C:\\Users\\某人\\私密\\x.py，密碼：hunter2abc"}
+                       "why": "壞在 D:\\私人\\某人\\私密\\x.py，密碼：hunter2abc"}
                 got = self.verify(fake_kb(f"print({json.dumps(json.dumps(out, ensure_ascii=False))})\n"))
                 self.assertIsNone(got["file"])
                 self.assertIsNone(got["line"])
