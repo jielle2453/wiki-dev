@@ -162,9 +162,30 @@ class NoSuchTurn(ValueError):
     pass
 
 
+def in_conversation(vault):
+    """對話裡叫的（D-085 補）：current.json 有 session_id 且 done 為 false，改動併進那一句、Stop 會補記，不另寫程式段。
+    對話答完（done true）後在終端機跑的不算。只讀不開新回合；versions 在動作前判斷。
+    kb.py 帶 --turn（card-maker 的呼叫，守門插的）或 --session（主對話的 cards dispatch 等）一律算對話裡（D-195）。
+    回合已經答完、但這個 session 正在背景整理（或剛整理完）時主對話跑的也算（收通知那一輪，card-maker 第一輪修）。
+    日誌（journal_cli）與 current() 共用這一份判斷（D-502 裁定 2）。"""
+    if OVERRIDE or SESSION:
+        return True
+    try:
+        data = _read_turn(_current_file(vault))
+    except OSError:
+        return False
+    if not (data and data.get("session_id")):
+        return False
+    if not data.get("done"):
+        return True
+    from kb._lib import batches
+    return batches.active_job(vault, data["session_id"], config.get(vault, "card_batch_expire_minutes"))
+
+
 def current(vault, session_id=None):
     """有 --turn（OVERRIDE）回那個回合；有 sid 讀 turns/<sid>.json；沒有或檔不存在讀 current.json；
-    都沒有就開一個（hook 沒跑到也要有回合）。"""
+    都沒有就開一個（hook 沒跑到也要有回合）。current.json 是對話回合、但已不在對話裡（in_conversation 為假：答完了、
+    也沒有背景整理）→ 對話外跑的，開終端機回合（尾 0000）不掛回那句（D-502）；還在回答中照舊沿用（D-085）。"""
     if OVERRIDE:
         data = turn_data(vault, OVERRIDE)
         if data is None:
@@ -175,9 +196,16 @@ def current(vault, session_id=None):
         if data:
             return data
     data = _read_turn(_current_file(vault))
+    if data and data.get("session_id") and not in_conversation(vault):
+        return start(vault, None, "")
     if data:
         return data
     return start(vault, session_id, "")
+
+
+def last(vault):
+    """current.json 那個回合（只讀，沒有回 None、不開新回合）：turn note／redact 補記剛答完那句用（D-502 裁定 3）。"""
+    return _read_turn(_current_file(vault))
 
 
 def _read_turn(path):

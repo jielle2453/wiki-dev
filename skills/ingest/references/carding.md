@@ -19,7 +19,7 @@
 - `orphans`：卡的編號不在清冊或原檔已不在；這版不處理，不用動它。
 - `broken`：`{"path","reason"}`，檔頭有問題的卡；編號對得到清冊的多帶 `id`、`header`（carding.md 第六節）。
 - `skipped`：`{"credential","placeholder","too_large","error","skipped"}` 份數；`skipped` 是跑過 `cards skip` 的（依設定不整理）。說過「可以讀」的密碼檔不算在 `credential`，列進 `new`（carding.md 第十節）。
-- `profile`：客戶設定檔的 `card_types`（`[{"name","sections":[{"name","required","hint"}]}]`，卡型與段落照它）與 `exclusions`（`[{"kind","action"}]`，`action` 是 `kind_only` 或 `no_card`）。`profile_missing` 是 true 時設定檔讀不到、這塊是預設值，人讀最後多一行 `客戶設定檔讀不到，卡型用預設`；照常做卡，不用跟客戶說。另有 `types`（`[{"name","category"}]`）、`synthesis_sections`（`[{"type","sections"}]`，設定檔第四節）、`about`（`[{"name","kind","aliases"}]`，客戶自己）、`tags`（設定檔第八節的標籤字典 `{型別: [{"field","words","multi"}]}`，寫綜合卡時照它標，`rules/synthesis.md` S-33）。
+- `profile`：客戶設定檔的 `card_types`（`[{"name","sections":[{"name","required","hint"}]}]`，卡型與段落照它）與 `exclusions`（`[{"kind","action"}]`，`action` 是 `kind_only` 或 `no_card`）。`profile_missing` 是 true 時設定檔讀不到、這塊是預設值，人讀最後多一行 `客戶設定檔讀不到，卡型用預設`；照常做卡，不用跟客戶說。另有 `types`（`[{"name","category"}]`）、`synthesis_sections`（`[{"type","sections"}]`，設定檔第四節）、`about`（`[{"name","kind","aliases"}]`，客戶自己）、`tags`（設定檔第八節的標籤字典 `{型別: [{"field","words","multi"}]}`，寫綜合卡時照它標，`rules/synthesis.md` S-33）、`preferences`（設定檔第六節偏好的句子清單，寫卡照第三節第 4 點）。
 - `entities`：`[{"name","type","aliases","self"}]`，登記的實體（`self` 是 false、company 或 person）；檔案卡 `實體` 欄照 `name` 寫。案子這類「事」的另有 `progress`（ongoing｜closed｜paused）與 `asked_evidence`（問過結案的依據，同一份不再問）。
 - 日程（carding.md 第九節）：`agenda_recheck`：`{"id"（日程條目）,"card","card_path","kind","date","text","source"}`，出處卡重做後待重對的條目。`agenda_unscanned`：`{"id"（卡編號）,"card_path","title","existing":[{"id","kind","date","text"}]}`，還沒抽過日期的卡，`existing` 是這張卡已加進日程、還 open 的條目。`agenda_counts`：`{"overdue","today","upcoming"}`，開場日程行的三個數字，做卡時不用管。
 - `unlinked`：`{"id","path","reason","types","prefill"}`，要補掛實體的卡（carding.md 第七節）。`missing_types`：`{型別名: 張數}`，`待補型別` 裡型別表沒有的。
@@ -70,12 +70,8 @@
    - `## 日期與數字`：期限、金額、數量、面積；照原檔寫，不換算。
    - `## 提到的人與單位`：人名加角色、公司、廠商。
    - `## 沒讀到的部分`：讀取是「部分」時寫哪些沒讀、為什麼。
-3. 每一點結尾一個〔位置〕，讓人回原檔找得到：
-   - PDF：〔第 3 頁〕
-   - xlsx：〔工作表「總表」第 12 列〕
-   - pptx：〔投影片 4〕
-   - docx、純文字：〔「二、付款方式」段〕或〔第 5 段〕
-   - 圖片：〔圖左上〕這類看得懂的描述
+3. 每一點結尾一個〔位置〕，讓人回原檔找得到：PDF〔第 3 頁〕、xlsx〔工作表「總表」第 12 列〕、pptx〔投影片 4〕、docx 與純文字〔「二、付款方式」段〕或〔第 5 段〕、圖片〔圖左上〕這類看得懂的描述。
+4. 寫卡時材料的 `profile.preferences`（客戶設定檔第六節的偏好）裡跟寫卡有關的照做（例：提到實體用 Obsidian 連結 `[[名字]]`、日期帶星期、金額寫法）；只講怎麼在對話裡回答的不用管。偏好跟製卡規則（檔頭格式、S-xx、carding.md）衝突時照規則，不照偏好，回報裡列一行「沒照做的偏好：<那句>（原因）」。綜合卡同一條是 `rules/synthesis.md` S-34。
 
 ## 四、長度與忠實
 

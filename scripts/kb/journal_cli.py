@@ -139,19 +139,9 @@ def in_conversation(vault):
     """對話裡叫的（D-085 補）：current.json 有 session_id 且 done 為 false，改動併進那一句、Stop 會補記，不另寫程式段。
     對話答完（done true）後在終端機跑的不算。只讀不開新回合；versions 在動作前判斷。
     kb.py 帶 --turn（card-maker 的呼叫，守門插的）或 --session（主對話的 cards dispatch 等）一律算對話裡（D-195）。
-    回合已經答完、但這個 session 正在背景整理（或剛整理完）時主對話跑的也算（收通知那一輪，card-maker 第一輪修）。"""
-    if turn.OVERRIDE or turn.SESSION:
-        return True
-    try:
-        data = turn._read_turn(turn._current_file(vault))
-    except OSError:
-        return False
-    if not (data and data.get("session_id")):
-        return False
-    if not data.get("done"):
-        return True
-    from kb._lib import batches, config
-    return batches.active_job(vault, data["session_id"], config.get(vault, "card_batch_expire_minutes"))
+    回合已經答完、但這個 session 正在背景整理（或剛整理完）時主對話跑的也算（收通知那一輪，card-maker 第一輪修）。
+    判斷住在 turn.in_conversation，current() 也用它（D-502 裁定 2）。"""
+    return turn.in_conversation(vault)
 
 
 def record_program_or_warn(vault, note, changed, command, conversation):
