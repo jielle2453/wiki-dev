@@ -77,7 +77,7 @@ PROMPTS = (
     "每類的綜合卡除了現況、紀事、推算，還要固定寫哪些段？一段一列；「必出現」打 ✓ 的段沒內容時寫「未知」。"
     "新加的型別我會先填一組預設，你再改。",
     "你的公司與你本人叫什麼？檔案裡出現這些名字時我知道是你，不會替你自己寫一張。別名用頓號分開。",
-    "怎麼回答你、怎麼做東西給你：例如回答先講結論、日期帶星期。一條一列；檔案裡的卡怎麼寫不受這節影響（那是第二節）。"
+    "怎麼回答你、怎麼做東西給你：例如回答先講結論、日期帶星期。一條一列；寫卡時跟寫卡有關的也照做（例如人名用連結），卡上要多記哪一段放第二節。"
     "最多 10 條、合計 400 字。",
     "做哪種文件時以哪一份為底：例如報價單照報價單範本做。「以哪份為底」寫檔案卡的標題；只有一份範本時我直接用，多份才問你。",
     "想照什麼條件找人或找案子？一列一個欄，詞用頓號分開；只能從這些詞挑，字典外的我會先問你。不用的型別不用填。",
@@ -1337,7 +1337,7 @@ def _plain_sections(sections):
 
 def card_types_for_todo(data):
     """給 cards todo --json 的 profile 塊：去掉 source、date；多型別、每類段落、關於你（實體與綜合卡第 10 點）、
-    標籤字典（tags，照型別分組）。"""
+    標籤字典（tags，照型別分組）、偏好（preferences，第六節每條的那句，製卡者照寫卡有關的做，D-503）。"""
     return {"card_types": [{"name": c["name"], "sections": _plain_sections(c.get("sections"))}
                            for c in data.get("card_types") or []],
             "exclusions": [{"kind": e["kind"], "action": e["action"]} for e in data.get("exclusions") or []],
@@ -1346,7 +1346,8 @@ def card_types_for_todo(data):
                                    for s in data.get("synthesis_sections") or []],
             "about": [{"name": a["name"], "kind": a.get("kind"), "aliases": list(a.get("aliases") or [])}
                       for a in data.get("about") or []],
-            "tags": tag_groups(data)}
+            "tags": tag_groups(data),
+            "preferences": [p["text"] for p in data.get("preferences") or []]}
 
 
 def tag_groups(data):
