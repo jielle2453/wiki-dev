@@ -1,7 +1,7 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "applied": null,
-  "md_sha256": "cca95228717043793dc229d03e72c6a5b9d972ddfde56b10506619dd4eacdec1",
+  "md_sha256": "4474ab2437e713bc8e9af6585fe54f0b149ddfaf7a792ed479df3da02d1b0110",
   "types": [],
   "card_types": [
     {

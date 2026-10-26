@@ -1,5 +1,6 @@
 """健檢 runner（lint 題，D-221、D-222、D-227）：跑 checks.CHECKS 每一項，照結果的 kind 處理，再整理待處理、寫報告、記 lint.json。
 
+模組可有 due(ctx)：回 False 這次不跑（不算跑過，它開的件不關）。
 每項回 findings：[{check, kind: fix|decide|number|ingest, key, text, items, data, apply?, file_ids, entity_ids, once}]。
 fix：runner 接著叫 apply(ctx)，回的那句記進這次的「做了」（回 None 是沒事可做；丟 Skipped 是這次做不了，那句寫進報告）；
 decide：寫進待處理（kind lint，同 key 合成一件、已在的不重複；once 的答過不再開）；number：只進報告；ingest：只數，交整理。
@@ -33,7 +34,7 @@ NOT_TRUE_HOW = pending.LINT_GONE_HOW
 # 舊版開的 lint 件沒記 check：照 key 的開頭認是哪一項開的（條件消失時關，測試 T-1）
 KEY_CHECKS = (("guard_stale", "guard"), ("versions_unwritable", "backup"), ("system_link", "system_dir"),
               ("inferred:", "inferred"), ("skeleton:", "versions"), ("synthesis_big:", "sizes"),
-              ("redo_by_profile:", "stale_by_profile"), ("promote:", "rulings_promote"))
+              ("redo_by_profile:", "stale_by_profile"), ("promote:", "rulings_promote"), ("preference:", "preferences"))
 CLOSED_TEXT = "關掉 {n} 件已經不成立的待處理"
 ASIDE_TEXT = "收起 {n} 件放超過 {days} 天沒動的待處理（先放著，有變化會再拿出來）"
 OPENING_LOCK_WAIT = 0.5  # 開場記「今天開過了」只等這麼久，等不到這次不開（開場 hook 有時限）
@@ -245,8 +246,11 @@ def _check_id(mod):
 
 
 def _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys):
-    """跑一項、處理它的結果；跑成功、結果也都處理成功才算進 ran（只有 ran 的才關它沒再回的件，測試 T-1）。"""
+    """跑一項、處理它的結果；跑成功、結果也都處理成功才算進 ran（只有 ran 的才關它沒再回的件，測試 T-1）。
+    模組有 due(ctx) 且回 False 的這次不跑、不算進 ran，它的件不關（每月一次的偏好月檢，D-504 裁定 2）。"""
     try:
+        if hasattr(mod, "due") and not mod.due(ctx):
+            return
         found = mod.run(ctx)
     except Exception as e:  # noqa: BLE001  一項出錯不影響其他（D-221）
         failed.append(mod.NAME)

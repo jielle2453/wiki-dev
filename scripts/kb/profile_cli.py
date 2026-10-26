@@ -53,6 +53,8 @@ def add_arguments(sub):
                     help="手改把一個標籤詞改名，卡上一起換（apply 拒絕之後用，可以重複）")
     sh = subs.add_parser("show", help="看客戶設定檔八節", description="印八節的表；--json 給欄位、能填什麼與指令範本。不寫檔。")
     ad = subs.add_parser("add", help="加或改一列", description="加一列；主鍵已有就改那一列。寫前先備份。")
+    ad.add_argument("--check", action="store_true",
+                    help="只有偏好：不寫檔，回跟同組＋全部每一條的比對、相似的、加了會不會超過上限")
     rm = subs.add_parser("remove", help="拿掉一列", description="照主鍵拿掉一列。寫前先備份。")
     for p in (ad, rm):
         p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
@@ -113,6 +115,8 @@ def _detail_lines(st):
     lines += [f"- 關於你 {n} 改了" for n in d["about"]["changed"]]
     lines += [f"- 偏好 多了 {n}" for n in d["preferences"]["added"]]
     lines += [f"- 偏好 少了 {n}" for n in d["preferences"]["removed"]]
+    new_prefs = {x["text"]: x for x in new["preferences"]}
+    lines += [f"- 偏好 {n} 改成用在{new_prefs[n]['use']}" for n in d["preferences"]["changed"]]
     lines += [f"- 範本 多了 {n}" for n in d["templates"]["added"]]
     lines += [f"- 範本 少了 {n}" for n in d["templates"]["removed"]]
     lines += [f"- 範本 {n} 換了底" for n in d["templates"]["changed"]]
@@ -343,7 +347,7 @@ def _apply_from(vault, from_md, as_json, conversation):
         profile.parse_md(text, config.get(vault, "card_title_max_chars"),
                          legacy=stored if stored in profile.SECTIONS_OF else False,
                          known_types=[t["name"] for t in data["types"]], **profile.preference_limits(vault),
-                         resolve=profile.template_resolver(vault, data))
+                         resolve=profile.template_resolver(vault, data), uses=profile.known_uses(vault, data))
     except profile.ProfileError as e:
         _refuse(as_json, st, f"客戶設定檔讀不懂：{e.message}")
         return 3
@@ -421,8 +425,7 @@ def _show(vault, as_json):
     lim = _limits(vault)
     if as_json:
         titles = profile.card_titles(vault, data)
-        print(json.dumps({"sections": profile.sections_schema(data, lim["preference_max"], lim["preference_max_chars"],
-                                                              titles),
+        print(json.dumps({"sections": profile.sections_schema(data, titles, profile.use_choices(vault), **lim),
                           "pending_edit": _pending_edit(st)}, ensure_ascii=False))
         return 0
     lines = []
@@ -474,7 +477,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
     if section == "範本" and op == "add" and str(fields.get("底") or "").strip():
         fields["底"] = _template_card(vault, fields["底"].strip())
     try:
-        sections, res = profile.edited(old, section, op, fields, **lim)
+        sections, res = profile.edited(old, section, op, fields, uses=profile.use_choices(vault), **lim)
         if not res["changed"]:
             _out(as_json, [res["message"]], {"applied": False, "section": section, "op": op, "row": res["row"],
                                             "message": res["message"], "created_dirs": [], "unskipped": 0})
@@ -483,7 +486,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
         new = profile.parse_md(profile.render_text(merged, profile.card_titles(vault, merged)),
                                config.get(vault, "card_title_max_chars"),
                                known_types=[t["name"] for t in old["types"]], **lim,
-                               resolve=profile.template_resolver(vault, merged))
+                               resolve=profile.template_resolver(vault, merged), uses=profile.known_uses(vault, old))
     except profile.ProfileError as e:
         raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
     turn_id = turn.current(vault)["turn"]
@@ -505,6 +508,49 @@ def _edit_locked(vault, op, args, as_json, conversation):
     _out(as_json, [message] + about_lines, {"applied": True, "section": section, "op": op, "row": res["row"],
                                             "message": message, "created_dirs": created, "unskipped": len(unskipped),
                                             "retag": sum(marked.values())})
+    return 0
+
+
+CHECK_ONLY_PREFERENCE = "--check 只有偏好能用：kb profile add 偏好 偏好=<那句> [用在哪=<值>] --check"
+CHECK_WOULD = {"add": "會加成一條", "change": "會改第 {n} 條", "exists": "這句已經有了，不會加"}
+
+
+def _preference_check(vault, args, as_json):
+    """kb profile add 偏好 … --check（D-504 決策 4）：不鎖、不寫；句子或用在哪不能收照 add 的拒絕句。"""
+    if args.section.strip() != "偏好":
+        raise Refused(CHECK_ONLY_PREFERENCE)
+    fields = {k: v.strip() for k, v in _fields(args.fields).items()}
+    data = profile.status(vault)["data"]
+    if data is None:
+        raise Refused(MISSING)
+    lim = _limits(vault)
+    number = None
+    if "序號" in fields:
+        prefs = data.get("preferences") or []
+        try:
+            number = int(fields["序號"])
+        except ValueError:
+            number = 0
+        if not 1 <= number <= len(prefs):
+            raise Refused(f"沒有第 {fields['序號']} 條偏好（現在 {len(prefs)} 條）")
+        old = prefs[number - 1]
+        fields.setdefault("偏好", old["text"])
+        fields.setdefault("用在哪", old.get("use") or profile.USE_ALL)
+    text, use = fields.get("偏好", ""), fields.get("用在哪") or profile.USE_ALL
+    if not text:
+        raise Refused("少了「偏好」；這一節要給 偏好")
+    why = profile.preference_problem(text) or (
+        "偏好" + profile.use_problem(use, profile.use_choices(vault)) if profile.use_problem(use, profile.use_choices(vault))
+        else None)
+    if why:
+        raise Refused(why)
+    got = profile.preference_check(data, text, use, number, config.get(vault, "preference_similar_ratio"), **lim)
+    lines = [f"{CHECK_WOULD[got['would']].format(n=number)}（用在哪：{got['use']}）；這組 {got['group_count']}／"
+             f"{got['group_max']} 條、{got['group_chars']}／{got['group_max_chars']} 字"
+             + ("，超過上限" if got["over_limit"] else "")]
+    lines += [f"{c['序號']}. {c['偏好']}（{c['用在哪']}）相似 {c['similar']}" + ("　← 很像" if c["序號"] in got["similar"] else "")
+              for c in got["compare"]]
+    _out(as_json, lines, got)
     return 0
 
 
@@ -1369,6 +1415,8 @@ def run(args):
         conversation = journal_cli.in_conversation(vault)
         if command in ("add", "remove"):
             try:
+                if command == "add" and args.check:
+                    return _preference_check(vault, args, as_json)
                 return _locked(vault, _edit_locked, command, args, as_json, conversation)
             except Refused as e:
                 return _refuse_payload(as_json, e)

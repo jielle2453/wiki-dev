@@ -97,7 +97,7 @@ class ApplyProfile(Base):
         got = migrate.apply(self.V, self.turn)
         self.assertEqual(got["migrated"], [".system/profile.json"])
         data = read(self.V, ".system/profile.json")
-        self.assertEqual((data["schema_version"], data["tags"]), (5, []))
+        self.assertEqual((data["schema_version"], data["tags"]), (6, []))
         self.assertIn("\n## 八、標籤\n", md.read_text(encoding="utf-8"))
         self.assertEqual((self.saved(".system/profile.json").read_bytes(), self.saved("系統/客戶設定檔.md").read_bytes()),
                          before)

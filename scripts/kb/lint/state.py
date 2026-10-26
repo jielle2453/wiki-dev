@@ -6,7 +6,7 @@
 last_background：上次背景（或她說「幫我檢查」）跑完的那天；last_spawn：開場上次開背景子行程的那天（兩個對話不重複開）；
 last_report：最後一份月底定稿報告的月份（第一次跑記成上個月、不寫）；synthesis_fix：標成要更新的綜合卡，sha 是標的時候卡檔的指紋——
 卡被改寫（整理時重寫）指紋就變、這筆不再算（fixes 只回還算數的），下次健檢從檔案拿掉；month_done：還沒寫進定稿報告的「替你做了」；
-last_counts：上一份定稿報告的件數，一句話跟它比。壞檔當空的重建（健檢狀態掉了只少比較，不擋檢查）。
+last_counts：上一份定稿報告的件數，一句話跟它比；last_preference：上次跑偏好月檢的那天（D-504，滿 preference_lint_days 天才再跑）。壞檔當空的重建（健檢狀態掉了只少比較，不擋檢查）。
 """
 import hashlib
 from pathlib import Path
@@ -17,9 +17,9 @@ from kb._lib.io import FileLock, read_json, write_json_atomic
 LINT_POSIX = ".system/lint.json"
 SCHEMA_VERSION = 1
 KEYS = {"last_background": None, "last_spawn": None, "last_report": None, "synthesis_fix": [], "month_done": [],
-        "last_counts": None}
+        "last_counts": None, "last_preference": None}
 TYPES = {"last_background": str, "last_spawn": str, "last_report": str, "synthesis_fix": list, "month_done": list,
-         "last_counts": dict}
+         "last_counts": dict, "last_preference": str}
 
 
 def _path(vault):
