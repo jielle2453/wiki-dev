@@ -11,7 +11,10 @@ lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 pr
 日程匯出（D-500）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
 agenda_export_dir 就在匯出自己的鎖裡重讀 agenda.json 與實體，把 willy-agenda/1 寫到 <夾>/willy-agenda.json（T-3；
 exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
+重複（D-501）：repeat {every year|month|week, from 錨點}，一條永遠代表「下一次」。會議、提醒過了就移到下一次（load 在記憶體移，
+_mutate 寫回並記歷程）；到期、承諾、期間要 done 才移、狀態維持 open。改日期錨點跟著換。
 """
+import calendar
 import copy
 import datetime as dt
 import hashlib
@@ -32,7 +35,11 @@ TRACKED = ("deadline", "promise")  # 過了還 open 才算逾期（D-129）
 PASSING = ("meeting", "reminder")  # 過了就算已過去
 STATUSES = ("open", "done", "cancelled")
 SOURCES = ("interview", "inferred", "confirmed", "corrected")
-EDITABLE = ("date", "start", "time", "text", "entities", "lead_days")
+EDITABLE = ("date", "start", "time", "text", "entities", "lead_days", "repeat")
+REPEATS = {"每年": "year", "每月": "month", "每週": "week"}
+REPEAT_TEXT = {v: k for k, v in REPEATS.items()}
+NO_REPEAT = "不重複"
+REPEAT_MSG = "重複要是 每年、每月、每週、不重複 之一"
 CONFIRM_CHANGE = "source inferred → confirmed"  # 推測的那條她說對（kb agenda edit 不帶欄位，lint 桌面版確認後）
 STATUS_TEXT = {"done": "完成", "cancelled": "已取消"}
 PAST_OPEN = "已過去"
@@ -71,6 +78,15 @@ def empty():
 
 
 def load(vault):
+    """讀日程，重複的條目已移到下一次（只在記憶體，D-501）。其餘同 _load_raw。"""
+    data = _load_raw(vault)
+    today = _today()
+    for it in data["items"]:
+        _roll(it, today)
+    return data
+
+
+def _load_raw(vault):
     """沒檔回空的；壞 JSON、不是物件、items 不是清單、元素不是物件、版本比這版新丟 ValueError，訊息帶 .system/agenda.json。"""
     try:
         data = read_json(_path(vault))
@@ -138,9 +154,11 @@ def _mutate(vault, turn_id, fn):
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
-        data = load(vault)
+        data = _load_raw(vault)
         before = copy.deepcopy(data)
+        rolled = _roll_all(data, turn_id)
         result, changed = fn(data)
+        changed = changed or rolled
         if changed:
             from kb._lib import turn
             turn.backup(vault, AGENDA_POSIX, turn_id)
@@ -196,6 +214,69 @@ def _card(vault, card_id, no_card="這份還沒有檔案卡，先寫卡再加日
     return group[0]
 
 
+# ---------- 重複（D-501） ----------
+
+def _every(value):
+    """每年／每月／每週 → year／month／week；不重複 → None。"""
+    value = (value or "").strip()
+    if value == NO_REPEAT:
+        return None
+    if value not in REPEATS:
+        raise AgendaRefused(REPEAT_MSG)
+    return REPEATS[value]
+
+
+def _shift(anchor, every, n):
+    """錨點加 n 個週期；月底與 2/29 夾到當月最後一天，下次仍照錨點的日。"""
+    if every == "week":
+        return anchor + dt.timedelta(weeks=n)
+    y, m = divmod(anchor.month - 1 + n * (12 if every == "year" else 1), 12)
+    y, m = anchor.year + y, m + 1
+    return anchor.replace(year=y, month=m, day=min(anchor.day, calendar.monthrange(y, m)[1]))
+
+
+def next_after(rep, day):
+    """錨點加整數個週期裡第一個晚於 day 的日期（ISO）。"""
+    anchor, after = dt.date.fromisoformat(rep["from"]), dt.date.fromisoformat(day)
+    if rep["every"] == "week":
+        n = (after - anchor).days // 7
+    else:
+        n = ((after.year - anchor.year) * 12 + after.month - anchor.month) // (12 if rep["every"] == "year" else 1)
+    n = max(0, n - 1)
+    while _shift(anchor, rep["every"], n) <= after:
+        n += 1
+    return _shift(anchor, rep["every"], n).isoformat()
+
+
+def _move(it, day):
+    """日期改到 day；有開始日的整段平移同樣天數。"""
+    if it.get("start"):
+        delta = dt.date.fromisoformat(day) - dt.date.fromisoformat(it["date"])
+        it["start"] = (dt.date.fromisoformat(it["start"]) + delta).isoformat()
+    it["date"] = day
+
+
+def _roll(it, today):
+    """開著、重複、過了就算已過去的（會議、提醒）而且日期已過 → 移到今天或之後的下一次；回舊日期，沒移回 None。"""
+    rep = it.get("repeat")
+    if not rep or it.get("status") != "open" or it.get("kind") not in PASSING or it.get("date", "") >= today:
+        return None
+    old = it["date"]
+    yesterday = (dt.date.fromisoformat(today) - dt.timedelta(days=1)).isoformat()
+    _move(it, next_after(rep, yesterday))
+    return old
+
+
+def _roll_all(data, turn_id):
+    today, moved = _today(), False
+    for it in data["items"]:
+        old = _roll(it, today)
+        if old:
+            _log(it, f"重複：{old} 過了，移到 {it['date']}", "program", turn_id)
+            moved = True
+    return moved
+
+
 def _lead(value):
     if value is None:
         return None
@@ -211,7 +292,7 @@ def _text(value):
     return text
 
 
-def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=None, source=None, lead_days=None):
+def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=None, source=None, lead_days=None, repeat=None):
     """回 (條目, 新建了嗎)。驗完才寫；card 有給 → 來源 inferred、origin 記那張卡與它現在的 fp，
     同一張卡已有同種類、同日期、同文字的 open 條目就不重複、回既有。"""
     kind = kind_of(kind)
@@ -226,6 +307,7 @@ def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=
     names = _names(vault, entities)
     text = _text(text)
     lead = _lead(lead_days)
+    every = _every(repeat) if repeat is not None else None
     source = source or "confirmed"
     if source not in SOURCES:
         raise AgendaRefused(f"來源要是 {'、'.join(SOURCES)} 之一")
@@ -245,19 +327,25 @@ def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=
         it = {"id": _new_id(data), "kind": kind, "start": begin, "date": day, "ended": None, "time": clock, "text": text,
               "entities": names, "status": "open", "source": source_, "origin": origin, "lead_days": lead,
               "created_turn": turn_id, "history": []}
+        if every:
+            it["repeat"] = {"every": every, "from": day}
         data["items"].append(it)
         return (it, True), True
     return _mutate(vault, turn_id, fn)
 
 
-def show(value):
+def show(value, key=None):
+    if key == "repeat" and not value:
+        return NO_REPEAT
+    if isinstance(value, dict):  # repeat
+        return REPEAT_TEXT.get(value.get("every"), "")
     if isinstance(value, list):
         return "、".join(value)
     return "" if value is None else str(value)
 
 
 def edit(vault, aid, turn_id, by="ai", card=None, **fields):
-    """改 date、start、time、text、entities、lead_days（None 當沒給）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
+    """改 date、start、time、text、entities、lead_days、repeat（None 當沒給；repeat「不重複」是拿掉；改日期錨點跟著換）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
     card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。
     來源是 inferred、沒有改任何欄（她說推測的那條是對的）→ 記成 confirmed、歷程記一筆（lint 桌面版確認後）。"""
     unknown = set(fields) - set(EDITABLE)
@@ -274,6 +362,8 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
         new["text"] = _text(new["text"])
     if "lead_days" in new:
         new["lead_days"] = _lead(new["lead_days"])
+    if "repeat" in new:
+        new["repeat"] = _every(new["repeat"])
     if "entities" in new:
         new["entities"] = _names(vault, new["entities"])
         if not new["entities"]:
@@ -289,11 +379,20 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
         begin, day = new.get("start", it.get("start")), new.get("date", it.get("date"))
         if begin and begin > day:
             raise AgendaRefused("開始不能晚於日期")
+        want = dict(new)
+        if "repeat" in want:
+            want["repeat"] = {"every": want["repeat"], "from": day} if want["repeat"] else None
+        elif "date" in want and it.get("repeat"):
+            want["repeat"] = {**it["repeat"], "from": day}
         changes = []
         for key in EDITABLE:
-            if key in new and new[key] != it.get(key):
-                changes.append(f"{key} {show(it.get(key))} → {show(new[key])}")
-                it[key] = new[key]
+            if key in want and want[key] != it.get(key):
+                if key != "repeat" or show(want[key], key) != show(it.get(key), key):  # 只換錨點不另記
+                    changes.append(f"{key} {show(it.get(key), key)} → {show(want[key], key)}")
+                if want[key] is None:
+                    it.pop(key, None)
+                else:
+                    it[key] = want[key]
         dirty = bool(changes) or "proposal" in it
         if changes:
             if it.get("source") == "inferred" and not card:
@@ -320,6 +419,11 @@ def set_status(vault, aid, status, turn_id, by="ai"):
         old = it.get("status")
         if old == status:
             return it, False
+        if status == "done" and old == "open" and it.get("repeat"):  # 完成這一次：移到下一次、維持 open（D-501）
+            was = it["date"]
+            _move(it, next_after(it["repeat"], was))
+            _log(it, f"完成 {was} 那次，下次 {it['date']}", by, turn_id)
+            return it, True
         it["status"] = status
         change = f"status {old} → {status}"
         if it.get("kind") == "period":
@@ -605,11 +709,16 @@ def _entities_suffix(it):
     return f"（{'、'.join(names)}）" if names else ""
 
 
+def repeat_suffix(it):
+    every = (it.get("repeat") or {}).get("every")
+    return f"（{REPEAT_TEXT[every]}）" if every in REPEAT_TEXT else ""
+
+
 def _line(it):
     d = dt.date.fromisoformat(it["date"])
     when = with_weekday(it["date"]) + (f"{it['time']} " if it.get("time") else "")
     mark = INFERRED_MARK if it.get("source") == "inferred" else ""
-    return f"- {when}{KIND_TEXT.get(it.get('kind'), it.get('kind'))} {it.get('text')}{_entities_suffix(it)}{mark}"
+    return f"- {when}{KIND_TEXT.get(it.get('kind'), it.get('kind'))} {it.get('text')}{_entities_suffix(it)}{repeat_suffix(it)}{mark}"
 
 
 def _order(it):
@@ -799,7 +908,7 @@ def render(vault, turn_id=None, data=None, today=None, base=None):
 EXPORT_NAME = "willy-agenda.json"
 EXPORT_SCHEMA = "willy-agenda/1"
 EXPORT_STATE_POSIX = ".system/agenda_export.json"
-EXPORT_FIELDS = ("id", "kind", "start", "date", "time", "text", "entities", "status", "source", "lead_days")
+EXPORT_FIELDS = ("id", "kind", "start", "date", "time", "text", "entities", "status", "source", "lead_days", "repeat")
 FP_FIELDS = ("kind", "date", "start", "time", "text", "entities", "status", "lead_days")  # 手機寫回靠它判衝突，改了要升 schema
 EXPORT_NO_DIR = "資料夾不存在"
 EXPORT_NO_WRITE = "資料夾寫不進去"
@@ -818,6 +927,7 @@ def export_payload(vault, data):
     items = []
     for it in data["items"]:
         row = {k: it.get(k) for k in EXPORT_FIELDS}
+        row["repeat"] = (it.get("repeat") or {}).get("every")  # D-501：只給週期，不進指紋
         row["fp"] = item_fp(it)
         items.append(row)
     names = [{"id": e.get("id"), "name": e.get("name"), "type": e.get("type")} for e in entities.load(vault)["entities"]
