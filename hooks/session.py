@@ -420,7 +420,8 @@ PREFERENCES_HEAD = "客戶偏好（只管怎麼回答、怎麼做東西給客戶
 
 
 def preferences_block(vault):
-    """note 改規則第 4 點（D-137）：設定檔第六節有條目就回「客戶偏好：」加一條一行，接在 core.md 之後；沒有回 None。
+    """note 改規則第 4 點（D-137、D-504）：設定檔第六節整理成卡以外的條目回「客戶偏好：」加一條一行，接在 core.md 之後；
+    做文件、客製 skill 各自一組加小標（做文件時：、<skill 名>：）；沒有回 None。
     profile.json 讀不到這段不印、寫 log，其他照印（I-046）。只讀。"""
     try:
         from kb._lib import profile
@@ -429,9 +430,17 @@ def preferences_block(vault):
     except Exception as e:  # noqa: BLE001
         _log_vault(vault, e)
         return None
-    if not prefs:
+    groups = {}
+    for p in prefs:  # 用在哪（D-504）：全部一條一行；整理成卡不進開場；其他照第一次出現的順序分組加小標
+        use = p.get("use") or "全部"
+        if use != "整理成卡":
+            groups.setdefault(use, []).append(f"- {p.get('text', '')}")
+    if not groups:
         return None
-    return "\n".join([PREFERENCES_HEAD] + [f"- {p.get('text', '')}" for p in prefs])
+    lines = [PREFERENCES_HEAD] + groups.pop("全部", [])
+    for use, items in groups.items():
+        lines += [f"{use}時：" if use == "做文件" else f"{use}："] + items
+    return "\n".join(lines)
 
 
 def emit(context):
