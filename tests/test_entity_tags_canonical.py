@@ -286,6 +286,7 @@ class HandEdit(Base):
         self.assertEqual([r["label"] for r in item["data"]["results"]], ["把暫停加進「階段」的字典", "「階段」改回去"])
         asks, _hidden = plan.pending_asks(self.V)
         self.assertIn(f"pending:{item['id']}", [a["id"] for a in asks])
+        self.assertIn(f"- {item['id']} 卡上手改的標籤不合字典 ", self.kb("pending", "list").stdout, "裁定 8")
         self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "施工")
         r = self.kb("entity", "tag", "信義王", "階段=施工")
         self.assertEqual(r.returncode, 0, r.stdout)

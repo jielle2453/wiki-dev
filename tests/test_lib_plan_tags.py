@@ -1,5 +1,5 @@
 """標籤字典第五節（D-238；驗收 11）：這一回合改寫的綜合卡標籤行跟備份比多了詞 → tell 一張一句「<名稱>標了：欄 詞」，
-超過 3 張併成「另外 N 張也照字典標了」；只拿掉詞不講；新寫的卡全部算新加；派工回合（這一句收尾的整理）也算；kb asks 也帶。"""
+超過 3 張併成「另外 N 個也照字典標了」；只拿掉詞不講；新寫的卡全部算新加；派工回合（這一句收尾的整理）也算；kb asks 也帶。"""
 import json
 import shutil
 import unittest
@@ -47,7 +47,7 @@ class Tell(Base):
             self.rewrite(i, ["工種: [木作, 水電]"])
         got = plan._tagged_tell(self.V)
         self.assertEqual(got[:3], ["信義王標了：工種 水電", "大安陳標了：工種 水電", "內湖李標了：工種 水電"])
-        self.assertEqual(got[3:], ["另外 1 張也照字典標了"])
+        self.assertEqual(got[3:], ["另外 1 個也照字典標了"])
 
     def test_only_removed_not_told(self):
         self.rewrite(0, ["工種: []"])
