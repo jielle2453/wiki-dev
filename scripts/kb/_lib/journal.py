@@ -435,7 +435,7 @@ def keep(row, changed=False, find=None, since=None):
 
 def recent(vault, n, changed=False, find=None, since=None, skip=None):
     """從本月往前翻最多 12 個月（給了 since 就翻到那個月為止），收到 n 行為止，新在前；兩種 kind 都收，照 keep 篩；
-    skip 是不要的那一行的 turn（--find 跳過這一句自己）。"""
+    skip 是不要的那一行的 turn（--find 跳過這一句自己）。回的 result 已過 plain（B-473；篩照原文）。"""
     out = []
     for month in _months_back(RECENT_MONTHS):
         if since and month < since[:7]:
@@ -444,7 +444,7 @@ def recent(vault, n, changed=False, find=None, since=None, skip=None):
                    if keep(r, changed, find, since) and not (skip and r.get("turn") == skip))
         if len(out) >= n:
             break
-    return out[:n]
+    return [dict(r, result=plain(r["result"])) if r.get("result") else r for r in out[:n]]
 
 
 # 系統檔的白話（D-158）：同一件事的 JSON 與 md 說成同一個詞；不在這裡的照檔名說
@@ -525,6 +525,17 @@ def _flat(text):
     return " ".join(str(text or "").split())
 
 
+_PLAIN_FENCE = re.compile(r"```[A-Za-z0-9]*")
+_PLAIN_HEADING = re.compile(r"(?<!\S)#{1,6}(?=\s)")
+
+
+def plain(text):
+    """「結果」欄給人讀時去掉 Markdown 記號（B-473）：``` 連同緊接的英數語言名、**、開頭或空白後面接空白的 1～6 個 #；
+    其他字元不動，連續空白壓成一個。jsonl 存的原文不改，只用在 render 與 recent。"""
+    text = _PLAIN_FENCE.sub(" ", str(text or "")).replace("**", "")
+    return _flat(_PLAIN_HEADING.sub(" ", text))
+
+
 def _changed_lines(row):
     changed = row.get("changed") or []
     if not changed:
@@ -539,7 +550,7 @@ def _block(row):
     lines = [f"## {when}　回合 {row.get('turn', '')}", f"- 問：{_flat(row.get('prompt'))}"]
     if not row.get("done"):
         return lines + [f"- 結果：{IN_PROGRESS}"]
-    return lines + [f"- 結果：{_flat(row.get('result'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+    return lines + [f"- 結果：{plain(row.get('result'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
 
 
 def render(vault, month):

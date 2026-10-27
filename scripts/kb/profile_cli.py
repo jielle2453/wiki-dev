@@ -1018,6 +1018,7 @@ DROP_NONE = "第八節沒有拿掉卡上用到的詞或欄，不用 --drop-tags"
 STUCK = "{n} 張綜合卡的標籤行改不了（{names}），這次沒有改；先看那幾張的檔頭再試"
 FROM_WITH_TAGS = "apply --from 不能跟 --drop-tags、--rename-tag 一起用"
 RENAME_NONE = "--rename-tag {type} {field} {old} {new} 對不上第八節的改動（要拿掉一個有卡用到的詞、多一個詞）"
+UNREADABLE_LINE = "另有 {n} 張綜合卡的檔頭讀不懂，卡上那行沒跟著改（實體清單改好了）：{names}"
 
 
 def _k(name):
@@ -1134,6 +1135,7 @@ def _have(rows):
 
 
 def _need_tag(data, type_name, field, word=None):
+    _need_type(data, type_name)  # 型別不在型別表先講這個，不說欄不在（B-464 (1)）
     row = _tag_row(data.get("tags"), type_name, field)
     if row is None:
         raise Refused(NO_FIELD.format(field=field, have=_have([t["field"] for t in profile.tags_for(data, type_name)])))
@@ -1141,6 +1143,24 @@ def _need_tag(data, type_name, field, word=None):
         raise Refused(NO_WORD.format(field=row["field"], word=word, have=_have(row["words"])))
     hit = next((w for w in row["words"] if word is not None and _k(w) == _k(word)), None)
     return row, hit
+
+
+def _unreadable(vault, type_name, ids, cards):
+    """要改的實體裡，有綜合卡檔、卻不在 tagged_cards（檔頭讀不懂）的名稱（B-464 (2)）：正本照改，卡上那行沒跟著改。
+    綜合卡檔在不在照 tagged_cards 的認法。"""
+    readable = {e["id"] for e, _rel, _front in cards}
+    out = []
+    for e, _tags in synthesis.tagged_entities(vault, type_name):
+        if e["id"] not in ids or e["id"] in readable:
+            continue
+        rel = synthesis.card_rel(e)
+        if (vault / rel).is_file() or (e.get("card") and entities.locate(vault, e)):
+            out.append(e["name"])
+    return out
+
+
+def _unreadable_lines(names):
+    return [UNREADABLE_LINE.format(n=len(names), names="、".join(names))] if names else []
 
 
 def _tag_validated(vault, data, tags):
@@ -1259,12 +1279,13 @@ def _tag_locked(vault, args, as_json, conversation):
     _guard_pending(st, again)
     data = st["data"]
     head, tags, used, ids, fn, new_field, impact, impact_line, question, results, done = _tag_op_plan(vault, data, args)
+    unreadable = _unreadable(vault, head["type"], set(ids), synthesis.tagged_cards(vault, head["type"]))
     if args.check:
         if as_json:
-            print(json.dumps(dict(head, impact=impact, question=question, results=results, refusal=None),
-                             ensure_ascii=False))
+            print(json.dumps(dict(head, impact=impact, question=question, results=results, refusal=None,
+                                  unreadable=unreadable), ensure_ascii=False))
         else:
-            print("\n".join([impact_line] + [f"{r['n']}. {r['label']}" for r in results]))
+            print("\n".join([impact_line] + _unreadable_lines(unreadable) + [f"{r['n']}. {r['label']}" for r in results]))
         return 0
     turn_id = turn.current(vault)["turn"]
 
@@ -1278,7 +1299,8 @@ def _tag_locked(vault, args, as_json, conversation):
     names = [e["name"] for e, rel, _f in synthesis.tagged_cards(vault, head["type"]) if rel in used]
     changed += _refresh(vault, names, turn_id)
     journal_cli.record_program_or_warn(vault, done, changed, f"profile tag {head['op']}", conversation)
-    _out(as_json, [done], dict(head, applied=True, message=done, impact=impact))
+    _out(as_json, [done] + _unreadable_lines(unreadable),
+         dict(head, applied=True, message=done, impact=impact, unreadable=unreadable))
     return 0
 
 

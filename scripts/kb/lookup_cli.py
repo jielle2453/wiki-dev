@@ -6,7 +6,7 @@
 import argparse
 import json
 
-from kb._lib import agenda, entities, findings, rulings
+from kb._lib import agenda, entities, rulings
 from kb._lib import lookup as lookup_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -89,9 +89,9 @@ def _lines(got):
             out.append(f"- {rulings.KIND_TEXT.get(r['kind'], r['kind'])}：{r['text']}" + (f"（{on}）" if on else ""))
     if got["findings"]:
         out.append("推算：")
-        for c in got["findings"]:
-            mark = f"〔{findings.STALE_TEXT}〕" if c["stale"] else ""
-            out.append(f"- {c['text']}：{c['how']}（算於 {c['date']}）{mark}")
+        for c in got["findings"]:  # 依據變了的不印舊結果（B-100）
+            head = c["redo"] if c["stale"] else f"{c['text']}：{c['how']}"
+            out.append(f"- {head}（算於 {c['date']}）")
     if got["agenda"]:
         out.append("日程：")
         for i in got["agenda"]:

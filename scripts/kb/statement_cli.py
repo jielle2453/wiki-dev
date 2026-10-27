@@ -8,7 +8,7 @@ import argparse
 import json
 
 from kb import journal_cli
-from kb._lib import statements, turn
+from kb._lib import credentials, statements, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -45,13 +45,19 @@ def _out(as_json, lines, payload):
         print("\n".join(lines))
 
 
+def _masked(vault, text):
+    """程式段的 note 不遮值（D-086），口述原文先遮再組句：修正前記下的舊口述可能含密碼（B-476）。"""
+    return credentials.mask_secrets(text, credentials.known_names(vault))
+
+
 def _add(vault, args, as_json, conversation, turn_id):
     it, old = statements.add(vault, args.text, [n.strip() for n in args.entity], turn_id,
                              replaces=args.replaces.strip() if args.replaces else None)
     if old is None:
-        line, note = f"已記下：{it['text']}（{'、'.join(it['entities'])}）", f"記下口述：{it['text']}"
+        line, note = f"已記下：{it['text']}（{'、'.join(it['entities'])}）", f"記下口述：{_masked(vault, it['text'])}"
     else:
-        line, note = f"已改：{old['text']} → {it['text']}", f"改口述：{old['text']} → {it['text']}"
+        line = f"已改：{old['text']} → {it['text']}"
+        note = f"改口述：{_masked(vault, old['text'])} → {_masked(vault, it['text'])}"
     journal_cli.record_program_or_warn(vault, note, CHANGED, "statement add", conversation)
     _out(as_json, [line], {"statement": it, "replaced": old})
     return 0
@@ -59,7 +65,8 @@ def _add(vault, args, as_json, conversation, turn_id):
 
 def _withdraw(vault, args, as_json, conversation, turn_id):
     it = statements.withdraw(vault, args.id.strip(), turn_id)
-    journal_cli.record_program_or_warn(vault, f"收回口述：{it['text']}", CHANGED, "statement withdraw", conversation)
+    journal_cli.record_program_or_warn(vault, f"收回口述：{_masked(vault, it['text'])}", CHANGED, "statement withdraw",
+                                       conversation)
     old = statements.replaced_of(vault, it["id"])
     lines = [f"已收回：{it['text']}"] + ([REPLACED_LINE.format(text=old.get("text"), date=old.get("date"))] if old else [])
     _out(as_json, lines, {"statement": it, "replaced": old})
@@ -68,7 +75,8 @@ def _withdraw(vault, args, as_json, conversation, turn_id):
 
 def _restore(vault, args, as_json, conversation, turn_id):
     it = statements.restore(vault, args.id.strip(), turn_id)
-    journal_cli.record_program_or_warn(vault, f"恢復口述：{it['text']}", CHANGED, "statement restore", conversation)
+    journal_cli.record_program_or_warn(vault, f"恢復口述：{_masked(vault, it['text'])}", CHANGED, "statement restore",
+                                       conversation)
     _out(as_json, [RESTORED_LINE.format(it["text"])], {"statement": it})
     return 0
 

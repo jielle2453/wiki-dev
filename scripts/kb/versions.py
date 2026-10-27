@@ -64,6 +64,7 @@ MOVE_CREDENTIAL = "退不回去：「{name}」裡有檔名像密碼或金鑰的�
 PURGED_MARK = "（已排除）"
 FILE_OPEN = "退不回去：「{rel}」正開著（檔案總管、Office 或記事本），什麼都沒動；關掉再說一次退回"
 UNEXPECTED = "退不回去：{why}；可能只退了一部分，先別再說退回，請服務人員看一下"
+AGAIN = "再說一次「退回」會把這次的退回取消，不會再往前退。"  # 成功時最後一行（B-441：D-074 連退兩次是取消，不是再往前）
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
 RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", "收件匣", "檔案索引", "AI 產出")}
@@ -840,6 +841,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
             "folders": folders_done, "folders_kept": folders_kept,
             "moves": [{k: m.get(k) for k in ("op", "kind", "from", "to")} for m in target["moves"]],
             "in_bin": [_uri_name(m["from"]) for m in target["moves"] if m["op"] == "trash"], "purged": purged,
+            "again": AGAIN,
         }, ensure_ascii=False))
         return 0
     if lost:
@@ -867,6 +869,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         print(PURGED_LINE)
     if inv_error is not None:
         print(f"清冊讀不到：{inv_error}")
+    print(AGAIN)
     return 0
 
 

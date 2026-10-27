@@ -567,7 +567,7 @@ class AgendaAsks(Base):
         put_pending(self.V, close_item())
         ask = self.one()
         self.assertEqual((ask["id"], ask["kind"], ask["question"]),
-                         ("close:p-9a8b7c6d", "close", "「王宅」看起來已經結束了，要記成結案嗎？（依據：f-3a553095）"))
+                         ("close:p-9a8b7c6d", "close", "「王宅」看起來已經結束了，要記成結案嗎？（依據：1 份檔案）"))
         self.assertEqual(self.results(ask), [
             (1, "對，結案了", ["kb entity progress 王宅 結案 --evidence f-3a553095"], False, []),
             (2, "還沒", ["kb entity progress 王宅 進行中 --evidence f-3a553095 --note 客戶說還沒結案"], False, []),

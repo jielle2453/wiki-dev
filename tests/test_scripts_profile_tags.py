@@ -222,7 +222,7 @@ class TagCommands(Base):
             "results": [{"n": 1, "label": "併成木作", "do": ["kb profile tag merge 案子 工種 水電 --into 木作"], "strict": True,
                          "fill": []},
                         {"n": 2, "label": "先不要", "do": [], "strict": False, "fill": []}],
-            "refusal": None})
+            "refusal": None, "unreadable": []})
         r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作", "--check")
         self.assertEqual(r.stdout.splitlines()[0], "案子有 2 個標了水電，其中 1 個也標了木作")
         self.assertEqual(tree(self.V), before, "--check 不寫")
