@@ -319,8 +319,9 @@ def _counts(vault, t):
     except ValueError:
         n["outputs"] = None
         return n
-    n["outputs"] = sum(1 for e in entries
-                       if e.get("created_turn") == t["turn"] and e.get("origin") == "ai_output")  # 掃描入冊的客戶檔不是成品
+    # 掃描入冊的客戶檔、掃描補登記的 AI 產出（unbacked，B-400）都不是那一句做的成品
+    n["outputs"] = sum(1 for e in entries if e.get("created_turn") == t["turn"] and e.get("origin") == "ai_output"
+                       and not e.get("unbacked"))
     return n
 
 
@@ -608,8 +609,9 @@ def _unchanged_since_registered(vault, rel, entry):
     return inventory.sha256_of(Path(vault) / rel) == fps[-1].get("sha256")
 
 
-def _reconcile(vault, rels):
-    """第一輪 M3：退回動完後對每個碰到的 Z3 路徑對帳清冊：檔在就該 location 最新一筆改 active，不在就改 deleted。"""
+def _reconcile(vault, rels, turn_id=None):
+    """第一輪 M3：退回動完後對每個碰到的 Z3 路徑對帳清冊：檔在就該 location 最新一筆改 active，不在就改 deleted。
+    線上文件（kind link）的下載檔不在：只拿掉那個 file:// 位置，條目照舊 active、網址留著（B-402；清冊先備進動作回合）。"""
     if not rels:
         return
     data = inventory.load(vault)
@@ -619,7 +621,13 @@ def _reconcile(vault, rels):
         same = [e for e in data["entries"] if any(inventory.uri_key(loc.get("uri", "")) == key for loc in e.get("locations", []))]
         if not same:
             continue
-        ((to_active if (Path(vault) / rel).is_file() else to_deleted)).append(same[-1]["id"])
+        present = (Path(vault) / rel).is_file()
+        if not present and inventory.is_link(same[-1]):
+            if turn_id:
+                turn.backup(vault, inventory.INVENTORY_POSIX, turn_id)
+            inventory.detach_location(vault, same[-1]["id"], rel)
+            continue
+        ((to_active if present else to_deleted)).append(same[-1]["id"])
     if to_active:
         inventory.set_status(vault, to_active, "active")
     if to_deleted:
@@ -795,7 +803,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     folders_done += made_done
     if outputs:
         if delete_outputs:
-            gone = [o["id"] for o in outputs if o["id"] not in kept_ids]
+            # 線上文件的條目不整筆標刪除，下載檔的位置由 _reconcile 拿掉（B-402）
+            gone = [o["id"] for o in outputs if o["id"] not in kept_ids and not inventory.is_link(o)]
             if gone:
                 inventory.set_status(vault, gone, "deleted")
             if kept_ids:
@@ -806,7 +815,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     if gone_intakes:
         inventory.set_status(vault, gone_intakes, "turn_reverted")
     if inv_error is None:
-        _reconcile(vault, touched_z3)
+        _reconcile(vault, touched_z3, rt["turn"])
         _rescan(vault, target["moves"], rt["turn"])
     unmarked = {}
     if target["reverted_turn"]:

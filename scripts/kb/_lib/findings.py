@@ -8,7 +8,7 @@ status（active｜superseded｜withdrawn）、replaced_by。被取代、收回�
 過期（stale）：依據卡指紋變了（或卡不見）、依據卡被客戶說別信（不採用，answer 裁定 15），或那個集合變了（掛的實體多了新卡）；
 過期的不直接用，重算記新的一筆取代。記的時候依據含不採用的卡拒絕。
 綜合卡的「整理到」收 c- 行（指紋欄寫 -），所以有新推算或推算被取代時，那個實體列進待更新綜合卡（synthesis 接）。
-實體改名、合併不改這裡記的名稱：查的時候照 entities.find 轉到現在的名稱（改名時舊名進別名）。
+實體改名、合併時 entities 叫 rename_entity 把記的名稱換成新名（B-091）；查的時候照樣經 entities.find 轉到現在的名稱，舊資料也認得。
 不渲染 md。每次寫都在 findings.json 的 FileLock 裡：先 turn.backup 再原子寫（D-074）；只經 kb finding 寫。
 """
 import hashlib
@@ -239,6 +239,32 @@ def withdraw(vault, cid, turn_id):
         it = _need_active(data, cid)
         it["status"] = "withdrawn"
         return it, True
+    return _mutate(vault, turn_id, fn)
+
+
+def rename_entity(vault, mapping, turn_id, undo=None):
+    """entities.rename／merge 呼叫（B-091，照 statements.rename_entity）：entities 裡 key 在 mapping 的名稱換成新名（去重，順序照原樣），
+    任何狀態的條目都換。沒有 findings.json 什麼都不做。undo 是 entities._Undo：寫之前記舊內容。回動到的條目。"""
+    from kb._lib import entities
+    if not _path(vault).exists():
+        return []
+
+    def fn(data):
+        hits = []
+        for it in data["findings"]:
+            names = it.get("entities") or []
+            if not any(entities.key(n) in mapping for n in names):
+                continue
+            new = []
+            for n in names:
+                n = mapping.get(entities.key(n), n)
+                if all(entities.key(x) != entities.key(n) for x in new):
+                    new.append(n)
+            it["entities"] = new
+            hits.append(it)
+        if hits and undo is not None:
+            undo.file(FINDINGS_POSIX)
+        return hits, bool(hits)
     return _mutate(vault, turn_id, fn)
 
 

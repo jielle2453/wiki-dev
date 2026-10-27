@@ -380,6 +380,20 @@ def attach_location(vault, link_id, rel, turn_id):
         return entry
 
 
+def detach_location(vault, entry_id, rel):
+    """versions revert 刪了線上文件下載回來的檔（B-402）：只把那個 file:// 位置從 link 條目拿掉，條目與網址照舊。
+    回有沒有改；不是 link 或沒有那個位置不動。呼叫端先備份清冊。"""
+    key = uri_key("file://" + str(rel).replace("\\", "/"))
+    with FileLock(_path(vault)):
+        data = load(vault)
+        entry = next((e for e in data["entries"] if e.get("id") == entry_id), None)
+        if entry is None or not is_link(entry) or not _has_location(entry, key):
+            return False
+        entry["locations"] = [loc for loc in entry["locations"] if uri_key(loc.get("uri", "")) != key]
+        _write(vault, data["entries"])
+        return True
+
+
 def outputs_of_turn(vault, turn_id):
     return [e for e in load(vault)["entries"] if e.get("created_turn") == turn_id and e.get("status") == "active"]
 
@@ -1102,14 +1116,14 @@ def reconcile(vault, sources, turn_id):
     - 落進 hidden 排除（審閱裁定 40）：位置直接拿掉、不留檔名；條目沒位置剩下就整筆刪。
     - 來源拿掉了、落進 unused 排除（裁定 21）：active／missing 條目位置全沒了 → excluded，保留最後的位置清單。
     保留別名的位置不動（審閱裁定 11）；spec 展不開的來源不算拿掉。有改才在同一把鎖裡備份、寫。
-    回 {"excluded": 轉成 excluded 的條目數, "removed": 整筆刪掉的條目數}。"""
+    回 {"excluded": 轉成 excluded 的條目數, "removed": 整筆刪掉的條目數, "trimmed": 只少了 hidden 位置、別處還在的條目數}。"""
     from kb._lib import turn
     p = _path(vault)
     if not p.exists():
-        return {"excluded": 0, "removed": 0}
+        return {"excluded": 0, "removed": 0, "trimmed": 0}
     by_alias = {s["alias"].casefold(): s for s in sources.entries}
     unresolved = {u["alias"].casefold() for u in sources.unresolved if u.get("kind") == "source"}
-    excluded, removed, changed = 0, 0, False
+    excluded, removed, trimmed, changed = 0, 0, 0, False
     with FileLock(p):
         data = load(vault)
         kept_entries = []
@@ -1146,6 +1160,7 @@ def reconcile(vault, sources, turn_id):
             changed = True
             if keep:
                 e["locations"] = keep
+                trimmed += 1 if hidden else 0
             elif dormant:
                 e["locations"], e["status"], e["missing_since"] = dormant, "excluded", None
                 excluded += 1
@@ -1156,7 +1171,7 @@ def reconcile(vault, sources, turn_id):
         if changed:
             turn.backup(vault, INVENTORY_POSIX, turn_id)
             _write(vault, kept_entries)
-    return {"excluded": excluded, "removed": removed}
+    return {"excluded": excluded, "removed": removed, "trimmed": trimmed}
 
 
 def _under(uri, base):

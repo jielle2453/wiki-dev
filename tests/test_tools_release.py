@@ -419,6 +419,37 @@ class PatchRule(Base):
             release.build(self.repo, "v0.20.1", self.tmp / "dist")
         self.assertIn("scripts/kb/_lib/env.py", str(cm.exception))
 
+    def test_patch_that_changes_schema_version_only_in_a_docstring_is_allowed(self):
+        """B-448：docstring、註解、一般字串裡寫到的 "schema_version": N 不算格式版本，改了照樣能當小修發。"""
+        write(self.repo, "scripts/kb/_lib/notes.py", '"""說明：檔頭是 {"schema_version": 1}。"""\n# 註解 "schema_version": 1\n'
+                                                     'X = \'"schema_version": 1\'\n')
+        self.commit("0.20.0 加檔", tag="v0.20.0")
+        make_tree(self.repo, "0.20.1", note="修好日期錯誤。")
+        write(self.repo, "scripts/kb/_lib/notes.py", '"""說明：檔頭是 {"schema_version": 2}。"""\n# 註解 "schema_version": 2\n'
+                                                     'X = \'"schema_version": 2\'\n')
+        self.commit("0.20.1", tag="v0.20.1")
+        self.assertEqual(release.build(self.repo, "v0.20.1", self.tmp / "dist")["version"], "0.20.1")
+
+    def code_change_refused(self, old, new):
+        write(self.repo, "scripts/kb/_lib/box.py", old)
+        self.commit("0.20.0 加檔", tag="v0.20.0")
+        make_tree(self.repo, "0.20.1", note="修好日期錯誤。")
+        write(self.repo, "scripts/kb/_lib/box.py", new)
+        self.commit("0.20.1", tag="v0.20.1")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.1", self.tmp / "dist")
+        self.assertIn("scripts/kb/_lib/box.py", str(cm.exception))
+
+    def test_patch_that_changes_a_schema_version_dict_in_code_is_refused(self):
+        """B-448：程式裡真的 dict 字面（包在函式、呼叫裡也算）改了照擋。"""
+        self.code_change_refused('def empty():\n    return dict(items=[], **{"schema_version": 1})\n',
+                                 'def empty():\n    return dict(items=[], **{"schema_version": 2})\n')
+
+    def test_patch_that_changes_a_schema_version_keyword_is_refused(self):
+        """B-448：呼叫參數 schema_version=N 改了照擋。"""
+        self.code_change_refused("def empty():\n    return dict(schema_version=1, items=[])\n",
+                                 "def empty():\n    return dict(schema_version=2, items=[])\n")
+
     def test_skeleton_history_file_itself_may_change_in_a_patch(self):
         """config/skeleton_history.json 每版都會追加，不算骨架改動。"""
         self.assertEqual(self.patch()["version"], "0.20.1")

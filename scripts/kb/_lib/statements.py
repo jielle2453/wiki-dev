@@ -201,29 +201,41 @@ def replaced_of(vault, sid):
 
 def restore(vault, sid, turn_id):
     """她說原本那條要恢復（D-224）：只收被取代、而取代它的那條已收回的；改回有效、replaced_by 清掉，在封存檔裡的搬回來
-    （兩檔都先備進回合）。不行丟 StatementRefused(NOT_RESTORABLE)。回條目。綜合卡照 D-146 自己會列待更新（依據變了）。"""
+    （兩檔都先備進回合）。先寫清單、再從封存檔拿掉（B-454）：中間出錯兩邊都有那條，不會兩邊都沒有。
+    不行丟 StatementRefused(NOT_RESTORABLE)。回條目。綜合卡照 D-146 自己會列待更新（依據變了）。"""
+    archived = []
+
     def fn(data):
         it = find(data, sid)
-        source = None
         if it is None:
-            arch = load_archive(vault)
-            it = find(arch, sid)
-            source = arch if it is not None else None
+            it = find(load_archive(vault), sid)
+            if it is not None:
+                archived.append(sid)
         if it is None or it.get("status") != "superseded":
             raise StatementRefused(NOT_RESTORABLE)
         newer = find(data, it.get("replaced_by")) or find(load_archive(vault), it.get("replaced_by"))
         if newer is None or newer.get("status") != "withdrawn":
             raise StatementRefused(NOT_RESTORABLE)
-        if source is not None:
-            from kb._lib import turn
-            turn.backup(vault, ARCHIVE_POSIX, turn_id)
-            source["statements"] = [x for x in source["statements"] if x.get("id") != sid]
-            write_json_atomic(Path(vault) / ARCHIVE_POSIX, source)
+        if archived:
             it = {k: v for k, v in it.items() if k != "archived"}
             data["statements"].append(it)
         it["status"], it["replaced_by"] = "active", None
         return it, True
-    return _mutate(vault, turn_id, fn)
+    got = _mutate(vault, turn_id, fn)
+    if archived:
+        _drop_archived(vault, sid, turn_id)
+    return got
+
+
+def _drop_archived(vault, sid, turn_id):
+    """封存檔拿掉那條（restore 寫好清單之後）；先備進回合。"""
+    from kb._lib import turn
+    p = Path(vault) / ARCHIVE_POSIX
+    with FileLock(p):
+        arch = load_archive(vault)
+        turn.backup(vault, ARCHIVE_POSIX, turn_id)
+        arch["statements"] = [x for x in arch["statements"] if x.get("id") != sid]
+        write_json_atomic(p, arch)
 
 
 # ---------- 封存（健檢，lint 題） ----------

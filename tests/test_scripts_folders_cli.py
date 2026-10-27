@@ -313,7 +313,7 @@ class Exclude(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         # hidden 不留痕（審閱裁定 40）；清冊題第二行；行政三個 0 位元組檔是同一筆；沒有受影響的綜合卡就接著清（manage 第二版）
         self.assertEqual(r.stdout.splitlines(), ["已排除「行政/薪資」（不想讓 AI 看到）。卡拿掉 0 張。",
-                                                 "清冊：0 份已拿掉",
+                                                 "清冊：1 份少了這裡的位置（別處的照常讀）",
                                                  "清好了：卡 0 張、備份 0 份、暫存 0 份、工作日誌 1 段；"  # 剛記的那一段排除
                                                  "之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；以前的回答若沒提到檔名或卡名、只是轉述，認不出來",
                                                  "還原用的快照也清掉了；你自己存在外面的備份我碰不到"])
@@ -843,7 +843,7 @@ class FoldersInventory(Base):
         self.assertEqual(self.status_of("行政/薪資/網銀密碼.txt"), "excluded")
         self.assertEqual(self.status_of("行政/請款/r.docx"), "active")
         r = self.folders("exclude", "../raw/行政/舊檔", "--kind", "unused", "--json")
-        self.assertEqual(json.loads(r.stdout)["inventory"], {"excluded": 1, "removed": 0})
+        self.assertEqual(json.loads(r.stdout)["inventory"], {"excluded": 1, "removed": 0, "trimmed": 0})
 
     def test_exclude_hidden_removes_entries_and_second_line(self):
         """審閱裁定 40：hidden 不留痕，第二行「清冊：N 份已拿掉」，清冊裡找不到那些檔名。"""
@@ -854,7 +854,7 @@ class FoldersInventory(Base):
         self.assertNotIn("薪資", (self.V / ".system" / "inventory.json").read_text(encoding="utf-8"))
         self.assertEqual(self.status_of("行政/請款/r.docx"), "active")
         r = self.folders("exclude", "../raw/行政/舊檔", "--kind", "hidden", "--json")
-        self.assertEqual(json.loads(r.stdout)["inventory"], {"excluded": 0, "removed": 1})
+        self.assertEqual(json.loads(r.stdout)["inventory"], {"excluded": 0, "removed": 1, "trimmed": 0})
 
     def test_remove_marks_whole_source_excluded(self):
         assert self.add("../raw/行政").returncode == 0

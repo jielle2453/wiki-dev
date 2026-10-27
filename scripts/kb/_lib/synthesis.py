@@ -694,6 +694,7 @@ def render_cache(vault, entity_names, turn_id):
             if e is not None and e.get("id") not in seen:
                 seen.add(e.get("id"))
                 targets.append(e)
+    fixes, raw_fixes = _fix_maps(vault)
     written = []
     for e in targets:
         if entities.is_self(e) or not e.get("type") or e.get("status") != "active":
@@ -710,12 +711,43 @@ def render_cache(vault, entity_names, turn_id):
             continue
         new = replace_front(text, {"檔案卡": card_lines(mounts.get(e["name"], [])),
                                    "相關實體": related(data, mounts, e)})
-        if new == text:
-            continue
-        turn.backup(vault, rel, turn_id, by="program")
-        write_text_atomic(p, new)
-        written.append(rel)
+        if new != text:
+            turn.backup(vault, rel, turn_id, by="program")
+            write_text_atomic(p, new)
+            written.append(rel)
+        _follow_fixes(vault, e, rel, new != text, fixes, raw_fixes)
     return written
+
+
+def _fix_maps(vault):
+    """健檢記的要更新綜合卡：(還算數的 {路徑: 那筆}, 全部的 {路徑: 那筆})；讀不到回兩個空的（照 state.fixes 的做法只記 log）。"""
+    try:
+        from kb.lint import state
+        return {f["path"]: f for f in state.fixes(vault)}, {f["path"]: f for f in state.load(vault)["synthesis_fix"]}
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"lint.json 讀不到：{type(e).__name__}: {e}", source="synthesis")
+        return {}, {}
+
+
+def _follow_fixes(vault, e, rel, rewrote, fixes, raw_fixes):
+    """重寫快取欄之後，健檢記的「要更新」照新的卡檔指紋再記一次（B-463，同 profile_cli._retag_cards）：
+    這張卡寫之前還算數的那筆；改名搬了夾的，記在舊名（現在是別名）位置、那個檔已不在的那筆也跟過來（舊那筆留著，退回改名照樣算數）。
+    lint.json 不備進回合：設成不想讓 AI 看到時會走到這裡，回合夾的備份 purge 只換路徑，卡標題會留在備份裡。"""
+    found = [fixes[rel]] if rewrote and rel in fixes else []
+    for alias in e.get("aliases") or []:
+        old = card_rel(dict(e, name=alias))
+        if old != rel and old in raw_fixes and not (Path(vault) / old).exists():
+            found.append(raw_fixes[old])
+    if not found:
+        return
+    try:
+        from kb.lint import state
+        for f in found:
+            state.add_fix(vault, rel, f.get("reason"), f.get("ids") or [])
+    except Exception as err:  # noqa: BLE001  快取欄已寫好；記號沒跟上只記 log
+        from kb._lib import ledger
+        ledger.log_error(vault, f"健檢記號沒跟上 {rel}：{type(err).__name__}: {err}", source="synthesis")
 
 
 def related_names(data, mounts, names):

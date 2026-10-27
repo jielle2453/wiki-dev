@@ -1213,12 +1213,15 @@ def merge(vault, src_ref, dst_ref, turn_id):
 
 
 def remove(vault, ref, turn_id):
-    """kb entity remove：status removed（知識不刪、檔案卡上的掛載留著）；綜合卡還在就刪，夾裡沒別的檔就 rmdir。中途出錯還原。"""
+    """kb entity remove：status removed（知識不刪、檔案卡上的掛載留著）；綜合卡還在就刪，夾裡沒別的檔就 rmdir。
+    事類的 open 期間條目照結案那條路結束（B-469，不是取消）。中途出錯還原。"""
+    from kb._lib import agenda
     with lock(vault):
         data = load(vault)
         entry, _hit = _need(data, ref)
         _need_plain(entry, "移除")
         loc = locate(vault, entry)
+        matter = is_matter(vault, entry)
         entry["status"] = "removed"
 
         def act(undo):
@@ -1226,6 +1229,11 @@ def remove(vault, ref, turn_id):
             if loc:
                 _delete_card(vault, loc, turn_id, undo)
                 changed.append({"path": loc, "action": "delete"})
+            if matter:
+                _agenda_snapshot(vault, undo)
+                if agenda.close_periods(vault, entry["name"], _today(), turn_id):
+                    changed += [{"path": agenda.AGENDA_POSIX, "action": "modify"},
+                                {"path": agenda.MD_POSIX, "action": "modify"}]
             changed += _drop_close_items(vault, entry, "實體已移除", turn_id, undo)
             _save(vault, data, turn_id, undo)
             changed.append({"path": ENTITIES_POSIX, "action": "modify"})
@@ -1368,21 +1376,23 @@ def alias(vault, ref, add=None, remove=None, turn_id=None):
 # ---------- 口述與裁示跟著走（note 改知識第 4 點） ----------
 
 def _knowledge_snapshot(vault, undo):
-    """口述清單、裁示與裁示.md 在動手之前記進 undo（同 _agenda_snapshot）；沒有的檔不記。"""
-    from kb._lib import rulings, statements
-    for rel in (statements.STATEMENTS_POSIX, rulings.RULINGS_POSIX, rulings.MD_POSIX):
+    """口述清單、裁示與裁示.md、推算清單在動手之前記進 undo（同 _agenda_snapshot）；沒有的檔不記。"""
+    from kb._lib import findings, rulings, statements
+    for rel in (statements.STATEMENTS_POSIX, rulings.RULINGS_POSIX, rulings.MD_POSIX, findings.FINDINGS_POSIX):
         if (Path(vault) / rel).exists():
             undo.file(rel)
 
 
 def _knowledge_follow(vault, mapping, turn_id):
-    """口述與裁示掛的實體名稱跟著換；回給日誌的 changed。"""
-    from kb._lib import rulings, statements
+    """口述、裁示與推算（B-091）掛的實體名稱跟著換；回給日誌的 changed。"""
+    from kb._lib import findings, rulings, statements
     changed = []
     if statements.rename_entity(vault, mapping, turn_id):
         changed.append({"path": statements.STATEMENTS_POSIX, "action": "modify"})
     if rulings.rename_entity(vault, mapping, turn_id):
         changed += [{"path": rulings.RULINGS_POSIX, "action": "modify"}, {"path": rulings.MD_POSIX, "action": "modify"}]
+    if findings.rename_entity(vault, mapping, turn_id):
+        changed.append({"path": findings.FINDINGS_POSIX, "action": "modify"})
     return changed
 
 

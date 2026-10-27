@@ -2,7 +2,7 @@
 
 段：一句話（照規則跟上個月比）、這個月替你做了什麼、要你決定的（摺疊、標「已放進待處理」，寫的是當時的狀況）、
 先放著超過一個月的、建議下一步、數字（給服務人員）。沒內容的段整段不寫；不印編號（句子都是給她看的白話）。
-跟工作日誌一樣永久留（D-065），不做手改比對（每月一份、不重寫舊月）。
+跟工作日誌一樣永久留（D-065），不做手改比對（每月一份、不重寫舊月）。寫前備進那個健檢回合（B-454），退回回得去。
 """
 from pathlib import Path
 
@@ -146,5 +146,8 @@ def write(ctx, month, done, got, numbers, ingest, notes, failed, last_counts):
     rel = f"{REPORT_DIR}/{month}.md"
     p = Path(ctx.vault) / rel
     p.parent.mkdir(parents=True, exist_ok=True)
+    if ctx.turn_id:  # 備進健檢回合：退回那個回合時報告跟著拿掉或還原（B-454）
+        from kb._lib import turn
+        turn.backup(ctx.vault, rel, ctx.turn_id)
     write_text_atomic(p, body)
     return rel

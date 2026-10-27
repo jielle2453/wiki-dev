@@ -67,7 +67,12 @@ def _withdraw(vault, args, as_json, conversation, turn_id):
     it = statements.withdraw(vault, args.id.strip(), turn_id)
     journal_cli.record_program_or_warn(vault, f"收回口述：{_masked(vault, it['text'])}", CHANGED, "statement withdraw",
                                        conversation)
-    old = statements.replaced_of(vault, it["id"])
+    try:  # 收回已經寫好：封存檔讀不到只記 log，成功句照印（B-454）
+        old = statements.replaced_of(vault, it["id"])
+    except ValueError as e:
+        from kb._lib import ledger
+        ledger.log_error(vault, f"收回後讀不到封存檔：{e}", source="statement")
+        old = None
     lines = [f"已收回：{it['text']}"] + ([REPLACED_LINE.format(text=old.get("text"), date=old.get("date"))] if old else [])
     _out(as_json, lines, {"statement": it, "replaced": old})
     return 0

@@ -768,7 +768,7 @@ class Reconcile(Base):
         self.edit_sources(lambda d: d["sources"][2]["excludes"].append({"spec": "薪資", "kind": "unused"}))
         t2 = turn.start(self.V, None, "")
         got = inventory.reconcile(self.V, self.sources(), t2["turn"])
-        self.assertEqual(got, {"excluded": 2, "removed": 0})
+        self.assertEqual(got, {"excluded": 2, "removed": 0, "trimmed": 0})
         for uri in ("file://公司行政/薪資/薪轉帳號.csv", "file://公司行政/薪資/網銀密碼.txt"):
             self.assertEqual(self.entry_at(uri)["status"], "excluded")
         self.assertEqual(self.entry_at("file://公司行政/舊檔/Big5備忘.txt")["status"], "active")
@@ -777,7 +777,7 @@ class Reconcile(Base):
     def test_removed_source_drops_only_its_locations(self):
         self.edit_sources(lambda d: d["sources"].pop(1))
         got = inventory.reconcile(self.V, self.sources(), self.t["turn"])
-        self.assertEqual(got, {"excluded": 1, "removed": 0})
+        self.assertEqual(got, {"excluded": 1, "removed": 0, "trimmed": 0})
         self.assertEqual(self.entry_at("file://報價與合約/合約範本.txt")["status"], "excluded")
         e = self.entry_at("file://客戶案件/信義王/報價_v2.pdf")
         self.assertEqual(e["status"], "active")
@@ -793,12 +793,12 @@ class Reconcile(Base):
     def test_unresolved_source_is_not_treated_as_removed(self):
         os.environ.pop("KB_TEST_NOPE", None)
         self.edit_sources(lambda d: d["sources"][1].update(spec="${KB_TEST_NOPE}/x"))
-        self.assertEqual(inventory.reconcile(self.V, self.sources(), self.t["turn"]), {"excluded": 0, "removed": 0})
+        self.assertEqual(inventory.reconcile(self.V, self.sources(), self.t["turn"]), {"excluded": 0, "removed": 0, "trimmed": 0})
 
     def test_nothing_to_do_writes_nothing(self):
         before = (self.V / ".system" / "inventory.json").read_bytes()
         t2 = turn.start(self.V, None, "")
-        self.assertEqual(inventory.reconcile(self.V, self.sources(), t2["turn"]), {"excluded": 0, "removed": 0})
+        self.assertEqual(inventory.reconcile(self.V, self.sources(), t2["turn"]), {"excluded": 0, "removed": 0, "trimmed": 0})
         self.assertEqual((self.V / ".system" / "inventory.json").read_bytes(), before)
         self.assertEqual(turn.entries(self.V, t2["turn"]), [])
 
@@ -834,7 +834,7 @@ class Reconcile(Base):
         self.edit_sources(lambda d: d["sources"][2]["excludes"].append({"spec": "薪資", "kind": "hidden"}))
         t2 = turn.start(self.V, None, "")
         got = inventory.reconcile(self.V, self.sources(), t2["turn"])
-        self.assertEqual(got, {"excluded": 0, "removed": 2})
+        self.assertEqual(got, {"excluded": 0, "removed": 2, "trimmed": 0})
         text = (self.V / ".system" / "inventory.json").read_text(encoding="utf-8")
         self.assertNotIn("薪資", text)
         self.assertEqual(len(self.entries()), 11)
@@ -843,7 +843,7 @@ class Reconcile(Base):
     def test_hidden_exclude_drops_only_that_location_of_a_duplicate(self):
         self.edit_sources(lambda d: d["sources"][1]["excludes"].append({"spec": "信義王", "kind": "hidden"}))
         got = inventory.reconcile(self.V, self.sources(), self.t["turn"])
-        self.assertEqual(got, {"excluded": 0, "removed": 0})
+        self.assertEqual(got, {"excluded": 0, "removed": 0, "trimmed": 1})
         e = self.entry_at("file://客戶案件/信義王/報價_v2.pdf")
         self.assertEqual((e["status"], [l["uri"] for l in e["locations"]]), ("active", ["file://客戶案件/信義王/報價_v2.pdf"]))
         self.assertNotIn("報價與合約/信義王", (self.V / ".system" / "inventory.json").read_text(encoding="utf-8"))
@@ -853,7 +853,7 @@ class Reconcile(Base):
         self.full()
         self.assertEqual(self.entry_at("file://公司行政/薪資/薪轉帳號.csv")["status"], "missing")
         self.edit_sources(lambda d: d["sources"][2]["excludes"].append({"spec": "薪資", "kind": "hidden"}))
-        self.assertEqual(inventory.reconcile(self.V, self.sources(), self.t["turn"]), {"excluded": 0, "removed": 2})
+        self.assertEqual(inventory.reconcile(self.V, self.sources(), self.t["turn"]), {"excluded": 0, "removed": 2, "trimmed": 0})
         self.assertNotIn("薪資", (self.V / ".system" / "inventory.json").read_text(encoding="utf-8"))
 
     def test_include_of_hidden_exclude_rescans_as_new(self):

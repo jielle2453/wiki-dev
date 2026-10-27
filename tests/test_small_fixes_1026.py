@@ -388,5 +388,318 @@ class StatementSecret(AgendaBase):
         self.assertEqual(statements.load(self.V)["statements"][0]["text"], "密碼檔不能讀，已提醒客戶")
 
 
+# ========== 乙段 ==========
+
+# ---------- 15. B-475 ----------
+
+class CoreHonorific(unittest.TestCase):
+    def test_15_r10_no_honorific(self):
+        lines = [x for x in (ROOT / "rules" / "core.md").read_text(encoding="utf-8").splitlines() if x.startswith("- R-10 ")]
+        self.assertEqual(lines, [R10 + "稱呼客戶用「你」，不用「您」。"])
+
+
+# ---------- 16、17. B-400、B-402 ----------
+
+class VersionsOutputs(VersionsBase):
+    def put_output(self, t, rel, text="成品\n"):
+        from kb._lib import inventory
+        turn.backup(self.V, rel, t["turn"])
+        (self.V / rel).write_text(text, encoding="utf-8")
+        return inventory.register_output(self.V, rel, t["turn"])
+
+    def entry(self, eid):
+        from kb._lib import inventory
+        return next(e for e in inventory.load(self.V)["entries"] if e["id"] == eid)
+
+    def test_16_unbacked_not_counted(self):
+        t = turn.start(self.V, "sid-16", "寫兩份")
+        self.put_output(t, "AI 產出/a.md")
+        scanned = self.put_output(t, "AI 產出/b.md")
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        for e in data["entries"]:
+            if e["id"] == scanned["id"]:
+                e["unbacked"] = True
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        r = run_kb("versions", "list", "--json", cwd=self.V)
+        row = next(x for x in json.loads(r.stdout) if x["turn"] == t["turn"])
+        self.assertEqual(row["counts"]["outputs"], 1)
+
+    def test_17_link_download_deleted_keeps_entry(self):
+        from kb._lib import inventory
+        url = "https://claude.ai/artifact/abc"
+        ta = turn.start(self.V, "sid-17", "存成線上文件")
+        link = inventory.register_link(self.V, url, ta["turn"], "提案")
+        tb = turn.start(self.V, "sid-17", "下載回來")
+        rel = "AI 產出/提案.pdf"
+        turn.backup(self.V, rel, tb["turn"])
+        (self.V / rel).write_bytes(b"%PDF")
+        inventory.attach_location(self.V, link["id"], rel, tb["turn"])
+        plain = self.put_output(tb, "AI 產出/附件.md")
+        self.new_turn()
+        r = run_kb("versions", "revert", "--delete-outputs", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.V / rel).exists())
+        got = self.entry(link["id"])
+        self.assertEqual((got["status"], [x["uri"] for x in got["locations"]]), ("active", [url]))
+        self.assertEqual(self.entry(plain["id"])["status"], "deleted")
+
+
+# ---------- 18、21. B-091、B-469 ----------
+
+class EntityFollow(LookupBase):
+    def finding_on(self, name, cards_):
+        c, _ = findings.add(self.V, f"{name}報價合計 182 萬", "兩份相加", [name], cards_, self.t)
+        return c["id"]
+
+    def names_of(self, cid):
+        return findings.find(findings.load(self.V), cid)["entities"]
+
+    def test_18_rename_follows(self):
+        cid = self.finding_on("信義王", [self.quote])
+        r = run_kb("entity", "rename", "信義王", "--to", "信義王公館", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.names_of(cid), ["信義王公館"])
+        self.assertEqual([c["id"] for c in json.loads(run_kb("lookup", "信義王公館", "--json", cwd=self.V).stdout)["findings"]],
+                         [cid])
+
+    def test_18_merge_follows(self):
+        cid = self.finding_on("王宅", [self.quote])
+        r = run_kb("entity", "merge", "王宅", "--into", "信義王", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.names_of(cid), ["信義王"])
+
+    def test_18_rename_failure_rolls_back(self):
+        self.finding_on("信義王", [self.quote])
+        p = self.V / ".system" / "findings.json"
+        before = p.read_bytes()
+        with mock.patch.object(entities, "_save", side_effect=RuntimeError("壞了")):
+            with self.assertRaises(RuntimeError):
+                entities.rename(self.V, "信義王", "信義王公館", None, self.t)
+        self.assertEqual(p.read_bytes(), before)
+
+    def period(self):
+        it, _ = agenda.add(self.V, "期間", "2030-02-01", "施工", ["信義王"], self.t, start="2030-01-01")
+        return it
+
+    def test_21_remove_ends_open_period(self):
+        it = self.period()
+        r = run_kb("entity", "remove", "信義王", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = agenda.get(self.V, it["id"])
+        self.assertEqual((got["status"], got["ended"]), ("done", agenda._today()))
+        md = (self.V / agenda.MD_POSIX).read_text(encoding="utf-8")
+        self.assertNotIn("沒結束", md)
+
+    def test_21_remove_failure_rolls_back(self):
+        self.period()
+        p = self.V / ".system" / "agenda.json"
+        before = p.read_bytes()
+        with mock.patch.object(entities, "_save", side_effect=RuntimeError("壞了")):
+            with self.assertRaises(RuntimeError):
+                entities.remove(self.V, "信義王", self.t)
+        self.assertEqual(p.read_bytes(), before)
+
+
+# ---------- 19. B-463 ----------
+
+class FixFollowsCache(TagBase):
+    def test_19_rename_keeps_lint_fix(self):
+        from kb.lint import state
+        self.assertTrue(state.add_fix(self.V, T.XINYI_REL, "補標籤（在意）", [], self.t))
+        r = run_kb("entity", "rename", "信義王", "--to", "信義王公館", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        new_rel = "案子/信義王公館/信義王公館.md"
+        self.assertTrue((self.V / new_rel).is_file())
+        got = {f["path"]: f for f in state.fixes(self.V)}
+        self.assertIn(new_rel, got)
+        self.assertEqual(got[new_rel]["sha"], state.card_sha(self.V, new_rel))
+        self.assertIn("補標籤（在意）", got[new_rel]["reason"])
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        self.assertTrue(any("補標籤（在意）" in str(x.get("reason")) for x in todo["synthesis_stale"]), todo["synthesis_stale"])
+
+    def test_19_cache_rewrite_keeps_lint_fix(self):
+        from kb._lib import synthesis
+        from kb.lint import state
+        state.add_fix(self.V, T.XINYI_REL, "補標籤（在意）", [], self.t)
+        p = self.V / T.XINYI_REL
+        p.write_text(re.sub(r"(?m)^相關實體:.*$", "相關實體: [不是這個]", p.read_text(encoding="utf-8"), count=1),
+                     encoding="utf-8", newline="\n")  # 快取欄跟現在對不上：render_cache 會重寫這張
+        state.add_fix(self.V, T.XINYI_REL, "補標籤（在意）", [], self.t)  # 照現在的卡記
+        self.assertEqual(synthesis.render_cache(self.V, ["信義王"], self.t), [T.XINYI_REL])
+        got = {f["path"]: f for f in state.fixes(self.V)}
+        self.assertEqual(got[T.XINYI_REL]["sha"], state.card_sha(self.V, T.XINYI_REL))
+
+
+# ---------- 20. B-466 ----------
+
+class AgendaNewVersion(LookupBase):
+    def test_20_new_version_not_rechecked_again(self):
+        it, _ = agenda.add(self.V, "到期", "2030-01-05", "交平面圖", ["信義王"], self.t, card=self.quote)
+        agenda.edit(self.V, it["id"], self.t)  # 她說這條對：記成確認
+        card = next(self.V.rglob("信義王報價第二版*.md"))
+        text = card.read_text(encoding="utf-8")
+        card.write_text(re.sub(r"(?m)^(內容指紋|指紋): *\S+", r"\1: " + "a" * 64, text, count=1), encoding="utf-8",
+                        newline="\n")
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        self.assertIn(it["id"], [x["id"] for x in todo["agenda_recheck"]])
+        agenda.recheck(self.V, it["id"], self.t, propose_date="2030-01-20")
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        ask = next(a for a in todo["asks"] if a["kind"] == "agenda_conflict")
+        do = ask["results"][0]["do"]
+        self.assertEqual(len(do), 1)
+        import shlex
+        r = run_kb(*shlex.split(do[0])[1:], cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        self.assertNotIn(it["id"], [x["id"] for x in todo["agenda_recheck"]])
+        self.assertEqual(agenda.get(self.V, it["id"])["date"], "2030-01-20")
+
+
+# ---------- 22. B-454 ----------
+
+class StatementArchive(AgendaBase):
+    def put(self, items, archived=()):
+        (self.V / ".system" / "statements.json").write_text(
+            json.dumps({"schema_version": 1, "statements": list(items)}, ensure_ascii=False), encoding="utf-8")
+        if archived:
+            (self.V / statements.ARCHIVE_POSIX).write_text(
+                json.dumps({"schema_version": 1, "statements": list(archived)}, ensure_ascii=False), encoding="utf-8")
+
+    def item(self, sid, text, status="active", replaced_by=None, **kw):
+        return dict({"id": sid, "text": text, "entities": ["信義王"], "date": "2026-10-01", "turn": "t", "status": status,
+                     "replaced_by": replaced_by}, **kw)
+
+    def test_22_restore_writes_list_first(self):
+        self.put([self.item("s-22222222", "改刷卡", "withdrawn")],
+                 [self.item("s-11111111", "原本的門禁", "superseded", "s-22222222", archived="2026-10-02")])
+        with mock.patch.object(statements, "_drop_archived", side_effect=RuntimeError("壞了")):
+            with self.assertRaises(RuntimeError):
+                statements.restore(self.V, "s-11111111", self.t)
+        self.assertEqual(statements.find(statements.load(self.V), "s-11111111")["status"], "active")
+        self.assertIsNotNone(statements.find(statements.load_archive(self.V), "s-11111111"))
+
+    def test_22_restore_moves_out_of_archive(self):
+        self.put([self.item("s-22222222", "改刷卡", "withdrawn")],
+                 [self.item("s-11111111", "原本的門禁", "superseded", "s-22222222", archived="2026-10-02")])
+        got = statements.restore(self.V, "s-11111111", self.t)
+        self.assertNotIn("archived", got)
+        self.assertIsNone(statements.find(statements.load_archive(self.V), "s-11111111"))
+
+    def test_22_withdraw_with_broken_archive(self):
+        self.put([self.item("s-11111111", "門禁改刷卡")])
+        (self.V / statements.ARCHIVE_POSIX).write_text("{", encoding="utf-8")
+        r = run_kb("statement", "withdraw", "s-11111111", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "已收回：門禁改刷卡"))
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertEqual(sum(1 for x in log.splitlines() if "\tstatement\t" in x), 1)
+
+    def test_22_revert_lint_turn_restores_report(self):
+        """背景健檢本月第一次跑寫上個月的報告：先跑一次建好健檢紀錄，把 last_report 往前撥，再跑一次就會寫。"""
+        from kb.lint import runner
+        from kb.lint import state as lint_state
+        runner.run(self.V, background=True)
+        prev = runner._prev_month(agenda._today()[:7])
+        st = lint_state.load(self.V)
+        st["last_report"] = runner._prev_month(prev)
+        lint_state.save(self.V, st, None)
+        p = self.V / "系統" / "健檢報告" / f"{prev}.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("健檢之前的樣子\n", encoding="utf-8")
+        runner.run(self.V, background=True)
+        self.assertNotEqual(p.read_text(encoding="utf-8"), "健檢之前的樣子\n")
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(p.read_text(encoding="utf-8"), "健檢之前的樣子\n")
+
+
+# ---------- 24. B-424 (1) ----------
+
+class GuardAskMask(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import os
+        from tests._guard_fixture import make_vault
+        cls.tmp, cls.V, _raw = make_vault()
+        os.environ["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def reason(self, rest):
+        from tests._guard_fixture import payload
+        from kb import guard
+        d = guard.decide(payload("Bash", f'python "{ROOT.as_posix()}/scripts/kb.py" {rest}', self.V))
+        self.assertEqual(d.decision, "ask")
+        return d.reason
+
+    def test_24_fixed_sentence_not_masked(self):
+        from kb import guard
+        self.assertEqual(self.reason("unlock $x --name a"), guard.ASK_PREFIX + guard.ASK_UNKNOWN)
+
+    def test_24_name_still_masked(self):
+        got = self.reason("unlock get --name 密碼=hunter2")
+        self.assertNotIn("hunter2", got)
+        self.assertTrue(got.startswith(guard_prefix()), got)
+
+
+def guard_prefix():
+    from kb import guard
+    return guard.ASK_PREFIX + "要把存好的「"
+
+
+# ---------- 25、26. B-046 (2)、B-045 (1) ----------
+
+class InventoryDuplicates(unittest.TestCase):
+    def setUp(self):
+        from tests.test_scripts_inventory_cli import make_inv_vault
+        self.tmp, self.V, self.raw = make_inv_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def source_dir(self):
+        from kb._lib import sources as sources_lib
+        return Path(sources_lib.load(self.V).entries[0]["root"])
+
+    def scan(self):
+        r = run_kb("inventory", "scan", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout.splitlines()
+
+    def test_25_duplicates_listed(self):
+        root = self.source_dir()
+        (root / "甲報價.txt").write_text("甲的報價 100 萬\n", encoding="utf-8")
+        (root / "乙合約.txt").write_text("乙的合約 200 萬\n", encoding="utf-8")
+        self.scan()
+        (root / "副本").mkdir()
+        shutil.copy2(root / "甲報價.txt", root / "副本" / "甲報價.txt")
+        shutil.copy2(root / "乙合約.txt", root / "副本" / "乙合約.txt")
+        lines = self.scan()
+        dup = [x for x in lines if x.startswith("同一份內容在多處：")]
+        self.assertEqual(len(dup), 1, lines)
+        self.assertIn("甲報價.txt（2 處）", dup[0])
+        self.assertIn("乙合約.txt（2 處）", dup[0])
+        self.assertEqual(lines.index(dup[0]), 2)
+
+    def test_25_no_duplicates_no_line(self):
+        self.scan()  # 範例來源本來就有重複檔：第一次掃才報；之後沒有新的重複就不印
+        self.assertFalse(any(x.startswith("同一份內容在多處") for x in self.scan()))
+
+    def test_26_hidden_exclude_trims_location(self):
+        from kb._lib import sources as sources_lib
+        root = self.source_dir()
+        (root / "不讀").mkdir()
+        (root / "甲報價.txt").write_text("甲的報價 100 萬\n", encoding="utf-8")
+        shutil.copy2(root / "甲報價.txt", root / "不讀" / "甲報價.txt")
+        self.scan()
+        alias = sources_lib.load(self.V).entries[0]["alias"]
+        r = run_kb("folders", "exclude", f"{alias}/不讀", "--kind", "hidden", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("清冊：1 份少了這裡的位置（別處的照常讀）", r.stdout.splitlines())
+        self.assertNotIn("0 份已拿掉", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
