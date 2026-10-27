@@ -627,6 +627,43 @@ class StatementArchive(AgendaBase):
         self.assertEqual(p.read_text(encoding="utf-8"), "健檢之前的樣子\n")
 
 
+class PurgeLintBackups(unittest.TestCase):
+    """裁定 6：健檢報告寫前備進回合之後，purge 把回合夾裡健檢報告與 lint.json 的備份整份刪掉；現行報告照舊逐字遮。"""
+    from tests.test_lib_purge import Purge as _P
+    setUp, tearDown = _P.setUp, _P.tearDown
+    write_synthesis, exclude = _P.write_synthesis, _P.exclude
+
+    def test_22_purge_drops_report_and_lint_backups(self):
+        from kb.lint import state as lint_state
+        from tests.test_lib_purge import hits, kb
+        V = self.V
+        title = "王家心情"
+        report_rel = "系統/健檢報告/2026-10.md"
+        report = V / report_rel
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(f"# 健檢報告 2026-10\n- 「{title}」那張的出處點不開\n", encoding="utf-8")
+        lint_state.change(V, lambda d: d["month_done"].append({"date": "2026-10-20", "text": f"標了「{title}」那張"}) or True)
+        t = turn.start(V, None, "健檢")["turn"]
+        turn.backup(V, report_rel, t)
+        turn.backup(V, ".system/lint.json", t)
+        files = V / ".system" / "versions" / t / "files"
+        self.assertIn(title, (files / report_rel).read_text(encoding="utf-8"))
+        self.assertIn(title, (files / ".system" / "lint.json").read_text(encoding="utf-8"))
+        turn.start(V, None, "不要讀私人那夾")
+        code, out = self.exclude()
+        self.assertEqual(code, 0, out)
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
+        self.assertEqual(code, 0, out)
+        backups = [p for p in (V / ".system" / "versions").rglob("*")
+                   if p.is_file() and ("/files/系統/健檢報告/" in p.as_posix() or p.as_posix().endswith("/files/.system/lint.json"))]
+        self.assertEqual(backups, [])
+        self.assertEqual([h for h in hits(V, title) if h.startswith(".system/versions/")], [])
+        now = report.read_text(encoding="utf-8")
+        self.assertNotIn(title, now)
+        self.assertIn("（已排除）", now)
+
+
 # ---------- 24. B-424 (1) ----------
 
 class GuardAskMask(unittest.TestCase):
