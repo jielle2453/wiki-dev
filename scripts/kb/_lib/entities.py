@@ -469,14 +469,14 @@ def card_diffs(vault, entry, prof, text=None, rel=None):
         if v == "":
             continue
         row = rows[key(f)]
+        if tag_refusal(row, tag_words(v)) is not None:  # 先判合不合字典：單選寫兩個詞時 tag_normal 只留第一個，會跟正本比成一樣
+            bad.append((row, v))
+            continue
         canon = tag_value(entry.get("tags"), f)
         if canon is not None and [key(w) for w in tag_words(tag_normal(row, canon))] == \
                 [key(w) for w in tag_words(tag_normal(row, v))]:
             continue
-        if tag_refusal(row, tag_words(v)) is None:
-            good[row["field"]] = v
-        else:
-            bad.append((row, v))
+        good[row["field"]] = v
     return good, bad
 
 

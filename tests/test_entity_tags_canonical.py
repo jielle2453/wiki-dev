@@ -247,6 +247,20 @@ class HandEdit(Base):
         r = self.kb("entity", "tag", "--from-card", "內湖李")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "「內湖李」沒有綜合卡"))
 
+    def test_single_two_words_first_same_as_canonical(self):
+        """測試回報：單選欄改成兩個詞、第一個跟正本一樣，也要算她改了（開場、--from-card、健檢都問）。"""
+        self.edit("階段: 施工", "階段: [施工, 完工]")
+        want = "信義王的卡上「階段」寫了 2 個詞，這一欄只能選一個：要留哪一個？"
+        self.assertEqual(entities.tag_edits(self.V), [{"name": "信義王", "fields": ["階段"], "ok": False, "problem": want}])
+        self.assertIn("綜合卡上的標籤你改了 1 張（信義王）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她",
+                      self.opening())
+        r = self.kb("entity", "tag", "--from-card", "信義王")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, want))
+        self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "施工")
+        self.run_check()
+        (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "tag_edit"]
+        self.assertEqual((item["status"], item["text"]), ("open", want))
+
     def test_more_than_three_names(self):
         for eid, name in ((E.DAAN, "大安陳"), ("e-aaaa0011", "甲"), ("e-aaaa0012", "乙"), ("e-aaaa0013", "丙")):
             if eid != E.DAAN:
