@@ -217,14 +217,14 @@ class TagCommands(Base):
         self.assertEqual(code, 0)
         self.assertEqual(got, {
             "op": "merge", "type": "案子", "field": "工種", "word": "水電", "target": "木作",
-            "impact": {"cards": 2, "both": 1},
-            "question": "案子卡有 2 張標了水電，其中 1 張也標了木作；併起來 2 張都只剩木作。要併嗎？",
+            "impact": {"entities": 2, "both": 1},
+            "question": "案子有 2 個標了水電，其中 1 個也標了木作；併起來 2 個都只剩木作。要併嗎？",
             "results": [{"n": 1, "label": "併成木作", "do": ["kb profile tag merge 案子 工種 水電 --into 木作"], "strict": True,
                          "fill": []},
                         {"n": 2, "label": "先不要", "do": [], "strict": False, "fill": []}],
             "refusal": None})
         r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作", "--check")
-        self.assertEqual(r.stdout.splitlines()[0], "案子卡有 2 張標了水電，其中 1 張也標了木作")
+        self.assertEqual(r.stdout.splitlines()[0], "案子有 2 個標了水電，其中 1 個也標了木作")
         self.assertEqual(tree(self.V), before, "--check 不寫")
 
     def test_merge_does_and_reverts(self):
@@ -232,7 +232,7 @@ class TagCommands(Base):
         body_before = {rel: self.card(rel) for rel in (T.XINYI_REL, T.DAAN_REL, LI_REL)}
         r = self.kb("tag", "merge", "案子", "工種", "水電", "--into", "木作")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(r.stdout.strip(), "已把「水電」併進「木作」：2 張卡只剩木作；不對可以說退回")
+        self.assertEqual(r.stdout.strip(), "已把「水電」併進「木作」：2 個只剩木作；不對可以說退回")
         self.assertEqual(self.tags()[("案子", "工種")], ["木作", "磁磚", "系統櫃"])
         self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [木作]")
         self.assertEqual(self.line(LI_REL, "工種"), "工種: [木作]")
@@ -250,10 +250,10 @@ class TagCommands(Base):
     def test_rename_word(self):
         code, got = self.json_of("tag", "rename", "案子", "工種", "水電", "--to", "水電工程", "--check")
         self.assertEqual((code, got["impact"], got["results"][0]["do"], got["results"][0]["strict"]),
-                         (0, {"cards": 2, "both": 0}, ["kb profile tag rename 案子 工種 水電 --to 水電工程"], False))
+                         (0, {"entities": 2, "both": 0}, ["kb profile tag rename 案子 工種 水電 --to 水電工程"], False))
         before = tree(self.V)
         r = self.kb("tag", "rename", "案子", "工種", "水電", "--to", "水電工程")
-        self.assertEqual(r.stdout.strip(), "已把「工種」的「水電」改叫「水電工程」：2 張卡跟著改；不對可以說退回")
+        self.assertEqual(r.stdout.strip(), "已把「工種」的「水電」改叫「水電工程」：2 個跟著改；不對可以說退回")
         self.assertEqual(self.tags()[("案子", "工種")], ["水電工程", "木作", "磁磚", "系統櫃"])
         self.assertEqual(self.line(T.XINYI_REL, "工種"), "工種: [水電工程, 木作]")
         run_kb("versions", "revert", cwd=self.V)
@@ -267,9 +267,9 @@ class TagCommands(Base):
     def test_remove_word_single_and_multi(self):
         before = tree(self.V)
         code, got = self.json_of("tag", "remove", "案子", "階段", "施工", "--check")
-        self.assertEqual((got["impact"], got["results"][0]["strict"]), ({"cards": 1, "both": 0}, True))
+        self.assertEqual((got["impact"], got["results"][0]["strict"]), ({"entities": 1, "both": 0}, True))
         r = self.kb("tag", "remove", "案子", "階段", "施工")
-        self.assertEqual(r.stdout.strip(), "已從「階段」拿掉「施工」：1 張卡上一起拿掉；不對可以說退回")
+        self.assertEqual(r.stdout.strip(), "已從「階段」拿掉「施工」：1 個一起拿掉；不對可以說退回")
         self.assertEqual(self.line(T.XINYI_REL, "階段"), "階段: []")
         self.assertEqual(self.tags()[("案子", "階段")], ["報價", "完工"])
         run_kb("versions", "revert", cwd=self.V)
@@ -281,17 +281,17 @@ class TagCommands(Base):
     def test_rename_and_remove_field(self):
         before = tree(self.V)
         code, got = self.json_of("tag", "rename", "案子", "工種", "--to", "做什麼", "--check")
-        self.assertEqual((got["impact"], got["field"], got["target"]), ({"cards": 3, "both": 0}, "工種", "做什麼"))
+        self.assertEqual((got["impact"], got["field"], got["target"]), ({"entities": 3, "both": 0}, "工種", "做什麼"))
         r = self.kb("tag", "rename", "案子", "工種", "--to", "做什麼")
-        self.assertEqual(r.stdout.strip(), "已把標籤欄「工種」改叫「做什麼」：3 張卡跟著改；不對可以說退回")
+        self.assertEqual(r.stdout.strip(), "已把標籤欄「工種」改叫「做什麼」：3 個跟著改；不對可以說退回")
         self.assertEqual(self.line(T.XINYI_REL, "做什麼"), "做什麼: [水電, 木作]")
         self.assertIsNone(self.line(T.XINYI_REL, "工種"))
         run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(tree(self.V), before)
         r = self.kb("tag", "remove", "案子", "階段", "--check")
-        self.assertIn("案子卡有 2 張寫了「階段」這一行", r.stdout.splitlines()[0])
+        self.assertIn("案子有 2 個標了「階段」", r.stdout.splitlines()[0])
         r = self.kb("tag", "remove", "案子", "階段")
-        self.assertEqual(r.stdout.strip(), "已拿掉標籤欄「階段」：2 張卡拿掉這一行；不對可以說退回")
+        self.assertEqual(r.stdout.strip(), "已拿掉標籤欄「階段」：2 個一起拿掉；不對可以說退回")
         self.assertIsNone(self.line(T.XINYI_REL, "階段"))
         self.assertNotIn(("案子", "階段"), self.tags())
         run_kb("versions", "revert", cwd=self.V)
@@ -377,7 +377,7 @@ class HandEdit(Base):
         before = tree(self.V)
         code, got = self.json_of("apply")
         self.assertEqual(code, 3)
-        self.assertEqual(got["message"], "第八節拿掉了「案子／階段」的「施工」，有 1 張綜合卡用到；沒有套用")
+        self.assertEqual(got["message"], "第八節拿掉了「案子／階段」的「施工」，有 1 個案子用到；沒有套用")
         labels = [(r["label"], r["do"], r["strict"]) for r in got["results"]]
         self.assertEqual(labels, [("卡上的施工一起拿掉，照你改的套用", ["kb profile apply --drop-tags"], True),
                                   ("其實是要併到別的詞：先把第八節那格改回去，再跟我說施工併到哪個", [], False),
@@ -427,7 +427,7 @@ class HandEdit(Base):
         before = tree(self.V)
         code, got = self.json_of("apply")
         self.assertEqual(code, 3)
-        self.assertEqual(got["message"], "案子／工種 有 1 張卡標了兩個以上的詞；要改成單選得先拿掉多的")
+        self.assertEqual(got["message"], "案子／工種 有 1 個標了兩個以上的詞；要改成單選得先拿掉多的")
         self.assertEqual([(r["label"], r["do"]) for r in got["results"]], [("先不套用", [])])
         self.assertEqual(tree(self.V), before)
         r = self.kb("apply", "--drop-tags")
@@ -444,13 +444,13 @@ class HandEdit(Base):
         code, got = self.json_of("apply")
         self.assertEqual(code, 3)
         self.assertEqual(got["message"].splitlines(), [
-            "第八節拿掉了「案子／工種」的「水電」，有 2 張綜合卡用到",
-            "第八節拿掉了「案子／工種」的「木作」，有 2 張綜合卡用到",
-            "第八節拿掉了「案子／階段」的「施工」，有 1 張綜合卡用到",
+            "第八節拿掉了「案子／工種」的「水電」，有 2 個案子用到",
+            "第八節拿掉了「案子／工種」的「木作」，有 2 個案子用到",
+            "第八節拿掉了「案子／階段」的「施工」，有 1 個案子用到",
             "沒有套用"])
         self.assertEqual(got["results"][0]["label"], "卡上的這幾個詞一起拿掉，照你改的套用")
         r = self.kb("apply")
-        self.assertEqual(r.stdout.strip().splitlines()[0], "第八節拿掉了「案子／工種」的「水電」，有 2 張綜合卡用到")
+        self.assertEqual(r.stdout.strip().splitlines()[0], "第八節拿掉了「案子／工種」的「水電」，有 2 個案子用到")
 
 
 if __name__ == "__main__":

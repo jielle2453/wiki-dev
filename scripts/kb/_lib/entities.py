@@ -11,7 +11,10 @@ schema 1 讀進來在記憶體補上，寫的時候寫 2。實體本身在不在
 檔頭格式與驗證住 synthesis.py。drift 只讀：認出客戶在檔案總管改了實體夾名、卡名、刪夾（D-057）。
 note 改知識：alias 加與拿掉別名（D-148）；rename／merge 連口述與裁示的實體名稱一起換（同日程，同一套 _Undo），remove 照留。
 日程匯出（D-500 第二輪）：存過 entities.json 的函式放開鎖之後叫 _export_agenda，匯出的實體名單立刻跟上（T-2）。
-照標籤篩（標籤字典第四節，D-235）：parse_tag_args 讀 --tag 欄=詞[,詞]、tag_filter 照綜合卡檔頭的標籤行篩，只讀。
+照標籤篩（標籤字典第四節，D-235）：parse_tag_args 讀 --tag 欄=詞[,詞]、tag_filter 照正本的 tags 篩，只讀。
+schema 3（標籤記在實體上，D-505）：每筆多 tags（{欄: 詞 | [詞…]}；"" 與 [] 是看過、沒有；沒有這個鍵是還沒標過）、
+tags_said（她親口定的欄）與 tags_at（tags 最後寫入的時間，健檢比卡的修改時間，裁定 5）。schema 2 讀進來不補（沒有 tags 就是還沒標過），
+寫的時候寫 3。set_tags 是唯一寫 tags 的地方：照第八節驗、她說過的欄只有 said 才改；綜合卡檔頭的標籤行是它的渲染。
 """
 import os
 import posixpath
@@ -25,7 +28,7 @@ from kb._lib import config, profile
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 ENTITIES_POSIX = ".system/entities.json"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PROGRESS = ("ongoing", "closed", "paused")
 PROGRESS_TEXT = {"ongoing": "進行中", "closed": "結案", "paused": "擱置"}
 CLOSE_KIND = "close"
@@ -105,10 +108,10 @@ def lock(vault):
     return FileLock(_path(vault))
 
 
-def _save(vault, data, turn_id, undo=None):
-    """呼叫端持有鎖：先備進回合再寫；undo 給了就記舊內容（中途出錯還原用）。"""
+def _save(vault, data, turn_id, undo=None, by=None):
+    """呼叫端持有鎖：先備進回合再寫；undo 給了就記舊內容（中途出錯還原用）。by="program"：程式照字典改的標籤（回答末尾不講，裁定 12）。"""
     from kb._lib import turn
-    turn.backup(vault, ENTITIES_POSIX, turn_id)
+    turn.backup(vault, ENTITIES_POSIX, turn_id, by=by)
     if undo is not None:
         undo.file(ENTITIES_POSIX)
     write_json_atomic(_path(vault), {"schema_version": SCHEMA_VERSION, "entities": data["entities"]})
@@ -214,6 +217,7 @@ TAG_FORMAT = "--tag 要寫成 欄=詞（多個詞用逗號分開）"
 TAG_NO_FIELD = "第八節沒有「{field}」這個標籤欄；有：{have}"
 TAG_NO_WORD = "「{field}」的字典沒有「{word}」；有：{have}"
 TAG_NO_TYPE = "第八節沒有哪個型別同時有這些欄"
+TAG_NO_CARD = "「{name}」沒有綜合卡"
 _TAG_SPLIT = re.compile(r"[,，、]")
 
 
@@ -235,10 +239,9 @@ def parse_tag_args(raw):
 
 def tag_filter(vault, conds, data=None):
     """照標籤篩（kb entity list --tag）：不同欄是且、同欄的詞是或，比對照 key。只看 active、不是客戶自己的實體；
-    型別沒有這些欄的不列。有那一行且詞對得上算符合；沒有綜合卡或沒有那一行算還沒標過；有那一行沒對上算不符合。
+    型別沒有這些欄的不列。照正本的 tags（D-505）：那一欄有詞且對得上算符合；沒有那一欄算還沒標過；看過（"" 或 []）或詞沒對上算不符合。
     回 {"tag": [{"field","words"}]（照字典的寫法）, "counts": [{"type","total","matched","untagged"}], "matched": [編號]}；
     欄或詞不在第八節、沒有型別同時有這些欄丟 EntityRefused。"""
-    from kb._lib import synthesis
     prof = _profile(vault)
     rows = prof.get("tags") or []
     fields = list(dict.fromkeys(t["field"] for t in rows))
@@ -263,10 +266,9 @@ def tag_filter(vault, conds, data=None):
             continue
         members = [e for e in data["entities"] if e.get("status") == "active" and not is_self(e) and e.get("type")
                    and key(e["type"]) == key(t["name"])]
-        fronts = {e["id"]: front for e, _rel, front in synthesis.tagged_cards(vault, t["name"], data)}
         hits, untagged = [], 0
         for e in members:
-            state = _tag_state(fronts.get(e["id"]), tag)
+            state = _tag_state(e.get("tags"), tag)
             if state == "match":
                 hits.append(e["id"])
             elif state == "untagged":
@@ -278,19 +280,304 @@ def tag_filter(vault, conds, data=None):
     return {"tag": tag, "counts": counts, "matched": matched}
 
 
-def _tag_state(front, tag):
-    from kb._lib import synthesis
-    if front is None:
-        return "untagged"
+def _tag_state(tags, tag):
     missing = False
     for c in tag:
-        v = synthesis.front_tag(front, c["field"])
-        if v is None or v == "":  # 沒有那一行、或空著（裁定 14）都是還沒標過
+        v = tag_value(tags, c["field"])
+        if v is None:  # 正本沒有這一欄：還沒標過；"" 與 [] 是看過、沒有（D-505）
             missing = True
             continue
-        if not {key(w) for w in synthesis.tag_words(v)} & {key(w) for w in c["words"]}:
+        if not {key(w) for w in tag_words(v)} & {key(w) for w in c["words"]}:
             return "no"
     return "untagged" if missing else "match"
+
+
+# ---------- 標籤正本（D-505） ----------
+
+def tag_words(v):
+    """標籤的值攤成詞的清單（單選的一個詞也算一個；"" 與 [] 是空的）。"""
+    if isinstance(v, list):
+        return list(v)
+    return [v] if v not in (None, "") else []
+
+
+def tag_value(tags, field):
+    """tags 裡 field 那一欄的值（比對照 key）；沒有這一欄回 None。"""
+    for k, v in (tags or {}).items():
+        if key(k) == key(field):
+            return v
+    return None
+
+
+def said_fields(entry):
+    return {key(f) for f in entry.get("tags_said") or []}
+
+
+def tag_refusal(row, words):
+    """這一欄的詞不能收的那句（同 synthesis._tag_problems 那套）；能收回 None。"""
+    if not row.get("multi") and len(words) > 1:
+        return f"「{row['field']}」只能選一個詞"
+    known = {key(w) for w in row.get("words") or []}
+    for w in words:
+        if key(w) not in known:
+            return (f"「{w}」不在「{row['field']}」的字典裡：先問客戶要不要加"
+                    f"（kb profile add 標籤 型別={row['type']} 欄名={row['field']} 詞={w}），不要自己加")
+    return None
+
+
+def tag_normal(row, v):
+    """照字典的寫法與單選／多選：多選回清單、單選回一個詞（沒有是 ""）。"""
+    spelled = {key(w): w for w in row.get("words") or []}
+    words = list(dict.fromkeys(spelled.get(key(w), w) for w in tag_words(v)))
+    if row.get("multi"):
+        return words
+    return words[0] if words else ""
+
+
+def _same_tag(a, b):
+    return a is not None and b is not None and [key(w) for w in tag_words(a)] == [key(w) for w in tag_words(b)] \
+        and isinstance(a, list) == isinstance(b, list)
+
+
+def _now_stamp():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def set_tags(vault, name_or_id, updates, turn_id, said=False, undo=None, by=None):
+    """寫標籤正本（kb entity tag、綜合卡 hook 抄檔頭、健檢抄她手改的）。updates {欄: 詞 | [詞…] | "" | []}：欄要是這個型別在第八節的欄、
+    詞在字典、單選只一個，錯了丟 EntityRefused。said=True 把欄加進 tags_said；False 時跳過 tags_said 裡的欄（回在 kept）。
+    值與 tags_said 都沒變不寫；寫的時候記 tags_at。回 {"entity","changed": [欄…],"kept": [欄…],"card": 綜合卡在哪或 None}。"""
+    prof = _profile(vault)
+    with lock(vault):
+        data = load(vault)
+        entry, _hit = _need(data, name_or_id)
+        _need_plain(entry, "標標籤")
+        rows = {key(t["field"]): t for t in profile.tags_for(prof, entry.get("type"))}
+        clean = []
+        for field, v in updates.items():
+            row = rows.get(key(field))
+            if row is None:
+                have = "、".join(t["field"] for t in rows.values()) or "（還沒有）"
+                raise EntityRefused(TAG_NO_FIELD.format(field=field, have=have))
+            why = tag_refusal(row, tag_words(v))
+            if why:
+                raise EntityRefused(why)
+            clean.append((row["field"], tag_normal(row, v)))
+        tags = dict(entry.get("tags") or {})
+        said_now = list(entry.get("tags_said") or [])
+        mine = said_fields(entry)
+        changed, kept, dirty = [], [], False
+        for field, v in clean:
+            if not said and key(field) in mine:
+                kept.append(field)
+                continue
+            if said and key(field) not in mine:
+                said_now.append(field)
+                mine.add(key(field))
+                dirty = True
+            old_key = next((k for k in tags if key(k) == key(field)), None)
+            if old_key is not None and _same_tag(tags[old_key], v):
+                continue
+            if old_key is not None:
+                del tags[old_key]
+            tags[field] = v
+            changed.append(field)
+            dirty = True
+        if dirty:
+            entry["tags"] = {t["field"]: tags[t["field"]] for t in rows.values() if t["field"] in tags}
+            entry["tags"].update({k: v for k, v in tags.items() if k not in entry["tags"]})
+            entry["tags_said"] = said_now
+            entry["tags_at"] = _now_stamp()
+            _save(vault, data, turn_id, undo, by=by)
+    if dirty:
+        _export_agenda(vault)
+    card = locate(vault, entry) if entry.get("type") else None
+    return {"entity": entry, "changed": changed, "kept": kept, "card": card}
+
+
+def retag_entities(vault, type_name, field, fn, ids, turn_id, undo, new_field=None, drop=None):
+    """kb profile tag、apply 手改改字典（D-505 決策 5）：ids 這幾個實體的 tags 那一欄照 fn 改（fn(現在的值) 回新值；回 drop 拿掉那一欄、
+    tags_said 也拿掉）；new_field 給了換鍵（tags_said 跟著換）。單選改到沒有詞寫 ""。程式照字典改的，備份 by program（裁定 12）。
+    回改到的實體名稱。"""
+    ids = set(ids)
+    if not ids:
+        return []
+    with lock(vault):
+        data = load(vault)
+        names = []
+        for e in data["entities"]:
+            if e.get("id") not in ids or key(e.get("type")) != key(type_name):
+                continue
+            tags = dict(e.get("tags") or {})
+            old_key = next((k for k in tags if key(k) == key(field)), None)
+            if old_key is None:
+                continue
+            new = fn(tags[old_key])
+            said = list(e.get("tags_said") or [])
+            if new is drop:
+                del tags[old_key]
+                said = [f for f in said if key(f) != key(field)]
+            else:
+                if new == [] and not isinstance(tags[old_key], list):
+                    new = ""
+                name = new_field or old_key
+                tags = {(name if k == old_key else k): (new if k == old_key else v) for k, v in tags.items()}
+                if new_field:
+                    said = [new_field if key(f) == key(field) else f for f in said]
+            if tags == (e.get("tags") or {}) and said == list(e.get("tags_said") or []):
+                continue
+            e["tags"], e["tags_said"], e["tags_at"] = tags, said, _now_stamp()
+            names.append(e["name"])
+        if names:
+            _save(vault, data, turn_id, undo, by="program")
+    if names:
+        _export_agenda(vault)
+    return names
+
+
+TAG_EDIT_PROBLEM = "{name}的卡上「{word}」不在「{field}」的字典裡：要加進字典還是改回 {back}？"
+TAG_EDIT_SINGLE = "{name}的卡上「{field}」寫了 {n} 個詞，這一欄只能選一個：要留哪一個？"
+
+
+def card_newer(vault, rel, entry):
+    """卡的修改時間晚於正本最後寫入（tags_at，裁定 5）；正本沒寫過也算。"""
+    from datetime import datetime
+    stamp = entry.get("tags_at")
+    if not stamp:
+        return True
+    try:
+        return datetime.fromtimestamp((Path(vault) / rel).stat().st_mtime) > datetime.fromisoformat(str(stamp))
+    except (OSError, ValueError):
+        return False
+
+
+def card_diffs(vault, entry, prof, text=None, rel=None):
+    """這張綜合卡檔頭的標籤行跟正本不同的欄：(合字典的 {欄: 值}, 不合的 [(第八節那列, 卡上的值)])；空著的那一行（還沒標過）不算。"""
+    from kb._lib import synthesis
+    rows = {key(t["field"]): t for t in profile.tags_for(prof, entry.get("type"))}
+    if not rows:
+        return {}, []
+    try:
+        if text is None:
+            text = (Path(vault) / (rel or locate(vault, entry))).read_text(encoding="utf-8")
+        front = synthesis.read_front(text)
+    except (OSError, UnicodeDecodeError, ValueError, TypeError):
+        return {}, []
+    good, bad = {}, []
+    for f, v in synthesis.card_tags(front, prof, entry.get("type")):
+        if v == "":
+            continue
+        row = rows[key(f)]
+        canon = tag_value(entry.get("tags"), f)
+        if canon is not None and [key(w) for w in tag_words(tag_normal(row, canon))] == \
+                [key(w) for w in tag_words(tag_normal(row, v))]:
+            continue
+        if tag_refusal(row, tag_words(v)) is None:
+            good[row["field"]] = v
+        else:
+            bad.append((row, v))
+    return good, bad
+
+
+def tag_edit_problem(entry, row, v):
+    """卡上不合字典的那一欄要問她的那句（六-2）。"""
+    words = tag_words(v)
+    if not row.get("multi") and len(words) > 1:
+        return TAG_EDIT_SINGLE.format(name=entry["name"], field=row["field"], n=len(words))
+    known = {key(w) for w in row.get("words") or []}
+    extra = [w for w in words if key(w) not in known]
+    back = "、".join(tag_words(tag_value(entry.get("tags"), row["field"]))) or "沒有"
+    return TAG_EDIT_PROBLEM.format(name=entry["name"], word="、".join(extra), field=row["field"], back=back)
+
+
+def _edited(vault, data, prof):
+    """[(實體, 卡的相對路徑)]：有綜合卡的 active 實體、型別有標籤欄、卡比正本新的（只看修改時間，不讀檔）。"""
+    out = []
+    for e in data["entities"]:
+        if not e.get("card") or e.get("status") != "active" or is_self(e) or not e.get("type"):
+            continue
+        if not profile.tags_for(prof, e.get("type")):
+            continue
+        rel = locate(vault, e)
+        if rel and card_newer(vault, rel, e):
+            out.append((e, rel))
+    return out
+
+
+def tag_edits(vault, data=None):
+    """她在 Obsidian 手改綜合卡的標籤行（D-505 六-1、裁定 6）：卡的修改時間晚於 tags_at、檔頭標籤行跟正本不同的。只讀；
+    先比修改時間，晚的才讀檔頭。回 [{"name","fields": [欄…],"ok": 全部合字典嗎,"problem": 不合字典的那幾句或 None}]。"""
+    data = data if data is not None else load(vault)
+    prof = _profile(vault)
+    out = []
+    for e, rel in _edited(vault, data, prof):
+        good, bad = card_diffs(vault, e, prof, rel=rel)
+        if good or bad:
+            out.append({"name": e["name"], "fields": list(good) + [row["field"] for row, _v in bad], "ok": not bad,
+                        "problem": "；".join(tag_edit_problem(e, row, v) for row, v in bad) or None})
+    return out
+
+
+def copy_card_edits(vault, refs, turn_id, by=None):
+    """kb entity tag --from-card、健檢（六-2、六-4）：refs 這幾個（None 是 tag_edits 全部）卡上合字典的標籤行照她改的寫進正本、
+    算她說的；不合字典的不寫。回 [{"entity","written": [欄…],"bad": [(第八節那列, 卡上的值)],"problems": [句…]}]，沒得記的不列。
+    給了名稱但沒有綜合卡丟 EntityRefused。"""
+    data = load(vault)
+    prof = _profile(vault)
+    if refs is None:
+        pairs = [(e, rel) for e, rel in _edited(vault, data, prof)]
+    else:
+        pairs = []
+        for ref in refs:
+            e, _hit = _need(data, ref)
+            rel = locate(vault, e) if e.get("card") and e.get("type") else None
+            if not rel:
+                raise EntityRefused(TAG_NO_CARD.format(name=e["name"]))
+            pairs.append((e, rel))
+    out = []
+    for e, rel in pairs:
+        good, bad = card_diffs(vault, e, prof, rel=rel)
+        if not good and not bad:
+            continue
+        entry = e
+        if good:
+            entry = set_tags(vault, e["id"], good, turn_id, said=True, by=by)["entity"]
+        out.append({"entity": entry, "written": list(good), "bad": bad,
+                    "problems": [tag_edit_problem(entry, row, v) for row, v in bad]})
+    return out
+
+
+def tag_status(entry, prof):
+    """這個實體型別的欄裡，正本還沒有的（補標籤用）。"""
+    have = {key(k) for k in (entry.get("tags") or {})}
+    return [t["field"] for t in profile.tags_for(prof, entry.get("type")) if key(t["field"]) not in have]
+
+
+def tags_fingerprint(entry):
+    """正本 tags 的指紋（健檢記「補標籤」的 sha，tags 改了這筆就不算，裁定 4）。"""
+    import hashlib
+    import json
+    text = json.dumps(entry.get("tags") or {}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def merge_tags(dst, src):
+    """合併實體時 tags 照 merge 的規則合（D-505 一-4）：多選取聯集（目標的在前）；單選以目標為準、目標沒有才拿來源的；tags_said 聯集。"""
+    if not src.get("tags") and not src.get("tags_said"):
+        return
+    tags = dict(dst.get("tags") or {})
+    for field, v in (src.get("tags") or {}).items():
+        have = next((k for k in tags if key(k) == key(field)), None)
+        if have is None:
+            tags[field] = v
+        elif isinstance(tags[have], list) and isinstance(v, list):
+            tags[have] = list(dict.fromkeys(tags[have] + [w for w in v if key(w) not in {key(x) for x in tags[have]}]))
+    dst["tags"] = tags
+    said = list(dst.get("tags_said") or [])
+    said += [f for f in src.get("tags_said") or [] if key(f) not in {key(x) for x in said}]
+    dst["tags_said"] = said
+    dst["tags_at"] = _now_stamp()
 
 
 def _profile(vault):
@@ -880,6 +1167,7 @@ def merge(vault, src_ref, dst_ref, turn_id):
                 dst.setdefault("aliases", []).append(w)
         src["status"] = "merged"
         src["merged_into"] = dst["id"]
+        merge_tags(dst, src)
 
         def act(undo):
             changed = []

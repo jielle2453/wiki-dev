@@ -34,7 +34,7 @@ class Base(unittest.TestCase):
     def rewrite(self, i, lines, turn_id=None):
         eid, name, rel = self.cards[i]
         turn.backup(self.V, rel, turn_id or self.t)
-        T.write_synthesis(self.V, eid, name, rel, lines)
+        T.write_synthesis(self.V, eid, name, rel, lines, turn_id=turn_id or self.t)
 
 
 class Tell(Base):
@@ -60,7 +60,7 @@ class Tell(Base):
         eid, name, rel = self.cards[4]
         (self.V / rel).unlink()
         turn.backup(self.V, rel, self.t)  # 新建：create，沒有舊檔
-        T.write_synthesis(self.V, eid, name, rel, ["工種: [水電]", "階段: 報價"])
+        T.write_synthesis(self.V, eid, name, rel, ["工種: [水電]", "階段: 報價"], turn_id=self.t)
         self.assertEqual(plan._tagged_tell(self.V), ["士林張標了：工種 水電；階段 報價"])
 
     def test_job_turn_closed_this_sentence(self):

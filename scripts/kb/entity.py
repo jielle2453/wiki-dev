@@ -7,7 +7,10 @@ progress 改事類實體的進行中／結案／擱置（結案連帶結束它�
 alias 加或拿掉別名：別名撞到另一個已登記的實體就不寫、exit 3，--json 帶問題與結果清單（同 asks 的形狀）改問合併；
 拿掉時列出內文提到那個別名的檔案卡（suspect_cards）。
 accept：AI 看掛的卡有把握的新名字直接登記成「AI 判斷」（source ai_judged，D-202；build 第 5 點），算確認、不出名字題。
-list --tag 欄=詞[,詞]（標籤字典第四節，D-235）：照綜合卡檔頭的標籤行篩，照型別一段、第一句幾個符合與幾個還沒標過，只列符合的。
+list --tag 欄=詞[,詞]（標籤字典第四節，D-235）：照實體清單的標籤正本篩，照型別一段、第一句幾個符合與幾個還沒標過，只列符合的。
+tag <名稱> 欄=詞[,詞] …（D-505）：寫標籤正本（欄= 後面空著是看過、沒有）；--said 是她親口說的，那一欄之後 AI 不重判；
+有綜合卡就把那幾行照正本寫回卡上（備份 by program）。tag --from-card [<名稱>…]（裁定 6）：她在 Obsidian 手改了綜合卡的標籤行，
+合字典的照她改的寫進正本、算 --said；不合字典的不寫、印問句（不給名稱就是 entities.tag_edits 全部）。
 rename 搬了夾、夾裡有客戶原檔時，鎖外接著 inventory.scan（只掃知識庫）加 apply，讓原檔的新位置入冊（同 folders add）。
 終端機跑的記一段工作日誌程式段（D-085），command 是 entity <子子命令>；對話裡叫的併進回合。
 """
@@ -63,7 +66,12 @@ def add_arguments(sub):
     which = al.add_mutually_exclusive_group(required=True)
     which.add_argument("--add", help="要加的別名")
     which.add_argument("--remove", help="要拿掉的別名")
-    for p in (ad, cf, ac, rn, mg, rm, rb, cl, ls, rd, pg, sc, al):
+    tg = subs.add_parser("tag", help="給實體標標籤", description="照設定檔第八節的字典給實體標標籤；有綜合卡的卡上那幾行跟著改。")
+    tg.add_argument("ref", nargs="?", help="名稱或編號（e-…）")
+    tg.add_argument("pairs", nargs="*", help="欄=詞（多個詞用逗號分開；欄= 後面空著是看過、沒有）；--from-card 時是更多名稱")
+    tg.add_argument("--said", action="store_true", help="她親口說的：這一欄之後照她說的留著")
+    tg.add_argument("--from-card", action="store_true", help="她在卡上手改了標籤行：合字典的照她改的記進正本")
+    for p in (ad, cf, ac, rn, mg, rm, rb, cl, ls, rd, pg, sc, al, tg):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -286,6 +294,83 @@ def _alias(vault, args, as_json, conversation, turn_id):
     return 0
 
 
+TAG_KEPT = "（{fields}是你說過的，照你說的留著）"
+
+
+def _tag_pairs(raw):
+    """欄=詞[,詞] → {欄: [詞…]}；欄= 後面空著是 []（看過、沒有）。寫法不對丟 EntityRefused。"""
+    out = {}
+    for arg in raw:
+        field, sep, rest = str(arg).partition("=")
+        if not sep or not field.strip():
+            raise entities.EntityRefused("要寫成 欄=詞（多個詞用逗號分開；欄= 後面空著是看過、沒有）")
+        text = rest.strip()
+        words = [] if text in ("", "[]", '""') else [w.strip() for w in entities._TAG_SPLIT.split(text) if w.strip()]
+        out.setdefault(field.strip(), [])
+        out[field.strip()] += [w for w in words if entities.key(w) not in {entities.key(x) for x in out[field.strip()]}]
+    return out
+
+
+def _tag_text(tags, fields):
+    parts = []
+    for f in fields:
+        words = entities.tag_words(entities.tag_value(tags, f))
+        parts.append(f"{f} {'、'.join(words) if words else '沒有'}")
+    return "；".join(parts)
+
+
+FROM_CARD_DONE = "照你在卡上改的記下了：{what}"
+FROM_CARD_NONE = "卡上的標籤跟實體清單一樣，沒有要記的"
+
+
+def _from_card(vault, args, as_json, conversation, turn_id):
+    refs = [r for r in [args.ref, *args.pairs] if r] or None
+    got = entities.copy_card_edits(vault, refs, turn_id)
+    done = [g for g in got if g["written"]]
+    lines = []
+    if done:
+        what = "；".join(f"{g['entity']['name']} {_tag_text(g['entity'].get('tags') or {}, g['written'])}" for g in done)
+        lines.append(FROM_CARD_DONE.format(what=what))
+        journal_cli.record_program_or_warn(vault, lines[0], [{"path": entities.ENTITIES_POSIX, "action": "modify"}],
+                                           "entity tag", conversation)
+    lines += [p for g in got for p in g["problems"]]
+    _out(as_json, lines or [FROM_CARD_NONE],
+         {"recorded": [{"name": g["entity"]["name"], "fields": g["written"], "tags": g["entity"].get("tags") or {}}
+                       for g in done],
+          "problems": [{"name": g["entity"]["name"], "field": row["field"], "card": v, "problem": text}
+                       for g in got for (row, v), text in zip(g["bad"], g["problems"])]})
+    return 0
+
+
+def _tag(vault, args, as_json, conversation, turn_id):
+    if args.from_card:
+        return _from_card(vault, args, as_json, conversation, turn_id)
+    if not args.ref or not args.pairs:
+        raise entities.EntityRefused("要寫成 kb entity tag <名稱> 欄=詞 …（或 --from-card 把卡上手改的記進去）")
+    got = entities.set_tags(vault, args.ref, _tag_pairs(args.pairs), turn_id, said=args.said)
+    e = got["entity"]
+    tags = e.get("tags") or {}
+    fields = [f for f in _tag_pairs(args.pairs)]
+    shown = [next((k for k in tags if entities.key(k) == entities.key(f)), f) for f in fields]
+    changed = [{"path": entities.ENTITIES_POSIX, "action": "modify"}] if got["changed"] or args.said else []
+    if got["card"]:
+        rel = got["card"]
+        text = (Path(vault) / rel).read_text(encoding="utf-8")
+        new = synthesis.write_tag_lines(text, tags, shown)
+        if new != text:
+            turn.backup(vault, rel, turn_id, by="program")
+            kio.write_text_atomic(Path(vault) / rel, new)
+            changed.append({"path": rel, "action": "modify"})
+    line = f"{e['name']}標了：{_tag_text(tags, shown)}"
+    if got["kept"]:
+        line += TAG_KEPT.format(fields="、".join(got["kept"]))
+    if changed:
+        journal_cli.record_program_or_warn(vault, line, changed, "entity tag", conversation)
+    _out(as_json, [line], {"name": e["name"], "changed": got["changed"], "kept": got["kept"], "tags": tags,
+                           "card": got["card"]})
+    return 0
+
+
 def _list(vault, as_json, tag_args=None):
     conds = entities.parse_tag_args(tag_args) if tag_args else None
     data = entities.load(vault)
@@ -344,7 +429,8 @@ def _render(vault, as_json, conversation, turn_id):
 
 
 WRITERS = {"add": _add, "confirm": _confirm, "accept": _accept, "rename": _rename, "merge": _merge, "remove": _remove,
-           "rebuild": _rebuild, "clean": _clean, "progress": _progress, "suggest-close": _suggest_close, "alias": _alias}
+           "rebuild": _rebuild, "clean": _clean, "progress": _progress, "suggest-close": _suggest_close, "alias": _alias,
+           "tag": _tag}
 
 
 def run(args):

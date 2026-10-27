@@ -1,0 +1,50 @@
+{
+  "schema_version": 2,
+  "entities": [
+    {
+      "id": "e-5c1d0a7e",
+      "type": "案子",
+      "name": "信義王",
+      "aliases": ["信義王宅"],
+      "self": false,
+      "status": "active",
+      "source": "confirmed",
+      "date": "2026-10-20",
+      "card": true,
+      "created_turn": "20261020-101500-ab12",
+      "progress": "ongoing",
+      "progress_source": "inferred",
+      "progress_history": []
+    },
+    {
+      "id": "e-1a2b3c4d",
+      "type": "案子",
+      "name": "大安陳",
+      "aliases": [],
+      "self": false,
+      "status": "active",
+      "source": "confirmed",
+      "date": "2026-10-20",
+      "card": true,
+      "created_turn": "20261020-101500-ab12",
+      "progress": "ongoing",
+      "progress_source": "inferred",
+      "progress_history": []
+    },
+    {
+      "id": "e-aaaa0001",
+      "type": "案子",
+      "name": "內湖李",
+      "aliases": [],
+      "self": false,
+      "status": "active",
+      "source": "confirmed",
+      "date": "2026-10-20",
+      "card": false,
+      "created_turn": "20261020-101500-ab12",
+      "progress": "ongoing",
+      "progress_source": "inferred",
+      "progress_history": []
+    }
+  ]
+}

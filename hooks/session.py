@@ -279,6 +279,24 @@ def line_profile(vault):
     return line
 
 
+TAGS_EDITED = "綜合卡上的標籤你改了 {n} 張（{names}）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她"
+TAGS_EDITED_SHOWN = 3
+
+
+def line_tags(vault):
+    """標籤記在實體上六-3（D-505、裁定 6）：她在 Obsidian 手改了綜合卡的標籤行（entities.tag_edits，只讀）就印一行，名稱最多列 3 個。"""
+    from kb._lib import entities
+
+    try:
+        edits = entities.tag_edits(vault)
+    except ValueError:
+        return None  # entities.json 壞了由變動行那邊記 log，這裡不重記
+    if not edits:
+        return None
+    names = "、".join(x["name"] for x in edits[:TAGS_EDITED_SHOWN]) + ("…" if len(edits) > TAGS_EDITED_SHOWN else "")
+    return TAGS_EDITED.format(n=len(edits), names=names)
+
+
 AGENDA_OVERDUE_HINT = "（回答末尾跑 kb asks 照著問）"
 
 
@@ -395,7 +413,7 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_agenda, line_inbox,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_tags, line_agenda, line_inbox,
                line_backup,
                line_health,
                lambda v: line_compact(v, source)):

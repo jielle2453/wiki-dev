@@ -728,7 +728,7 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
             while slots and left[kind]:
                 chunk, left[kind] = left[kind][:size], left[kind][size:]
                 if kind == "synthesis":  # 補標籤送出去幾張：之後算門檻時從回合已改的扣掉（裁定 25）
-                    sent = sum(1 for b, _k, i in chunk if tag_only(b, i))
+                    sent = sum(1 for b, _k, i in chunk if tag_only(b, i) and not i.get("tag_only"))
                     if sent:
                         job["tag_sent"] = job.get("tag_sent", 0) + sent
                 bid = _new_id("b", {b.get("batch") for b in data["batches"]})
@@ -809,7 +809,8 @@ def _approval(vault, jt, items, st, job=None, run=()):
     data = turn.turn_data(vault, jt) or {}
     job = job if job is not None else {}
     limit = st["big_change_synthesis_max"]
-    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")]
+    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")
+               and not i.get("tag_only")]  # 沒有綜合卡、只補標籤的（D-505）不寫卡，不算
     others = sum(1 for bucket, i in counted if not tag_only(bucket, i))
     done = len(data.get("ai_synthesis") or [])
     others += max(0, done - job.get("tag_sent", 0))
@@ -835,7 +836,8 @@ TAG_REASON = "補標籤"
 
 
 def tag_only(bucket, item):
-    """只補標籤的綜合卡項目：synthesis_stale、健檢記的原因全是「補標籤（…）」、內容沒有要改的（added／changed／removed 空）。"""
+    """只補標籤的綜合卡項目：synthesis_stale、健檢記的原因全是「補標籤（…）」、內容沒有要改的（added／changed／removed 空）。
+    沒有綜合卡的實體補標籤（D-505，項目帶 tag_only: true）也是。"""
     if bucket != "synthesis_stale" or item.get("added") or item.get("changed") or item.get("removed"):
         return False
     reasons = [r for r in str(item.get("reason") or "").split("、") if r]

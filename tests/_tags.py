@@ -51,11 +51,27 @@ def strip_tag_lines(header_text):
     return "\n".join(out) + "\n"
 
 
-def write_synthesis(V, eid, name, rel, lines=(), body=None):
-    """照現行檔頭寫一張綜合卡（標籤行換成 lines）。回文字。"""
+SETUP_TURN = "20000101-000000-setup"
+
+
+def write_synthesis(V, eid, name, rel, lines=(), body=None, turn_id=SETUP_TURN, sync=True):
+    """照現行檔頭寫一張綜合卡（標籤行換成 lines）。sync：照 PostToolUse 把標籤行抄進實體清單的正本（D-505，備進 turn_id）。回文字。"""
     text = with_tag_lines(strip_tag_lines(header(V, eid)), lines)
     text = E.synthesis_text(text, name) if body is None else E.synthesis_text(text, name, body)
     p = Path(V) / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding="utf-8", newline="\n")
+    if sync:
+        synthesis.copy_tags(V, rel, turn_id)
+        text = p.read_text(encoding="utf-8")
     return text
+
+
+def clear_tags(V, eid):
+    """實體清單那一筆拿掉 tags、tags_said（還沒標過的樣子）。"""
+    data = entities.load(V)["entities"]
+    for e in data:
+        if e["id"] == eid:
+            for k in ("tags", "tags_said", "tags_at"):
+                e.pop(k, None)
+    E.put_entities(V, data)

@@ -13,7 +13,9 @@ entity_drift（D-057）；前兩桶每項帶這個實體的口述、裁示與推
 檔頭用 cards.parse_front 解析（同一套 YAML 子集）。
 標籤行（標籤字典第三節，D-234）：KEYS 之後、照設定檔第八節那個型別的欄一欄一行（可多選 [a, b]、單選一個詞、看過沒有寫 []）；
 沒有那一行是還沒照字典標過。problems 驗欄與詞在字典裡、單選不超過一個；設定檔讀不到時不驗標籤行（寫 log）。
-header_for 帶卡上現有的標籤行（第八節已沒有的欄不帶），還沒有綜合卡的照第八節列出欄、值留空；retag 只改一行（kb profile tag）。
+header_for 帶正本（實體清單的 tags，D-505）的標籤行；有卡的另帶卡上有那一行、正本還沒有的（字典內的照卡、字典外留空）與她自加的鍵，
+沒有卡的照第八節列出每一欄（正本沒有的留空）。綜合卡檔頭是正本的渲染：hook 驗過之後抄進正本，write_tag_lines 照正本寫回那幾行；
+retag 只改一行（kb profile tag）。tag_changes 比對正本在那一回合的備份（回答末尾那句）。
 """
 import re
 from datetime import date, datetime
@@ -32,6 +34,7 @@ BASE_HINTS = {"現況": "這件事現在怎樣：一點一行、事實變了就�
               "紀事": "日期倒序、只增不改：決定、改版、關鍵事件",
               "推算": "從多張卡算出來的：結果、算法、依據、算的日期；沒有就整段不寫"}
 STALE_CODE = "synced"
+TAG_ONLY_REASON = "補標籤"
 REDO = "redo"  # 整理到 那行的指紋欄：客戶說卡讀錯了，等卡重寫（實作回報裁定 1）
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # validate 的問題代號：這些一出就不再往下驗（後面的比對沒有意義）
@@ -225,20 +228,29 @@ def extra_tags(front, prof, type_):
 
 
 def header_tags(vault, entity, prof):
-    """header_for 要帶的標籤行：這個實體的綜合卡在、讀得懂就帶卡上現有的（字典外的詞、單選寫了兩個的那一欄留空，
-    不把錯的帶回去），接著照原樣帶字典外的鍵（裁定 13）；沒有卡（或讀不懂）照第八節列出欄、值留空。"""
+    """header_for 要帶的標籤行：第八節這個型別的欄，值照正本（D-505）；正本沒有的那一欄，有綜合卡而且卡上有那一行就照卡
+    （字典外的詞、單選寫了兩個的留空，不把錯的帶回去），卡上也沒有就不帶；沒有卡的每一欄都列（沒有值留空）。
+    接著照原樣帶卡上字典外的鍵（裁定 13）。"""
+    type_ = entity.get("type")
+    front = None
     p = Path(vault) / card_rel(entity)
     if p.is_file():
         try:
             front = read_front(p.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             front = None
-        if front is not None:
-            type_ = entity.get("type")
-            rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, type_)}
-            return ([(f, v if _tag_ok(rows[entities.key(f)], v) else None) for f, v in card_tags(front, prof, type_)]
-                    + extra_tags(front, prof, type_))
-    return [(t["field"], None) for t in profile.tags_for(prof, entity.get("type"))]
+    tags = entity.get("tags") or {}
+    out = []
+    for t in profile.tags_for(prof, type_):
+        v = entities.tag_value(tags, t["field"])
+        if v == "":
+            v = []  # 正本的單選看過、沒有：卡上寫 []（空著是還沒標過，裁定 14）
+        if v is None and front is not None:
+            if front_tag(front, t["field"]) is None:
+                continue
+            v = front_tag(front, t["field"])
+        out.append((t["field"], v if v is not None and _tag_ok(t, v) else None))
+    return out + (extra_tags(front, prof, type_) if front is not None else [])
 
 
 def _tag_ok(row, v):
@@ -266,9 +278,15 @@ def header_for(vault, entity, mounts_of_it, today=None, data=None, mounts=None, 
 
 def tag_words(v):
     """標籤行的值攤成詞的清單（單選的一個詞也算一個）。"""
-    if isinstance(v, list):
-        return list(v)
-    return [v] if v not in (None, "") else []
+    return entities.tag_words(v)
+
+
+def tagged_entities(vault, type_name, data=None):
+    """這個型別 active、不是客戶自己的實體：[(實體, 正本的 tags)]（照標籤篩、impact、kb profile tag 用；沒標過的 tags 是 {}）。"""
+    data = data if data is not None else entities.load(vault)
+    return [(e, dict(e.get("tags") or {})) for e in data["entities"]
+            if e.get("status") == "active" and not entities.is_self(e) and e.get("type")
+            and entities.key(e["type"]) == entities.key(type_name)]
 
 
 def tagged_cards(vault, type_name, data=None):
@@ -300,48 +318,120 @@ def front_tag(front, field):
 
 
 def tag_changes(vault, turn_ids):
-    """這幾個回合寫過的綜合卡（回合帳裡 <型別>/<名稱>/<名稱>.md），標籤行跟那一回合的備份比多了的詞（新寫的卡全部算）：
-    [(名稱, [(欄, [新加的詞])])]，照第一次寫的順序；拿掉的不算（標籤字典第五節）。只讀。
-    那一回合第一次備份是程式改的（by program：kb profile tag、apply 改名合併、快取重渲染）不算，只算 AI 寫卡帶出的（裁定 12）。"""
+    """這幾個回合正本多了的詞（D-505 三-4）：第一個有備份 entities.json 的回合，那份備份跟現在的 tags 比，每個 active 實體
+    [(名稱, [(欄, [新加的詞])])]，照實體清單的順序；拿掉的不算（標籤字典第五節）。只讀。那份備份是程式改的（by program：
+    kb profile tag、手改套用、升級）不算（裁定 12）；這一回合才進 tags_said 的欄是她親口說的，不算。"""
+    import json
     from kb._lib import turn
-    prof = entities._profile(vault)
-    types = {entities.key(t["name"]) for t in prof.get("types") or []}
-    olds, order = {}, []
+    before = None
     for tid in turn_ids:
-        for row in turn.entries(vault, tid):
-            rel = str(row.get("path") or "")
-            parts = rel.split("/")
-            if (len(parts) != 3 or parts[2] != f"{parts[1]}.md" or entities.key(parts[0]) not in types
-                    or rel in olds):
-                continue
-            if row.get("by") == "program":
-                olds[rel] = None  # 佔住：同一張卡別的回合的備份也不再看
-                continue
-            old = None
-            if row.get("action") != "create":
-                try:
-                    old = (Path(vault) / turn.VERSIONS_REL / tid / "files" / rel).read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-            olds[rel] = old
-            order.append(rel)
-    out = []
-    for rel in order:
-        try:
-            front = read_front((Path(vault) / rel).read_text(encoding="utf-8"))
-            before = read_front(olds[rel]) if olds[rel] is not None else {}
-        except (OSError, UnicodeDecodeError, ValueError):
+        row = next((r for r in turn.entries(vault, tid) if r.get("path") == entities.ENTITIES_POSIX), None)
+        if row is None:
             continue
-        had = {entities.key(f): {entities.key(w) for w in tag_words(v)}
-               for f, v in card_tags(before, prof, front.get("型別"))}
+        if row.get("by") == "program":
+            return []
+        if row.get("action") == "create":
+            before = {}
+        else:
+            try:
+                old = json.loads((Path(vault) / turn.VERSIONS_REL / tid / "files" / entities.ENTITIES_POSIX)
+                                 .read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError):
+                return []
+            before = {e.get("id"): e for e in (old.get("entities") or []) if isinstance(e, dict)}                 if isinstance(old, dict) else {}
+        break
+    if before is None:
+        return []
+    out = []
+    for e in entities.load(vault)["entities"]:
+        if e.get("status") != "active" or entities.is_self(e) or not e.get("type") or not e.get("tags"):
+            continue
+        was = before.get(e.get("id")) or {}
+        said_before = entities.said_fields(was)
+        fresh_said = entities.said_fields(e) - said_before
         added = []
-        for f, v in card_tags(front, prof, front.get("型別")):
-            more = [w for w in tag_words(v) if entities.key(w) not in had.get(entities.key(f), set())]
+        for f, v in e["tags"].items():
+            if entities.key(f) in fresh_said:
+                continue
+            had = {entities.key(w) for w in entities.tag_words(entities.tag_value(was.get("tags"), f))}
+            more = [w for w in entities.tag_words(v) if entities.key(w) not in had]
             if more:
                 added.append((f, more))
         if added:
-            out.append((front.get("名稱") or rel.split("/")[1], added))
+            out.append((e["name"], added))
     return out
+
+
+def copy_tags(vault, rel, turn_id, by=None):
+    """綜合卡檔頭的標籤行抄進正本（D-505 決策 3；hook 驗過之後、升級時叫）：第八節這個型別、有值的欄（空著的是還沒標過，不抄）；
+    字典外的詞、單選寫兩個的那一欄不抄、回在 skipped。tags_said 裡的欄不抄：卡上那一行照正本寫回（備進回合 by program）。
+    回 {"changed","kept","skipped": [(欄, 原因)],"rewrote": 有沒有把卡寫回}；卡讀不懂、實體不在丟 ValueError（呼叫端照 I-046 記 log）。"""
+    from kb._lib import turn
+    p = Path(vault) / rel
+    text = p.read_text(encoding="utf-8")
+    front = read_front(text)
+    eid = front.get("編號")
+    entry = next((e for e in entities.load(vault)["entities"] if e.get("id") == eid), None)
+    if entry is None:
+        raise ValueError(f"編號 {eid} 不在實體清單")
+    prof = entities._profile(vault)
+    rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, entry.get("type"))}
+    updates, skipped = {}, []
+    for f, v in card_tags(front, prof, entry.get("type")):
+        if v == "":
+            continue
+        why = entities.tag_refusal(rows[entities.key(f)], tag_words(v))
+        if why:
+            skipped.append((f, why))
+            continue
+        updates[f] = v
+    got = {"changed": [], "kept": [], "skipped": skipped, "rewrote": False}
+    if not updates:
+        return got
+    res = entities.set_tags(vault, eid, updates, turn_id, by=by)
+    got.update(changed=res["changed"], kept=res["kept"])
+    if res["kept"]:
+        new = write_tag_lines(text, res["entity"].get("tags"), res["kept"])
+        if new != text:
+            turn.backup(vault, rel, turn_id, by="program")
+            write_text_atomic(p, new)
+            got["rewrote"] = True
+    return got
+
+
+def write_tag_lines(text, tags, fields):
+    """卡檔頭 fields 那幾欄照正本 tags 寫（一行，「欄: 值」；空的照 [] 或「欄:」）；卡上沒有那一行就補在檔頭結尾的 --- 前。
+    其他行與內文原樣（含換行字元）。回新文字（沒變回原文）。"""
+    for field in fields:
+        v = entities.tag_value(tags, field)
+        if v is None:
+            continue
+        text = _set_line(text, field, v)
+    return text
+
+
+def _set_line(text, field, v):
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n").lstrip("﻿").strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        bare = lines[i].rstrip("\r\n")
+        eol = lines[i][len(bare):] or "\n"
+        if bare.strip() == "---":
+            lines[i:i] = [tag_line(field, v if v != "" else []) + eol]
+            return "".join(lines)
+        k, sep, _raw = bare.partition(":")
+        if not sep or bare.startswith((" ", "- ")) or k.strip() in KEYS or entities.key(k.strip()) != entities.key(field):
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j].startswith(("  - ", "- ")):
+            j += 1
+        new = tag_line(k.strip(), v if v != "" else []) + eol  # 單選看過、沒有在卡上寫 []（空著是還沒標過，裁定 14）
+        if lines[i:j] == [new]:
+            return text
+        lines[i:j] = [new]
+        return "".join(lines)
+    return text
 
 
 DROP = object()  # retag 的 fn 回它：拿掉那一行
@@ -687,13 +777,16 @@ def buckets(vault, data, mounts, prof):
             continue
         stmts, ruls, finds = basis(know, e["name"], mounts)
         if len(ms) + len(stmts) < min_cards:
+            item = _tag_only_item(e, ms, prof, fixes)
+            if item is not None:
+                stale.append(item)
             continue
         item = {"entity_id": e["id"], "name": e["name"], "type": e["type"], "category": category_text(prof, e["type"]),
                 "confirmed": e.get("source") != "inferred", "path": rel, "cards": [_brief(m) for m in ms],
                 "statements": [statement_brief(s) for s in stmts],
                 "rulings": [ruling_brief(vault, know, r) for r in ruls],
                 "findings": [finding_brief(vault, know, c, mounts) for c in finds],
-                "sections": sections_for(prof, e["type"]),
+                "sections": sections_for(prof, e["type"]), "tags_said": list(e.get("tags_said") or []),
                 "header": header_for(vault, e, ms, today, data, mounts, prof, know)}
         if not item["confirmed"]:
             item["question"] = (f"我要幫「{e['name']}」（{e['type']}，掛了 {len(ms)} 份檔）整理一頁現況："
@@ -752,11 +845,30 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
             "header": header_for(vault, e, ms, today, data, mounts, prof, know),
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
-            "added": added, "changed": changed, "removed": removed}
+            "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}
+
+
+def _tag_only_item(e, ms, prof, fixes):
+    """還不夠寫綜合卡的實體要補標籤（D-505 決策 4、裁定 4）：型別有標籤欄、掛了檔案卡，而且正本少了某一欄（新實體、升級、第八節加欄），
+    或健檢用實體編號記了「補標籤」（第八節加詞，正本 tags 沒改過才算）。回 synthesis_stale 的只補標籤項目，不用補回 None。"""
+    if not ms or entities.is_self(e) or not profile.tags_for(prof, e.get("type")):
+        return None
+    missing = entities.tag_status(e, prof)
+    fix = fixes.get(str(e.get("id")).casefold())
+    if fix is not None and fix.get("sha") != entities.tags_fingerprint(e):
+        fix = None
+    if not missing and fix is None:
+        return None
+    reasons = [r for r in str((fix or {}).get("reason") or "").split("、") if r]
+    if missing:
+        reasons.insert(0, f"{TAG_ONLY_REASON}（{'、'.join(missing)}）")
+    return {"entity_id": e["id"], "name": e["name"], "type": e["type"], "tag_only": True,
+            "cards": [_brief(m) for m in ms], "tags": dict(e.get("tags") or {}), "tags_said": list(e.get("tags_said") or []),
+            "reason": "、".join(dict.fromkeys(reasons)), "added": [], "changed": [], "removed": []}
 
 
 def _lint_fixes(vault):
-    """健檢標的要更新綜合卡 {小寫路徑: 那筆}；讀不到當沒有。"""
+    """健檢標的要更新綜合卡 {小寫路徑: 那筆}（沒有綜合卡的實體是 {小寫實體編號: 那筆}，裁定 4）；讀不到當沒有。"""
     try:
         from kb.lint import state
         return {f["path"].casefold(): f for f in state.fixes(vault)}
