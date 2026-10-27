@@ -223,15 +223,19 @@ def restore(vault, sid, turn_id):
         return it, True
     got = _mutate(vault, turn_id, fn)
     if archived:
-        _drop_archived(vault, sid, turn_id)
+        try:
+            _drop_archived(vault, sid, turn_id)
+        except Exception as e:  # noqa: BLE001  清單已經改好：封存檔那條留著（重複）只記 log，不讓指令報錯
+            from kb._lib import ledger
+            ledger.log_error(vault, f"恢復後封存檔沒拿掉 {sid}：{type(e).__name__}: {e}", source="statements")
     return got
 
 
 def _drop_archived(vault, sid, turn_id):
-    """封存檔拿掉那條（restore 寫好清單之後）；先備進回合。"""
+    """封存檔拿掉那條（restore 寫好清單之後）；先備進回合。跟 archive() 一樣拿 statements.json 的鎖，兩邊不會互相蓋掉。"""
     from kb._lib import turn
     p = Path(vault) / ARCHIVE_POSIX
-    with FileLock(p):
+    with FileLock(_path(vault)):
         arch = load_archive(vault)
         turn.backup(vault, ARCHIVE_POSIX, turn_id)
         arch["statements"] = [x for x in arch["statements"] if x.get("id") != sid]

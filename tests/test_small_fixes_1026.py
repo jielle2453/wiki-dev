@@ -518,6 +518,19 @@ class FixFollowsCache(TagBase):
         todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
         self.assertTrue(any("補標籤（在意）" in str(x.get("reason")) for x in todo["synthesis_stale"]), todo["synthesis_stale"])
 
+    def test_19_carried_fix_not_revived_after_card_is_fixed(self):
+        """code-review：改名帶過來的記號只帶一次；卡改好之後再重渲染快取，舊路徑那筆不會把它叫回來。"""
+        from kb._lib import synthesis
+        from kb.lint import state
+        state.add_fix(self.V, T.XINYI_REL, "補標籤（在意）", [], self.t)
+        self.assertEqual(run_kb("entity", "rename", "信義王", "--to", "信義王公館", cwd=self.V).returncode, 0)
+        self.assertNotIn(T.XINYI_REL, [f["path"] for f in state.load(self.V)["synthesis_fix"]])
+        new_rel = "案子/信義王公館/信義王公館.md"
+        p = self.V / new_rel
+        p.write_text(p.read_text(encoding="utf-8") + "\n- 補好了\n", encoding="utf-8", newline="\n")  # AI 改寫了卡
+        synthesis.render_cache(self.V, ["信義王公館"], self.t)
+        self.assertNotIn(new_rel, [f["path"] for f in state.fixes(self.V)])
+
     def test_19_cache_rewrite_keeps_lint_fix(self):
         from kb._lib import synthesis
         from kb.lint import state
@@ -574,10 +587,11 @@ class StatementArchive(AgendaBase):
         self.put([self.item("s-22222222", "改刷卡", "withdrawn")],
                  [self.item("s-11111111", "原本的門禁", "superseded", "s-22222222", archived="2026-10-02")])
         with mock.patch.object(statements, "_drop_archived", side_effect=RuntimeError("壞了")):
-            with self.assertRaises(RuntimeError):
-                statements.restore(self.V, "s-11111111", self.t)
+            statements.restore(self.V, "s-11111111", self.t)  # 清單已經改好：封存那步出錯只記 log
         self.assertEqual(statements.find(statements.load(self.V), "s-11111111")["status"], "active")
         self.assertIsNotNone(statements.find(statements.load_archive(self.V), "s-11111111"))
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertEqual(sum(1 for x in log.splitlines() if "\tstatements\t" in x), 1)
 
     def test_22_restore_moves_out_of_archive(self):
         self.put([self.item("s-22222222", "改刷卡", "withdrawn")],

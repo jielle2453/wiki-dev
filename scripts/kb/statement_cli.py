@@ -69,9 +69,9 @@ def _withdraw(vault, args, as_json, conversation, turn_id):
                                        conversation)
     try:  # 收回已經寫好：封存檔讀不到只記 log，成功句照印（B-454）
         old = statements.replaced_of(vault, it["id"])
-    except ValueError as e:
+    except (ValueError, OSError) as e:  # 壞檔、鎖住或沒權限都一樣（TimeoutError 也是 OSError）
         from kb._lib import ledger
-        ledger.log_error(vault, f"收回後讀不到封存檔：{e}", source="statement")
+        ledger.log_error(vault, f"收回後讀不到封存檔：{type(e).__name__}: {e}", source="statement")
         old = None
     lines = [f"已收回：{it['text']}"] + ([REPLACED_LINE.format(text=old.get("text"), date=old.get("date"))] if old else [])
     _out(as_json, lines, {"statement": it, "replaced": old})

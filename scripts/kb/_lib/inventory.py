@@ -1160,7 +1160,7 @@ def reconcile(vault, sources, turn_id):
             changed = True
             if keep:
                 e["locations"] = keep
-                trimmed += 1 if hidden else 0
+                trimmed += 1 if hidden and status != "excluded" else 0  # 本來就不讀的不算「別處照常讀」
             elif dormant:
                 e["locations"], e["status"], e["missing_since"] = dormant, "excluded", None
                 excluded += 1
