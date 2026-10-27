@@ -336,8 +336,39 @@ class Absorb(Base):
         self.assertEqual(self.batch(), [])
         (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "tag_edit"]
         self.assertEqual((item["status"], item["entity_ids"]), ("open", [E.XINYI]))
-        parts = batches._skip_entities(batches.split(self.V, batches._collect(self.V)), batches.absorb_tag_edits(self.V, self.t))
+        parts = batches._skip_entities(self.V, batches.split(self.V, batches._collect(self.V)), batches.absorb_tag_edits(self.V, self.t))
         self.assertNotIn(E.XINYI, [k for _b, k, _i in parts["synthesis"]], "已在問、卡還沒改好：dispatch 也不派")
+
+    def broken_not_dispatched(self, old, new):
+        """補驗：卡上有字典外的詞（或單選兩詞）驗卡判成壞的，進 synthesis_broken；照樣不派、tag_edit 開著、健檢不自動 done。"""
+        self.edit(old, new)
+        t2 = turn.start(self.V, SID, "整理")["turn"]
+        before = batches.split(self.V, batches._collect(self.V))
+        self.assertIn(("synthesis_broken", T.XINYI_REL), [(b, k) for b, k, _i in before["synthesis"]], "前提：壞卡桶")
+        parts = batches._skip_entities(self.V, before, batches.absorb_tag_edits(self.V, t2))
+        self.assertNotIn(T.XINYI_REL, [k for _b, k, _i in parts["synthesis"]])
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        (self.V / batches.BATCHES_POSIX).write_text(json.dumps({"schema_version": 1, "agents": [], "jobs": [
+            {"job": "j-1", "session_id": SID, "turn": t2, "status": "open"}], "batches": [
+            {"batch": "b-1", "job": "j-1", "kind": "synthesis", "items": [T.XINYI_REL], "created": now, "status": "open"}]}),
+            encoding="utf-8")
+        self.assertEqual(batches.batch_view(self.V, "b-1")["items"], [])
+        c = L.ctx(self.V)
+        for f in tag_edits.run(c):
+            f["apply"](c)
+        (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "tag_edit"]
+        self.assertEqual((item["status"], item["entity_ids"]), ("open", [E.XINYI]))
+        return item
+
+    def test_broken_outside_dictionary_not_dispatched(self):
+        item = self.broken_not_dispatched("工種: [水電, 木作]", "工種: [水電, 狗]")
+        self.assertIn("狗", item["text"])
+        self.assertEqual(entry(self.V, E.XINYI)["tags"]["工種"], ["水電", "木作"])
+
+    def test_broken_single_two_words_not_dispatched(self):
+        item = self.broken_not_dispatched("階段: 施工", "階段: [施工, 完工]")
+        self.assertEqual(item["text"], "信義王的卡上「階段」寫了 2 個詞，這一欄只能選一個：要留哪一個？")
 
     def test_dropped_line_is_none_and_kept(self):
         self.edit("階段: 施工\n", "")

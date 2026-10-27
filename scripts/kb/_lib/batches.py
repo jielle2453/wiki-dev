@@ -675,11 +675,26 @@ def absorb_tag_edits(vault, turn_id):
     return skip
 
 
-def _skip_entities(parts, skip):
-    """綜合卡項目裡實體在 skip 的拿掉（stale、new 的鍵就是實體編號；壞的綜合卡讀不出標籤行，照派）。"""
+def _skipped(vault, skip, keys, ctx=None):
+    """keys 裡實體在 skip 的：stale、new 的鍵就是實體編號；壞的綜合卡（鍵是卡路徑）照路徑找回是誰的。卡上有字典外的詞
+    驗卡就判成壞的，這時照派會照舊正本寫回、把她寫的詞蓋掉（補驗修）；檔頭真的讀不懂的，absorb 認不出手改，不在 skip，照派。"""
     if not skip:
+        return set()
+    ctx = ctx or _SynthesisContext(vault)
+    out = set()
+    for k in keys:
+        e = ctx.owner(k) if "/" in str(k) else None
+        if k in skip or (e is not None and e.get("id") in skip):
+            out.add(k)
+    return out
+
+
+def _skip_entities(vault, parts, skip):
+    """綜合卡項目裡實體在 skip 的拿掉（壞的綜合卡也算，_skipped）。"""
+    gone = _skipped(vault, skip, [x[1] for x in parts["synthesis"]])
+    if not gone:
         return parts
-    return dict(parts, synthesis=[x for x in parts["synthesis"] if x[0] == "synthesis_broken" or x[1] not in skip])
+    return dict(parts, synthesis=[x for x in parts["synthesis"] if x[1] not in gone])
 
 
 def dispatch(vault, session_id, turn_id, source=None, ids=None):
@@ -719,8 +734,8 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
                 ids = job.get("ids")
         skip = absorb_tag_edits(vault, turn_id)
         out = _collect(vault)
-        parts_all = _skip_entities(split(vault, out), skip)
-        parts = _skip_entities(split(vault, out, source), skip) if source is not None else parts_all
+        parts_all = _skip_entities(vault, split(vault, out), skip)
+        parts = _skip_entities(vault, split(vault, out, source), skip) if source is not None else parts_all
         if ids:
             if explicit_ids:  # 這一句給的 --ids：job 開著也驗（做過的那幾份算認得，build 第一輪修 S3）
                 known = {x[1] for x in parts["cards"]} | {k for b in data["batches"] if b.get("job") == job["job"]
@@ -987,7 +1002,8 @@ def batch_view(vault, batch_id, agent_id=None):
         skip = absorb_tag_edits(vault, (_job_of(data, b) or {}).get("turn") or turn.current(vault)["turn"])
     out = _collect(vault)
     base = Path(vault).resolve()
-    want = [k for k in b.get("items") or [] if k not in skip]
+    gone = _skipped(vault, skip, b.get("items") or [])
+    want = [k for k in b.get("items") or [] if k not in gone]
     buckets = {"cards": CARD_BUCKETS, "agenda": AGENDA_BUCKETS, "synthesis": SYNTHESIS_BUCKETS}[b["kind"]]
     found = {}
     ctx = None
