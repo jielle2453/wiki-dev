@@ -7,7 +7,7 @@
 ## 批次（card-maker）
 
 - 第一步跑 `kb cards batch <批次> --json`：`prefix` 是 kb 指令前綴（下面寫 `kb …`、`convert …` 的都接在它後面）；`vault` 是總資料夾的絕對路徑，項目裡相對總資料夾的路徑（`dir`、`existing_card`、`path`、`target`、`card_path`）都另給 `<鍵>_abs` 絕對路徑，讀寫一律用它；`kind` 是 cards｜agenda｜synthesis｜adopt（第十二節）；`read` 是先讀的規則；`items` 是這批要做的，每項跟下一節的欄位同一組、多 `bucket`（來自哪一桶，不是 `type`：`synthesis_new` 的 `type` 是實體型別；new、stale、broken、unlinked、agenda_recheck、agenda_unscanned、synthesis_new、synthesis_stale、synthesis_broken）；`profile`、`entities` 同下一節。已經做好的項目不再列。
-- `cards`：一～六節寫卡、第七節補掛實體；每寫完一張新卡或重做的卡，同一份內容接著照第九節抽日期、跑 `kb agenda scanned <卡編號>`。`agenda`：第九節。`synthesis`：`rules/synthesis.md`，`synthesis_broken` 照第八節；項目帶 `existing_card`（目標已經有卡）一定先 Read，現況改寫、紀事只增，紀事少了會被打回。
+- `cards`：一～六節寫卡、第七節補掛實體；每寫完一張新卡或重做的卡，同一份內容接著照第九節抽日期、跑 `kb agenda scanned <卡編號>`。`agenda`：第九節。`synthesis`：`rules/synthesis.md`，`synthesis_broken` 照第八節；項目帶 `existing_card`（目標已經有卡）一定先 Read，現況改寫、紀事只增，紀事少了會被打回。帶 `tag_only: true` 的是還沒有綜合卡、只補標籤的實體（`{"entity_id","name","type","tag_only","cards","tags","tags_said","reason"}`，`tags` 是現在標的）：只讀 `cards` 那幾張檔案卡（`path_abs`），照 `profile.tags` 那個型別的字典判斷每一欄，一個實體跑一次 `kb entity tag <名稱> 欄=詞[,詞] …`（看過、沒有寫 `欄=`；`tags_said` 裡的欄不寫），不寫綜合卡；字典外的照 S-33 回報。
 - 清單只用 `items`，不跑 `cards todo`、不自己找檔；不跑 `turn note`、`cards dispatch`。
 - 做完照 card-maker 本文的回報格式回一則給主對話：讀舊 wiki 以外的批次只有份數與沒做成的原因，不寫檔案內容、摘要、人名、金額、日期（D-022），「被擋或打回：」那行的寫法也在那裡；寫綜合卡遇到字典外、她明顯在意的條件（S-33），多回一行「字典外：<型別>的<欄>：<詞>」（還沒有那一欄的，條件寫在欄的位置；開頭不加「- 」，那是沒做成的寫法；只寫詞，不寫是誰），主對話照 D-231 問她要不要加；讀舊 wiki 的批次照第十二節的格式。
 

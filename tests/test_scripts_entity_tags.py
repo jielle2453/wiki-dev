@@ -39,7 +39,8 @@ class Base(unittest.TestCase):
 
 class TagFilter(Base):
     def test_blank_is_untagged_but_empty_list_is_not(self):
-        """裁定 14：「工種:」空著算還沒標過；「工種: []」算看過、沒有。"""
+        """裁定 14：「工種:」空著算還沒標過（不抄進正本，D-505）；「工種: []」算看過、沒有。"""
+        T.clear_tags(self.V, E.DAAN)
         T.write_synthesis(self.V, E.DAAN, "大安陳", T.DAAN_REL, ["工種:", "階段: 報價"])
         T.write_synthesis(self.V, LIN, "北投林", "案子/北投林/北投林.md", ["工種: []"])
         lines = self.kb("entity", "list", "--tag", "工種=木作").stdout.splitlines()

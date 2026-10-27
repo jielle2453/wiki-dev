@@ -6,7 +6,7 @@
 子代理（card-maker，D-195）：payload 帶 agent_id、batches.json 的 agents 有它 → 檔案工具寫入的備份與大改動計數算它記的回合；
 放行的單一 kb 呼叫回 allow 加 updatedInput（整個 tool_input 照抄、只換 command：kb.py 路徑後面插 --turn <回合> --agent <id>）。
 主對話、沒記過的子代理照舊；kb.guard 的判斷不改，插的值照 plan.shell_arg 加引號，給不出就不改寫。
-card-maker 第一輪修：記過的子代理只准白名單裡的 kb 子命令（AGENT_ALLOW；convert 不收 --password／--saved／--explicit），
+card-maker 第一輪修：記過的子代理只准白名單裡的 kb 子命令（AGENT_ALLOW；convert 不收 --password／--saved／--explicit，entity tag 不收 --said／--from-card），
 也不准讀 .system/unlock.json 與 .system/temp 的密碼檔暫存，其餘 deny「製卡助手不能做這件事」（S3）；指令自己帶了
 --turn／--agent／--session 的（子代理在哪都算，主對話看子命令前的）deny，不改寫（S4）；主對話的 cards dispatch／status／stop
 與 build 的每個子子命令插 --session <sid>（兩個視窗開同一個知識庫不串；build 認哪個對話在建置，build 驗後修）。
@@ -41,9 +41,11 @@ GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session")
 # card-maker 用得到的（agents/card-maker.md、carding.md）：(子命令, 子子命令)；子子命令 "" 是沒有子子命令的
 AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "skip"), ("convert", ""), ("version", ""),
                ("agenda", "add"), ("agenda", "edit"), ("agenda", "recheck"), ("agenda", "scanned"), ("agenda", "cancel"),
-               ("agenda", "list"), ("entity", "add"), ("entity", "suggest-close"), ("entity", "clean"), ("entity", "list")}
+               ("agenda", "list"), ("entity", "add"), ("entity", "suggest-close"), ("entity", "clean"), ("entity", "list"),
+               ("entity", "tag")}
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
+TAG_DENY = ("--said", "--from-card")  # 代表她的意思（她親口說的、她在卡上改的），只在主對話用（標籤記在實體上裁定 10）
 SESSION_SUBS = {("cards", "dispatch"), ("cards", "status"), ("cards", "stop")}
 SESSION_CMDS = ("build", "intake")  # 這些子命令都插（intake：--pasted 要認得是哪個對話的紀錄，收件匣裁定 6）
 QUOTES = "\"'"
@@ -187,6 +189,8 @@ def scope(payload, tool, d, agent_turn):
         if (cmd, sub) not in AGENT_ALLOW:
             return AGENT_DENY, None
         if cmd == "convert" and _has_flag(tokens, CONVERT_DENY):
+            return AGENT_DENY, None
+        if (cmd, sub) == ("entity", "tag") and _has_flag(tokens, TAG_DENY):
             return AGENT_DENY, None
         return None, with_turn(ti, agent_turn, payload.get("agent_id"))
     if tokens is None:

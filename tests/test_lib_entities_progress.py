@@ -33,7 +33,7 @@ class Schema2(Base):
     def test_schema1_is_migrated_in_memory_for_matter_types_only(self):
         raw = json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8"))
         self.assertEqual(raw["schema_version"], 1)
-        self.assertEqual(entities.load(self.V)["schema_version"], 2)
+        self.assertEqual(entities.load(self.V)["schema_version"], entities.SCHEMA_VERSION)
         xinyi = self.by_name("信義王")
         self.assertEqual((xinyi["progress"], xinyi["progress_source"], xinyi["progress_history"]),
                          ("ongoing", "inferred", []))
@@ -44,7 +44,7 @@ class Schema2(Base):
     def test_any_write_leaves_schema_2_with_the_fields(self):
         entities.confirm(self.V, "信義王", self.t)
         raw = json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8"))
-        self.assertEqual(raw["schema_version"], 2)
+        self.assertEqual(raw["schema_version"], entities.SCHEMA_VERSION)
         self.assertEqual(next(e for e in raw["entities"] if e["name"] == "信義王")["progress"], "ongoing")
 
     def test_add_matter_entity_has_progress(self):

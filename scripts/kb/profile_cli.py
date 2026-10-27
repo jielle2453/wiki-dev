@@ -15,9 +15,10 @@ type rename 的舊名不在型別表、只在檔案卡的 待補型別 裡（bui
 帶 --category 加成新型別（沒帶回問題問大類），那些卡的待補型別換成新名、備進回合；之後整理照 types_added 把卡掛上實體。
 不帶 --check 才做，中途出錯照 entities._Undo 還原，夾的動作做完才記進資料夾帳。
 範本（produce 第 6 點，D-167）：add 範本 文件=<名> 底=<卡編號或卡標題> 先把底換成清冊 active 的卡編號，找不到拒絕。
-標籤（標籤字典，D-233～D-237）：add 標籤 加欄或加詞、remove 標籤拒絕；加了欄或詞，那個型別每張有綜合卡的實體記一筆健檢的
-「補標籤（…）」要更新（lint.state.add_fix）。tag rename／merge／remove 改字典的詞或欄，程式直接改每張卡檔頭那一行
-（synthesis.retag），先 --check、做了照 entities._Undo 倒回、卡與設定檔都備進回合。apply 遇到手改拿掉有卡用到的詞或欄就拒絕，
+標籤（標籤字典，D-233～D-237；正本在實體清單，D-505）：add 標籤 加欄或加詞、remove 標籤拒絕；加了欄或詞，那個型別每個 active 實體
+記一筆健檢的「補標籤（…）」要更新（lint.state.add_fix；有綜合卡記卡路徑，沒有的記實體編號，裁定 4）。tag rename／merge／remove
+改字典的詞或欄，先改正本（entities.retag_entities，by program），再改每張卡檔頭那一行（synthesis.retag），影響照正本數；
+先 --check、做了照 entities._Undo 倒回、卡、實體清單與設定檔都備進回合。apply 遇到手改拿掉有實體用到的詞或欄就拒絕，
 回結果清單指到 apply --rename-tag（同一欄正好一出一進）或 apply --drop-tags（實作疑義 2）。
 鎖 profile.json 30 秒。終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合。
 """
@@ -507,7 +508,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
     journal_cli.record_program_or_warn(vault, message, changed, f"profile {op}", conversation)
     _out(as_json, [message] + about_lines, {"applied": True, "section": section, "op": op, "row": res["row"],
                                             "message": message, "created_dirs": created, "unskipped": len(unskipped),
-                                            "retag": sum(marked.values())})
+                                            "retag": sum(sum(v.values()) for v in marked.values())})
     return 0
 
 
@@ -1006,12 +1007,12 @@ FIELD_TAKEN = "「{type}」已經有「{to}」這個標籤欄"
 SAME_WORD = "「{word}」跟「{to}」是同一個"
 SAME_NAME = "「{word}」本來就叫這個名字"
 LAST_WORD = "「{field}」只剩「{word}」這個詞；要拿掉整欄用 {cmd}"
-HAND_DROP = "第八節拿掉了「{type}／{field}」的「{word}」，有 {n} 張綜合卡用到"
-HAND_DROP_FIELD = "第八節拿掉了「{type}／{field}」這一欄，有 {n} 張綜合卡用到"
+HAND_DROP = "第八節拿掉了「{type}／{field}」的「{word}」，有 {n} 個{type}用到"
+HAND_DROP_FIELD = "第八節拿掉了「{type}／{field}」這一欄，有 {n} 個{type}用到"
 HAND_NOT_APPLIED = "沒有套用"
 HAND_QUESTION = "{line}：是改名、要從卡上拿掉，還是要併到別的詞？"
-HAND_QUESTION_MANY = "第八節拿掉了 {n} 個有綜合卡用到的詞或欄：是改名、要從卡上拿掉，還是要併到別的詞？"
-HAND_SINGLE = "{type}／{field} 有 {n} 張卡標了兩個以上的詞；要改成單選得先拿掉多的"
+HAND_QUESTION_MANY = "第八節拿掉了 {n} 個有用到的詞或欄：是改名、要從卡上拿掉，還是要併到別的詞？"
+HAND_SINGLE = "{type}／{field} 有 {n} 個標了兩個以上的詞；要改成單選得先拿掉多的"
 HAND_REVERT_NOTE = "設定檔第八節要客戶自己改回原樣（我不能改這個檔），改好再照她說的跑 kb profile tag merge 或 rename"
 DROP_NONE = "第八節沒有拿掉卡上用到的詞或欄，不用 --drop-tags"
 STUCK = "{n} 張綜合卡的標籤行改不了（{names}），這次沒有改；先看那幾張的檔頭再試"
@@ -1045,19 +1046,33 @@ def _retag_reasons(old_tags, new_tags, skip=()):
 
 
 def _mark_retag(vault, reasons, turn_id):
-    """那個型別每張有綜合卡的實體記健檢的「補標籤」要更新（D-236）。回 {型別: 張數}（0 張的不列）。"""
+    """那個型別每個 active 實體記健檢的「補標籤」要更新（D-236、D-505 決策 4）：有綜合卡的記卡路徑，沒有的（掛了檔案卡的）記實體編號
+    （指紋是正本 tags，裁定 4）。回 {型別: {"cards": 張數, "entities": 沒有綜合卡的個數}}（都 0 的不列）。"""
     from kb.lint import state
-    marked = {}
+    marked, data, mounts = {}, entities.load(vault), None
     for type_name, rs in reasons.items():
-        for _e, rel, _front in synthesis.tagged_cards(vault, type_name):
+        with_card = {e["id"]: rel for e, rel, _front in synthesis.tagged_cards(vault, type_name, data)}
+        for e, _tags in synthesis.tagged_entities(vault, type_name, data):
+            rel = with_card.get(e["id"])
+            if rel is None:
+                mounts = mounts if mounts is not None else entities.mounts(vault, data)
+                if not mounts.get(e["name"]):
+                    continue
             for r in rs:
-                state.add_fix(vault, rel, r, [], turn_id)
-            marked[type_name] = marked.get(type_name, 0) + 1
+                state.add_fix(vault, rel or e["id"], r, [], turn_id)
+            slot = marked.setdefault(type_name, {"cards": 0, "entities": 0})
+            slot["cards" if rel else "entities"] += 1
     return marked
 
 
 def _marked_text(marked):
-    return "、".join(f"{n} 張{t}的綜合卡要補標籤" for t, n in marked.items())
+    parts = []
+    for t, n in marked.items():
+        if n["cards"]:
+            parts.append(f"{n['cards']} 張{t}的綜合卡要補標籤")
+        if n["entities"]:
+            parts.append(f"{n['entities']} 個{t}還沒有綜合卡，也會補標籤")
+    return "、".join(parts)
 
 
 def _word_fn(word, to):
@@ -1075,7 +1090,15 @@ def _word_fn(word, to):
 
 
 def _uses(front, field, word=None):
-    v = synthesis.front_tag(front, field)
+    return _used(synthesis.front_tag(front, field), word)
+
+
+def _uses_tags(tags, field, word=None):
+    """正本 tags 用到這一欄（或這一欄的這個詞）嗎。"""
+    return _used(entities.tag_value(tags, field), word)
+
+
+def _used(v, word):
     if v is None:
         return False
     return word is None or _k(word) in {_k(w) for w in synthesis.tag_words(v)}
@@ -1136,7 +1159,8 @@ def _tag_validated(vault, data, tags):
 
 
 def _tag_op_plan(vault, data, args):
-    """kb profile tag 的計畫：回 (op, row, 新 tags, 要改的卡 [相對路徑], fn, new_field, impact, question, results, done)。"""
+    """kb profile tag 的計畫：回 (op, row, 新 tags, 要改的卡 [相對路徑], 要改的實體 [編號], fn, new_field, impact, question, results,
+    done)。影響照正本數（D-505 決策 5）：用到的實體，有卡沒卡都算；卡上有那一行的才改卡。"""
     op, tname, field = args.tag_command, args.type.strip(), args.field.strip()
     word = args.word.strip() if args.word else None
     to = (args.to if op == "rename" else args.into if op == "merge" else None)
@@ -1146,6 +1170,7 @@ def _tag_op_plan(vault, data, args):
     today = profile._today()
     stamped = dict(row, source="corrected", date=today)
     cards = synthesis.tagged_cards(vault, tname)
+    ents = synthesis.tagged_entities(vault, tname)
     new_field = None
     both = 0
     if op == "merge":
@@ -1155,13 +1180,14 @@ def _tag_op_plan(vault, data, args):
             raise Refused(SAME_WORD.format(word=hit, to=target))
         words = [w for w in row["words"] if _k(w) != _k(hit)]
         used = [rel for _e, rel, f in cards if _uses(f, field, hit)]
-        both = sum(1 for _e, rel, f in cards if _uses(f, field, hit) and _uses(f, field, target))
+        ids = [e["id"] for e, t in ents if _uses_tags(t, field, hit)]
+        both = sum(1 for _e, t in ents if _uses_tags(t, field, hit) and _uses_tags(t, field, target))
         fn, to = _word_fn(hit, target), target
-        impact_line = f"{tname}卡有 {len(used)} 張標了{hit}，其中 {both} 張也標了{target}"
-        question = f"{impact_line}；併起來 {len(used)} 張都只剩{target}。要併嗎？"
+        impact_line = f"{tname}有 {len(ids)} 個標了{hit}，其中 {both} 個也標了{target}"
+        question = f"{impact_line}；併起來 {len(ids)} 個都只剩{target}。要併嗎？"
         label, strict = f"併成{target}", True
         do = cmd("profile", "tag", "merge", tname, field, hit, "--into", target)
-        done = f"已把「{hit}」併進「{target}」：{len(used)} 張卡只剩{target}；不對可以說退回"
+        done = f"已把「{hit}」併進「{target}」：{len(ids)} 個只剩{target}；不對可以說退回"
     elif op == "rename" and hit is not None:
         if _k(to) == _k(hit):
             raise Refused(SAME_NAME.format(word=hit))
@@ -1170,23 +1196,25 @@ def _tag_op_plan(vault, data, args):
                                                                            "--into", to)))
         words = [to if _k(w) == _k(hit) else w for w in row["words"]]
         used = [rel for _e, rel, f in cards if _uses(f, field, hit)]
+        ids = [e["id"] for e, t in ents if _uses_tags(t, field, hit)]
         fn = _word_fn(hit, to)
-        impact_line = f"{tname}卡有 {len(used)} 張標了{hit}"
+        impact_line = f"{tname}有 {len(ids)} 個標了{hit}"
         question = f"{impact_line}；改名後都會改成{to}。要改嗎？"
         label, strict = f"改叫{to}", False
         do = cmd("profile", "tag", "rename", tname, field, hit, "--to", to)
-        done = f"已把「{field}」的「{hit}」改叫「{to}」：{len(used)} 張卡跟著改；不對可以說退回"
+        done = f"已把「{field}」的「{hit}」改叫「{to}」：{len(ids)} 個跟著改；不對可以說退回"
     elif op == "remove" and hit is not None:
         if len(row["words"]) == 1:
             raise Refused(LAST_WORD.format(field=field, word=hit, cmd=cmd("profile", "tag", "remove", tname, field)))
         words = [w for w in row["words"] if _k(w) != _k(hit)]
         used = [rel for _e, rel, f in cards if _uses(f, field, hit)]
+        ids = [e["id"] for e, t in ents if _uses_tags(t, field, hit)]
         fn = _word_fn(hit, None)
-        impact_line = f"{tname}卡有 {len(used)} 張標了{hit}"
-        question = f"{impact_line}；拿掉後這些卡上的{hit}一起拿掉。要拿掉嗎？"
+        impact_line = f"{tname}有 {len(ids)} 個標了{hit}"
+        question = f"{impact_line}；拿掉後這些{tname}的{hit}一起拿掉。要拿掉嗎？"
         label, strict = f"拿掉{hit}", True
         do = cmd("profile", "tag", "remove", tname, field, hit)
-        done = f"已從「{field}」拿掉「{hit}」：{len(used)} 張卡上一起拿掉；不對可以說退回"
+        done = f"已從「{field}」拿掉「{hit}」：{len(ids)} 個一起拿掉；不對可以說退回"
     elif op == "rename":
         if _k(to) == _k(field):
             raise Refused(SAME_NAME.format(word=field))
@@ -1195,29 +1223,31 @@ def _tag_op_plan(vault, data, args):
         words, new_field = row["words"], to
         stamped["field"] = to
         used = [rel for _e, rel, f in cards if _uses(f, field)]
+        ids = [e["id"] for e, t in ents if _uses_tags(t, field)]
         fn = lambda v: v  # noqa: E731
-        impact_line = f"{tname}卡有 {len(used)} 張寫了「{field}」這一行"
+        impact_line = f"{tname}有 {len(ids)} 個標了「{field}」"
         question = f"{impact_line}；改名後都會改成「{to}」。要改嗎？"
         label, strict = f"改叫{to}", False
         do = cmd("profile", "tag", "rename", tname, field, "--to", to)
-        done = f"已把標籤欄「{field}」改叫「{to}」：{len(used)} 張卡跟著改；不對可以說退回"
+        done = f"已把標籤欄「{field}」改叫「{to}」：{len(ids)} 個跟著改；不對可以說退回"
     else:
         words = None
         used = [rel for _e, rel, f in cards if _uses(f, field)]
+        ids = [e["id"] for e, t in ents if _uses_tags(t, field)]
         fn = lambda v: synthesis.DROP  # noqa: E731
-        impact_line = f"{tname}卡有 {len(used)} 張寫了「{field}」這一行"
-        question = f"{impact_line}；拿掉後這一行會從卡上拿掉。要拿掉嗎？"
+        impact_line = f"{tname}有 {len(ids)} 個標了「{field}」"
+        question = f"{impact_line}；拿掉後這一欄一起拿掉，卡上那一行也拿掉。要拿掉嗎？"
         label, strict = f"拿掉「{field}」這一欄", True
         do = cmd("profile", "tag", "remove", tname, field)
-        done = f"已拿掉標籤欄「{field}」：{len(used)} 張卡拿掉這一行；不對可以說退回"
+        done = f"已拿掉標籤欄「{field}」：{len(ids)} 個一起拿掉；不對可以說退回"
     tags = [t for t in data.get("tags") or [] if t is not row] if words is None else \
         [dict(stamped, words=words) if t is row else t for t in data.get("tags") or []]
     if words is not None:
         tags = _tag_validated(vault, data, tags)
     results = [_result(1, label, [do], strict), _result(2, "先不要")]
-    impact = {"cards": len(used), "both": both}
+    impact = {"entities": len(ids), "both": both}
     head = {"op": op, "type": tname, "field": field, "word": hit, "target": to}
-    return head, tags, used, fn, new_field, impact, impact_line, question, results, done
+    return head, tags, used, ids, fn, new_field, impact, impact_line, question, results, done
 
 
 def _tag_locked(vault, args, as_json, conversation):
@@ -1228,7 +1258,7 @@ def _tag_locked(vault, args, as_json, conversation):
     st = profile.status(vault)
     _guard_pending(st, again)
     data = st["data"]
-    head, tags, used, fn, new_field, impact, impact_line, question, results, done = _tag_op_plan(vault, data, args)
+    head, tags, used, ids, fn, new_field, impact, impact_line, question, results, done = _tag_op_plan(vault, data, args)
     if args.check:
         if as_json:
             print(json.dumps(dict(head, impact=impact, question=question, results=results, refusal=None),
@@ -1240,6 +1270,8 @@ def _tag_locked(vault, args, as_json, conversation):
 
     def act(undo):
         changed = _write_profile(vault, dict(data, tags=tags), turn_id, undo)
+        if entities.retag_entities(vault, head["type"], head["field"], fn, ids, turn_id, undo, new_field, synthesis.DROP):
+            changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
         written = _retag_cards(vault, used, head["field"], fn, new_field, turn_id, undo)
         return changed + [{"path": rel, "action": "modify"} for rel in written]
     changed = entities._guarded(vault, act)
@@ -1253,7 +1285,8 @@ def _tag_locked(vault, args, as_json, conversation):
 def _tag_plan(vault, st, drop_tags, rename_tags):
     """apply 前的第八節對帳（實作疑義 2）：手改拿掉的詞或欄有卡用到 → 沒給旗標就丟 Refused（帶問題與結果清單）；
     --rename-tag 要對得上「拿掉一個有卡用到的詞、多一個詞」，--drop-tags 要有對應的拿掉。
-    回 {"renames": [(型別, 欄, 舊, 新, [卡])], "drops": [(型別, 欄, 詞或 None, [卡])], "renamed_to": {(型別, 欄, 新詞) key}}。"""
+    回 {"renames": [(型別, 欄, 舊, 新, [卡], [實體])], "drops": [(型別, 欄, 詞或 None, [卡], [實體])],
+    "renamed_to": {(型別, 欄, 新詞) key}}。"""
     plan = {"renames": [], "drops": [], "renamed_to": set()}
     old = st["data"].get("tags") or [] if st["data"] else []
     new = (st["new"] or {}).get("tags") or [] if st["state"] == "changed" else old
@@ -1270,13 +1303,13 @@ def _tag_plan(vault, st, drop_tags, rename_tags):
         if not ok:
             raise Refused(RENAME_NONE.format(type=type_name, field=field, old=was, new=now))
         word = next(w for w in row["words"] if _k(w) == _k(now))
-        plan["renames"].append((hit["type"], hit["field"], hit["word"], word, hit["cards"]))
+        plan["renames"].append((hit["type"], hit["field"], hit["word"], word, hit["cards"], hit["entities"]))
         plan["renamed_to"].add((_k(hit["type"]), _k(hit["field"]), _k(word)))
         left.remove(hit)
     if drop_tags:
         if not left:
             raise Refused(DROP_NONE)
-        plan["drops"] = [(r["type"], r["field"], r["word"], r["cards"]) for r in left]
+        plan["drops"] = [(r["type"], r["field"], r["word"], r["cards"], r["entities"]) for r in left]
         return plan
     if left:
         raise _hand_refusal(left, pairs)
@@ -1289,26 +1322,28 @@ def _check_single(vault, old, new):
         was = _tag_row(old, t["type"], t["field"])
         if t.get("multi") or was is None or not was.get("multi"):
             continue
-        n = sum(1 for _e, _rel, f in synthesis.tagged_cards(vault, t["type"])
-                if len(synthesis.tag_words(synthesis.front_tag(f, t["field"]))) > 1)
+        n = sum(1 for _e, tags in synthesis.tagged_entities(vault, t["type"])
+                if len(synthesis.tag_words(entities.tag_value(tags, t["field"]))) > 1)
         if n:
             line = HAND_SINGLE.format(type=t["type"], field=t["field"], n=n)
             raise Refused(line, {"question": line, "results": [_result(1, "先不套用")]})
 
 
 def _tag_removals(vault, old, new):
-    """手改第八節拿掉、卡上有用到的：([{"type","field","word"（整欄是 None）,"cards"}], {(型別key, 欄key): (舊詞, 新詞)})。
-    pairs 是同一欄正好拿掉一個詞、多一個詞的欄（給 --rename-tag）。"""
+    """手改第八節拿掉、正本有實體用到的（D-505 決策 5）：([{"type","field","word"（整欄是 None）,"entities","cards"}],
+    {(型別key, 欄key): (舊詞, 新詞)})；cards 是卡上有那一行、要跟著改的綜合卡。pairs 是同一欄正好拿掉一個詞、多一個詞的欄
+    （給 --rename-tag）。"""
     out, pairs, cache = [], {}, {}
     for t in old:
         if t["type"] not in cache:
-            cache[t["type"]] = synthesis.tagged_cards(vault, t["type"])
-        cards = cache[t["type"]]
+            cache[t["type"]] = (synthesis.tagged_entities(vault, t["type"]), synthesis.tagged_cards(vault, t["type"]))
+        ents, cards = cache[t["type"]]
         row = _tag_row(new, t["type"], t["field"])
         if row is None:
-            used = [rel for _e, rel, f in cards if _uses(f, t["field"])]
-            if used:
-                out.append({"type": t["type"], "field": t["field"], "word": None, "cards": used})
+            ids = [e["id"] for e, tags in ents if _uses_tags(tags, t["field"])]
+            if ids:
+                out.append({"type": t["type"], "field": t["field"], "word": None, "entities": ids,
+                            "cards": [rel for _e, rel, f in cards if _uses(f, t["field"])]})
             continue
         keep = {_k(w) for w in row["words"]}
         gone = [w for w in t["words"] if _k(w) not in keep]
@@ -1316,16 +1351,17 @@ def _tag_removals(vault, old, new):
         if len(gone) == 1 and len(came) == 1:
             pairs[(_k(t["type"]), _k(t["field"]))] = (gone[0], came[0])
         for w in gone:
-            used = [rel for _e, rel, f in cards if _uses(f, t["field"], w)]
-            if used:
-                out.append({"type": t["type"], "field": t["field"], "word": w, "cards": used})
+            ids = [e["id"] for e, tags in ents if _uses_tags(tags, t["field"], w)]
+            if ids:
+                out.append({"type": t["type"], "field": t["field"], "word": w, "entities": ids,
+                            "cards": [rel for _e, rel, f in cards if _uses(f, t["field"], w)]})
     return out, pairs
 
 
 def _drop_line(r):
     if r["word"] is None:
-        return HAND_DROP_FIELD.format(type=r["type"], field=r["field"], n=len(r["cards"]))
-    return HAND_DROP.format(type=r["type"], field=r["field"], word=r["word"], n=len(r["cards"]))
+        return HAND_DROP_FIELD.format(type=r["type"], field=r["field"], n=len(r["entities"]))
+    return HAND_DROP.format(type=r["type"], field=r["field"], word=r["word"], n=len(r["entities"]))
 
 
 def _hand_refusal(left, pairs):
@@ -1362,8 +1398,8 @@ def _hand_refusal(left, pairs):
 
 
 def _write_with_tag_plan(vault, data, plan, turn_id):
-    """apply 寫設定檔；有 --rename-tag 的卡換詞、--drop-tags 的卡拿掉詞或整行時，設定檔兩檔與卡在同一個 _Undo 裡，
-    中途失敗全部倒回（裁定 15）。回改到的卡。"""
+    """apply 寫設定檔；有 --rename-tag 的換詞、--drop-tags 的拿掉詞或整欄時，正本先改（by program）、卡跟著改，設定檔兩檔、
+    實體清單與卡在同一個 _Undo 裡，中途失敗全部倒回（裁定 15）。回改到的卡。"""
     if not plan["renames"] and not plan["drops"]:
         profile.write_locked(vault, data, turn_id)
         return []
@@ -1373,10 +1409,12 @@ def _write_with_tag_plan(vault, data, plan, turn_id):
         undo.file(profile.MD_POSIX)
         profile.write_locked(vault, data, turn_id)
         written = []
-        for _t, field, was, now, rels in plan["renames"]:
+        for type_name, field, was, now, rels, ids in plan["renames"]:
+            entities.retag_entities(vault, type_name, field, _word_fn(was, now), ids, turn_id, undo)
             written += _retag_cards(vault, rels, field, _word_fn(was, now), None, turn_id, undo)
-        for _t, field, word, rels in plan["drops"]:
+        for type_name, field, word, rels, ids in plan["drops"]:
             fn = (lambda v: synthesis.DROP) if word is None else _word_fn(word, None)
+            entities.retag_entities(vault, type_name, field, fn, ids, turn_id, undo, drop=synthesis.DROP)
             written += _retag_cards(vault, rels, field, fn, None, turn_id, undo)
         return sorted(set(written))
     return entities._guarded(vault, act)

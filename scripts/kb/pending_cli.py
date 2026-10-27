@@ -18,7 +18,8 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 CLI_LOCK_TIMEOUT = 30
 KIND_TEXT = {"missing_file": "原檔不見", "unreadable": "讀不到", "close": "要確認結案", "conflict": "寫法不同",
-             "script_touched": "程式動到的檔", "lint": "健檢", "report": "健檢報告", "handedit": "你手改過的"}
+             "script_touched": "程式動到的檔", "lint": "健檢", "report": "健檢報告", "handedit": "你手改過的",
+             "tag_edit": "卡上手改的標籤不合字典"}
 SET_ASIDE_LINE = "先放著了：{}；有變化或快到期會再拿出來"
 BACK_LINE = "拿回來了：{}"
 ASIDE_SUFFIX = "（先放著）"

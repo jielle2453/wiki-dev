@@ -654,6 +654,49 @@ def _only_ids(parts, ids):
     return got
 
 
+def absorb_tag_edits(vault, turn_id):
+    """重寫綜合卡前先收她在 Obsidian 手改的標籤行（標籤記在實體上裁定 11）：合字典的照 --from-card 寫進正本（算她說的），
+    不合字典的記待處理 tag_edit。回這次不派的實體編號：卡上還有不合字典的標籤行（新認出的，加上已在問、卡還沒改好的）。"""
+    from kb._lib import entities, pending
+    from kb.lint.checks import tag_edits
+    skip = set()
+    for g in entities.copy_card_edits(vault, None, turn_id):
+        if g["bad"]:
+            tag_edits.ask(vault, g["entity"], g["bad"], turn_id)
+            skip.add(g["entity"]["id"])
+    asking = {(i.get("entity_ids") or [None])[0] for i in pending.load(vault)["items"]
+              if i.get("kind") == "tag_edit" and i.get("status") == "open"} - skip
+    if asking:
+        data = entities.load(vault)
+        prof = entities._profile(vault)
+        for e in data["entities"]:
+            if e.get("id") in asking and e.get("card") and entities.locate(vault, e)                     and entities.card_diffs(vault, e, prof)[1]:
+                skip.add(e["id"])
+    return skip
+
+
+def _skipped(vault, skip, keys, ctx=None):
+    """keys 裡實體在 skip 的：stale、new 的鍵就是實體編號；壞的綜合卡（鍵是卡路徑）照路徑找回是誰的。卡上有字典外的詞
+    驗卡就判成壞的，這時照派會照舊正本寫回、把她寫的詞蓋掉（補驗修）；檔頭真的讀不懂的，absorb 認不出手改，不在 skip，照派。"""
+    if not skip:
+        return set()
+    ctx = ctx or _SynthesisContext(vault)
+    out = set()
+    for k in keys:
+        e = ctx.owner(k) if "/" in str(k) else None
+        if k in skip or (e is not None and e.get("id") in skip):
+            out.add(k)
+    return out
+
+
+def _skip_entities(vault, parts, skip):
+    """綜合卡項目裡實體在 skip 的拿掉（壞的綜合卡也算，_skipped）。"""
+    gone = _skipped(vault, skip, [x[1] for x in parts["synthesis"]])
+    if not gone:
+        return parts
+    return dict(parts, synthesis=[x for x in parts["synthesis"] if x[1] not in gone])
+
+
 def dispatch(vault, session_id, turn_id, source=None, ids=None):
     """派工（kb cards dispatch，D-196、D-197）：沿用或新開這個 session 的 job，從沒被認領、這個 job 沒失敗過的項目切批，
     最多到 card_parallel 個 open；順序 cards → agenda → synthesis，前一種有剩或還在跑就不建後一種；synthesis 前算大改動門檻
@@ -689,9 +732,10 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
                 source = job.get("source")
             if ids is None:
                 ids = job.get("ids")
+        skip = absorb_tag_edits(vault, turn_id)
         out = _collect(vault)
-        parts_all = split(vault, out)
-        parts = split(vault, out, source) if source is not None else parts_all
+        parts_all = _skip_entities(vault, split(vault, out), skip)
+        parts = _skip_entities(vault, split(vault, out, source), skip) if source is not None else parts_all
         if ids:
             if explicit_ids:  # 這一句給的 --ids：job 開著也驗（做過的那幾份算認得，build 第一輪修 S3）
                 known = {x[1] for x in parts["cards"]} | {k for b in data["batches"] if b.get("job") == job["job"]
@@ -728,7 +772,7 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
             while slots and left[kind]:
                 chunk, left[kind] = left[kind][:size], left[kind][size:]
                 if kind == "synthesis":  # 補標籤送出去幾張：之後算門檻時從回合已改的扣掉（裁定 25）
-                    sent = sum(1 for b, _k, i in chunk if tag_only(b, i))
+                    sent = sum(1 for b, _k, i in chunk if tag_only(b, i) and not i.get("tag_only"))
                     if sent:
                         job["tag_sent"] = job.get("tag_sent", 0) + sent
                 bid = _new_id("b", {b.get("batch") for b in data["batches"]})
@@ -809,7 +853,8 @@ def _approval(vault, jt, items, st, job=None, run=()):
     data = turn.turn_data(vault, jt) or {}
     job = job if job is not None else {}
     limit = st["big_change_synthesis_max"]
-    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")]
+    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")
+               and not i.get("tag_only")]  # 沒有綜合卡、只補標籤的（D-505）不寫卡，不算
     others = sum(1 for bucket, i in counted if not tag_only(bucket, i))
     done = len(data.get("ai_synthesis") or [])
     others += max(0, done - job.get("tag_sent", 0))
@@ -835,7 +880,8 @@ TAG_REASON = "補標籤"
 
 
 def tag_only(bucket, item):
-    """只補標籤的綜合卡項目：synthesis_stale、健檢記的原因全是「補標籤（…）」、內容沒有要改的（added／changed／removed 空）。"""
+    """只補標籤的綜合卡項目：synthesis_stale、健檢記的原因全是「補標籤（…）」、內容沒有要改的（added／changed／removed 空）。
+    沒有綜合卡的實體補標籤（D-505，項目帶 tag_only: true）也是。"""
     if bucket != "synthesis_stale" or item.get("added") or item.get("changed") or item.get("removed"):
         return False
     reasons = [r for r in str(item.get("reason") or "").split("、") if r]
@@ -951,9 +997,13 @@ def batch_view(vault, batch_id, agent_id=None):
                 save(vault, data, job.get("turn") or turn.current(vault)["turn"])
     if b["kind"] == ADOPT:
         return _adopt_view(vault, b)
+    skip = set()
+    if b["kind"] == "synthesis":
+        skip = absorb_tag_edits(vault, (_job_of(data, b) or {}).get("turn") or turn.current(vault)["turn"])
     out = _collect(vault)
     base = Path(vault).resolve()
-    want = list(b.get("items") or [])
+    gone = _skipped(vault, skip, b.get("items") or [])
+    want = [k for k in b.get("items") or [] if k not in gone]
     buckets = {"cards": CARD_BUCKETS, "agenda": AGENDA_BUCKETS, "synthesis": SYNTHESIS_BUCKETS}[b["kind"]]
     found = {}
     ctx = None

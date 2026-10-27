@@ -1,5 +1,5 @@
 """標籤字典第五節（D-238；驗收 11）：這一回合改寫的綜合卡標籤行跟備份比多了詞 → tell 一張一句「<名稱>標了：欄 詞」，
-超過 3 張併成「另外 N 張也照字典標了」；只拿掉詞不講；新寫的卡全部算新加；派工回合（這一句收尾的整理）也算；kb asks 也帶。"""
+超過 3 張併成「另外 N 個也照字典標了」；只拿掉詞不講；新寫的卡全部算新加；派工回合（這一句收尾的整理）也算；kb asks 也帶。"""
 import json
 import shutil
 import unittest
@@ -34,7 +34,7 @@ class Base(unittest.TestCase):
     def rewrite(self, i, lines, turn_id=None):
         eid, name, rel = self.cards[i]
         turn.backup(self.V, rel, turn_id or self.t)
-        T.write_synthesis(self.V, eid, name, rel, lines)
+        T.write_synthesis(self.V, eid, name, rel, lines, turn_id=turn_id or self.t)
 
 
 class Tell(Base):
@@ -47,7 +47,7 @@ class Tell(Base):
             self.rewrite(i, ["工種: [木作, 水電]"])
         got = plan._tagged_tell(self.V)
         self.assertEqual(got[:3], ["信義王標了：工種 水電", "大安陳標了：工種 水電", "內湖李標了：工種 水電"])
-        self.assertEqual(got[3:], ["另外 1 張也照字典標了"])
+        self.assertEqual(got[3:], ["另外 1 個也照字典標了"])
 
     def test_only_removed_not_told(self):
         self.rewrite(0, ["工種: []"])
@@ -60,7 +60,7 @@ class Tell(Base):
         eid, name, rel = self.cards[4]
         (self.V / rel).unlink()
         turn.backup(self.V, rel, self.t)  # 新建：create，沒有舊檔
-        T.write_synthesis(self.V, eid, name, rel, ["工種: [水電]", "階段: 報價"])
+        T.write_synthesis(self.V, eid, name, rel, ["工種: [水電]", "階段: 報價"], turn_id=self.t)
         self.assertEqual(plan._tagged_tell(self.V), ["士林張標了：工種 水電；階段 報價"])
 
     def test_job_turn_closed_this_sentence(self):

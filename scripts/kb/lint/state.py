@@ -5,7 +5,8 @@
  "month_done": [{"date": "2026-10-20", "text": "清掉 40 個回合備份（空出 12 MB）"}], "last_counts": {"decide": 5, "set_aside": 6, "done": 3}}
 last_background：上次背景（或她說「幫我檢查」）跑完的那天；last_spawn：開場上次開背景子行程的那天（兩個對話不重複開）；
 last_report：最後一份月底定稿報告的月份（第一次跑記成上個月、不寫）；synthesis_fix：標成要更新的綜合卡，sha 是標的時候卡檔的指紋——
-卡被改寫（整理時重寫）指紋就變、這筆不再算（fixes 只回還算數的），下次健檢從檔案拿掉；month_done：還沒寫進定稿報告的「替你做了」；
+卡被改寫（整理時重寫）指紋就變、這筆不再算（fixes 只回還算數的），下次健檢從檔案拿掉；沒有綜合卡的實體要補標籤，path 寫實體編號（e-…）、
+sha 是正本 tags 的指紋（D-505 裁定 4），標過之後 tags 變了就不算；month_done：還沒寫進定稿報告的「替你做了」；
 last_counts：上一份定稿報告的件數，一句話跟它比；last_preference：上次跑偏好月檢的那天（D-504，滿 preference_lint_days 天才再跑）。壞檔當空的重建（健檢狀態掉了只少比較，不擋檢查）。
 """
 import hashlib
@@ -68,6 +69,14 @@ def change(vault, fn, turn_id=None, timeout=None):
 
 
 def card_sha(vault, rel):
+    """卡檔 sha256 前 12 碼；rel 是實體編號（e-…）時是那個實體正本 tags 的指紋（實體不在回 None）。"""
+    if str(rel).startswith("e-") and "/" not in str(rel):
+        from kb._lib import entities
+        try:
+            entry = next((e for e in entities.load(vault)["entities"] if e.get("id") == rel), None)
+        except ValueError:
+            return None
+        return entities.tags_fingerprint(entry) if entry is not None else None
     try:
         return hashlib.sha256((Path(vault) / rel).read_bytes()).hexdigest()[:12]
     except OSError:
@@ -75,7 +84,7 @@ def card_sha(vault, rel):
 
 
 def add_fix(vault, path, reason, ids, turn_id=None):
-    """標一張綜合卡要更新（出處點不開、有空段、設定檔改了）：同一張卡原因與編號併在一筆。回有沒有新增或多了原因、編號
+    """標一張綜合卡要更新（出處點不開、有空段、設定檔改了）：同一張卡原因與編號併在一筆；path 是實體編號時是沒有綜合卡的實體要補標籤。回有沒有新增或多了原因、編號
     （沒有就不寫、不算「替你做了」，測試 T-7）。"""
     sha = card_sha(vault, path)
 

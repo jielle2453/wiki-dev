@@ -7,7 +7,8 @@ Z5：cards.validate 不過就印一行 {"decision": "block", "reason": "檔頭�
 過了不印，接著重渲染 總目錄.md（備進目前回合，實作疑義裁定 4）與這張卡新舊 實體 聯集的綜合卡快取（舊的從回合備份讀）。
 實體清單讀不到時兩種卡都 block「實體清單讀不到（.system/entities.json），先停下來說「檢查」」（測試後修正裁定 11）。
 Z1：synthesis.validate 不過印 {"decision": "block", "reason": "綜合卡有錯：<原因>。改好再寫一次。"}；
-過了不印，接著 entities.set_card(True) 與重渲染它的快取（檔案卡、相關實體兩欄）。
+過了不印，接著 entities.set_card(True) 與重渲染它的快取（檔案卡、相關實體兩欄），再把檔頭的標籤行抄進實體清單的標籤正本
+（synthesis.copy_tags，D-505）：她說過的欄不抄、卡上那一行照正本寫回（備份 by program）。
 build 桌面版確認 A 段：綜合卡在這一回合備份過（寫之前已經有舊卡）時，比對舊卡「## 紀事」的每一條：新卡的紀事裡找不到它的出處
 （〔…〕裡的編號）、沒有出處的找不到原句，就 block JISHI_BLOCK（紀事只增，R-08、S-16）；還有沒清的「不想讓 AI 看到」排除時不比
 （purge_synthesis 本來就要刪那夾的紀事）。
@@ -166,6 +167,10 @@ def _check_synthesis(vault, rel, turn_id, payload):
         if entry is not None:
             synthesis.render_cache(vault, [entry["name"]], turn_id)
     except BaseException as e:  # noqa: BLE001  快取與 card 旗標沒更新不影響卡
+        _log(e, payload)
+    try:
+        synthesis.copy_tags(vault, rel, turn_id)
+    except BaseException as e:  # noqa: BLE001  標籤正本沒抄成只記 log（I-046）
         _log(e, payload)
 
 

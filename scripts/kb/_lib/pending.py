@@ -7,7 +7,9 @@ answer 第 6 點、D-155；不進 asks，客戶說哪個對之後照 note 記完
 script_touched（kb office run 的腳本動到了登記的來源、實體夾、AI 產出或收件匣裡的檔，密碼與守門 D-188；file_ids 是清冊編號，
 不在清冊的放 uri）、lint（健檢要她決定的，key 是合成的鍵、data 是項目，同 key 只開一條，lint 第 2 點）、
 report（這個月的健檢報告出來了，data.month；新的開了舊的自動 done，最多一件，D-227）、
-handedit（她手改了程式產生的 md，data 是 {file, saved, diff}，D-223）。
+handedit（她手改了程式產生的 md，data 是 {file, saved, diff}，D-223）、
+tag_edit（她在 Obsidian 手改綜合卡的標籤行、詞不在字典或單選寫了兩個，D-505 決策 6；entity_ids 是那個實體、data 是
+{"fields": [{"field","card","tags"}], "results"}，一個實體只開一條；之後卡上那一行跟正本一樣了就由健檢自動 done）。
 schema 2（lint 題，D-226）：條目多 set_aside（null 或 {"at","by": customer|lint,"fps"}）與 returned（最後回到前面的日期）；
 先放著是 open 加 set_aside：不在回答末尾問、待處理.md 移到最底下「先放著的」一段；相關的原檔換版、卡重做、實體有新口述或裁示、
 或日期快到了（data.dates 離到期剩 set_aside_wake_days 天）就回到前面（wake、due_back）。schema 1 在 load 時補欄位，
@@ -28,9 +30,10 @@ PENDING_POSIX = ".system/pending.json"
 MD_POSIX = "系統/待處理.md"
 SCHEMA_VERSION = 2
 EMPTY = {"schema_version": SCHEMA_VERSION, "items": []}
-KINDS = ("missing_file", "unreadable", "close", "conflict", "script_touched", "lint", "report", "handedit")
+KINDS = ("missing_file", "unreadable", "close", "conflict", "script_touched", "lint", "report", "handedit", "tag_edit")
 SECTIONS = (("missing_file", "原檔不見"), ("unreadable", "讀不到"), ("close", "要確認結案的"), ("conflict", "兩份寫法不同的"),
-            ("script_touched", "程式動到的檔"), ("lint", "健檢查到的"), ("handedit", "你手改過的"), ("report", "健檢報告"))
+            ("script_touched", "程式動到的檔"), ("lint", "健檢查到的"), ("handedit", "你手改過的"), ("tag_edit", "卡上改了標籤的"),
+            ("report", "健檢報告"))
 ASKS_TITLE = "整理時要問你的"
 ASIDE_TITLE = "先放著的"
 NOT_FOUND = "沒有這件待處理"
@@ -182,6 +185,28 @@ def add(vault, kind, file_ids, text, reason, turn_id, entity_ids=None):
     return found["id"]
 
 
+def add_tag_edit(vault, entity_id, text, data, turn_id):
+    """記一條「卡上改了標籤、不合字典」（D-505 決策 6）：同一個實體已有 open 的就換成這次的 text 與 data。回 (編號, 新建了嗎)。"""
+    found = {}
+
+    def change(items):
+        old = next((i for i in items if i.get("status") == "open" and i.get("kind") == "tag_edit"
+                    and (i.get("entity_ids") or []) == [entity_id]), None)
+        if old is not None:
+            found["id"], found["new"] = old["id"], False
+            if old.get("text") == text and old.get("data") == data:
+                return False
+            old["text"], old["data"] = text, dict(data)
+            return True
+        item = _new_item(items, "tag_edit", [], text, None, turn_id, [entity_id])
+        item["data"] = dict(data)
+        items.append(item)
+        found["id"], found["new"] = item["id"], True
+        return True
+    _edit(vault, turn_id, change)
+    return found["id"], found["new"]
+
+
 def add_conflict(vault, file_ids, text, turn_id, entity_ids=None, titles=None):
     """記一條「兩份寫法不同」：同一對卡已有 open 的不重複。回 (條目, 新建了嗎)。"""
     found = {}
@@ -318,7 +343,7 @@ def sync_missing(vault, entries, turn_id):
 def ask_of(item):
     if item.get("kind") == "missing_file":
         return MISSING_ASK
-    if item.get("kind") in ("close", "conflict", "lint", "report", "handedit"):
+    if item.get("kind") in ("close", "conflict", "lint", "report", "handedit", "tag_edit"):
         return ""
     if item.get("kind") == "script_touched":
         return SCRIPT_TOUCHED_ASK
@@ -334,7 +359,7 @@ def line_of(item):
     if item.get("kind") == "conflict":
         titles = "".join(f"「{t}」" for t in item.get("titles") or [])
         return f"{text}（{titles + '，' if titles else ''}{str(item.get('created', ''))[:10]}）"
-    if item.get("kind") in ("lint", "report", "handedit"):
+    if item.get("kind") in ("lint", "report", "handedit", "tag_edit"):
         return text
     if item.get("kind") == "unreadable" and item.get("reason"):
         text += f"：{item['reason']}"

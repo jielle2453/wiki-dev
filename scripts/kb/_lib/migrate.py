@@ -7,7 +7,10 @@ CARD_HEADER_MIGRATIONS 是卡的檔頭遷移：[{"from": 舊範本版本, "to": 
 只改檔頭機器欄位、正文不動，寫前備進回合；fn 改壞檔頭（解析不了、版本沒變成 to）就不寫、列進 skipped。
 不需要遷移登記的：sources.json 排除列的選填欄（purge 等）、purge-pending.json、回合夾的 moves.jsonl、unlock.json、vault.json、
 rulings.json（v0.19.0 沒升 schema）、lint.json、renders.json、set_aside.json、statements-archive.json、findings-archive.json（lint 題的新檔，schema 1）、batches.json、build.json（新檔 schema 1）、entities.json 的 ai_judged（schema 沒改）。
-pending 只讀；apply 一個檔失敗不擋其他檔，失敗的列進 skipped（原因一句話）。
+pending 只讀；apply 一個檔失敗不擋其他檔，失敗的列進 skipped（原因一句話）；rewrite 回清單的，那幾筆也併進 skipped。
+entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 active、有綜合卡的實體，檔頭的標籤行（第八節這個型別的欄、有值的）抄進 tags
+（字典外的詞、單選寫兩個的那一欄不抄，列進 skipped）；tags_said 空、備份 by program（回答末尾不講）。沒有綜合卡、型別有標籤欄的
+下次整理照 cards todo 的只補標籤項目補（裁定 4），不另外記。
 """
 from collections import namedtuple
 from pathlib import Path
@@ -56,8 +59,42 @@ def _rewrite_inventory(vault, turn_id):
 
 
 def _rewrite_entities(vault, turn_id):
+    from kb._lib import synthesis
+    stored = _raw_version(entities.ENTITIES_POSIX)(vault)
+    prof = entities._profile(vault)
+    skipped, found = [], {}
+    if isinstance(stored, int) and stored < 3:
+        for e in entities.load(vault)["entities"]:
+            if e.get("status") != "active" or entities.is_self(e) or not e.get("type") or "tags" in e:
+                continue
+            rel = entities.locate(vault, e) if e.get("card") else None
+            if not rel:
+                continue
+            try:
+                front = synthesis.read_front((Path(vault) / rel).read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as err:
+                skipped.append({"rel": rel, "why": f"綜合卡的標籤沒搬成（{_first_line(err)}）"})
+                continue
+            rows = {entities.key(t["field"]): t for t in profile.tags_for(prof, e["type"])}
+            tags = {}
+            for f, v in synthesis.card_tags(front, prof, e["type"]):
+                if v == "":
+                    continue
+                row = rows[entities.key(f)]
+                why = entities.tag_refusal(row, entities.tag_words(v))
+                if why:
+                    skipped.append({"rel": rel, "why": f"「{row['field']}」沒搬進實體清單：{why}"})
+                    continue
+                tags[row["field"]] = entities.tag_normal(row, v)
+            if tags:
+                found[e["id"]] = tags
     with entities.lock(vault):
-        entities._save(vault, entities.load(vault), turn_id)
+        data = entities.load(vault)
+        for e in data["entities"]:
+            if e.get("id") in found and "tags" not in e:
+                e.update(tags=found[e["id"]], tags_said=[], tags_at=entities._now_stamp())
+        entities._save(vault, data, turn_id, by="program")
+    return skipped
 
 
 def _rewrite_pending(vault, turn_id):
@@ -129,11 +166,12 @@ def apply(vault, turn_id):
         if m.rel not in todo:
             continue
         try:
-            m.rewrite(vault, turn_id)
+            extra = m.rewrite(vault, turn_id)
         except Skip as e:
             skipped.append({"rel": m.rel, "why": str(e)})
         except (ValueError, OSError) as e:
             skipped.append({"rel": m.rel, "why": f"沒遷成（{_first_line(e)}）"})
         else:
             migrated.append(m.rel)
+            skipped += extra or []
     return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped)}

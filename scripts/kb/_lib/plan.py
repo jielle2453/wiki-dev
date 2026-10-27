@@ -48,8 +48,8 @@ NAMES = "names"
 NAMES_DO = "到門檻的新名字：有把握的 kb entity accept，有疑慮的留給 asks"  # D-202
 JUDGED_TELL = "名字有把握的我直接登記了 {n} 個（{names}）；要看名單或有不對的跟我說"
 JUDGED_SHOWN = 5
-TAGGED_TELL = "{name}標了：{what}"  # 標籤字典第五節（D-238）：這一回合改寫的綜合卡標籤行多了的詞
-TAGGED_MORE = "另外 {n} 張也照字典標了"
+TAGGED_TELL = "{name}標了：{what}"  # 標籤字典第五節（D-238）：這一回合標籤正本多了的詞（D-505，沒有綜合卡的也講）
+TAGGED_MORE = "另外 {n} 個也照字典標了"
 TAGGED_SHOWN = 3
 ANNOUNCE = "有 {n} 份要整理，大約{how_long}；要停的話跟我說一聲"  # 門檻內開始前先說（D-199、D-200）：背景整理時打字就停得下來
 BATCH_QUESTION = "有 {n} 份要整理，大約{how_long}；份數多，會用掉比平常多的額度。現在做嗎？"  # D-199：只講時間，用量一句話
@@ -670,7 +670,7 @@ def renumber(asks):
 
 SET_ASIDE_POSIX = ".system/set_aside.json"
 PENDING_KEYED = ("missing", "close")  # 這兩種題目住在 pending.json，key 就是 p- 編號
-PENDING_ONLY = ("handedit", "lint", "unreadable", "script_touched", "conflict", "report")  # 沒有整理題的待處理，照這個順序
+PENDING_ONLY = ("handedit", "tag_edit", "lint", "unreadable", "script_touched", "conflict", "report")  # 沒有整理題的待處理，照這個順序
 # 急的排前面：有時間性的 → 整理題照 _asks 的順序 → 沒有整理題的待處理
 _ORDER = ("batch", "drift", "missing", "credential_same_kind", "ruling_recheck", "overdue", "agenda_conflict", "close", "draft",
           "inbox_place", "name") + tuple(f"pending_{k}" for k in PENDING_ONLY)
@@ -852,7 +852,7 @@ def _pending_results(item):
     if kind == "handedit":
         return [_result("照你改的做", note="kb lint handedit --json 看她改了什麼，照意思用 kb 指令做、看不懂的才問，做完 kb lint handedit --done "
                                        + pid), drop]
-    if kind == "lint":
+    if kind in ("lint", "tag_edit"):
         got = [_result(r.get("label", ""), r.get("do") or [], note=r.get("note")) for r in (item.get("data") or {}).get("results") or []
                if isinstance(r, dict) and r.get("label")]
         return (got or [resolve]) + [drop]
@@ -933,8 +933,8 @@ def _tell(out, vault):
 
 
 def _tagged_tell(vault):
-    """這一回合（加這個對話這一句派出去、這一句收尾的整理回合）寫過的綜合卡，標籤行跟備份比多了的詞：一張一句，
-    超過 TAGGED_SHOWN 張併成一句；拿掉的不講（D-238）。只讀；讀不到不講。"""
+    """這一回合（加這個對話這一句派出去、這一句收尾的整理回合）標籤正本跟那一回合的備份比多了的詞（D-505）：一個實體一句，
+    超過 TAGGED_SHOWN 個併成一句；拿掉的不講（D-238）。只讀；讀不到不講。"""
     from kb._lib import synthesis
     try:
         got = synthesis.tag_changes(vault, _tag_turns(vault))
