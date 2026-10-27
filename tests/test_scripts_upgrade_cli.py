@@ -372,13 +372,14 @@ class Background(Base):
 
 
 class Subprocess(unittest.TestCase):
-    """不用網路的黑箱：真的 kb.py、真的骨架；清單網址是預設的空字串，所以查不到。"""
+    """不用網路的黑箱：真的 kb.py、真的骨架；知識庫的 config.json 把清單網址設成空字串（預設 0.26.1 起有填），所以查不到。"""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="kbupg-")).resolve()
         self.V = self.tmp / "知識庫"
         r = run_kb("init", str(self.V), cwd=self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
+        (self.V / ".system" / "config.json").write_text('{"update_manifest_url": "", "update_rollout_url": ""}', encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

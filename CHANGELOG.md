@@ -4,6 +4,14 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.26.1 — 2026-10-27
+- **給客戶的一句話**：從這一版起，有新版時我會自己知道，小修正會在背景自動裝好，大一點的更新開場會先問你。
+- **改了什麼**：小修。第一次發行到給客戶的公開 repo `jielle2453/wiki-with-willy`（開發 repo 改名 `wiki-dev`）：`config/defaults.json` 填上清單與名單網址（`https://raw.githubusercontent.com/jielle2453/wiki-with-willy/main/marketplace.json`、`…/rollout.json`，D-171、D-216、D-218）。開場的背景查新版也認 `WIKI_WITH_WILLY_NO_BACKGROUND`（有值不開），測試照舊不連網；要測觸發的（`test_hooks_session` 的 OpeningSpawn、`test_lib_upgrade` 的 Opening）自己拿掉它，另加空網址與有開關都不開的兩支；原本靠「預設是空網址」的測試改成在知識庫的 `config.json` 設空字串。
+- **為什麼**：`tools/release.py publish` 要 tag 裡的兩個網址填好才准推（之前是空字串、等第一次發行才定）；不填的話客戶裝了這版永遠查不到新版、`kb upgrade` 也不能用。網址一填，黑箱跑開場的測試會在每個暫存知識庫背景連 GitHub，所以跟背景健檢用同一個開關擋掉。
+- **commit**：發行 commit 本身
+- **spec**：無（設計 session 發行時做，issue #14）
+- **關掉的 issue**：#14
+
 ## 0.26.0 — 2026-10-27
 - **給客戶的一句話**：只有一份資料的客戶、保單現在也會標上標籤，照條件找人或找保單不會再漏；你在卡上手改的標籤，下次開對話我就照你改的記下，你親口說過的我也不會再改掉。
 - **改了什麼**：大升級（實體清單 schema 3）。**標籤記在實體上**（issue #13，D-505，修訂 D-234～D-236）：標籤的正本搬到 `.system/entities.json`（每筆 `tags`、`tags_said` 她親口定的欄、`tags_at`），綜合卡檔頭照正本渲染、格式不變。AI 寫綜合卡照舊寫標籤行，PostToolUse 驗過抄進正本，她說的欄 AI 改不動、照正本寫回；AI 漏寫的行照正本補回。沒有綜合卡的實體由 `cards todo` 出 `tag_only` 項目，製卡助手讀它的檔案卡跑新指令 `kb entity tag <名稱> 欄=詞`（守門准製卡助手跑，`--said`、`--from-card` 只准主對話）。她口述改走 `kb entity tag … --said`。她在 Obsidian 手改綜合卡的標籤行：開場段一行認出、`kb entity tag --from-card` 記進正本（合字典的算她說的；整行刪掉＝沒有；字典外或單選兩詞記待處理問她）；同一個對話接著整理時，重寫綜合卡前先收她的手改，不合字典的那張先不派；每週健檢再補一次。照標籤篩、lookup、改字典、回答末尾那句都讀寫正本；之後長出綜合卡時從正本的標籤寫起。`kb init`／升級把卡上的標籤搬進正本，沒卡的下次整理補。profile tag 的句子「張」改「個」。

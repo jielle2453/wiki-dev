@@ -967,7 +967,10 @@ def _spawn_background(vault):
 
 
 def _maybe_spawn(vault, chk):
-    """清單網址有填、日期不是今天才開；先記今天（另一個對話開場不重複叫），上一次的結果留著。出錯吞掉。"""
+    """清單網址有填、日期不是今天才開；先記今天（另一個對話開場不重複叫），上一次的結果留著。出錯吞掉。
+    環境變數 WIKI_WITH_WILLY_NO_BACKGROUND 有值時不開（測試：網址填了以後黑箱跑開場不連網，跟背景健檢同一個開關）。"""
+    if os.environ.get("WIKI_WITH_WILLY_NO_BACKGROUND"):
+        return
     if not config.get(vault, "update_manifest_url") or (chk or {}).get("date") == _today():
         return
     try:

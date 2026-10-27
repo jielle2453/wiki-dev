@@ -55,9 +55,10 @@ class Get(unittest.TestCase):
         self.assertTrue(data.get("_why_relocate_sample_max"))
 
     def test_update_keys(self):
-        """升級打包第 8 點：清單與名單網址（第一次發行才填，空字串不查）、抓 5 秒、換版 60 秒、一句話 40 字，各帶 _why。"""
+        """升級打包第 8 點：清單與名單網址（0.26.1 第一次發行時填，公開 repo 的 raw 網址）、抓 5 秒、換版 60 秒、一句話 40 字，各帶 _why。"""
         data = json.loads((ROOT / "config" / "defaults.json").read_text(encoding="utf-8"))
-        want = {"update_manifest_url": "", "update_rollout_url": "", "update_fetch_seconds": 5,
+        want = {"update_manifest_url": "https://raw.githubusercontent.com/jielle2453/wiki-with-willy/main/marketplace.json",
+                "update_rollout_url": "https://raw.githubusercontent.com/jielle2453/wiki-with-willy/main/rollout.json", "update_fetch_seconds": 5,
                 "update_run_seconds": 60, "update_note_max": 40}
         for key, value in want.items():
             self.assertEqual(config.get(self.vault, key), value, key)

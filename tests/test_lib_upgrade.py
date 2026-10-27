@@ -457,7 +457,7 @@ class Fetch(Base):
             upgrade.fetch(self.V)
 
     def test_empty_urls_raise_not_configured_without_calling_network(self):
-        (self.V / ".system" / "config.json").write_text("{}", encoding="utf-8")
+        (self.V / ".system" / "config.json").write_text('{"update_manifest_url": "", "update_rollout_url": ""}', encoding="utf-8")  # 預設網址 0.26.1 起有填
         with self.assertRaises(upgrade.NotConfigured):
             upgrade.fetch(self.V)
         self.assertEqual(self.fake.gets, [])
@@ -1112,7 +1112,7 @@ class Background(Base):
 
     def test_empty_manifest_url_means_no_check(self):
         """清單空網址 → 不查（也不寫）。"""
-        (self.V / ".system" / "config.json").write_text("{}", encoding="utf-8")
+        (self.V / ".system" / "config.json").write_text('{"update_manifest_url": "", "update_rollout_url": ""}', encoding="utf-8")  # 預設網址 0.26.1 起有填
         upgrade.background(self.V)
         self.assertEqual((self.fake.gets, self.fake.calls), ([], []))
         self.assertIsNone(self.check_saved())
@@ -1155,6 +1155,15 @@ class Background(Base):
 
 class Opening(Base):
     """驗收 10、11：開場判斷（不連網、不等背景）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.env = os.environ.pop("WIKI_WITH_WILLY_NO_BACKGROUND", None)  # 要測背景子行程有被叫
+
+    def tearDown(self):
+        if self.env is not None:
+            os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = self.env
+        super().tearDown()
 
     def spawns(self):
         calls = []
@@ -1310,7 +1319,7 @@ class Opening(Base):
         self.assertEqual(self.open()[1], [])
 
     def test_empty_manifest_url_does_not_spawn(self):
-        (self.V / ".system" / "config.json").write_text("{}", encoding="utf-8")
+        (self.V / ".system" / "config.json").write_text('{"update_manifest_url": "", "update_rollout_url": ""}', encoding="utf-8")  # 預設網址 0.26.1 起有填
         self.put_history("0.20.1")
         self.assertEqual(self.open()[1], [])
         self.assertIsNone(env.update_check(self.V))

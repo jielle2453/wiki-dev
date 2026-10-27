@@ -936,8 +936,8 @@ class OpeningUpgrade(unittest.TestCase):
         self.assertEqual(log.count("upgrade-history.json"), 1)
         self.assertEqual((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"), "{壞")
 
-    def test_empty_manifest_url_never_spawns_so_black_box_runs_stay_offline(self):
-        """預設空網址：背景查新版看到空就不查；這支黑箱測試也因此不會真的開子行程、不連網。"""
+    def test_no_background_env_never_spawns_so_black_box_runs_stay_offline(self):
+        """預設網址 0.26.1 起填了；測試設的 WIKI_WITH_WILLY_NO_BACKGROUND 讓黑箱跑開場不開子行程、不連網。"""
         self.put_history(self.plugin())
         self.status()
         env_file = self.V / ".system" / "env.json"
@@ -955,9 +955,34 @@ class OpeningSpawn(unittest.TestCase):
         self.tmp, self.V, self.raw = make_vault()
         (self.V / ".system" / "config.json").write_text(json.dumps(
             {"update_manifest_url": "https://example.invalid/marketplace.json"}), encoding="utf-8")
+        self.env = os.environ.pop("WIKI_WITH_WILLY_NO_BACKGROUND", None)
 
     def tearDown(self):
+        if self.env is not None:
+            os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = self.env
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_empty_manifest_url_never_spawns(self):
+        """清單網址空字串（客戶自己的 config.json 蓋掉）：背景查新版看到空就不查。"""
+        from unittest import mock
+        from kb._lib import upgrade
+        (self.V / ".system" / "config.json").write_text(json.dumps({"update_manifest_url": ""}), encoding="utf-8")
+        calls = []
+        with mock.patch.object(upgrade, "_popen", side_effect=lambda argv, **kw: calls.append(argv)):
+            self.session.line_version(self.V)
+        self.assertEqual(calls, [])
+
+    def test_no_background_env_never_spawns(self):
+        from unittest import mock
+        from kb._lib import upgrade
+        os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"] = "1"
+        try:
+            calls = []
+            with mock.patch.object(upgrade, "_popen", side_effect=lambda argv, **kw: calls.append(argv)):
+                self.session.line_version(self.V)
+            self.assertEqual(calls, [])
+        finally:
+            del os.environ["WIKI_WITH_WILLY_NO_BACKGROUND"]
 
     def test_spawn_called_with_background_args_and_not_waited_on(self):
         from unittest import mock
