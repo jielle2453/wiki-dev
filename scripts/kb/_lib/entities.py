@@ -453,7 +453,8 @@ def card_newer(vault, rel, entry):
 
 
 def card_diffs(vault, entry, prof, text=None, rel=None):
-    """這張綜合卡檔頭的標籤行跟正本不同的欄：(合字典的 {欄: 值}, 不合的 [(第八節那列, 卡上的值)])；空著的那一行（還沒標過）不算。"""
+    """這張綜合卡檔頭的標籤行跟正本不同的欄：(合字典的 {欄: 值}, 不合的 [(第八節那列, 卡上的值)])；空著的那一行（還沒標過）不算。
+    正本有詞、卡上整行拿掉的，是她說「沒有」（裁定 12）：算合字典，值是 []（單選 ""）。"""
     from kb._lib import synthesis
     rows = {key(t["field"]): t for t in profile.tags_for(prof, entry.get("type"))}
     if not rows:
@@ -477,6 +478,10 @@ def card_diffs(vault, entry, prof, text=None, rel=None):
                 [key(w) for w in tag_words(tag_normal(row, v))]:
             continue
         good[row["field"]] = v
+    on_card = {key(k) for k in front}
+    for k, row in rows.items():
+        if k not in on_card and tag_words(tag_value(entry.get("tags"), row["field"])):
+            good[row["field"]] = [] if row.get("multi") else ""
     return good, bad
 
 
@@ -521,8 +526,8 @@ def tag_edits(vault, data=None):
 
 def copy_card_edits(vault, refs, turn_id, by=None):
     """kb entity tag --from-card、健檢（六-2、六-4）：refs 這幾個（None 是 tag_edits 全部）卡上合字典的標籤行照她改的寫進正本、
-    算她說的；不合字典的不寫。回 [{"entity","written": [欄…],"bad": [(第八節那列, 卡上的值)],"problems": [句…]}]，沒得記的不列。
-    給了名稱但沒有綜合卡丟 EntityRefused。"""
+    算她說的；不合字典的不寫；整行拿掉的記成沒有，卡上那一行照正本寫回空的（備進回合 by program，裁定 12）。
+    回 [{"entity","written": [欄…],"bad": [(第八節那列, 卡上的值)],"problems": [句…]}]，沒得記的不列。給了名稱但沒有綜合卡丟 EntityRefused。"""
     data = load(vault)
     prof = _profile(vault)
     if refs is None:
@@ -543,9 +548,21 @@ def copy_card_edits(vault, refs, turn_id, by=None):
         entry = e
         if good:
             entry = set_tags(vault, e["id"], good, turn_id, said=True, by=by)["entity"]
+            _rewrite_dropped(vault, rel, entry, turn_id)
         out.append({"entity": entry, "written": list(good), "bad": bad,
                     "problems": [tag_edit_problem(entry, row, v) for row, v in bad]})
     return out
+
+
+def _rewrite_dropped(vault, rel, entry, turn_id):
+    """卡上少了的標籤行照正本補回去（她整行拿掉的寫回空的，裁定 12）。"""
+    from kb._lib import synthesis, turn
+    p = Path(vault) / rel
+    text = p.read_text(encoding="utf-8")
+    new = synthesis.write_tag_lines(text, entry.get("tags"), synthesis.missing_tag_fields(text, entry, _profile(vault)))
+    if new != text:
+        turn.backup(vault, rel, turn_id, by="program")
+        write_text_atomic(p, new)
 
 
 def tag_status(entry, prof):

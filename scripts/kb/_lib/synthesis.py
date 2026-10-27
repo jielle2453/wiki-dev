@@ -364,7 +364,8 @@ def tag_changes(vault, turn_ids):
 
 def copy_tags(vault, rel, turn_id, by=None):
     """綜合卡檔頭的標籤行抄進正本（D-505 決策 3；hook 驗過之後、升級時叫）：第八節這個型別、有值的欄（空著的是還沒標過，不抄）；
-    字典外的詞、單選寫兩個的那一欄不抄、回在 skipped。tags_said 裡的欄不抄：卡上那一行照正本寫回（備進回合 by program）。
+    字典外的詞、單選寫兩個的那一欄不抄、回在 skipped。tags_said 裡的欄不抄：卡上那一行照正本寫回（備進回合 by program）；
+    正本有、卡上漏寫的欄也照正本補回（不然開場會當成她整行拿掉，裁定 12）。
     回 {"changed","kept","skipped": [(欄, 原因)],"rewrote": 有沒有把卡寫回}；卡讀不懂、實體不在丟 ValueError（呼叫端照 I-046 記 log）。"""
     from kb._lib import turn
     p = Path(vault) / rel
@@ -386,17 +387,30 @@ def copy_tags(vault, rel, turn_id, by=None):
             continue
         updates[f] = v
     got = {"changed": [], "kept": [], "skipped": skipped, "rewrote": False}
-    if not updates:
-        return got
-    res = entities.set_tags(vault, eid, updates, turn_id, by=by)
-    got.update(changed=res["changed"], kept=res["kept"])
-    if res["kept"]:
-        new = write_tag_lines(text, res["entity"].get("tags"), res["kept"])
+    kept = []
+    if updates:
+        res = entities.set_tags(vault, eid, updates, turn_id, by=by)
+        got.update(changed=res["changed"], kept=res["kept"])
+        entry, kept = res["entity"], res["kept"]
+    back = kept + missing_tag_fields(text, entry, prof)
+    if back:
+        new = write_tag_lines(text, entry.get("tags"), back)
         if new != text:
             turn.backup(vault, rel, turn_id, by="program")
             write_text_atomic(p, new)
             got["rewrote"] = True
     return got
+
+
+def missing_tag_fields(text, entry, prof):
+    """正本有、卡檔頭沒有那一行的標籤欄（照第八節的順序）。卡讀不懂回 []。"""
+    try:
+        front = read_front(text)
+    except ValueError:
+        return []
+    have = {entities.key(k) for k in front}
+    return [t["field"] for t in profile.tags_for(prof, entry.get("type"))
+            if entities.key(t["field"]) not in have and entities.tag_value(entry.get("tags"), t["field"]) is not None]
 
 
 def write_tag_lines(text, tags, fields):

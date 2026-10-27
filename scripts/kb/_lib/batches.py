@@ -654,6 +654,34 @@ def _only_ids(parts, ids):
     return got
 
 
+def absorb_tag_edits(vault, turn_id):
+    """重寫綜合卡前先收她在 Obsidian 手改的標籤行（標籤記在實體上裁定 11）：合字典的照 --from-card 寫進正本（算她說的），
+    不合字典的記待處理 tag_edit。回這次不派的實體編號：卡上還有不合字典的標籤行（新認出的，加上已在問、卡還沒改好的）。"""
+    from kb._lib import entities, pending
+    from kb.lint.checks import tag_edits
+    skip = set()
+    for g in entities.copy_card_edits(vault, None, turn_id):
+        if g["bad"]:
+            tag_edits.ask(vault, g["entity"], g["bad"], turn_id)
+            skip.add(g["entity"]["id"])
+    asking = {(i.get("entity_ids") or [None])[0] for i in pending.load(vault)["items"]
+              if i.get("kind") == "tag_edit" and i.get("status") == "open"} - skip
+    if asking:
+        data = entities.load(vault)
+        prof = entities._profile(vault)
+        for e in data["entities"]:
+            if e.get("id") in asking and e.get("card") and entities.locate(vault, e)                     and entities.card_diffs(vault, e, prof)[1]:
+                skip.add(e["id"])
+    return skip
+
+
+def _skip_entities(parts, skip):
+    """綜合卡項目裡實體在 skip 的拿掉（stale、new 的鍵就是實體編號；壞的綜合卡讀不出標籤行，照派）。"""
+    if not skip:
+        return parts
+    return dict(parts, synthesis=[x for x in parts["synthesis"] if x[0] == "synthesis_broken" or x[1] not in skip])
+
+
 def dispatch(vault, session_id, turn_id, source=None, ids=None):
     """派工（kb cards dispatch，D-196、D-197）：沿用或新開這個 session 的 job，從沒被認領、這個 job 沒失敗過的項目切批，
     最多到 card_parallel 個 open；順序 cards → agenda → synthesis，前一種有剩或還在跑就不建後一種；synthesis 前算大改動門檻
@@ -689,9 +717,10 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
                 source = job.get("source")
             if ids is None:
                 ids = job.get("ids")
+        skip = absorb_tag_edits(vault, turn_id)
         out = _collect(vault)
-        parts_all = split(vault, out)
-        parts = split(vault, out, source) if source is not None else parts_all
+        parts_all = _skip_entities(split(vault, out), skip)
+        parts = _skip_entities(split(vault, out, source), skip) if source is not None else parts_all
         if ids:
             if explicit_ids:  # 這一句給的 --ids：job 開著也驗（做過的那幾份算認得，build 第一輪修 S3）
                 known = {x[1] for x in parts["cards"]} | {k for b in data["batches"] if b.get("job") == job["job"]
@@ -953,9 +982,12 @@ def batch_view(vault, batch_id, agent_id=None):
                 save(vault, data, job.get("turn") or turn.current(vault)["turn"])
     if b["kind"] == ADOPT:
         return _adopt_view(vault, b)
+    skip = set()
+    if b["kind"] == "synthesis":
+        skip = absorb_tag_edits(vault, (_job_of(data, b) or {}).get("turn") or turn.current(vault)["turn"])
     out = _collect(vault)
     base = Path(vault).resolve()
-    want = list(b.get("items") or [])
+    want = [k for k in b.get("items") or [] if k not in skip]
     buckets = {"cards": CARD_BUCKETS, "agenda": AGENDA_BUCKETS, "synthesis": SYNTHESIS_BUCKETS}[b["kind"]]
     found = {}
     ctx = None

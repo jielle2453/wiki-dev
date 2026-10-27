@@ -309,6 +309,57 @@ class HandEdit(Base):
         self.assertEqual(item["status"], "done")
 
 
+class Absorb(Base):
+    """裁定 11：重寫綜合卡前先收她的手改；裁定 12：整行拿掉是說「沒有」。"""
+    edit = HandEdit.edit
+    opening = HandEdit.opening
+
+    def batch(self):
+        from datetime import datetime
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])  # 信義王多一張卡：綜合卡要更新
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        (self.V / batches.BATCHES_POSIX).write_text(json.dumps({"schema_version": 1, "agents": [], "jobs": [
+            {"job": "j-1", "session_id": SID, "turn": self.t, "status": "open"}], "batches": [
+            {"batch": "b-1", "job": "j-1", "kind": "synthesis", "items": [E.XINYI], "created": now, "status": "open"}]}),
+            encoding="utf-8")
+        return [i for i in batches.batch_view(self.V, "b-1")["items"] if i["entity_id"] == E.XINYI]
+
+    def test_batch_header_is_her_edit(self):
+        self.edit("階段: 施工", "階段: 完工")
+        (item,) = self.batch()
+        self.assertIn("階段: 完工", item["header"].splitlines())
+        self.assertEqual(item["tags_said"], ["階段"])
+        self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "完工")
+
+    def test_outside_dictionary_not_dispatched(self):
+        self.edit("階段: 施工", "階段: 暫停")
+        self.assertEqual(self.batch(), [])
+        (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "tag_edit"]
+        self.assertEqual((item["status"], item["entity_ids"]), ("open", [E.XINYI]))
+        parts = batches._skip_entities(batches.split(self.V, batches._collect(self.V)), batches.absorb_tag_edits(self.V, self.t))
+        self.assertNotIn(E.XINYI, [k for _b, k, _i in parts["synthesis"]], "已在問、卡還沒改好：dispatch 也不派")
+
+    def test_dropped_line_is_none_and_kept(self):
+        self.edit("階段: 施工\n", "")
+        self.assertIn("綜合卡上的標籤你改了 1 張（信義王）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她",
+                      self.opening())
+        r = self.kb("entity", "tag", "--from-card")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "照你在卡上改的記下了：信義王 階段 沒有"))
+        e = entry(self.V, E.XINYI)
+        self.assertEqual((e["tags"]["階段"], e["tags_said"]), ("", ["階段"]))
+        self.assertIn("階段: []\n", (self.V / T.XINYI_REL).read_text(encoding="utf-8"), "渲染照正本寫回空的")
+        self.assertFalse([x for x in self.opening() if x.startswith("綜合卡上的標籤")])
+        self.kb("profile", "add", "標籤", "型別=案子", "欄名=預算", "詞=高、中")
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 木作]", "階段: 施工", "預算: 高"], turn_id=self.t)
+        e = entry(self.V, E.XINYI)
+        self.assertEqual((e["tags"]["階段"], e["tags"]["預算"]), ("", "高"), "補標籤不蓋回她說的沒有")
+
+    def test_ai_omitted_line_written_back_not_counted(self):
+        T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 木作]"], turn_id=self.t)
+        self.assertIn("階段: 施工\n", (self.V / T.XINYI_REL).read_text(encoding="utf-8"))
+        self.assertEqual(entities.tag_edits(self.V), [])
+
+
 class NewEntity(Base):
     def test_after_ingest_tag_only_dispatched_same_job(self):
         """驗收 12：新實體整理完、不夠寫綜合卡 → 同一個整理的綜合卡批次裡有只補標籤的項目。"""
