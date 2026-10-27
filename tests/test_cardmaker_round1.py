@@ -124,7 +124,8 @@ class GuardScope(unittest.TestCase):
         for allowed in ("cards batch b-1 --json", "convert f-1 --json", "agenda add --card f-1 --kind 到期 --date 2026-11-30 --text x",
                         "agenda scanned f-1", "agenda edit a-1 --date 2026-12-01", "agenda recheck a-1", "agenda cancel a-1",
                         "agenda list --json", "entity add --type 案子 --name 甲", "entity suggest-close 甲 --evidence f-1",
-                        "entity clean 案子/甲/x.md", "cards skip f-1 --kind 請款", "cards list --json", "--json version"):
+                        "entity clean 案子/甲/x.md", "cards skip f-1 --kind 請款", "cards list --json", "--json version",
+                        "entity tag 甲 工種=水電,木作 階段=施工"):
             with self.subTest(allowed=allowed):
                 out = self.call(f"{KB} {allowed}")
                 self.assertEqual(out["permissionDecision"], "allow", out)
@@ -132,7 +133,9 @@ class GuardScope(unittest.TestCase):
         for denied in ("turn approve", "cards stop", "cards dispatch --json", "versions revert",
                        "folders exclude 報價/私人", "source-edit trash f-1", "entity remove 甲", "entity rename 甲 --to 乙",
                        "turn note 做完了", "pending dismiss p-1", "unlock get 甲", "convert f-1 --password abc",
-                       "convert f-1 --saved 保險單", "convert f-1 --saved=保險單", "ruling add --kind 可以讀 --file f-1"):
+                       "convert f-1 --saved 保險單", "convert f-1 --saved=保險單", "ruling add --kind 可以讀 --file f-1",
+                       "entity tag 甲 階段=施工 --said", "entity tag 甲 階段=施工 --sa", "entity tag --from-card",
+                       "entity tag --from-card 甲", "entity tag 甲 --from"):
             with self.subTest(denied=denied):
                 out = self.call(f"{KB} {denied}")
                 self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]), ("deny", "製卡助手不能做這件事"))
