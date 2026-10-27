@@ -611,7 +611,8 @@ def _unchanged_since_registered(vault, rel, entry):
 
 def _reconcile(vault, rels, turn_id=None):
     """第一輪 M3：退回動完後對每個碰到的 Z3 路徑對帳清冊：檔在就該 location 最新一筆改 active，不在就改 deleted。
-    線上文件（kind link）的下載檔不在：只拿掉那個 file:// 位置，條目照舊 active、網址留著（B-402；清冊先備進動作回合）。"""
+    更早回合建的線上文件（kind link，還是 active）的下載檔不在：只拿掉那個 file:// 位置，條目照舊 active、網址留著（B-402；清冊先備進
+    動作回合）。被退的那一回合自己建的 link 條目是那一回合的成品，前面已照成品改過 status（deleted 或 turn_reverted），這裡不動。"""
     if not rels:
         return
     data = inventory.load(vault)
@@ -622,7 +623,7 @@ def _reconcile(vault, rels, turn_id=None):
         if not same:
             continue
         present = (Path(vault) / rel).is_file()
-        if not present and inventory.is_link(same[-1]):
+        if not present and inventory.is_link(same[-1]) and same[-1].get("status") == "active":
             if turn_id:
                 turn.backup(vault, inventory.INVENTORY_POSIX, turn_id)
             inventory.detach_location(vault, same[-1]["id"], rel)
@@ -803,8 +804,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     folders_done += made_done
     if outputs:
         if delete_outputs:
-            # 線上文件的條目不整筆標刪除，下載檔的位置由 _reconcile 拿掉（B-402）
-            gone = [o["id"] for o in outputs if o["id"] not in kept_ids and not inventory.is_link(o)]
+            gone = [o["id"] for o in outputs if o["id"] not in kept_ids]
             if gone:
                 inventory.set_status(vault, gone, "deleted")
             if kept_ids:

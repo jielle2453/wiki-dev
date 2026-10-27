@@ -444,6 +444,33 @@ class VersionsOutputs(VersionsBase):
         self.assertEqual((got["status"], [x["uri"] for x in got["locations"]]), ("active", [url]))
         self.assertEqual(self.entry(plain["id"])["status"], "deleted")
 
+    def same_turn_link(self):
+        """被退的那一回合自己建 link 又掛下載檔（測試報告 #1）：那筆是那一回合的成品。"""
+        from kb._lib import inventory
+        t = turn.start(self.V, "sid-17b", "存成線上文件再下載")
+        link = inventory.register_link(self.V, "https://claude.ai/artifact/xyz", t["turn"], "提案")
+        rel = "AI 產出/提案.pdf"
+        turn.backup(self.V, rel, t["turn"])
+        (self.V / rel).write_bytes(b"%PDF")
+        inventory.attach_location(self.V, link["id"], rel, t["turn"])
+        self.new_turn()
+        return link, rel
+
+    def test_17_same_turn_link_is_deleted_like_an_output(self):
+        link, rel = self.same_turn_link()
+        r = run_kb("versions", "revert", "--delete-outputs", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.V / rel).exists())
+        self.assertEqual(self.entry(link["id"])["status"], "deleted")
+        self.assertIn("成品 1 份刪了", r.stdout)
+
+    def test_17_same_turn_link_without_flag_is_turn_reverted(self):
+        link, rel = self.same_turn_link()
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((self.V / rel).exists())
+        self.assertEqual(self.entry(link["id"])["status"], "turn_reverted")
+
 
 # ---------- 18、21. B-091、B-469 ----------
 
