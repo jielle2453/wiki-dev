@@ -317,26 +317,12 @@ class SecretShown(Base):
         self.assertEqual(out["permissionDecision"], "ask")
         self.assertEqual(out["updatedInput"]["command"], f'python "{KB}" --session {A} unlock get --name 工地大門')
         out = json.loads(hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse",
-                                           "tool_name": "Bash", "tool_input": {
-                                               "command": f'python "{KB}" convert a.pdf --saved 門 --explicit --password "zq-7731"'}}))
-        self.assertNotIn("zq-7731", json.dumps(out, ensure_ascii=False))  # 帶密碼值的不改寫（值不進 hook 輸出）
-        out = json.loads(hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse",
                                            "tool_name": "Bash",
                                            "tool_input": {"command": f'python "{KB}" --session {B} unlock get --name 工地大門'}}))
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")  # ask 那條也不准自己帶 --session
-
-    def test_password_call_marks_own_turn_without_rewriting(self):
-        """裁定 12：帶 --password 的呼叫不改寫指令（值不進 hook 輸出），守門直接替 A 的目前回合標 secret_shown。"""
-        self.prompt(A, "用密碼開那份 PDF")
-        self.prompt(B, "你好")  # B 後開口：current.json 是 B
-        raw = hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse", "tool_name": "Bash",
-                                "tool_input": {"command": f'python "{KB}" convert a.pdf --password "zq-7731"'}})
-        self.assertNotIn("zq-7731", raw)
-        self.assertNotIn("updatedInput", raw)
-        self.assertTrue(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
-        self.assertFalse(turn._read_turn(turn._session_file(self.V, B)).get("secret_shown"))
         self.prompt(A, "工地大門密碼多少")
         self.prompt(B, "你好")  # B 後開口：current.json 是 B
+        self.assertFalse(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
         import contextlib
         import io
         from kb import cli
@@ -357,6 +343,17 @@ class SecretShown(Base):
         self.assertTrue(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
         self.assertFalse(turn._read_turn(turn._session_file(self.V, B)).get("secret_shown"))
 
+    def test_password_call_marks_own_turn_without_rewriting(self):
+        """裁定 12：帶 --password 的呼叫不改寫指令（值不進 hook 輸出），守門直接替 A 的目前回合標 secret_shown。"""
+        self.prompt(A, "用密碼開那份 PDF")
+        self.prompt(B, "你好")  # B 後開口：current.json 是 B
+        raw = hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                "tool_input": {"command": f'python "{KB}" convert a.pdf --saved 門 --explicit --password "zq-7731"'}})
+        self.assertNotIn("zq-7731", raw)
+        self.assertNotIn("updatedInput", raw)
+        self.assertTrue(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
+        self.assertFalse(turn._read_turn(turn._session_file(self.V, B)).get("secret_shown"))
+
 
 class TurnNote(Base):
     def test_10_note_and_redact_go_to_own_turn(self):
@@ -368,10 +365,6 @@ class TurnNote(Base):
         b = turn._read_turn(turn._session_file(self.V, B))
         self.assertEqual((a["note"], a["prompt_head"]), ("記了一筆", "我的密碼是（遮）"))
         self.assertEqual((b["note"], b["prompt_head"]), ("", "你好"))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 from tests import test_lib_purge as _purge  # noqa: E402  只借 setUp 與小工具，不把那邊的測試帶進來
@@ -401,3 +394,7 @@ class PurgeWrites(unittest.TestCase):
                 for ln in (d / "writes.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertFalse([ln for ln in rows if "私人" in ln or self.card_rel in ln], rows)
         self.assertEqual([w["path"] for w in turn.writes(V, t)], ["系統/日程.md"])  # 別的路徑留著
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -232,8 +232,8 @@ def _mark_secret(vault, payload, tool):
     """帶密碼值（--password、--value）的主對話 kb 呼叫：指令不改寫（值不進 hook 輸出），放行或 ask 前直接替 payload 那個對話的
     目前回合標 secret_shown（#20 裁定 12），Stop 不記那句回答。多標可以接受；標不上只記 log、不改決定。"""
     from kb._lib import ledger
-    sid = payload.get("session_id")
-    if payload.get("agent_id") or not sid:
+    sid = payload.get("session_id")  # 記過的子代理（agent_turn）呼叫端已排除；一般子代理的呼叫算主對話那句
+    if not sid:
         return
     tokens = kb_args((payload.get("tool_input") or {}).get("command"), tool)
     if tokens is None or not _has_flag(tokens, SECRET_FLAGS):

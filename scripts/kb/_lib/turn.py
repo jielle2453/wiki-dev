@@ -412,18 +412,11 @@ def mark_session(vault, session_id, key):
     """替 session_id 那個對話的目前回合設旗標（守門用，#20 裁定 12：帶密碼值的 kb 呼叫不改寫指令，守門直接替那個對話標
     secret_shown）。只讀 turns/<sid>.json、不讀 current.json、不開新回合；回合答完了也標（多標可以接受）。在 session 檔的鎖裡讀改寫。
     回有沒有標上。"""
+    assert key in MARK_FLAGS, key
     if not session_id:
         return False
-    path = _session_file(vault, session_id)
-    with FileLock(path):
-        data = _read_turn(path)
-        if not data:
-            return False
-        if data.get(key) is True:
-            return True
-        data[key] = True
-        _write_turn(vault, data)
-        return True
+    with FileLock(_session_file(vault, session_id)):
+        return _set(vault, session_id, **{key: True}) is not None
 
 
 def touch(vault, entities=(), files=()):

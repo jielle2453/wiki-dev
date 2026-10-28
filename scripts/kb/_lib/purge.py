@@ -695,14 +695,13 @@ def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
 
 
 def _scrub_writes(vdir, prefix, shorts, counts):
-    """writes.jsonl（#20 裁定 13，同回合同路徑再寫的時間）：路徑是那些卡、在那夾的卡夾底下、或在清掉的夾裡的那一行整行拿掉
-    （只是時間紀錄，不留遮過的版本）。拿 manifest 鎖的呼叫端叫。"""
+    """writes.jsonl（#20 裁定 13，同回合同路徑再寫的時間）：路徑是那些卡或在那夾的卡夾底下的那一行整行拿掉
+    （只是時間紀錄，不留遮過的版本；寫入備份只記知識庫裡的檔，來源夾的原檔不會在這裡）。拿 manifest 鎖的呼叫端叫。"""
     try:
         path = vdir / "writes.jsonl"
         if not path.is_file():
             return
-        alias, spec = inventory.split_uri(prefix)
-        card_dir = f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+        card_dir = _purged_card_dir(prefix)
         text = path.read_text(encoding="utf-8")
         out = []
         for ln in text.splitlines():
@@ -712,8 +711,7 @@ def _scrub_writes(vdir, prefix, shorts, counts):
                 out.append(ln)
                 continue
             rel = row.get("path") if isinstance(row, dict) else None
-            if isinstance(rel, str) and (_card_row(rel, shorts) or rel.casefold().startswith(card_dir)
-                                         or _in_folder(f"file://{inventory.KNOWLEDGE}/{rel}", prefix)):
+            if isinstance(rel, str) and _purged_card(rel, shorts, card_dir):
                 continue
             out.append(ln)
         new = "".join(x + "\n" for x in out)
@@ -773,13 +771,23 @@ def _card_row(rel, shorts):
     return rel.startswith(cards.CARDS_DIR + "/") and any(rel.endswith(f"-{s}.md") for s in shorts)
 
 
+def _purged_card_dir(prefix):
+    """那夾的卡夾（小寫比對用）。"""
+    alias, spec = inventory.split_uri(prefix)
+    return f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+
+
+def _purged_card(rel, shorts, card_dir):
+    """這個路徑是那些卡，或在那夾的卡夾底下（manifest 與 writes.jsonl 共用）。"""
+    return _card_row(rel, shorts) or rel.casefold().startswith(card_dir)
+
+
 REPORT_PREFIX = "系統/健檢報告/"
 LINT_STATE_POSIX = ".system/lint.json"
 
 
 def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, state):
-    alias, spec = inventory.split_uri(prefix)
-    card_dir = f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+    card_dir = _purged_card_dir(prefix)
     for row in rows:
         if not isinstance(row, dict) or row.get("action") == "purged" or not isinstance(row.get("path"), str):
             continue
@@ -787,7 +795,7 @@ def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, st
         f = files / rel
         if not _under_files(files, f):
             continue  # 紀錄不信（B-080）：解出來不在這個回合的 files/ 底下就不碰
-        if _card_row(rel, shorts) or rel.casefold().startswith(card_dir):
+        if _purged_card(rel, shorts, card_dir):
             # 那些卡的每一行（create 也算）都換掉：路徑本身就帶夾名與卡標題（第三輪修）
             try:
                 if f.is_file():
