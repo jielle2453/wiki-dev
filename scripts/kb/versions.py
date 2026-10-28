@@ -201,6 +201,36 @@ def _writable(path):
         return False
 
 
+FILE_ATTRIBUTE_HIDDEN = 0x2
+
+
+def _set_hidden(path, on):
+    """Windows 的隱藏屬性設上或拿掉；設不成丟 OSError（照退回的其他例外講）。"""
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetFileAttributesW.restype = ctypes.c_uint32
+    attrs = kernel32.GetFileAttributesW(str(path))
+    if attrs == 0xFFFFFFFF:
+        raise ctypes.WinError()
+    want = (attrs | FILE_ATTRIBUTE_HIDDEN) if on else (attrs & ~FILE_ATTRIBUTE_HIDDEN)
+    if want != attrs and not kernel32.SetFileAttributesW(str(path), want):
+        raise ctypes.WinError()
+
+
+def _copy_back(src, dst):
+    """把備份寫回原位（型別夾編號裁定 10）：Windows 上隱藏的檔（kb init 把 CLAUDE.md 設成隱藏）shutil.copy2 寫不進去
+    （來源不是隱藏的時候被拒），先拿掉隱藏、寫完設回去。能不能寫的檢查（_writable）照舊用 r+b 開：隱藏檔開得了，
+    唯讀、被 Office 開著的照舊擋；隱藏這件事由這裡保證寫得了。"""
+    hidden = os.name == "nt" and dst.is_file() and bool(getattr(os.stat(dst), "st_file_attributes", 0) & FILE_ATTRIBUTE_HIDDEN)
+    if hidden:
+        _set_hidden(dst, False)
+    try:
+        shutil.copy2(src, dst)
+    finally:
+        if hidden:
+            _set_hidden(dst, True)
+
+
 def _locked_file(vault, target, delete_outputs, sources):
     """測試第二輪後裁定 25（N-7）：改夾之前先試每個要還原或移除的檔能不能寫；回第一個不行的（現在的位置），都行回 None。"""
     back, ahead = _translator(target["folders"]), _forward(target["folders"])
@@ -779,7 +809,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
                 continue
             turn.backup(vault, rel, rt["turn"])
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            _copy_back(src, dst)
             restored.append(rel)
             if is_z3:
                 touched_z3.append(rel)

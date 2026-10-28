@@ -259,6 +259,50 @@ class Round1(Base):
         self.assertEqual(self.dirs(), ["01 案子", "02 業主", "03 工班"])
 
 
+def hidden(path):
+    import os
+    return bool(getattr(os.stat(path), "st_file_attributes", 0) & 0x2)
+
+
+def set_hidden(path, on):
+    """Windows 的隱藏屬性（測試準備用）；非 Windows 不做。"""
+    import ctypes
+    import os
+    if os.name != "nt":
+        return
+    k = ctypes.windll.kernel32
+    k.GetFileAttributesW.restype = ctypes.c_uint32
+    attrs = k.GetFileAttributesW(str(path))
+    k.SetFileAttributesW(str(path), (attrs | 0x2) if on else (attrs & ~0x2))
+
+
+class RevertHiddenSkeleton(Base):
+    """裁定 10（測試報告 #1）：備份時 CLAUDE.md 還沒隱藏、骨架換新之後設成隱藏（舊知識庫升級的樣子），說退回寫得回去、仍是隱藏，
+    其他檔與夾名照退。copy2 在 Windows 會帶來源的屬性：備份本身是隱藏的寫得回去，不是隱藏的才會被拒。"""
+
+    def test_revert_writes_back_hidden_claude_md(self):
+        import os
+        from kb._lib import skeleton
+        md = self.V / "CLAUDE.md"
+        set_hidden(md, False)
+        md.write_text("舊的 CLAUDE.md\n", encoding="utf-8")
+        t = turn.start(self.V, None, "")["turn"]
+        turn.backup(self.V, "CLAUDE.md", t)
+        skeleton._write_from_skeleton(self.V, "CLAUDE.md")
+        kb(self.V, "profile", "add", "型別", "名稱=工班", "大類=對象")
+        self.assertTrue((self.V / "03 工班").is_dir())
+        self.assertNotEqual(md.read_text(encoding="utf-8"), "舊的 CLAUDE.md\n")
+        if os.name == "nt":
+            self.assertTrue(hidden(md), "前提：骨架換過之後是隱藏的")
+            self.assertFalse(hidden(self.V / ".system" / "versions" / t / "files" / "CLAUDE.md"), "前提：備份不是隱藏的")
+        kb(self.V, "versions", "revert")
+        self.assertEqual(md.read_text(encoding="utf-8"), "舊的 CLAUDE.md\n")
+        self.assertFalse((self.V / "03 工班").exists())
+        self.assertEqual([t["name"] for t in profile.load(self.V)["types"]], ["案子", "業主"])
+        if os.name == "nt":
+            self.assertTrue(hidden(md), "退回後仍是隱藏")
+
+
 class MoveByTypeName(Base):
     """裁定 5：kb source-edit move --to 用型別名寫實體夾（案子/信義王），實際的夾（01 案子/信義王）在不在都認得。"""
 
