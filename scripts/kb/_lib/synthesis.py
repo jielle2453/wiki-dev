@@ -41,8 +41,8 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 GATING = ("parse", "missing_key", "unknown", "self", "removed", "inferred")
 
 
-def card_rel(entity):
-    return entities.card_rel(entity)
+def card_rel(entity, vault=None):
+    return entities.card_rel(entity, vault)
 
 
 def category_text(prof, type_name):
@@ -233,7 +233,7 @@ def header_tags(vault, entity, prof):
     接著照原樣帶卡上字典外的鍵（裁定 13）。"""
     type_ = entity.get("type")
     front = None
-    p = Path(vault) / card_rel(entity)
+    p = Path(vault) / card_rel(entity, vault)
     if p.is_file():
         try:
             front = read_front(p.read_text(encoding="utf-8"))
@@ -298,7 +298,7 @@ def tagged_cards(vault, type_name, data=None):
         if (e.get("status") != "active" or entities.is_self(e) or not e.get("type")
                 or entities.key(e["type"]) != entities.key(type_name)):
             continue
-        rel = card_rel(e) if (Path(vault) / card_rel(e)).is_file() else (entities.locate(vault, e) if e.get("card") else None)
+        rel = card_rel(e, vault) if (Path(vault) / card_rel(e, vault)).is_file() else (entities.locate(vault, e) if e.get("card") else None)
         if not rel:
             continue
         try:
@@ -571,7 +571,7 @@ def problems(vault, rel, text, data, mounts, prof, know=None):
     if entry.get("source") == "inferred":
         return [("inferred", "還沒跟客戶確認名稱，先問再寫")]
     out = []
-    want = card_rel(entry)
+    want = card_rel(entry, vault)
     if rel.casefold() != want.casefold():
         out.append(("path", f"綜合卡該放在 {want}"))
     expect = {"型別": entry.get("type"), "大類": category_text(prof, entry.get("type")), "名稱": entry["name"],
@@ -699,7 +699,7 @@ def render_cache(vault, entity_names, turn_id):
     for e in targets:
         if entities.is_self(e) or not e.get("type") or e.get("status") != "active":
             continue
-        rel = card_rel(e)
+        rel = card_rel(e, vault)
         p = Path(vault) / rel
         if not p.is_file():
             continue
@@ -742,7 +742,7 @@ def _follow_fixes(vault, e, rel, rewrote, fixes, raw_fixes):
     found = [fixes[rel]] if rewrote and rel in fixes else []
     moved = []
     for alias in e.get("aliases") or []:
-        old = card_rel(dict(e, name=alias))
+        old = card_rel(dict(e, name=alias), vault)
         if old != rel and old in raw_fixes and not (Path(vault) / old).exists():
             found.append(raw_fixes.pop(old))
             moved.append(old)
@@ -780,6 +780,7 @@ def related_names(data, mounts, names):
 # ---------- 待辦 ----------
 
 def _question(d):
+    """drift 的問句；moved_type 講上層夾時照設定檔換回型別名（found_type，型別夾編號：客戶看不到編號）。"""
     name = d["name"]
     found = d.get("found") or ""
     folder, stem = (found.split("/") + ["", "", ""])[1], (found.rpartition("/")[2])[:-3]
@@ -788,7 +789,7 @@ def _question(d):
     if d["kind"] == "card_renamed":
         return f"「{name}」的綜合卡檔名改成「{stem}」了？要採新名，還是改回來？"
     if d["kind"] == "moved_type":
-        return f"「{name}」的資料夾搬到「{found.split('/')[0]}」底下了？要跟著改，還是搬回「{d['type']}」？"
+        return f"「{name}」的資料夾搬到「{d.get('found_type') or found.split('/')[0]}」底下了？要跟著改，還是搬回「{d['type']}」？"
     return f"「{name}」的資料夾（或綜合卡）不見了：是不要了，還是刪錯了？"
 
 
@@ -811,7 +812,7 @@ def buckets(vault, data, mounts, prof):
     for e in data["entities"]:
         if e.get("status") == "merged" or entities.is_self(e) or not e.get("type"):
             continue
-        rel = card_rel(e)
+        rel = card_rel(e, vault)
         ms = mounts.get(e["name"], [])
         p = Path(vault) / rel
         if p.is_file():
@@ -859,10 +860,10 @@ def buckets(vault, data, mounts, prof):
             if rel.casefold() in drift_found or rel.casefold() in listed:
                 continue
             owner = by_id.get(eid)
-            if owner is not None and owner.get("type") and rel.casefold() == card_rel(owner).casefold():
+            if owner is not None and owner.get("type") and rel.casefold() == card_rel(owner, vault).casefold():
                 continue
             ok, reason = validate(vault, rel, data, mounts, prof, know)
-            broken.append({"path": rel, "reason": reason if not ok else f"綜合卡該放在 {card_rel(owner)}"})
+            broken.append({"path": rel, "reason": reason if not ok else f"綜合卡該放在 {card_rel(owner, vault)}"})
             listed.add(rel.casefold())
     drift_items = [dict(d, question=_question(d)) for d in drift_list]
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}

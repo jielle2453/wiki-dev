@@ -13,6 +13,10 @@ schema 5 多第八節標籤字典（tags，D-233）：[{type, field, words, mult
 綜合卡檔頭照它標（synthesis 驗）；schema 4 由 load 在記憶體補空清單。
 schema 6 偏好每條多用在哪（use，D-504）：全部、整理成卡、做文件或已裝的客製 skill 名；開場段帶整理成卡以外的、
 製卡材料帶全部＋整理成卡；上限分開場那組與整理成卡兩組；schema 5 由 load 在記憶體補成全部，舊表頭（沒有用在哪欄）照全部讀。
+schema 7 型別表每列多選填欄 dir（型別夾編號，D-246～D-250）：磁碟上那個型別夾的名字，預設「兩位數、空格、型別名」（01 案子），
+照型別表順序；她自訂的名字（不是預設的樣子）照記、不改回去。沒有 dir 的列是升級前的：夾名就是型別名，照舊能用（補編號只走
+_lib/migrate）。型別 → 夾一律經 type_dir／dir_type／folder_of；dir_plan 算每列該用哪個夾與要做的改名，renamed_dirs 認她自己改的夾名。
+md 不顯示 dir，型別表的列序就是編號順序。
 """
 import copy
 import hashlib
@@ -28,7 +32,7 @@ from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PROFILE_POSIX = ".system/profile.json"
 MD_POSIX = "系統/客戶設定檔.md"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 CATEGORIES = {"對象": "party", "事": "matter", "物": "asset", "主題": "topic"}
 SOURCES = {"訪談": "interview", "推測": "inferred", "確認": "confirmed", "糾正": "corrected"}
 ACTIONS = {"不整理": "no_card", "只記種類": "kind_only"}
@@ -76,7 +80,7 @@ HEADER = ("# 客戶設定檔\n"
           "由程式產生，套用後會重寫；來源與日期兩欄可以留空，我會填。\n")
 PROMPTS = (
     "你平常管哪幾類東西？一類一列。大類四選一：對象（人或公司）、事（有開始有結束的工作）、物（被管理的東西）、"
-    "主題（規則與知識）。型別名會變成知識庫第一層的資料夾名，不能跟 AI 產出、收件匣、檔案索引、系統 一樣。"
+    "主題（規則與知識）。型別名前面會加上編號當資料夾名（例：01 案子），不能跟 AI 產出、收件匣、檔案索引、系統 一樣。"
     "不想讓我讀的資料夾不寫這裡，跟我說「不要讀 X」。",
     "常查的文件種類，每種想記住哪些段？一段一列；「必出現」打 ✓ 的段，原檔沒寫時卡上會寫「未知」。",
     "哪些種類的檔整份不整理成卡（我讀到會跳過，但程式認不出種類，只有我讀了才知道；要保證不讀用「不要讀 X」）、"
@@ -115,6 +119,8 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Windows 保留裝置名（測試後修正裁定 12）：帶副檔名也算，不分大小寫
 _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$", re.IGNORECASE)
 TYPE_NAME_MAX = 40  # card_title_max_chars 的預設；status 從 config 讀（測試後修正裁定 11）
+DIR_PREFIX_CHARS = 3  # 型別夾的編號「01 」：型別名的長度上限扣掉這幾個字，夾名最長的限制不變
+_DEFAULT_DIR = re.compile(r"^(\d{2}) (.+)$")
 NAME_SHOWN = 10
 _SEPARATOR = re.compile(r"^[|\-: ]+$")
 _REVERSED = {v: k for k, v in CATEGORIES.items()}, {v: k for k, v in SOURCES.items()}, {v: k for k, v in ACTIONS.items()}
@@ -191,7 +197,8 @@ def stored_schema(vault):
 def load(vault):
     """沒檔回 None；壞 JSON、不是物件、清單缺一、清單裡有非物件、版本比這版新丟 ValueError。
     schema 1 在記憶體遷移（不寫檔）：第四節照每個型別的大類補預設（來源推測、日期今天），第五節空；
-    schema 1、2 都補第六節空的偏好，schema 1～3 補第七節空的範本，schema 1～4 補第八節空的標籤，寫的時候寫 5。"""
+    schema 1、2 都補第六節空的偏好，schema 1～3 補第七節空的範本，schema 1～4 補第八節空的標籤，寫的時候寫現在的版本；
+    型別的 dir 不補。"""
     data = read_json(_path(vault))
     if data is None:
         return None
@@ -213,8 +220,9 @@ def load(vault):
     if version < 5:
         data = dict(data, tags=[])
     if version < 6:
-        data = dict(data, schema_version=SCHEMA_VERSION,
-                    preferences=[dict(x, use=x.get("use") or USE_ALL) for x in data["preferences"]])
+        data = dict(data, preferences=[dict(x, use=x.get("use") or USE_ALL) for x in data["preferences"]])
+    if version < 7:  # schema 7 只多選填的 dir：不補（沒有 dir 是升級前的，補編號走 _lib/migrate）
+        data = dict(data, schema_version=SCHEMA_VERSION)
     return data
 
 
@@ -727,7 +735,7 @@ def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), r
     for i, num in enumerate(NUMERALS, 1):
         if i not in found and i <= have:
             raise ProfileError(i, None, f"少了第 {i} 節（## {num}、…）")
-    types = _parse_types(_table_rows(1, found[1]), max_type_chars)
+    types = _parse_types(_table_rows(1, found[1]), max_type_chars - DIR_PREFIX_CHARS)  # 夾名多編號三個字
     return {"types": types,
             "card_types": _parse_card_types(_table_rows(2, found[2])),
             "exclusions": _parse_exclusions(_table_rows(3, found[3])),
@@ -799,6 +807,11 @@ def diff(old, new):
 
 def has_diff(d):
     return any(v for part in d.values() for v in part.values())
+
+
+def has_change(st):
+    """status 的結果有沒有要套用的：內容差異，或型別表順序變了要照編號改夾名（D-248，diff 只比鍵、看不出順序）。"""
+    return bool(st.get("diff") and has_diff(st["diff"])) or bool(st.get("moves"))
 
 
 def counts(d):
@@ -930,27 +943,250 @@ def _item_count(path):
         return 0
 
 
+def default_dir(index, name):
+    """型別表第 index 列（從 0 數）的預設夾名（D-246）：01 案子。"""
+    return f"{index + 1:02d} {name}"
+
+
+def is_default_dir(name, folder):
+    """夾名是不是這個型別的預設樣子「兩位數、空格、型別名」（任何編號都算）；不是就是她自訂的（D-247）。"""
+    m = _DEFAULT_DIR.match(str(folder or ""))
+    return bool(m) and _key(m.group(2)) == _key(name)
+
+
+def _dir_of(row):
+    return row.get("dir") or row["name"]
+
+
+def _type_row(data, type_name):
+    return next((t for t in (data or {}).get("types") or [] if _key(t["name"]) == _key(type_name)), None)
+
+
+def type_dir(data, type_name):
+    """那個型別現在的夾名：有 dir 用 dir，沒有（升級前）用型別名；型別不在表回 None。"""
+    row = _type_row(data, type_name)
+    return _dir_of(row) if row is not None else None
+
+
+def dir_type(data, folder):
+    """反查：第一層的夾名 → 型別名；有 dir 的列比 dir，沒有的比型別名。都不是回 None。"""
+    k = _key(folder)
+    return next((t["name"] for t in (data or {}).get("types") or [] if _key(_dir_of(t)) == k), None)
+
+
+_TYPES_CACHE = {}
+
+
+def _types_cached(vault):
+    """card_rel 這類一次叫很多遍的：profile.json 的型別表，照檔的 stat 快取（檔換了就重讀）；沒檔、壞檔回 []。"""
+    p = _path(vault)
+    try:
+        st = os.stat(p)
+    except OSError:
+        return []
+    stamp = (st.st_mtime_ns, st.st_size, getattr(st, "st_ino", 0))
+    hit = _TYPES_CACHE.get(str(p))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    try:
+        types = (load(vault) or {}).get("types") or []
+    except (ValueError, OSError):
+        types = []
+    _TYPES_CACHE[str(p)] = (stamp, types)
+    return types
+
+
+def folder_of(vault, type_name):
+    """讀磁碟上的設定檔：那個型別的夾名（type_dir）；型別不在表照舊用型別名。"""
+    return type_dir({"types": _types_cached(vault)}, type_name) or type_name
+
+
+def type_of_folder(vault, folder):
+    """讀磁碟上的設定檔：第一層夾名 → 型別名（dir_type），不是型別夾回 None。"""
+    return dir_type({"types": _types_cached(vault)}, folder)
+
+
+def _entity_type_of(sub, by_id, by_name):
+    """型別夾第二層的一個夾是哪個型別的實體：<名稱>/<名稱>.md 的檔頭編號，或實體清單同名的 active 實體（只一種型別才算）。"""
+    from kb._lib import entities
+    md = Path(sub.path) / f"{sub.name}.md"
+    eid = entities.head_id(md) if md.is_file() else None
+    if eid in by_id:
+        return by_id[eid].get("type")
+    kinds = {_key(e.get("type")) for e in by_name.get(_key(sub.name), [])}
+    if len(kinds) == 1:
+        return by_name[_key(sub.name)][0].get("type")
+    return None
+
+
+def renamed_dirs(vault, types, old_types=None):
+    """她在檔案總管自己改了型別夾的名字（D-247），只讀：某型別的夾不在，第一層剛好有一個不在型別表的夾，
+    裡面認得出的實體夾（<夾>/<名稱>/<名稱>.md 的綜合卡，或實體清單記的實體）全是那個型別的 → [{"type","from","to"}]。
+    認不出（空夾、混了不同型別、兩個夾都像）不算。types 的 dir 照它記的（沒有 dir 是型別名）。
+    default：她改成的也是預設樣子（例 05 業主），不算她自訂的名字，dir_plan 照編號改回去（folder_check 不把它列進 renamed）。
+    她把編號拿掉（01 案子 → 案子）也算她改名（裁定 11，收回裁定 7）。old_types 給了：只有舊表就有的列算已知的型別、
+    要找回夾的型別（這次要新加的不算，裁定 12）；沒給全部都算。"""
+    from kb._lib import entities
+    v = Path(vault)
+    had = None if old_types is None else {_key(t["name"]) for t in old_types}
+    existing = [t for t in types if had is None or _key(t["name"]) in had]
+    known = {_key(_dir_of(t)) for t in existing}
+    unlisted = [n for n in _first_level_dirs(vault) if _key(n) not in known]
+    missing = [t for t in existing if not (v / _dir_of(t)).is_dir()]
+    if not unlisted or not missing:
+        return []
+    try:
+        ents = [e for e in entities.load(vault)["entities"] if e.get("type") and not entities.is_self(e)]
+    except ValueError:
+        ents = []
+    by_id = {e.get("id"): e for e in ents if e.get("status") != "merged"}
+    by_name = {}
+    for e in ents:
+        if e.get("status") == "active":
+            by_name.setdefault(_key(e["name"]), []).append(e)
+    owner = {}
+    for folder in unlisted:
+        kinds = set()
+        try:
+            subs = [s for s in os.scandir(v / folder) if not s.name.startswith(".") and s.is_dir(follow_symlinks=False)]
+        except OSError:
+            continue
+        for sub in subs:
+            t = _entity_type_of(sub, by_id, by_name)
+            if t:
+                kinds.add(_key(t))
+        if len(kinds) == 1:
+            owner[folder] = kinds.pop()
+    out = []
+    for t in missing:
+        hits = [f for f, k in owner.items() if k == _key(t["name"])]
+        if len(hits) == 1:
+            out.append({"type": t["name"], "from": _dir_of(t), "to": hits[0],
+                        "default": is_default_dir(t["name"], hits[0])})
+    return out
+
+
+RENAMED_LINE = "型別夾{names}：跑 kb profile apply 記下來（不用問）。"
+RENAMED_WITH = "型別夾{names}，套用時一起記下"  # 設定檔也有改：照「先複述、說好才 apply」，不說不用問
+RENAMED_SHOWN = 3
+
+
+def renamed_label(r):
+    """講她改名時前面那個名字：新夾名等於型別名（她把編號拿掉）講原本的夾名，其他講型別名（裁定 11）。"""
+    return r["from"] if _key(r["to"]) == _key(r["type"]) else r["type"]
+
+
+def renamed_pairs(renamed):
+    """成功句的「案子 → 工程案」：前面那個名字跟開場同一套（renamed_label）。"""
+    return "、".join(f"{renamed_label(r)} → {r['to']}" for r in renamed)
+
+
+def renamed_line(renamed, with_change=False):
+    """她改了型別夾名（renamed_dirs）的那一句：開場與 kb profile check 共用（裁定 8），最多列 3 個；沒有回 None。"""
+    if not renamed:
+        return None
+    names = "、".join(f"「{renamed_label(r)}」你改名叫「{r['to']}」了" for r in renamed[:RENAMED_SHOWN])
+    return (RENAMED_WITH if with_change else RENAMED_LINE).format(names=names)
+
+
+DIR_TAKEN = "「{rel}」已經有同名的資料夾或檔，沒有改名；先把它搬走"
+CREATE_TAKEN = "「{rel}」已經有同名的檔，不能建成型別夾；先改名或搬走"
+
+
+def dir_plan(vault, types, old_types=None, number_legacy=False):
+    """每個型別應該用哪個夾（D-247、D-250）：照型別表順序走，dir 是她自訂的（不是預設樣子）而且夾在 → 照用；
+    其他 → default_dir(第幾列, 名稱)。沒有 dir、舊表也有這一列的是升級前的（夾名就是型別名），照舊不動；
+    number_legacy（_lib/migrate 補編號）時也改成預設名字。新的列（舊表沒有）第一層已有同名的夾就把它改名過去（D-250）。
+    列的 dir 沒給時用舊表那一列的。只算不動：回 {"types"（每列帶新的 dir）, "moves" [(現在的夾, 應該的夾)],
+    "creates" [要建的夾], "adopted" [(型別名, 原夾名, 新夾名)]（D-250 要說一聲的）, "refusal"（撞名的那句或 None）}。"""
+    v = Path(vault)
+    old = {_key(t["name"]): t for t in old_types or []}
+    out, moves, creates, adopted = [], [], [], []
+    homes = []  # 每列現在住的夾（有 dir 的 dir、升級前的型別名；新列還沒有）：D-250 不收編別的型別的夾（裁定 6）
+    for t in types:
+        prev = old.get(_key(t["name"]))
+        d = t["dir"] if t.get("dir") else (prev or {}).get("dir")
+        homes.append(_key(d) if d else (_key(t["name"]) if prev is not None else None))
+    for i, t in enumerate(types):
+        row = dict(t)
+        prev = old.get(_key(t["name"]))
+        d = t["dir"] if t.get("dir") else (prev or {}).get("dir")
+        if not d and prev is not None and not number_legacy:
+            row.pop("dir", None)
+            out.append(row)
+            if not (v / t["name"]).is_dir():
+                creates.append(t["name"])
+            continue
+        taken = _key(t["name"]) in {h for j, h in enumerate(homes) if j != i and h}
+        if d:
+            current = d if (v / d).is_dir() else None
+        else:
+            current = t["name"] if (v / t["name"]).is_dir() and not taken else None
+        target = d if d and current and not is_default_dir(t["name"], d) else default_dir(i, t["name"])
+        row["dir"] = target
+        out.append(row)
+        if current is None:
+            if not (v / target).is_dir():
+                creates.append(target)
+        elif current != target:
+            moves.append((current, target))
+            if prev is None and not d:
+                adopted.append((t["name"], current, target))
+    sources = {_key(a) for a, _b in moves}
+    refusal = None
+    for a, b in moves:
+        if _key(a) != _key(b) and (v / b).exists() and _key(b) not in sources:
+            refusal = DIR_TAKEN.format(rel=b)
+            break
+    if refusal is None:
+        refusal = next((CREATE_TAKEN.format(rel=c) for c in creates if (v / c).exists()), None)
+    return {"types": out, "moves": moves, "creates": creates, "adopted": adopted, "refusal": refusal}
+
+
+def with_renamed(types, old_types, renamed):
+    """型別表的列補上舊表的 dir，再把 renamed_dirs 認出的她自訂夾名記上（dir_plan 照用、不改回去）。"""
+    old = {_key(t["name"]): t for t in old_types or []}
+    to = {_key(r["type"]): r["to"] for r in renamed}
+    out = []
+    for t in types:
+        row = dict(t)
+        if not row.get("dir") and (old.get(_key(t["name"])) or {}).get("dir"):
+            row["dir"] = old[_key(t["name"])]["dir"]
+        if _key(t["name"]) in to:
+            row["dir"] = to[_key(t["name"])]
+        out.append(row)
+    return out
+
+
 def folder_check(vault, types, old_types=None):
-    """型別表對第一層夾（D-112）：to_create 表裡有、夾還沒有；unlisted 夾有、表裡沒有；
-    removed_* 是舊 JSON 有、這份表沒有的型別，夾空（或沒有夾）的進 empty，有東西的進 nonempty [(名稱, 項數)]。
-    old_types 沒給讀 profile.json。"""
+    """型別表對第一層夾（D-112、D-247）：to_create 該有、夾還沒有的夾名；unlisted 夾有、不是任何型別的夾；
+    renamed 是她自己改了名、認得出的型別夾（[{"type","from","to"}]，不算 unlisted）；moves 是照編號要改名的夾 [(從, 到)]，
+    adopted 是新型別收編的同名夾，plan_types 是每列帶好 dir 的型別表，refusal 是改名撞到的那句；
+    removed_* 是舊 JSON 有、這份表沒有的型別，夾空（或沒有夾）的進 empty，有東西的進 nonempty [(名稱, 項數)]，
+    removed_dirs 是那些型別的夾名 {名稱: 夾名}。old_types 沒給讀 profile.json。"""
     if old_types is None:
         old_types = (load(vault) or {}).get("types") or []
-    names = [t["name"] for t in types]
-    listed = {_key(n) for n in names}
-    to_create = [n for n in names if not (Path(vault) / n).is_dir()]
+    effective = with_renamed(types, old_types, [])
+    found = renamed_dirs(vault, effective, old_types)
+    renamed = [r for r in found if not r["default"]]
+    plan = dir_plan(vault, with_renamed(types, old_types, found), old_types)
+    listed = {_key(_dir_of(t)) for t in plan["types"]} | {_key(a) for a, _b in plan["moves"]}
     unlisted = [n for n in _first_level_dirs(vault) if _key(n) not in listed]
-    removed_empty, removed_nonempty = [], []
+    names = {_key(t["name"]) for t in types}
+    removed_empty, removed_nonempty, removed_dirs = [], [], {}
     for t in old_types:
-        if _key(t["name"]) in listed:
+        if _key(t["name"]) in names:
             continue
-        n = _item_count(Path(vault) / t["name"]) if (Path(vault) / t["name"]).is_dir() else 0
+        folder = Path(vault) / _dir_of(t)
+        removed_dirs[t["name"]] = _dir_of(t)
+        n = _item_count(folder) if folder.is_dir() else 0
         if n:
             removed_nonempty.append((t["name"], n))
         else:
             removed_empty.append(t["name"])
-    return {"to_create": to_create, "unlisted": unlisted, "removed_empty": removed_empty,
-            "removed_nonempty": removed_nonempty}
+    return {"to_create": plan["creates"], "unlisted": unlisted, "removed_empty": removed_empty,
+            "removed_nonempty": removed_nonempty, "removed_dirs": removed_dirs, "renamed": renamed,
+            "moves": plan["moves"], "adopted": plan["adopted"], "plan_types": plan["types"], "refusal": plan["refusal"]}
 
 
 # ---------- 渲染 ----------
@@ -1171,10 +1407,11 @@ def edited(data, section, op, fields, today=None, uses=None, **limits):
     op 是 add（主鍵已有就改那一列，沒有就加）或 remove（給主鍵）；改到的列來源 corrected、日期 today，其他列不動。
     節名、欄名不對、找不到那一列、選項欄的值不對、偏好超過上限丟 ProfileError（message 是給人看的整句）。
     其餘格式（名稱字元、保留字、第四節的型別要在第一節…）由呼叫端 render_text 後 parse_md 驗，跟 apply 同一支。
-    第六節（D-504）：uses 是用在哪能填的值（use_choices，沒給不驗）；add 帶「序號」是改第幾條；limits 是兩組上限。"""
+    第六節（D-504）：uses 是用在哪能填的值（use_choices，沒給不驗）；add 帶「序號」是改第幾條；limits 是兩組上限。
+    第一節 add 帶「序號」是把已有的型別移到第幾列（D-248，型別夾跟著重新編號由呼叫端照 dir_plan 做）。"""
     today = today or _today()
     number, columns, key = _spec(section)
-    allowed = (columns + (("序號",) if number == 6 else ())) if op == "add" else key
+    allowed = (columns + (("序號",) if number in (1, 6) else ())) if op == "add" else key
     for k in fields:
         if k not in allowed:
             raise ProfileError(number, None, f"「{section}」這一節沒有「{k}」欄；欄是 {'、'.join(allowed)}")
@@ -1202,10 +1439,29 @@ def _same(section, label):
     return f"沒有要改的：{section}「{label}」已經是這樣", False
 
 
+TYPE_ORDER_ONLY = "排順序只給 名稱 與 序號（例：kb profile add 型別 名稱=業主 序號=1）"
+TYPE_ORDER_NEW = "新加的型別排最後；先加好，再說要排第幾個"
+TYPE_ORDER_NUMBER = "序號要寫 1 到 {n} 的數字"
+
+
 def _edit_types(out, op, f, today, absent, *_limits):
     name = f["名稱"]
     rows = out["types"]
     row = next((t for t in rows if _key(t["name"]) == _key(name)), None)
+    if "序號" in f:  # 移到第 n 列（D-248）：只收已有的型別，其他欄不收
+        if set(f) - {"名稱", "序號"}:
+            raise ProfileError(1, None, TYPE_ORDER_ONLY)
+        if row is None:
+            raise ProfileError(1, None, TYPE_ORDER_NEW)
+        raw = f["序號"]
+        n = int(raw) if re.fullmatch(r"[0-9]+", raw) else 0  # 只收半形數字（裁定 9）
+        if not 1 <= n <= len(rows):
+            raise ProfileError(1, None, TYPE_ORDER_NUMBER.format(n=len(rows)))
+        if rows.index(row) == n - 1:
+            return f"沒有要改的：型別「{row['name']}」已經排第 {n} 個", False
+        rows.remove(row)
+        rows.insert(n - 1, row)
+        return f"已把{row['name']}排到第 {n} 個", True
     if row is not None:
         if "大類" in f and f["大類"] != _REVERSED[0].get(row.get("category")):
             raise ProfileError(1, None, f"型別「{row['name']}」已經有了，大類不能這樣改")
@@ -1432,11 +1688,13 @@ def _edit_tags(out, op, f, today, absent, *_limits):
 
 def status(vault):
     """開場與 check 共用，只讀。回 {"state": ok|changed|error|missing, "diff", "error", "unlisted", "to_create",
-    "removed_empty", "removed_nonempty", "data"（JSON）, "new"（解析出的 md，changed 才有）}。
+    "removed_empty", "removed_nonempty", "data"（JSON）, "new"（解析出的 md，changed 才有）}，加上 folder_check 的
+    renamed、moves、adopted、plan_types、removed_dirs、refusal（型別夾編號，D-247）。
     profile.json 壞了丟 ValueError（呼叫端各自處理，I-046）。"""
     data = load(vault)
     out = {"state": "missing", "diff": None, "error": None, "unlisted": [], "to_create": [], "removed_empty": [],
-           "removed_nonempty": [], "data": data, "new": None}
+           "removed_nonempty": [], "data": data, "new": None, "renamed": [], "moves": [], "adopted": [],
+           "plan_types": None, "removed_dirs": {}, "refusal": None}
     md = Path(vault) / MD_POSIX
     if data is None or not md.is_file():
         return out
@@ -1465,7 +1723,8 @@ def status(vault):
     if out["state"] != "changed":  # 沒有要套用的表：刪列的對帳不算
         out["removed_empty"], out["removed_nonempty"] = [], []
     if out["state"] == "error":  # 表讀不了，第一層夾的對帳沒意義（測試後修正裁定 14）
-        out["unlisted"], out["to_create"] = [], []
+        out["unlisted"], out["to_create"], out["renamed"], out["moves"], out["adopted"] = [], [], [], [], []
+        out["plan_types"], out["refusal"] = None, None
     return out
 
 

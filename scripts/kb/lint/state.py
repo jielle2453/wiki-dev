@@ -124,3 +124,23 @@ def prune(vault, turn_id=None):
         data["synthesis_fix"] = keep
         return gone
     return change(vault, fn, turn_id) or 0
+
+
+def _moved(path, mapping):
+    """path 在 mapping 的某個舊夾底下就換成新夾（比對不分大小寫）；不在回 None。"""
+    for old, new in mapping:
+        if str(path).casefold().startswith(old.casefold() + "/"):
+            return new + str(path)[len(old):]
+    return None
+
+
+def follow_dirs(vault, mapping, turn_id=None):
+    """型別夾換了名字（型別夾編號，D-247）：synthesis_fix 的 path 在 [(舊夾, 新夾)] 底下的換成新夾。回有沒有改。"""
+    def fn(data):
+        hit = False
+        for f in data["synthesis_fix"]:
+            new = _moved(f["path"], mapping)
+            if new is not None:
+                f["path"], hit = new, True
+        return hit
+    return bool(change(vault, fn, turn_id))

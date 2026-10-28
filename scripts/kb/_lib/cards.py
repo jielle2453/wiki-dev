@@ -181,9 +181,10 @@ def filename_ok(name, entry_id, title, max_chars):
     return name == expected_name(title, entry_id, max_chars)
 
 
-def prefill_entities(entry, ent_data):
-    """原檔主位置在知識庫實體夾裡（file://知識庫/<型別>/<名稱>/…）且 <名稱> 是登記的 active 實體（型別也對）→ [<名稱>]，
-    否則 []（D-043：位置決定掛哪個）。link 條目取 output link 給的 --entity 裡還登記著的（produce 第 5 點）。"""
+def prefill_entities(entry, ent_data, vault=None):
+    """原檔主位置在知識庫實體夾裡（file://知識庫/<型別夾>/<名稱>/…）且 <名稱> 是登記的 active 實體（型別也對）→ [<名稱>]，
+    否則 []（D-043：位置決定掛哪個）。link 條目取 output link 給的 --entity 裡還登記著的（produce 第 5 點）。
+    型別夾名照設定檔換成型別名（profile.type_of_folder，型別夾編號）；vault 沒給或不是型別夾照夾名比。"""
     from kb._lib import entities
     from kb._lib.inventory import KNOWLEDGE
     if entry.get("kind") == "link":
@@ -200,8 +201,9 @@ def prefill_entities(entry, ent_data):
     if alias != KNOWLEDGE or len(parts) < 3 or ent_data is None:
         return []
     found, _hit = entities.find(ent_data, parts[1])
+    type_ = (profile.type_of_folder(vault, parts[0]) if vault is not None else None) or parts[0]
     if (found is None or found.get("status") != "active" or entities.is_self(found)
-            or entities.key(found.get("type")) != entities.key(parts[0]) or entities.key(found["name"]) != entities.key(parts[1])):
+            or entities.key(found.get("type")) != entities.key(type_) or entities.key(found["name"]) != entities.key(parts[1])):
         return []
     return [found["name"]]
 
@@ -259,7 +261,7 @@ def header_for(vault, sources, entry, today=None, ent_data=False):
     if fp.get("text_sha256"):
         front["內容指紋"] = fp["text_sha256"]
     title = safe_title(entry.get("title"), config.get(vault, "card_title_max_chars")) if entry.get("kind") == "link" else None
-    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data), "待補型別": [],
+    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data, vault), "待補型別": [],
                   "文件日期": DATE_FILL, "讀取": READ_FILL,
                   "製卡日期": today or date.today().isoformat(),
                   "範本版本": TEMPLATE_VERSION, "敏感資料種類": [], "開原檔": entry_link(vault, sources, entry)})
@@ -556,7 +558,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
     def unlinked_item(entry, card, reason):
         types = [t for t in card["front"].get("待補型別") or [] if entities.key(t) in have_types] if reason != "v1" else []
         return {"id": entry["id"], "path": card["path"], "reason": reason, "types": types,
-                "prefill": prefill_entities(entry, ent_data)}
+                "prefill": prefill_entities(entry, ent_data, vault)}
 
     try:  # 密碼與守門：有「可以讀」裁示的那份照一般檔整理（D-183），下次掃描前清冊可能還記著 credential
         from kb._lib import rulings

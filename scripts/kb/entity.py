@@ -49,7 +49,7 @@ def add_arguments(sub):
     rb = subs.add_parser("rebuild", help="綜合卡不見了，重寫", description="綜合卡被刪了：回到待建綜合卡，照檔案卡重寫。")
     rb.add_argument("ref", help="名稱或編號（e-…）")
     cl = subs.add_parser("clean", help="清掉放錯的綜合卡", description="刪掉放錯位置的綜合卡（照對的位置寫好之後）。")
-    cl.add_argument("path", help="放錯的綜合卡（相對總資料夾，例：案子/王宅/王宅.md）")
+    cl.add_argument("path", help="放錯的綜合卡（相對總資料夾，例：01 案子/王宅/王宅.md）")
     ls = subs.add_parser("list", help="列出實體", description="列出實體、掛了幾張檔案卡、有沒有綜合卡。")
     ls.add_argument("--tag", action="append", help="照標籤篩：欄=詞（多個詞用逗號分開，是或）；可以重複（不同欄是且）")
     rd = subs.add_parser("render", help="重寫綜合卡的快取欄", description="重寫全部綜合卡檔頭的 檔案卡、相關實體 兩欄。")

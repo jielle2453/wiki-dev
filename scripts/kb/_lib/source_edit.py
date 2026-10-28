@@ -258,13 +258,19 @@ def uri_of(vault, sources, path):
     return f"file://{src['alias']}" if rel == "." else inventory.make_uri(src["alias"], rel)
 
 
-def _types(vault):
+def _profile_data(vault):
     from kb._lib import profile
     try:
-        data = profile.load(vault) or {}
+        return profile.load(vault) or {}
     except ValueError:
-        data = {}
-    return {str(t.get("name", "")).casefold() for t in data.get("types") or []}
+        return {}
+
+
+def _types(vault):
+    """型別夾名的集合（小寫）：照設定檔記的夾名（型別夾編號，沒有 dir 的是型別名）。"""
+    from kb._lib import profile
+    data = _profile_data(vault)
+    return {str(profile.type_dir(data, t.get("name", "")) or "").casefold() for t in data.get("types") or []}
 
 
 def _zone(vault, sources, path):
@@ -522,10 +528,11 @@ def excludes_under(vault, path):
 
 # ---------- 搬、改名 ----------
 
-def missing_entity_dir(vault, dest, cwd):
-    """--to 是實體清單裡 active 實體的 <型別>/<名稱>（也收 知識庫/<型別>/<名稱> 與絕對路徑）、型別夾在、那個夾還不在：
-    回要建的相對路徑（登記的型別名與名稱）；其他回 None，照舊由 resolve_folder 判（收件匣裁定 1：只建這一層）。"""
-    from kb._lib import entities
+def _entity_folder(vault, dest, cwd):
+    """--to 是實體清單裡 active 實體的 <型別夾>/<名稱>（也收 知識庫/<型別夾>/<名稱> 與絕對路徑）、型別夾在：
+    回 (實際的相對路徑 <型別夾>/<登記的名稱>, 照字面解出的路徑)；不是回 (None, None)。
+    型別夾編號：<型別夾> 收實際的夾名（01 案子），也收型別名（案子）。"""
+    from kb._lib import entities, profile
     text = str(dest or "").strip().replace("\\", "/")
     head, _sep, rest = text.partition("/")
     if os.path.isabs(text):
@@ -535,19 +542,38 @@ def missing_entity_dir(vault, dest, cwd):
     else:
         path = Path(cwd) / text
     parts = _parts(vault, path)
-    if not parts or len(parts) != 2 or os.path.lexists(path) or not (Path(vault) / parts[0]).is_dir():
-        return None
+    if not parts or len(parts) != 2:
+        return None, None
+    prof = _profile_data(vault)
+    type_ = profile.dir_type(prof, parts[0]) or (parts[0] if profile.type_dir(prof, parts[0]) else None)
+    folder = profile.type_dir(prof, type_) if type_ else None
+    if folder is None or not (Path(vault) / folder).is_dir():
+        return None, None
     try:
         data = entities.load(vault)
     except ValueError:
-        return None
+        return None, None
     e, _hit = entities.find(data, parts[1])
     if (e is None or e.get("status") != "active" or entities.is_self(e) or not e.get("type")
-            or entities.key(e["type"]) != entities.key(parts[0]) or entities.key(e["name"]) != entities.key(parts[1])):
+            or entities.key(e["type"]) != entities.key(type_) or entities.key(e["name"]) != entities.key(parts[1])):
+        return None, None
+    return f"{folder}/{e['name']}", path
+
+
+def missing_entity_dir(vault, dest, cwd):
+    """--to 是登記實體的 <型別夾>/<名稱>、那個夾還不在：回要建的相對路徑（實際的型別夾名與登記的名稱）；
+    其他回 None，照舊由 resolve_folder 判（收件匣裁定 1：只建這一層）。"""
+    rel, _path = _entity_folder(vault, dest, cwd)
+    return rel if rel and not os.path.lexists(Path(vault) / rel) else None
+
+
+def entity_folder(vault, dest, cwd):
+    """--to 用型別名寫實體夾（案子/信義王）、實際的夾（01 案子/信義王）已經在：回實際的相對路徑（型別夾編號裁定 5）。
+    照字面就找得到的（實際的夾名、別名/相對路徑）回 None，照舊由 resolve_folder 判。"""
+    rel, path = _entity_folder(vault, dest, cwd)
+    if rel is None or os.path.lexists(path) or not (Path(vault) / rel).is_dir():
         return None
-    if entities.key(e["type"]) not in {entities.key(t) for t in _types(vault)}:
-        return None
-    return f"{parts[0]}/{e['name']}"
+    return rel
 
 
 def _periodic_source(entries):
@@ -570,7 +596,8 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
         dest_dir = src.parent
     else:
         make_dir = missing_entity_dir(vault, dest, cwd)
-        dest_dir = Path(vault) / make_dir if make_dir else resolve_folder(vault, sources, dest, cwd)
+        known = None if make_dir else entity_folder(vault, dest, cwd)
+        dest_dir = Path(vault) / (make_dir or known) if make_dir or known else resolve_folder(vault, sources, dest, cwd)
         check_to(vault, sources, dest_dir, str(dest), make=bool(make_dir))
         name = src.name
         dn, sn = normalize(str(dest_dir), None), normalize(str(src), None)
@@ -860,8 +887,8 @@ def _synthesis_rels(vault, names):
     out = []
     for n in names:
         e, _hit = entities.find(data, n)
-        if e and e.get("type") and (Path(vault) / synthesis.card_rel(e)).is_file():
-            rel = synthesis.card_rel(e)
+        if e and e.get("type") and (Path(vault) / synthesis.card_rel(e, vault)).is_file():
+            rel = synthesis.card_rel(e, vault)
             if rel not in out:
                 out.append(rel)
     return out
@@ -936,7 +963,7 @@ def _synthesis_names(vault, names):
         return out
     for n in names:
         e, _hit = entities.find(data, n)
-        if e and e.get("status") == "active" and e.get("type") and (Path(vault) / synthesis.card_rel(e)).is_file():
+        if e and e.get("status") == "active" and e.get("type") and (Path(vault) / synthesis.card_rel(e, vault)).is_file():
             if e["name"] not in out:
                 out.append(e["name"])
     return out

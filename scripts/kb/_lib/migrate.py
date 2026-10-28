@@ -11,6 +11,11 @@ pending 只讀；apply 一個檔失敗不擋其他檔，失敗的列進 skipped�
 entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 active、有綜合卡的實體，檔頭的標籤行（第八節這個型別的欄、有值的）抄進 tags
 （字典外的詞、單選寫兩個的那一欄不抄，列進 skipped）；tags_said 空、備份 by program（回答末尾不講）。沒有綜合卡、型別有標籤欄的
 下次整理照 cards todo 的只補標籤項目補（裁定 4），不另外記。
+型別夾補編號（型別夾編號，D-249）：另一列，rel 也是 profile.json（kb init 已經可能把 schema 升到 7，所以不看 schema）：
+型別表有沒有 dir 的列算 6、都有算 7。rewrite 照 dir_plan 把夾名就是型別名的夾改成預設名字（01 案子）、寫 dir；沒有夾的 dir 寫預設名字
+（之後照常補建）；她以前改過名、認得出來的（profile.renamed_dirs）dir 記那個夾、不動。設定檔與夾在同一套 _Undo、寫前備進回合，
+做完照 profile_cli._follow 跟上清冊、檔案卡、總目錄與綜合卡快取；md 有手改未套用、背景整理在跑時 Skip。
+apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
 """
 from collections import namedtuple
 from pathlib import Path
@@ -97,6 +102,61 @@ def _rewrite_entities(vault, turn_id):
     return skipped
 
 
+DIRS_PENDING = "設定檔有沒套用的改動，先 kb profile apply 再升級"
+DIRS_BUSY = "背景整理還在跑，型別夾先不補編號；等它做完再跑一次 kb upgrade --finish"
+DIRS_NOTE = "型別夾補上編號：{pairs}"
+
+
+def _dirs_stored(vault):
+    """補編號那列：型別表有沒有 dir 的列算 6、都有（或沒有型別）算 7；沒有設定檔、讀不了回 None。"""
+    try:
+        data = profile.load(vault)
+    except (ValueError, OSError):
+        return None
+    if data is None:
+        return None
+    return 6 if any(not t.get("dir") for t in data["types"]) else profile.SCHEMA_VERSION
+
+
+def _rewrite_dirs(vault, turn_id):
+    """D-249：沒有 dir 的列補上編號（profile.dir_plan(number_legacy=True)）；她以前改過名的記她的夾名。回 notes 給 apply。"""
+    from kb import profile_cli
+    from kb._lib import backup
+    if backup.batch_running(vault):  # 同升級那套判斷（D-215）：還有動靜的批次
+        raise Skip(DIRS_BUSY)
+    with profile.lock(vault):
+        data = profile.load(vault)
+        if data is None:
+            return None
+        if profile.md_sha256(vault) != data.get("md_sha256"):
+            raise Skip(DIRS_PENDING)
+        effective = profile.with_renamed(data["types"], data["types"], [])
+        found = profile.renamed_dirs(vault, effective, data["types"])
+        plan = profile.dir_plan(vault, profile.with_renamed(data["types"], data["types"], found), data["types"],
+                                number_legacy=True)
+        if plan["refusal"]:
+            raise Skip(plan["refusal"])
+        renamed = [r for r in found if not r["default"]]
+        pairs = [(r["from"], r["to"]) for r in renamed]
+        from kb._lib import turn
+        for d in plan["creates"]:  # 沒有夾的照預設名字先建（同 apply 先建夾再寫檔）：建不成這一列不算遷了，下次再試
+            if not (Path(vault) / d).exists():
+                (Path(vault) / d).mkdir()
+                turn.record_folder(vault, turn_id, "make", d)
+
+        def act(undo):
+            changed = profile_cli._write_profile(vault, dict(data, types=plan["types"]), turn_id, undo)
+            more, touched = profile_cli._dir_work(vault, undo, turn_id, plan["moves"], pairs)
+            return changed + more, touched
+        _changed, touched = entities._guarded(vault, act)
+    if touched or plan["moves"] or pairs:
+        profile_cli._refresh(vault, touched + profile_cli._moved_names(vault, data, list(plan["moves"]) + pairs), turn_id)
+    notes = [DIRS_NOTE.format(pairs="、".join(f"{a} → {b}" for a, b in sorted(plan["moves"])))] if plan["moves"] else []
+    if renamed:
+        notes.append(profile_cli.RENAMED_DONE.format(pairs=profile.renamed_pairs(renamed)))
+    return {"notes": notes}
+
+
 def _rewrite_pending(vault, turn_id):
     """schema 1 → 2（lint 題，D-226）：load 補 set_aside、returned，照 pending 自己的寫法寫回（兩檔備進回合、重渲染）。"""
     pending_lib.refresh(vault, turn_id)
@@ -110,18 +170,26 @@ STATE_FILES = (
               _rewrite_entities),
     Migration(pending_lib.PENDING_POSIX, lambda: pending_lib.SCHEMA_VERSION, _raw_version(pending_lib.PENDING_POSIX),
               _rewrite_pending),
+    Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _dirs_stored, _rewrite_dirs),
 )
 CARD_HEADER_MIGRATIONS = []
 
 
+def _due(vault, m):
+    stored, current = m.stored(vault), m.current()
+    return (stored, current) if isinstance(stored, int) and stored < current else None
+
+
 def pending(vault):
-    """要遷的狀態檔 [{"rel", "from", "to"}]：存的 schema 比現在舊的。只讀；沒檔、讀不了的不算。"""
-    out = []
+    """要遷的狀態檔 [{"rel", "from", "to"}]：存的 schema 比現在舊的；同一個 rel 有兩列要遷時併成一項（from 取舊的）。
+    只讀；沒檔、讀不了的不算。"""
+    out = {}
     for m in STATE_FILES:
-        stored, current = m.stored(vault), m.current()
-        if isinstance(stored, int) and stored < current:
-            out.append({"rel": m.rel, "from": stored, "to": current})
-    return out
+        due = _due(vault, m)
+        if due:
+            was = out.get(m.rel)
+            out[m.rel] = {"rel": m.rel, "from": min(due[0], was["from"]) if was else due[0], "to": due[1]}
+    return list(out.values())
 
 
 def _first_line(e):
@@ -158,20 +226,24 @@ def _migrate_cards(vault, turn_id, skipped):
 
 
 def apply(vault, turn_id):
-    """遷移全部要遷的。回 {"migrated": [rel…], "skipped": [{"rel","why"}], "cards": 遷了幾張卡的檔頭}。
-    一個檔失敗（Skip、讀不了、寫不進去）列進 skipped，不擋其他檔。"""
-    migrated, skipped = [], []
-    todo = {p["rel"] for p in pending(vault)}
-    for m in STATE_FILES:
-        if m.rel not in todo:
-            continue
+    """遷移全部要遷的。回 {"migrated": [rel…]（同一個 rel 只列一次）, "skipped": [{"rel","why"}], "cards": 遷了幾張卡的檔頭,
+    "notes": [句子]（補編號那列講改了哪些夾）}。按列判斷：每一列照開始時看到的版本決定要不要跑。
+    一個檔失敗（Skip、讀不了、寫不進去）列進 skipped，不擋其他檔。rewrite 回清單的併進 skipped；回 {"notes"} 的併進 notes。"""
+    migrated, skipped, notes = [], [], []
+    todo = [m for m in STATE_FILES if _due(vault, m)]
+    for m in todo:
         try:
             extra = m.rewrite(vault, turn_id)
         except Skip as e:
-            skipped.append({"rel": m.rel, "why": str(e)})
+            if {"rel": m.rel, "why": str(e)} not in skipped:  # 同一個 rel 兩列同一句只列一次
+                skipped.append({"rel": m.rel, "why": str(e)})
         except (ValueError, OSError) as e:
             skipped.append({"rel": m.rel, "why": f"沒遷成（{_first_line(e)}）"})
         else:
-            migrated.append(m.rel)
-            skipped += extra or []
-    return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped)}
+            if m.rel not in migrated:
+                migrated.append(m.rel)
+            if isinstance(extra, dict):
+                notes += extra.get("notes") or []
+            else:
+                skipped += extra or []
+    return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped), "notes": notes}

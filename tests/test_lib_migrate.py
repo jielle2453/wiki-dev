@@ -42,7 +42,8 @@ class Table(Base):
     def test_registered_files_are_profile_inventory_entities_pending(self):
         """lint 題：pending.json schema 1 → 2 加一列（D-226）。"""
         self.assertEqual([m.rel for m in migrate.STATE_FILES],
-                         [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json"])
+                         [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json",
+                          ".system/profile.json"])  # 第五列：型別夾補編號（D-249）
 
     def test_card_header_table_is_empty_for_now(self):
         self.assertEqual(migrate.CARD_HEADER_MIGRATIONS, [])
@@ -97,7 +98,7 @@ class ApplyProfile(Base):
         got = migrate.apply(self.V, self.turn)
         self.assertEqual(got["migrated"], [".system/profile.json"])
         data = read(self.V, ".system/profile.json")
-        self.assertEqual((data["schema_version"], data["tags"]), (6, []))
+        self.assertEqual((data["schema_version"], data["tags"]), (7, []))
         self.assertIn("\n## 八、標籤\n", md.read_text(encoding="utf-8"))
         self.assertEqual((self.saved(".system/profile.json").read_bytes(), self.saved("系統/客戶設定檔.md").read_bytes()),
                          before)

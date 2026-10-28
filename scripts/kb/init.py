@@ -33,7 +33,9 @@ FILE_ATTRIBUTE_HIDDEN = 0x2
 INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 UPGRADE_LINES = {1: "設定檔升級：補第四、五、六、七、八節", 2: "設定檔升級：補第六、七、八節",
                  3: "設定檔升級：補第七、八節，第六節加用在哪", 4: "設定檔升級：補第八節，第六節加用在哪",
-                 5: "設定檔升級：第六節加用在哪"}  # 磁碟上的舊 schema → 補哪幾節（D-504：第六節多用在哪欄）
+                 5: "設定檔升級：第六節加用在哪",
+                 6: "設定檔升級：第一節的說明改成型別夾有編號"}  # 磁碟上的舊 schema → 補哪幾節（D-504：第六節多用在哪欄）
+# schema 6 → 7（型別夾編號）只重寫 JSON 與 md：型別的 dir 不補、夾不動，補編號只走 _lib/migrate（kb upgrade --finish）
 UPGRADE_BLOCKED = "設定檔有沒套用的改動，先 kb profile apply 再跑 kb init 升級"
 
 
@@ -90,7 +92,7 @@ def _fill_profile(p, have_json, have_md, notes):
 
 
 def _profile_upgrade(p):
-    """兩份設定檔都在、JSON 是 schema 1～5：md 沒改過回 upgrade，改過回 blocked；其他回 None。"""
+    """兩份設定檔都在、JSON 是 schema 1～6：md 沒改過回 upgrade，改過回 blocked；其他回 None。"""
     if not ((p / profile.PROFILE_POSIX).is_file() and (p / profile.MD_POSIX).is_file()):
         return None
     if profile.stored_schema(p) not in UPGRADE_LINES:
@@ -103,7 +105,7 @@ def _profile_upgrade(p):
 
 
 def _upgrade_profile(p):
-    """寫遷移後的 schema 6 JSON（produce 第 6 點補第七節、標籤字典補第八節、偏好分用在哪補 use）、重渲染 md、回填 sha（不開回合、不備份：md 沒改過，內容照 JSON 重寫）。"""
+    """寫遷移後的 JSON（produce 第 6 點補第七節、標籤字典補第八節、偏好分用在哪補 use；schema 7 不補型別的 dir）、重渲染 md、回填 sha（不開回合、不備份：md 沒改過，內容照 JSON 重寫）。"""
     data = profile.load(p)
     data["md_sha256"] = profile.sha256_text(profile.render(p, data))
     write_json_atomic(p / profile.PROFILE_POSIX, data)

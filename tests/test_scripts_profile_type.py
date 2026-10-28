@@ -251,9 +251,9 @@ class Remove(Base):
         self.assertEqual([(r["label"], r["do"], r["strict"]) for r in got["results"]],
                          [("刪掉設計師這一類", ["kb profile type remove 設計師"], True), ("先不刪", [], False)])
         self.assertEqual(self.kb("remove", "設計師").stdout.strip(), "已拿掉型別「設計師」")
-        self.assertFalse((self.V / "設計師").exists())
+        self.assertFalse((self.V / "05 設計師").exists())
         self.assertNotIn("設計師", [x["name"] for x in self.data()["types"]])
-        self.assertEqual([(x["op"], x["from"]) for x in turn.folders(self.V, t)], [("remove", "設計師")])
+        self.assertEqual([(x["op"], x["from"]) for x in turn.folders(self.V, t)], [("remove", "05 設計師")])
 
     def test_remove_with_entities(self):
         before = tree(self.V, ())

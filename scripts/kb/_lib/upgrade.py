@@ -831,7 +831,7 @@ def _pending_snapshot(vault, hist, plugin):
 
 def finish(vault, turn_id):
     """kb upgrade --finish。回 {"already": True, "to": X}（一樣版本、第一次記錄）或
-    {"already": False, "from","to","kind","snapshot","migrated","migrate_skipped","cards_migrated",
+    {"already": False, "from","to","kind","snapshot","migrated","migrate_skipped","migrate_notes","cards_migrated",
     "skeleton_created","skeleton_replaced","skeleton_ask","note","by"}。鎖被占丟 backup.Refused，什麼都沒動。
     已裝的版本不比 update_check 記的驗不過那一版舊時，那筆清掉（裁定 13：例如她在外面換上了那一版）。"""
     plugin = plugin_version()
@@ -847,7 +847,7 @@ def finish(vault, turn_id):
     k = "major" if k == "none" else k  # 紀錄的版本看不懂：照大升級（先拍快照）處理
     with backup.acquire(vault):
         result = {"already": False, "from": cur, "to": plugin, "kind": k, "snapshot": None, "migrated": [],
-                  "migrate_skipped": [], "cards_migrated": 0, "skeleton_created": [], "skeleton_replaced": [],
+                  "migrate_skipped": [], "migrate_notes": [], "cards_migrated": 0, "skeleton_created": [], "skeleton_replaced": [],
                   "skeleton_ask": []}
         snapshot = _pending_snapshot(vault, hist, plugin)
         by = "customer" if snapshot else "outside"
@@ -871,6 +871,7 @@ def finish(vault, turn_id):
             created = sorted({rel for rel in skeleton.files() if rel not in had and (Path(vault) / rel).exists()}
                              | set(sk["created"]))  # 缺的骨架檔多半是 init 補的，reconcile 看到時已經在了
             result.update(migrated=mig["migrated"], migrate_skipped=mig["skipped"], cards_migrated=mig["cards"],
+                          migrate_notes=mig.get("notes") or [],
                           skeleton_created=created, skeleton_replaced=sk["replaced"], skeleton_ask=sk["ask"])
         result["snapshot"] = snapshot if k != "patch" else None
         hist["current"], hist["pending"] = plugin, None
