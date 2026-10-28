@@ -114,6 +114,8 @@ def main():
                              "head": str((payload.get("tool_input") or {}).get("command") or "")})
             else:
                 updated = with_session(payload, tool, tokens)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
+        if decision in ("allow", "ask") and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
+            _mark_secret(d.vault, payload, tool)
         if d.vault is not None:
             try:
                 for row in rows:
@@ -224,6 +226,23 @@ def with_session(payload, tool, tokens):
     if _has_flag(tokens, SECRET_FLAGS):
         return None  # updatedInput 會把整串（含密碼值）印進 hook 的輸出（D-212 守著不帶密碼值），不改寫
     return with_flags(ti, ("--session", sid))
+
+
+def _mark_secret(vault, payload, tool):
+    """帶密碼值（--password、--value）的主對話 kb 呼叫：指令不改寫（值不進 hook 輸出），放行或 ask 前直接替 payload 那個對話的
+    目前回合標 secret_shown（#20 裁定 12），Stop 不記那句回答。多標可以接受；標不上只記 log、不改決定。"""
+    from kb._lib import ledger
+    sid = payload.get("session_id")
+    if payload.get("agent_id") or not sid:
+        return
+    tokens = kb_args((payload.get("tool_input") or {}).get("command"), tool)
+    if tokens is None or not _has_flag(tokens, SECRET_FLAGS):
+        return
+    try:
+        from kb._lib import turn
+        turn.mark_session(vault, sid, "secret_shown")
+    except Exception as e:  # noqa: BLE001  標不上不擋這次呼叫
+        ledger.log_error(vault, f"secret_shown 沒標到：{type(e).__name__}: {str(e)[:200]}")
 
 
 def _outside(payload, tool, vault):

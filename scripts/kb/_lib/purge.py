@@ -660,7 +660,8 @@ def _scrub_version(vault, vdir, ids, prefix, mask, counts):
 
 
 def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
-    """一個回合夾：卡與綜合卡舊版刪、狀態檔舊版改寫、md 舊版重渲染、總目錄舊版拿掉那些行、manifest 標 purged、moves.jsonl 遮。
+    """一個回合夾：卡與綜合卡舊版刪、狀態檔舊版改寫、md 舊版重渲染、總目錄舊版拿掉那些行、manifest 標 purged、moves.jsonl 遮、
+    writes.jsonl 拿掉那些行。
     每一份各自 try（寫不了的算進還剩的），manifest 不管中途怎樣都在最後寫（第二輪修：刪了檔、帳卻沒改，重跑就認不出來）。"""
     files = vdir / "files"
     manifest = vdir / "manifest.jsonl"
@@ -690,6 +691,36 @@ def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
                 except OSError:
                     counts["left"]["backups"] += 1
         _scrub_moves(vdir, prefix, counts)
+        _scrub_writes(vdir, prefix, shorts, counts)
+
+
+def _scrub_writes(vdir, prefix, shorts, counts):
+    """writes.jsonl（#20 裁定 13，同回合同路徑再寫的時間）：路徑是那些卡、在那夾的卡夾底下、或在清掉的夾裡的那一行整行拿掉
+    （只是時間紀錄，不留遮過的版本）。拿 manifest 鎖的呼叫端叫。"""
+    try:
+        path = vdir / "writes.jsonl"
+        if not path.is_file():
+            return
+        alias, spec = inventory.split_uri(prefix)
+        card_dir = f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+        text = path.read_text(encoding="utf-8")
+        out = []
+        for ln in text.splitlines():
+            try:
+                row = json.loads(ln)
+            except ValueError:
+                out.append(ln)
+                continue
+            rel = row.get("path") if isinstance(row, dict) else None
+            if isinstance(rel, str) and (_card_row(rel, shorts) or rel.casefold().startswith(card_dir)
+                                         or _in_folder(f"file://{inventory.KNOWLEDGE}/{rel}", prefix)):
+                continue
+            out.append(ln)
+        new = "".join(x + "\n" for x in out)
+        if new != text:
+            write_text_atomic(path, new)
+    except (OSError, UnicodeDecodeError):
+        counts["left"]["backups"] += 1
 
 
 _NODE = re.compile(r"^( *)- (.*?)\r?\n?$")

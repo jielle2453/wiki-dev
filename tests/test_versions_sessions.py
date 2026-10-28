@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 from tests._guard_fixture import KB, ROOT, make_vault
 from tests.test_scripts_versions_cli import said
@@ -323,6 +324,17 @@ class SecretShown(Base):
                                            "tool_name": "Bash",
                                            "tool_input": {"command": f'python "{KB}" --session {B} unlock get --name 工地大門'}}))
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")  # ask 那條也不准自己帶 --session
+
+    def test_password_call_marks_own_turn_without_rewriting(self):
+        """裁定 12：帶 --password 的呼叫不改寫指令（值不進 hook 輸出），守門直接替 A 的目前回合標 secret_shown。"""
+        self.prompt(A, "用密碼開那份 PDF")
+        self.prompt(B, "你好")  # B 後開口：current.json 是 B
+        raw = hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                "tool_input": {"command": f'python "{KB}" convert a.pdf --password "zq-7731"'}})
+        self.assertNotIn("zq-7731", raw)
+        self.assertNotIn("updatedInput", raw)
+        self.assertTrue(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
+        self.assertFalse(turn._read_turn(turn._session_file(self.V, B)).get("secret_shown"))
         self.prompt(A, "工地大門密碼多少")
         self.prompt(B, "你好")  # B 後開口：current.json 是 B
         import contextlib
@@ -360,3 +372,32 @@ class TurnNote(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from tests import test_lib_purge as _purge  # noqa: E402  只借 setUp 與小工具，不把那邊的測試帶進來
+
+
+class PurgeWrites(unittest.TestCase):
+    """裁定 13：kb folders purge 把 writes.jsonl 裡那些卡與那夾的路徑整行拿掉。"""
+    setUp = _purge.Purge.setUp
+    tearDown = _purge.Purge.tearDown
+    write_synthesis = _purge.Purge.write_synthesis
+    exclude = _purge.Purge.exclude
+
+    def test_purge_drops_writes_rows(self):
+        V = self.V
+        t = turn.start(V, None, "")["turn"]
+        turn.backup(V, self.card_rel, t)
+        turn.backup(V, self.card_rel, t)  # 同回合再寫一次：writes.jsonl
+        turn.backup(V, "系統/日程.md", t)
+        turn.backup(V, "系統/日程.md", t)
+        self.assertEqual({w["path"] for w in turn.writes(V, t)}, {self.card_rel, "系統/日程.md"})
+        turn.start(V, None, "")
+        self.exclude()
+        self.write_synthesis("信義王現在很好。")
+        code, out = _purge.kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
+        self.assertEqual(code, 0, out)
+        rows = [ln for d in (Path(V) / ".system/versions").iterdir() if (d / "writes.jsonl").is_file()
+                for ln in (d / "writes.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertFalse([ln for ln in rows if "私人" in ln or self.card_rel in ln], rows)
+        self.assertEqual([w["path"] for w in turn.writes(V, t)], ["系統/日程.md"])  # 別的路徑留著
