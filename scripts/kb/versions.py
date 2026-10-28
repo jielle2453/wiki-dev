@@ -19,6 +19,10 @@ revert、delete-outputs 成功後記一段工作日誌程式段（D-085），not
 manifest 的 purged 行（不讀的夾清掉了，kb folders purge）跳過，多印一句退不回。
 B-074（備份還原與換電腦）：人讀輸出不唸回合代號，每個回合用「MM-DD HH:MM 那句「…」」描述（list、revert 成功句、只能從最近一次退、
 delete-outputs 的句子）；--json 照留代號。clean：本體在 _lib/clean，回合備份超過天數或個數就從最舊的清、至少留最近幾個。
+多個對話同開（#20，D-506～D-508）：有 --session（守門替對話插的）時，list、revert、delete-outputs 只看這個對話的回合加上沒有對話的
+（終端機、背景健檢、舊回合），別的對話的跳過；turn.json 沒記 session 的 job 回合照 batches.json 的 job 認。終端機跑的照舊看全部。
+要退的回合碰過的路徑，後來又被任何回合碰過（回合代號比它晚，或那一列的時間比它晚；大小寫不分、夾與夾裡的檔也算）就整個不退、
+什麼都不動，列出是哪幾份、被哪一句改過（D-508）。
 """
 import argparse
 import json
@@ -65,6 +69,10 @@ PURGED_MARK = "（已排除）"
 FILE_OPEN = "退不回去：「{rel}」正開著（檔案總管、Office 或記事本），什麼都沒動；關掉再說一次退回"
 UNEXPECTED = "退不回去：{why}；可能只退了一部分，先別再說退回，請服務人員看一下"
 AGAIN = "再說一次「退回」會把這次的退回取消，不會再往前退。"  # 成功時最後一行（B-441：D-074 連退兩次是取消，不是再往前）
+OVERLAP_HEAD = "退不回去：這一句之後，有別的地方也改過同一份，什麼都沒動"
+OVERLAP_TAIL = "要退得先到那個對話退回它，或直接跟我說要改成什麼。"
+SIDE_WORDS = {"other": "另一個對話", "none": "對話外", "self": "這個對話"}
+OTHER_LINE = "另一個對話還有 {n} 次改動，不在這裡退"
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
 RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", "收件匣", "檔案索引", "AI 產出")}
@@ -90,7 +98,8 @@ def add_arguments(sub):
 
 
 def turns(vault):
-    """由新到舊：{turn, dir, started, prompt_head, reverted, reverted_turn, entries}。"""
+    """由新到舊：{turn, dir, started, prompt_head, session_id, reverted, reverted_turn, entries}。
+    session_id 讀 turn.json；空的照 batches.json 的 job 回合補（card-maker 的 job 回合算派工的對話，#20）。"""
     root = Path(vault) / turn.VERSIONS_REL
     if not root.is_dir():
         return []
@@ -102,6 +111,7 @@ def turns(vault):
         out.append({
             "turn": d.name, "dir": d,
             "started": info.get("started", ""), "prompt_head": info.get("prompt_head", ""),
+            "session_id": str(info.get("session_id") or ""),
             "reverted": (d / "reverted.json").is_file(),
             "reverted_turn": info.get("reverted_turn"),
             "remarks": info.get("remarks") or {},
@@ -109,7 +119,104 @@ def turns(vault):
             "folders": turn.folders(vault, d.name),
             "moves": turn.moves(vault, d.name),
         })
+    if any(not t["session_id"] for t in out):
+        jobs = _job_sessions(vault)
+        for t in out:
+            t["session_id"] = t["session_id"] or jobs.get(t["turn"], "")
     return out
+
+
+def _job_sessions(vault):
+    """job 回合 → 派工的 session（batches.json 還在的 job 與留下的紀錄）；讀不到回空的。"""
+    from kb._lib import batches
+    try:
+        return {j.get("turn"): j.get("session_id") for j in batches.jobs_of(batches.load(vault))
+                if j.get("turn") and j.get("session_id")}
+    except (OSError, ValueError):
+        return {}
+
+
+def _side(t):
+    """從這次呼叫的對話（--session）看這個回合：self、other（別的對話的）、none（沒有對話：終端機、背景健檢、舊回合）。"""
+    if not t.get("session_id"):
+        return "none"
+    return "self" if turn.SESSION and t["session_id"] == turn.SESSION else "other"
+
+
+def _in_range(t):
+    """退回看得到的回合（D-507）：終端機（沒有 --session）全部；對話裡跳過別的對話的。"""
+    return not turn.SESSION or _side(t) != "other"
+
+
+def _changed(t):
+    return not t["reverted"] and bool(t["entries"] or t["reverted_turn"] or t["folders"] or t["moves"])
+
+
+def _uri_rel(uri):
+    """搬動帳的 uri 換成能跟檔案路徑比的寫法：知識庫裡的是相對路徑，收件匣、AI 產出接區名；登記的來源照留 uri。"""
+    text = str(uri or "")
+    if not text.startswith("file://"):
+        return text
+    alias, _sep, rel = text[len("file://"):].partition("/")
+    if alias.casefold() == inventory.KNOWLEDGE.casefold():
+        return rel
+    if alias.casefold() in (inventory.INBOX.casefold(), inventory.OUTPUT.casefold()):
+        return f"{alias}/{rel}"
+    return text
+
+
+def _touches(t):
+    """回合碰過的路徑：[(路徑, 時間)]，manifest、folders.jsonl、moves.jsonl 都算。"""
+    got = [(e.get("path"), e.get("time")) for e in t["entries"]]
+    got += [(f.get(k), f.get("time")) for f in t["folders"] for k in ("from", "to")]
+    got += [(_uri_rel(m.get(k)), m.get("time")) for m in t["moves"] for k in ("from", "to")]
+    return [(str(p).replace("\\", "/"), str(w or "")) for p, w in got if p]
+
+
+def _overlap(all_turns, target):
+    """D-508：要退的回合碰過的路徑，後來被別的回合碰過的 [{path, turn(回合 dict)}]。「後來」＝回合代號比它晚（不管哪個對話、
+    退過沒有），或回合代號比它早、但碰同一個路徑的那一列時間比它那一列晚（先開口、後寫的別的對話；時間只到秒，別的對話同一秒也算）。
+    同一個路徑大小寫不分，一個是另一個裡面的（夾與夾裡的檔）也算。寧可多擋。"""
+    mine = [(p, w, _fkey(p).rstrip("/")) for p, w in _touches(target)]
+    if not mine:
+        return []
+    first = min((w for _p, w, _k in mine if w), default="")
+    got, seen = [], set()
+    for t in all_turns:
+        if t["turn"] == target["turn"]:
+            continue
+        later = t["turn"] > target["turn"]
+        # 同一秒只在兩邊都是對話、又是不同對話時算（兩個對話真的會同時寫）；終端機與對話、同一個對話照時間先後，不算
+        other = bool(t["session_id"] and target["session_id"] and t["session_id"] != target["session_id"])
+        theirs = [(w, _fkey(p).rstrip("/")) for p, w in _touches(t)]
+        if not later and not any(w and first and (w > first or (other and w == first)) for w, _k in theirs):
+            continue  # 比它早、每一列也都在它之前：不用逐一比
+
+        def after(w, when):
+            return later or bool(w and when and (w > when or (other and w == when)))
+        for path, when, key in mine:
+            if (path, t["turn"]) not in seen and any(
+                    after(w, when) and (k == key or k.startswith(key + "/") or key.startswith(k + "/")) for w, k in theirs):
+                seen.add((path, t["turn"]))
+                got.append({"path": path, "turn": t})
+    return got
+
+
+def _refuse_overlap(hits, as_json):
+    if as_json:
+        print(json.dumps({"refused": "overlap", "files": [
+            {"path": h["path"], "turn": h["turn"]["turn"], "describe": _describe(h["turn"]), "session": _side(h["turn"])}
+            for h in hits]}, ensure_ascii=False))
+        return 3
+    print(OVERLAP_HEAD)
+    for h in hits[:ENTRY_LINES_MAX]:
+        side = _side(h["turn"])
+        word = SIDE_WORDS[side] if turn.SESSION or side == "none" else "對話裡"  # 終端機沒有「這個對話」，不說「另一個」
+        print(f"- {h['path']}：{_describe(h['turn'])}（{word}）")
+    if len(hits) > ENTRY_LINES_MAX:
+        print(f"……共 {len(hits)} 處")
+    print(OVERLAP_TAIL)
+    return 3
 
 
 def _fkey(rel):
@@ -392,21 +499,21 @@ def _turn_of(all_turns, code):
 
 def _list(vault, n, as_json):
     all_turns = turns(vault)
-    current = (turn._read_turn(turn._current_file(vault)) or {}).get("turn")
-    shown = all_turns[:n]
-    if as_json:
+    current = (turn._read_turn(turn._now_file(vault)) or {}).get("turn")
+    if as_json:  # --json 照列全部，每筆帶 session（#20）
         print(json.dumps([{
-            "turn": t["turn"], "started": t["started"], "prompt_head": t["prompt_head"],
+            "turn": t["turn"], "started": t["started"], "prompt_head": t["prompt_head"], "session": _side(t),
             "reverted": t["reverted"], "reverted_turn": t["reverted_turn"], "current": t["turn"] == current,
             "counts": _counts(vault, t), "entries": t["entries"],
             "folders": [{k: f.get(k) for k in ("op", "from", "to")} for f in t["folders"]],
             "moves": [{k: m.get(k) for k in ("op", "kind", "from", "to")} for m in t["moves"]],
-        } for t in shown], ensure_ascii=False))
+        } for t in all_turns[:n]], ensure_ascii=False))
         return 0
     if not all_turns:
         print("還沒有任何改動紀錄")
         return 0
-    for t in shown:
+    others = sum(1 for t in all_turns if not _in_range(t) and _changed(t))
+    for t in [t for t in all_turns if _in_range(t)][:n]:
         c = _counts(vault, t)
         flags = ("（已退回）" if t["reverted"] else "") + ("（這一次）" if t["turn"] == current else "")
         outputs = "" if c["outputs"] is None else f"、成品 {c['outputs']}"
@@ -419,6 +526,8 @@ def _list(vault, n, as_json):
             print(f"    {e.get('action')}：{e.get('path')}")
         if len(t["entries"]) > ENTRY_LINES_MAX:
             print(f"    ……共 {len(t['entries'])} 檔")
+    if others:
+        print(OTHER_LINE.format(n=others))
     try:
         inventory.load(vault)
     except ValueError as e:
@@ -730,8 +839,7 @@ def _revert(vault, code, delete_outputs, as_json, conversation=False):
 
 def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     all_turns = turns(vault)
-    cands = [t for t in all_turns
-             if not t["reverted"] and (t["entries"] or t["reverted_turn"] or t["folders"] or t["moves"])]
+    cands = [t for t in all_turns if _in_range(t) and _changed(t)]  # D-507：別的對話的跳過
     if not cands:
         print("沒有可以退回的改動")
         return 3
@@ -739,6 +847,9 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     if code and code != target["turn"]:
         print(f"只能從最近一次開始退：{_describe(target)}")
         return 3
+    hits = _overlap(all_turns, target)
+    if hits:  # D-508：後來別處也改過同一份，整個不退、什麼都不動
+        return _refuse_overlap(hits, as_json)
     bad = _bad_path(vault, target["folders"])
     if bad is not None:  # I-111：kb 信任的根只能是 cwd 推出的知識庫
         ledger.log_error(vault, f"{target['turn']} folders 路徑不對：{json.dumps(bad, ensure_ascii=False)}",
@@ -926,7 +1037,7 @@ def _delete_outputs(vault, code, as_json, conversation=False):
     touched = _touched_paths(vault, acting["turn"])
     cands = []
     for t in turns(vault):
-        if not t["reverted"]:
+        if not t["reverted"] or not _in_range(t):
             continue
         outs = [e for e in all_entries if e.get("created_turn") == t["turn"]
                 and (e.get("status") == "turn_reverted"

@@ -447,10 +447,12 @@ class SubagentTurn(unittest.TestCase):
 
     def test_main_conversation_and_unknown_agent_unchanged(self):
         cmd = f'python "{ROOT}/scripts/kb.py" version'
-        for agent in (None, "a-unknown"):
-            out = self.hook("Bash", cmd, agent)
-            self.assertEqual(out["permissionDecision"], "allow")
-            self.assertNotIn("updatedInput", out)
+        out = self.hook("Bash", cmd, None)  # 主對話：插 --session（D-506，#20 裁定 1）
+        self.assertEqual(out["permissionDecision"], "allow")
+        self.assertEqual(out["updatedInput"]["command"], f'python "{ROOT}/scripts/kb.py" --session {self.SID} version')
+        out = self.hook("Bash", cmd, "a-unknown")
+        self.assertEqual(out["permissionDecision"], "allow")
+        self.assertNotIn("updatedInput", out)
         card = self.V / "檔案索引" / "客戶案件" / "主對話-00000002.md"
         self.hook("Write", card, None)
         self.assertIn("檔案索引/客戶案件/主對話-00000002.md", [e["path"] for e in self.turn.entries(self.V, self.later)])
@@ -482,3 +484,48 @@ class IntakeSession(unittest.TestCase):
                     out = json.loads(r.stdout)["hookSpecificOutput"]
                     self.assertEqual(out["permissionDecision"], "allow")
                     self.assertEqual(out["updatedInput"]["command"], f"{kb} --session {self.SID} {args}")
+
+
+class EverySession(unittest.TestCase):
+    """#20（D-506，驗收 9）：主對話的每個單一 kb 呼叫插 --session；card-maker 照舊插 --turn；自己帶 --session 照舊擋；
+    主對話已帶 --turn 的不插（裁定 1）。"""
+    SID = "sid-every"
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def out(self, command, tool="Bash", **extra):
+        data = payload(tool, command, self.V)
+        data["session_id"] = self.SID
+        data.update(extra)
+        r = run_hook(data)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)["hookSpecificOutput"]
+
+    def test_main_conversation_kb_calls_get_session(self):
+        kb = f'python "{ROOT}/scripts/kb.py"'
+        for args in ("agenda add --kind 會議 --date 2026-11-25 --text 有個會", "versions revert", "versions list --json",
+                     "turn note 記了"):
+            for tool in ("Bash", "PowerShell"):
+                with self.subTest(args=args, tool=tool):
+                    got = self.out(f"{kb} {args}", tool)
+                    self.assertEqual(got["permissionDecision"], "allow")
+                    self.assertEqual(got["updatedInput"]["command"], f"{kb} --session {self.SID} {args}")
+
+    def test_turn_flag_wins_and_self_flags_denied(self):
+        kb = f'python "{ROOT}/scripts/kb.py"'
+        got = self.out(f'{kb} turn note --turn 20261029-000000-sid- "做完了"')
+        self.assertEqual(got["permissionDecision"], "allow")
+        self.assertNotIn("updatedInput", got)
+        got = self.out(f"{kb} --session other versions revert")
+        self.assertEqual((got["permissionDecision"], got["permissionDecisionReason"]),
+                         ("deny", "kb 指令不能自己帶 --turn、--agent 或 --session"))
+
+    def test_selftest_not_rewritten(self):
+        """kb selftest 要走 cli.main 不建 parser 的快路（換版前先驗新版 裁定 1），不插 --session。"""
+        got = self.out(f'python "{ROOT}/scripts/kb.py" selftest --json')
+        self.assertEqual(got["permissionDecision"], "allow")
+        self.assertNotIn("updatedInput", got)

@@ -155,7 +155,7 @@ def _latest_turn_time(vault, session_id, now):
 
 
 OVERRIDE = None  # kb.py --turn 給的回合代號（cli 設，一次呼叫一個行程）
-SESSION = None  # kb.py --session 給的 session（守門替主對話的 cards dispatch／status／stop 插的；兩個視窗不會串）
+SESSION = None  # kb.py --session 給的 session（守門替主對話的每個單一 kb 呼叫插的，D-506；兩個視窗不會串）
 
 
 class NoSuchTurn(ValueError):
@@ -165,7 +165,7 @@ class NoSuchTurn(ValueError):
 def in_conversation(vault):
     """對話裡叫的（D-085 補）：current.json 有 session_id 且 done 為 false，改動併進那一句、Stop 會補記，不另寫程式段。
     對話答完（done true）後在終端機跑的不算。只讀不開新回合；versions 在動作前判斷。
-    kb.py 帶 --turn（card-maker 的呼叫，守門插的）或 --session（主對話的 cards dispatch 等）一律算對話裡（D-195）。
+    kb.py 帶 --turn（card-maker 的呼叫，守門插的）或 --session（守門替主對話每個單一 kb 呼叫插的，D-506）一律算對話裡（D-195）。
     回合已經答完、但這個 session 正在背景整理（或剛整理完）時主對話跑的也算（收通知那一輪，card-maker 第一輪修）。
     日誌（journal_cli）與 current() 共用這一份判斷（D-502 裁定 2）。"""
     if OVERRIDE or SESSION:
@@ -183,18 +183,18 @@ def in_conversation(vault):
 
 
 def current(vault, session_id=None):
-    """有 --turn（OVERRIDE）回那個回合；有 sid 讀 turns/<sid>.json；沒有或檔不存在讀 current.json；
-    都沒有就開一個（hook 沒跑到也要有回合）。current.json 是對話回合、但已不在對話裡（in_conversation 為假：答完了、
-    也沒有背景整理）→ 對話外跑的，開終端機回合（尾 0000）不掛回那句（D-502）；還在回答中照舊沿用（D-085）。"""
+    """有 --turn（OVERRIDE）回那個回合；有 sid（沒給取 --session 的 SESSION）讀 turns/<sid>.json，檔不在就開這個 session 的
+    新回合，不讀 current.json（別的對話可能剛開口，D-506）；沒有 sid 讀 current.json，都沒有就開一個（hook 沒跑到也要有回合）。
+    current.json 是對話回合、但已不在對話裡（in_conversation 為假：答完了、也沒有背景整理）→ 對話外跑的，開終端機回合
+    （尾 0000）不掛回那句（D-502）；還在回答中照舊沿用（D-085）。"""
     if OVERRIDE:
         data = turn_data(vault, OVERRIDE)
         if data is None:
             raise NoSuchTurn(OVERRIDE)
         return data
-    if session_id:
-        data = _read_turn(_session_file(vault, session_id))
-        if data:
-            return data
+    sid = session_id or SESSION
+    if sid:
+        return _read_turn(_session_file(vault, sid)) or start(vault, sid, "")
     data = _read_turn(_current_file(vault))
     if data and data.get("session_id") and not in_conversation(vault):
         return start(vault, None, "")
@@ -203,9 +203,15 @@ def current(vault, session_id=None):
     return start(vault, session_id, "")
 
 
+def _now_file(vault):
+    """這次呼叫的「目前回合檔」：有 --session 是那個對話的 turns/<sid>.json，沒有是 current.json（D-506）。"""
+    return _session_file(vault, SESSION) if SESSION else _current_file(vault)
+
+
 def last(vault):
-    """current.json 那個回合（只讀，沒有回 None、不開新回合）：turn note／redact 補記剛答完那句用（D-502 裁定 3）。"""
-    return _read_turn(_current_file(vault))
+    """這個對話的回合（--session 的回合檔，沒有讀 current.json；只讀，沒有回 None、不開新回合）：turn note／redact 補記剛答完那句用
+    （D-502 裁定 3）。"""
+    return _read_turn(_now_file(vault))
 
 
 def _read_turn(path):
@@ -349,8 +355,9 @@ def agent_turn(vault, session_id, agent_id):
 
 
 def _set(vault, session_id, **fields):
-    """改 turns/<sid>.json（沒有 sid 改 current.json）；current.json 是同回合時一起改。回合不存在回 None，不開新的。"""
-    path = _session_file(vault, session_id) if session_id else _current_file(vault)
+    """改 turns/<sid>.json（沒有 sid 改 --session 那個對話的，再沒有改 current.json）；current.json 是同回合時一起改。
+    回合不存在回 None，不開新的。"""
+    path = _session_file(vault, session_id) if session_id else _now_file(vault)
     data = _read_turn(path)
     if data is None:
         return None
@@ -378,10 +385,10 @@ SESSION_FLAG = "asks_told"
 
 
 def mark(vault, key):
-    """目前回合檔設一個旗標（回合狀態，不是知識；answer 第 9 點）：只在對話裡的回合（current.json 有 session_id 且還沒答完），
-    終端機跑的不記。已經是 true 不寫。讀改寫在 session 檔的鎖裡（answer 裁定 21），等不到鎖丟 TimeoutError、什麼都不寫。
-    回這個回合現在有沒有這個旗標。"""
-    data = _read_turn(_current_file(vault))
+    """目前回合檔設一個旗標（回合狀態，不是知識；answer 第 9 點）：只在對話裡的回合（--session 那個對話的回合檔，沒有讀 current.json；
+    有 session_id 且還沒答完），終端機跑的不記。已經是 true 不寫。讀改寫在 session 檔的鎖裡（answer 裁定 21），等不到鎖丟
+    TimeoutError、什麼都不寫。回這個回合現在有沒有這個旗標。"""
+    data = _read_turn(_now_file(vault))
     if not data or not data.get("session_id") or data.get("done"):
         return False
     if data.get(key) is True:
@@ -395,14 +402,14 @@ def mark(vault, key):
 
 def touch(vault, entities=(), files=()):
     """這一句查過、動過的對象記進回合的 touched（{"entities": [...], "files": [...]}，lint 題 D-225）：有 --turn（子代理）記進那個回合；
-    否則只在對話裡的回合（同 mark），終端機跑的不記。在回合檔的鎖裡讀改寫；寫不了不擋呼叫的指令（回 False）。"""
+    否則只在對話裡的回合（同 mark，--session 那個對話的），終端機跑的不記。在回合檔的鎖裡讀改寫；寫不了不擋呼叫的指令（回 False）。"""
     ents, fids = [str(x) for x in entities or [] if x], [str(x) for x in files or [] if x]
     if not ents and not fids:
         return False
     if OVERRIDE:
         tid = OVERRIDE
     else:
-        data = _read_turn(_current_file(vault))
+        data = _read_turn(_now_file(vault))
         if not data or not data.get("session_id") or data.get("done"):
             return False
         tid = data["turn"]

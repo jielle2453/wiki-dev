@@ -180,7 +180,7 @@ class GuardScope(unittest.TestCase):
                     out = self.call(f"{KB} cards {sub}", tool=tool, agent=None)
                     self.assertEqual(out["updatedInput"]["command"], f"{KB} --session {SID} cards {sub}")
         out = self.call(f"{KB} cards todo --json", agent=None)
-        self.assertNotIn("updatedInput", out)
+        self.assertEqual(out["updatedInput"]["command"], f"{KB} --session {SID} cards todo --json")  # #20 裁定 1
         for sub in ("status --json", "status --takeover --json", "done setup", "set people 兩個人", "env --json"):  # build 驗後修
             with self.subTest(build=sub):
                 out = self.call(f"{KB} build {sub}", agent=None)

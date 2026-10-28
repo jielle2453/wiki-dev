@@ -197,9 +197,13 @@ class Current(unittest.TestCase):
         last = turn.start(self.V, "other", "b")
         self.assertEqual(turn.current(self.V)["turn"], last["turn"])
 
-    def test_sid_without_file_falls_back_to_current(self):
-        last = turn.start(self.V, "other", "b")
-        self.assertEqual(turn.current(self.V, "nobody")["turn"], last["turn"])
+    def test_sid_without_file_starts_its_own_turn(self):
+        """#20 裁定 2（D-506）：sid 的回合檔不在就開這個 session 的新回合，不退到 current.json（別的對話的）。"""
+        other = turn.start(self.V, "other", "b")
+        t = turn.current(self.V, "nobody")
+        self.assertEqual(t["session_id"], "nobody")
+        self.assertNotEqual(t["turn"], other["turn"])
+        self.assertTrue((self.V / ".system" / "turns" / "nobody.json").exists())
 
     def test_nothing_starts_a_turn(self):
         t = turn.current(self.V, SID)

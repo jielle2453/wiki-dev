@@ -8,8 +8,8 @@
 主對話、沒記過的子代理照舊；kb.guard 的判斷不改，插的值照 plan.shell_arg 加引號，給不出就不改寫。
 card-maker 第一輪修：記過的子代理只准白名單裡的 kb 子命令（AGENT_ALLOW；convert 不收 --password／--saved／--explicit，entity tag 不收 --said／--from-card），
 也不准讀 .system/unlock.json 與 .system/temp 的密碼檔暫存，其餘 deny「製卡助手不能做這件事」（S3）；指令自己帶了
---turn／--agent／--session 的（子代理在哪都算，主對話看子命令前的）deny，不改寫（S4）；主對話的 cards dispatch／status／stop
-與 build 的每個子子命令插 --session <sid>（兩個視窗開同一個知識庫不串；build 認哪個對話在建置，build 驗後修）。
+--turn／--agent／--session 的（子代理在哪都算，主對話看子命令前的）deny，不改寫（S4）；主對話（沒有 agent_id）的每個單一 kb 呼叫
+插 --session <sid>（D-506：寫入記在這個對話的回合、退回只退這個對話的；兩個視窗開同一個知識庫不串），已經帶 --turn 的不插（#20 裁定 1）。
 build 第一輪修 S8：記過的子代理目前認領的是讀舊 wiki（adopt）的批次時，Write／Edit 這類寫檔工具一律 deny。
 build 桌面版確認修：記過的子代理用 Write／Edit／MultiEdit／NotebookEdit 寫到知識庫外面一律 deny（之前把卡寫到知識庫的上一層）。
 第二輪修：--t、--a、--s 開頭而且是這三個旗標前綴的（--tu=、--ses、--ag=…）一樣算；記過的子代理跑 Bash／PowerShell，
@@ -46,8 +46,6 @@ AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
 TAG_DENY = ("--said", "--from-card")  # 代表她的意思（她親口說的、她在卡上改的），只在主對話用（標籤記在實體上裁定 10）
-SESSION_SUBS = {("cards", "dispatch"), ("cards", "status"), ("cards", "stop")}
-SESSION_CMDS = ("build", "intake")  # 這些子命令都插（intake：--pasted 要認得是哪個對話的紀錄，收件匣裁定 6）
 QUOTES = "\"'"
 
 
@@ -195,12 +193,13 @@ def scope(payload, tool, d, agent_turn):
         return None, with_turn(ti, agent_turn, payload.get("agent_id"))
     if tokens is None:
         return None, None
-    head, cmd, sub = split_global(tokens)
+    head, cmd, _sub = split_global(tokens)
     if _has_flag(head):
         return SELF_FLAGS, None
     sid = payload.get("session_id")
-    if not payload.get("agent_id") and sid and ((cmd, sub) in SESSION_SUBS or cmd in SESSION_CMDS):
-        return None, with_flags(ti, ("--session", sid))
+    # selftest 不碰回合，也要走 cli.main 不建 parser 的那條路（換版前先驗新版 裁定 1），不插
+    if not payload.get("agent_id") and sid and cmd != "selftest" and not _has_flag(tokens, ("--turn",)):
+        return None, with_flags(ti, ("--session", sid))  # D-506：每個呼叫都記在這個對話的回合；帶 --turn 的照它（#20 裁定 1）
     return None, None
 
 
