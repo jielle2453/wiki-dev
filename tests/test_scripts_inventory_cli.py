@@ -58,8 +58,9 @@ class Scan(Base):
         lines = r.stdout.splitlines()
         self.assertEqual(lines[0], "清冊已更新：總計 14 份（客戶案件 5、報價與合約 2、公司行政 3、知識庫 2、收件匣 1、AI 產出 1）")
         self.assertEqual(lines[1], "這次：新增 13、修改 0、搬動 0、不見 0；同一份內容在多處 1 份")
-        self.assertEqual(lines[2], "不算指紋：檔名像密碼或金鑰 1（公司行政/薪資/網銀密碼.txt）、占位檔 0、超過大小 0；開不了 0")
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[2], "同一份內容在多處：報價_v2.pdf（2 處）")
+        self.assertEqual(lines[3], "不算指紋：檔名像密碼或金鑰 1（公司行政/薪資/網銀密碼.txt）、占位檔 0、超過大小 0；開不了 0")
+        self.assertEqual(len(lines), 4)
 
     def test_second_run_prints_two_lines(self):
         self.scan()

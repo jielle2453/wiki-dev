@@ -524,7 +524,12 @@ def _close_asks(vault, titles):
         evidence = list(item.get("file_ids") or [])
         flags = [a for f in evidence for a in ("--evidence", f)]
         name = entity["name"]
-        question = item.get("text", "") + f"（依據：{'、'.join(titles.get(f, f) for f in evidence)}）"
+        known = [titles[f] for f in evidence if titles.get(f)]
+        basis = "、".join(known)  # 讀不到標題的不列編號，數份數接在最後（B-467）
+        if len(known) < len(evidence):
+            more = len(evidence) - len(known)
+            basis = f"{basis}，另外 {more} 份檔案" if known else f"{more} 份檔案"
+        question = item.get("text", "") + f"（依據：{basis}）"
         out.append(_ask(f"close:{item['id']}", "close", question, [
             _result("對，結案了", [cmd("entity", "progress", name, "結案", *flags)]),
             _result("還沒", [cmd("entity", "progress", name, "進行中", *flags, "--note", "客戶說還沒結案")]),

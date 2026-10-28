@@ -64,6 +64,7 @@ MOVE_CREDENTIAL = "退不回去：「{name}」裡有檔名像密碼或金鑰的�
 PURGED_MARK = "（已排除）"
 FILE_OPEN = "退不回去：「{rel}」正開著（檔案總管、Office 或記事本），什麼都沒動；關掉再說一次退回"
 UNEXPECTED = "退不回去：{why}；可能只退了一部分，先別再說退回，請服務人員看一下"
+AGAIN = "再說一次「退回」會把這次的退回取消，不會再往前退。"  # 成功時最後一行（B-441：D-074 連退兩次是取消，不是再往前）
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
 RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", "收件匣", "檔案索引", "AI 產出")}
@@ -318,8 +319,9 @@ def _counts(vault, t):
     except ValueError:
         n["outputs"] = None
         return n
-    n["outputs"] = sum(1 for e in entries
-                       if e.get("created_turn") == t["turn"] and e.get("origin") == "ai_output")  # 掃描入冊的客戶檔不是成品
+    # 掃描入冊的客戶檔、掃描補登記的 AI 產出（unbacked，B-400）都不是那一句做的成品
+    n["outputs"] = sum(1 for e in entries if e.get("created_turn") == t["turn"] and e.get("origin") == "ai_output"
+                       and not e.get("unbacked"))
     return n
 
 
@@ -607,8 +609,10 @@ def _unchanged_since_registered(vault, rel, entry):
     return inventory.sha256_of(Path(vault) / rel) == fps[-1].get("sha256")
 
 
-def _reconcile(vault, rels):
-    """第一輪 M3：退回動完後對每個碰到的 Z3 路徑對帳清冊：檔在就該 location 最新一筆改 active，不在就改 deleted。"""
+def _reconcile(vault, rels, turn_id=None):
+    """第一輪 M3：退回動完後對每個碰到的 Z3 路徑對帳清冊：檔在就該 location 最新一筆改 active，不在就改 deleted。
+    更早回合建的線上文件（kind link，還是 active）的下載檔不在：只拿掉那個 file:// 位置，條目照舊 active、網址留著（B-402；清冊先備進
+    動作回合）。被退的那一回合自己建的 link 條目是那一回合的成品，前面已照成品改過 status（deleted 或 turn_reverted），這裡不動。"""
     if not rels:
         return
     data = inventory.load(vault)
@@ -618,7 +622,13 @@ def _reconcile(vault, rels):
         same = [e for e in data["entries"] if any(inventory.uri_key(loc.get("uri", "")) == key for loc in e.get("locations", []))]
         if not same:
             continue
-        ((to_active if (Path(vault) / rel).is_file() else to_deleted)).append(same[-1]["id"])
+        present = (Path(vault) / rel).is_file()
+        if not present and inventory.is_link(same[-1]) and same[-1].get("status") == "active":
+            if turn_id:
+                turn.backup(vault, inventory.INVENTORY_POSIX, turn_id)
+            inventory.detach_location(vault, same[-1]["id"], rel)
+            continue
+        ((to_active if present else to_deleted)).append(same[-1]["id"])
     if to_active:
         inventory.set_status(vault, to_active, "active")
     if to_deleted:
@@ -805,7 +815,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     if gone_intakes:
         inventory.set_status(vault, gone_intakes, "turn_reverted")
     if inv_error is None:
-        _reconcile(vault, touched_z3)
+        _reconcile(vault, touched_z3, rt["turn"])
         _rescan(vault, target["moves"], rt["turn"])
     unmarked = {}
     if target["reverted_turn"]:
@@ -840,6 +850,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
             "folders": folders_done, "folders_kept": folders_kept,
             "moves": [{k: m.get(k) for k in ("op", "kind", "from", "to")} for m in target["moves"]],
             "in_bin": [_uri_name(m["from"]) for m in target["moves"] if m["op"] == "trash"], "purged": purged,
+            "again": AGAIN,
         }, ensure_ascii=False))
         return 0
     if lost:
@@ -867,6 +878,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         print(PURGED_LINE)
     if inv_error is not None:
         print(f"清冊讀不到：{inv_error}")
+    print(AGAIN)
     return 0
 
 

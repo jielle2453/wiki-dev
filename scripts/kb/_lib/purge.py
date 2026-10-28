@@ -742,6 +742,10 @@ def _card_row(rel, shorts):
     return rel.startswith(cards.CARDS_DIR + "/") and any(rel.endswith(f"-{s}.md") for s in shorts)
 
 
+REPORT_PREFIX = "系統/健檢報告/"
+LINT_STATE_POSIX = ".system/lint.json"
+
+
 def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, state):
     alias, spec = inventory.split_uri(prefix)
     card_dir = f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
@@ -759,6 +763,18 @@ def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, st
                     cid = _card_id(f)
                     if cid in ids:
                         counts["card_ids"].add(cid)
+                    f.unlink()
+                    counts["backups"] += 1
+            except OSError:
+                counts["left"]["backups"] += 1
+                continue
+            row["action"], row["path"] = "purged", PURGED
+            state["dirty"] = True
+            continue
+        if rel.startswith(REPORT_PREFIX) or rel == LINT_STATE_POSIX:
+            # 健檢報告與健檢紀錄的舊版：程式產生、隨時能重寫，逐字遮會弄壞備份，整份刪掉（小修一批裁定 6）
+            try:
+                if f.is_file():
                     f.unlink()
                     counts["backups"] += 1
             except OSError:

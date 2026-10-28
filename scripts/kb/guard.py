@@ -1257,10 +1257,13 @@ def secret_action(command, tool, vault, cwd=None):
     except SystemExit:
         return None  # --help 只印說明；拆不過的 kb 也拆不過，什麼都不做
     command_name = getattr(args, "command", None)
+
+    def m(word):  # 只對代入的名稱遮值；固定句不過遮值，「可能」這類字才不會被當成值遮掉（B-424 (1)）
+        return credentials.mask_secrets(str(word), credentials.known_names(vault))
     if command_name == "unlock" and getattr(args, "unlock_command", None) == "get":
-        return ASK_GET.format(args.name)
+        return ASK_GET.format(m(args.name))
     if command_name == "unlock" and getattr(args, "unlock_command", None) == "authorize":
-        return ASK_AUTHORIZE.format(args.label, args.name)
+        return ASK_AUTHORIZE.format(m(args.label), m(args.name))
     if command_name == "ruling" and getattr(args, "ruling_command", None) == "add":
         from kb._lib import rulings
         try:
@@ -1277,9 +1280,10 @@ def secret_action(command, tool, vault, cwd=None):
             raise NoSuchFile() from None  # 對不到清冊：kb 也會拒絕，不跳詢問（第五輪 S2）
         except Exception:  # noqa: BLE001  清冊讀不到：認不出是哪份，照問
             return ASK_READ_ANY
-        return ASK_READ.format("、".join(dict.fromkeys(names)))
+        return ASK_READ.format("、".join(m(n) for n in dict.fromkeys(names)))
     if command_name == "convert" and args.saved is not None and args.explicit:
-        return ASK_EXPLICIT.format(args.saved, _file_label(vault, args.target) or "那份檔")
+        label = _file_label(vault, args.target)
+        return ASK_EXPLICIT.format(m(args.saved), m(label) if label else "那份檔")
     return None
 
 
@@ -1305,7 +1309,7 @@ def decide(payload):
                 return Decision("deny", "", NO_SUCH_FILE, NO_SUCH_FILE_REASON,
                                 [_row(tool, "deny", "", NO_SUCH_FILE, command)], vault)
             if ask is not None:  # D-212：開新口子的密碼動作要客戶按允許；前綴讓 AI 知道要停下來請客戶按（第五輪 S1）
-                reason = ASK_PREFIX + credentials.mask_secrets(ask, credentials.known_names(vault))
+                reason = ASK_PREFIX + ask  # 代入的名稱在 secret_action 裡遮過（B-424 (1)）
                 return Decision("ask", "", SECRET_ACTION, reason, [_row(tool, "ask", "", SECRET_ACTION, command)], vault)
             return Decision("allow", "", "", KB_CALL_REASON, [], vault)
         if vault is None:

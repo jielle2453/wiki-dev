@@ -218,10 +218,30 @@ def _schema_constants(files):
             text = data.decode("utf-8", errors="replace")
             for name, value in SCHEMA_LINE.findall(text):
                 out[(rel, name)] = value
-            literal = SCHEMA_LITERAL.findall(text)
+            literal = _schema_literals(text)
             if literal:
                 out[(rel, '字面的 "schema_version"')] = ",".join(literal)
     return out
+
+
+def _schema_literals(text):
+    """程式裡真的寫出來的 schema_version 數字（B-448）：dict 字面的鍵 {"schema_version": N} 與呼叫參數 schema_version=N；
+    docstring、註解、一般字串裡寫到的不算。讀不懂的檔退回舊的正規式（寧可多擋）。"""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return SCHEMA_LITERAL.findall(text)
+    found = []
+    for node in ast.walk(tree):
+        pairs = []
+        if isinstance(node, ast.Dict):
+            pairs = [(k.value, v) for k, v in zip(node.keys, node.values) if isinstance(k, ast.Constant)]
+        elif isinstance(node, ast.Call):
+            pairs = [(kw.arg, kw.value) for kw in node.keywords]
+        for key, value in pairs:
+            if key == "schema_version" and isinstance(value, ast.Constant) and type(value.value) is int:
+                found.append(str(value.value))
+    return found
 
 
 def _patch_problems(files, previous):

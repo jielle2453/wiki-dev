@@ -315,6 +315,15 @@ class _Undone(Exception):
     """拿掉卡那一段失敗、已整段倒回：照「沒有動：…」說。"""
 
 
+def _removed_lines(result):
+    """不想讓 AI 看到的排除對帳完那句（B-045 (1)）：只拿掉重複檔其中幾個位置、整份還在別處的，不說「0 份已拿掉」。"""
+    trimmed = result.get("trimmed") or 0
+    out = [f"清冊：{result['removed']} 份已拿掉"] if result["removed"] or not trimmed else []
+    if trimmed:
+        out.append(f"清冊：{trimmed} 份少了這裡的位置（別處的照常讀）")
+    return out
+
+
 def purge_cmd(name):
     """給 AI 跑的那一行（$、反引號用單引號）；給不出來回 None（第一輪修）。"""
     arg = plan.shell_arg(name)
@@ -505,7 +514,8 @@ def _exclude(vault, args, as_json):
         return 0
     print(first)
     if args.kind == "hidden":
-        print(f"清冊：{result['removed']} 份已拿掉")
+        for line in _removed_lines(result):
+            print(line)
     else:
         print(f"清冊：{result['excluded']} 份標為不讀")
     if rewrite:

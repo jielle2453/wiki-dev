@@ -96,8 +96,33 @@ def _scan(vault, args, as_json):
     if as_json:
         print(json.dumps(inventory.public(report), ensure_ascii=False))
         return 0
-    print("\n".join(_lines(report)))
+    lines = _lines(report)
+    dup = _dup_line(vault, report)
+    if dup:
+        lines.insert(2, dup)
+    print("\n".join(lines))
     return 0
+
+
+DUP_SHOWN = 3
+
+
+def _dup_line(vault, report):
+    """「同一份內容在多處：報價.pdf（2 處）、合約.docx（3 處）」（B-046 (2)）：這次掃到重複的那幾份，處數照清冊現在的位置數；
+    最多列 DUP_SHOWN 份，多的接「等 K 份」；不印編號。沒有重複回 None。"""
+    ids = list(dict.fromkeys(target for _uri, target in report["duplicates"]))
+    if not ids:
+        return None
+    by_id = {e.get("id"): e for e in inventory.load(vault)["entries"]}
+    parts = []
+    for eid in ids:
+        locs = (by_id.get(eid) or {}).get("locations") or []
+        if locs:
+            parts.append(f"{name_of(locs[0]['uri']).rsplit('/', 1)[-1]}（{len(locs)} 處）")
+    if not parts:
+        return None
+    more = f"等 {len(parts)} 份" if len(parts) > DUP_SHOWN else ""
+    return "同一份內容在多處：" + "、".join(parts[:DUP_SHOWN]) + more
 
 
 def run(args):

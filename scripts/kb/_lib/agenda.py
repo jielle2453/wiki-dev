@@ -163,7 +163,11 @@ def _mutate(vault, turn_id, fn):
             from kb._lib import turn
             turn.backup(vault, AGENDA_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, turn_id, data, base=before)
+            try:  # 資料已存好；md 重畫不了只記 log，不讓 AI 以為沒記到又加一次（B-470）
+                render(vault, turn_id, data, base=before)
+            except Exception as e:  # noqa: BLE001
+                from kb._lib import ledger
+                ledger.log_error(vault, f"日程.md 重畫失敗：{type(e).__name__}: {e}", source="agenda_render")
     if changed:
         safe_export(vault)  # 放開 agenda.json 的鎖之後（T-1）
     return result
@@ -371,6 +375,8 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
 
     def fn(data):
         it = _find(data, aid)
+        if it.get("kind") == "period" and "entities" in new and len(new["entities"]) != 1:
+            raise AgendaRefused("期間只掛一個實體")  # 同 add 的規矩，甘特圖只畫得了一個（B-468）
         fp = None
         if card:
             if (it.get("origin") or {}).get("card") != card:

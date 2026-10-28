@@ -7,12 +7,14 @@ stale、不採用的 ruled_out）、有效口述、有效裁示（口述為準�
 mentions_total 是全部份數；比對用 entities.key，第一版的卡也找得到）。
 狀態檔不在當空的；壞了丟 ValueError（帶檔名）。不寫任何檔。
 tags（標籤字典第四節第 6 點）：實體清單的標籤正本 [{"field","words"}]，照第八節的順序（D-505：沒有綜合卡的也有）；沒標過是空的。
+推算 stale 的那筆 text 是 null、多 redo「依據變了，要用就重算：<how>」（B-100）；findings.brief 不動，綜合卡待辦要原文。
 """
 from pathlib import Path
 
 from kb._lib import config, entities, profile
 
 NOTHING = "沒有登記這個名稱，也沒有卡提到它"
+REDO = "依據變了，要用就重算："
 
 
 def _brief_entity(vault, e, prof):
@@ -111,6 +113,13 @@ def lookup(vault, query):
     finds = findings.active_for(findings.load(vault), name, ent)
     if finds:
         ctx = findings.context(vault, ent, mounts, groups)
-        out["findings"] = [findings.brief(vault, c, titles, ctx) for c in finds]
+        out["findings"] = [_finding(findings.brief(vault, c, titles, ctx)) for c in finds]
     out["agenda"] = _agenda(vault, name)
     return out
+
+
+def _finding(row):
+    """依據變了的推算不給結果文字（B-100）：text 換成 null、多 redo（算法），AI 才不會照寫舊數字。"""
+    if not row["stale"]:
+        return row
+    return dict(row, text=None, redo=REDO + str(row.get("how") or ""))
