@@ -1019,16 +1019,20 @@ def _entity_type_of(sub, by_id, by_name):
     return None
 
 
-def renamed_dirs(vault, types):
+def renamed_dirs(vault, types, old_types=None):
     """她在檔案總管自己改了型別夾的名字（D-247），只讀：某型別的夾不在，第一層剛好有一個不在型別表的夾，
     裡面認得出的實體夾（<夾>/<名稱>/<名稱>.md 的綜合卡，或實體清單記的實體）全是那個型別的 → [{"type","from","to"}]。
     認不出（空夾、混了不同型別、兩個夾都像）不算。types 的 dir 照它記的（沒有 dir 是型別名）。
-    default：她改成的也是預設樣子（例 05 業主），不算她自訂的名字，dir_plan 照編號改回去（folder_check 不把它列進 renamed）。"""
+    default：她改成的也是預設樣子（例 05 業主），不算她自訂的名字，dir_plan 照編號改回去（folder_check 不把它列進 renamed）。
+    她把編號拿掉（01 案子 → 案子）也算她改名（裁定 11，收回裁定 7）。old_types 給了：只有舊表就有的列算已知的型別、
+    要找回夾的型別（這次要新加的不算，裁定 12）；沒給全部都算。"""
     from kb._lib import entities
     v = Path(vault)
-    known = {_key(_dir_of(t)) for t in types}
+    had = None if old_types is None else {_key(t["name"]) for t in old_types}
+    existing = [t for t in types if had is None or _key(t["name"]) in had]
+    known = {_key(_dir_of(t)) for t in existing}
     unlisted = [n for n in _first_level_dirs(vault) if _key(n) not in known]
-    missing = [t for t in types if not (v / _dir_of(t)).is_dir() and not (v / t["name"]).is_dir()]  # 同名夾還在不算（裁定 7）
+    missing = [t for t in existing if not (v / _dir_of(t)).is_dir()]
     if not unlisted or not missing:
         return []
     try:
@@ -1067,11 +1071,21 @@ RENAMED_WITH = "型別夾{names}，套用時一起記下"  # 設定檔也有改�
 RENAMED_SHOWN = 3
 
 
+def renamed_label(r):
+    """講她改名時前面那個名字：新夾名等於型別名（她把編號拿掉）講原本的夾名，其他講型別名（裁定 11）。"""
+    return r["from"] if _key(r["to"]) == _key(r["type"]) else r["type"]
+
+
+def renamed_pairs(renamed):
+    """成功句的「案子 → 工程案」：前面那個名字跟開場同一套（renamed_label）。"""
+    return "、".join(f"{renamed_label(r)} → {r['to']}" for r in renamed)
+
+
 def renamed_line(renamed, with_change=False):
     """她改了型別夾名（renamed_dirs）的那一句：開場與 kb profile check 共用（裁定 8），最多列 3 個；沒有回 None。"""
     if not renamed:
         return None
-    names = "、".join(f"「{r['type']}」你改名叫「{r['to']}」了" for r in renamed[:RENAMED_SHOWN])
+    names = "、".join(f"「{renamed_label(r)}」你改名叫「{r['to']}」了" for r in renamed[:RENAMED_SHOWN])
     return (RENAMED_WITH if with_change else RENAMED_LINE).format(names=names)
 
 
@@ -1104,7 +1118,10 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
                 creates.append(t["name"])
             continue
         taken = _key(t["name"]) in {h for j, h in enumerate(homes) if j != i and h}
-        current = (d if (v / d).is_dir() else None) if d else             (t["name"] if (v / t["name"]).is_dir() and not taken else None)
+        if d:
+            current = d if (v / d).is_dir() else None
+        else:
+            current = t["name"] if (v / t["name"]).is_dir() and not taken else None
         target = d if d and current and not is_default_dir(t["name"], d) else default_dir(i, t["name"])
         row["dir"] = target
         out.append(row)
@@ -1150,7 +1167,7 @@ def folder_check(vault, types, old_types=None):
     if old_types is None:
         old_types = (load(vault) or {}).get("types") or []
     effective = with_renamed(types, old_types, [])
-    found = renamed_dirs(vault, effective)
+    found = renamed_dirs(vault, effective, old_types)
     renamed = [r for r in found if not r["default"]]
     plan = dir_plan(vault, with_renamed(types, old_types, found), old_types)
     listed = {_key(_dir_of(t)) for t in plan["types"]} | {_key(a) for a, _b in plan["moves"]}

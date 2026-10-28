@@ -217,10 +217,10 @@ def _set_hidden(path, on):
         raise ctypes.WinError()
 
 
-def _copy_back(src, dst):
+def _copy_back(vault, src, dst):
     """把備份寫回原位（型別夾編號裁定 10）：Windows 上隱藏的檔（kb init 把 CLAUDE.md 設成隱藏）shutil.copy2 寫不進去
     （來源不是隱藏的時候被拒），先拿掉隱藏、寫完設回去。能不能寫的檢查（_writable）照舊用 r+b 開：隱藏檔開得了，
-    唯讀、被 Office 開著的照舊擋；隱藏這件事由這裡保證寫得了。"""
+    唯讀、被 Office 開著的照舊擋；隱藏這件事由這裡保證寫得了。寫完設回隱藏失敗不中斷退回：記一行 hook-errors.log（裁定 13）。"""
     hidden = os.name == "nt" and dst.is_file() and bool(getattr(os.stat(dst), "st_file_attributes", 0) & FILE_ATTRIBUTE_HIDDEN)
     if hidden:
         _set_hidden(dst, False)
@@ -228,7 +228,12 @@ def _copy_back(src, dst):
         shutil.copy2(src, dst)
     finally:
         if hidden:
-            _set_hidden(dst, True)
+            try:
+                _set_hidden(dst, True)
+            except OSError as e:
+                from kb._lib import ledger
+                rel = Path(dst).relative_to(Path(vault)).as_posix() if Path(dst).is_relative_to(Path(vault)) else Path(dst).name
+                ledger.log_error(vault, f"退回後「{rel}」設回隱藏沒成：{e.strerror or type(e).__name__}", source="versions")
 
 
 def _locked_file(vault, target, delete_outputs, sources):
@@ -809,7 +814,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
                 continue
             turn.backup(vault, rel, rt["turn"])
             dst.parent.mkdir(parents=True, exist_ok=True)
-            _copy_back(src, dst)
+            _copy_back(vault, src, dst)
             restored.append(rel)
             if is_z3:
                 touched_z3.append(rel)

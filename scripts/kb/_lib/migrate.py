@@ -131,7 +131,7 @@ def _rewrite_dirs(vault, turn_id):
         if profile.md_sha256(vault) != data.get("md_sha256"):
             raise Skip(DIRS_PENDING)
         effective = profile.with_renamed(data["types"], data["types"], [])
-        found = profile.renamed_dirs(vault, effective)
+        found = profile.renamed_dirs(vault, effective, data["types"])
         plan = profile.dir_plan(vault, profile.with_renamed(data["types"], data["types"], found), data["types"],
                                 number_legacy=True)
         if plan["refusal"]:
@@ -153,7 +153,7 @@ def _rewrite_dirs(vault, turn_id):
         profile_cli._refresh(vault, touched + profile_cli._moved_names(vault, data, list(plan["moves"]) + pairs), turn_id)
     notes = [DIRS_NOTE.format(pairs="、".join(f"{a} → {b}" for a, b in sorted(plan["moves"])))] if plan["moves"] else []
     if renamed:
-        notes.append(profile_cli.RENAMED_DONE.format(pairs="、".join(f"{r['type']} → {r['to']}" for r in renamed)))
+        notes.append(profile_cli.RENAMED_DONE.format(pairs=profile.renamed_pairs(renamed)))
     return {"notes": notes}
 
 

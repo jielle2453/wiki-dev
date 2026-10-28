@@ -235,14 +235,39 @@ class Round1(Base):
         self.assertTrue((self.V / "工程案/信義王/信義王.md").is_file())
         self.assertTrue((self.V / "04 工程案").is_dir())
 
-    def test_r7_same_name_folder_is_not_a_rename(self):
+    def test_r7_r11_number_dropped_is_her_rename(self):
+        """裁定 11（收回裁定 7）：她把 01 案子 改回 案子，照舊認成她改名；句子講原本的夾名。"""
         self.entity("案子", "信義王")
         (self.V / "01 案子").rename(self.V / "案子")
         st = profile.status(self.V)
-        self.assertEqual(st["renamed"], [])
+        self.assertEqual([(r["type"], r["to"]) for r in st["renamed"]], [("案子", "案子")])
+        self.assertNotIn("案子", st["unlisted"])
         r = run_session(payload(self.V))
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertNotIn("你改名叫「案子」了", ctx)
+        self.assertIn("型別夾「01 案子」你改名叫「案子」了：跑 kb profile apply 記下來（不用問）。", ctx)
+        self.assertNotIn("你改名叫「案子」了", ctx.replace("「01 案子」你改名叫「案子」了", ""))
+        self.assertNotIn("不在型別表", ctx)
+
+    def test_r11_apply_after_dropping_number(self):
+        self.entity("案子", "信義王")
+        (self.V / "01 案子").rename(self.V / "案子")
+        turn.start(self.V, None, "")
+        r = kb(self.V, "profile", "apply")
+        self.assertIn("照你改的名字記下了：01 案子 → 案子", r.stdout)
+        self.assertEqual(self.dirs()[0], "案子")
+        self.assertFalse((self.V / "01 案子").exists(), "不建空的 01 案子")
+        got = json.loads(kb(self.V, "cards", "todo", "--json").stdout)
+        self.assertEqual(got["synthesis_broken"], [])
+
+    def test_r12_rename_not_applied_then_same_name_type(self):
+        """裁定 12：她改了夾名還沒 apply 就加同名型別，那個夾也不收編。"""
+        self.entity("案子", "信義王")
+        (self.V / "01 案子").rename(self.V / "工程案")
+        r = self.add_type("工程案", "物")
+        self.assertNotIn("這個夾改叫", r.stdout)
+        self.assertTrue((self.V / "工程案/信義王/信義王.md").is_file())
+        self.assertTrue((self.V / "04 工程案").is_dir())
+        self.assertEqual(self.dirs(), ["工程案", "02 業主", "03 工班", "04 工程案"])
 
     def test_r8_check_says_the_rename(self):
         self.entity("案子", "信義王")
@@ -301,6 +326,43 @@ class RevertHiddenSkeleton(Base):
         self.assertEqual([t["name"] for t in profile.load(self.V)["types"]], ["案子", "業主"])
         if os.name == "nt":
             self.assertTrue(hidden(md), "退回後仍是隱藏")
+
+
+class RevertHideFails(Base):
+    """裁定 13：退回後設回隱藏失敗不中斷退回：記一行 hook-errors.log，退回照常做完（用替身）。"""
+
+    def test_set_hidden_failure_is_logged_not_fatal(self):
+        import contextlib
+        import io
+        import os
+        from unittest import mock
+        from kb import cli, versions
+        from kb._lib import skeleton
+        md = self.V / "CLAUDE.md"
+        set_hidden(md, False)
+        md.write_text("舊的 CLAUDE.md\n", encoding="utf-8")
+        t = turn.start(self.V, None, "")["turn"]
+        turn.backup(self.V, "CLAUDE.md", t)
+        skeleton._write_from_skeleton(self.V, "CLAUDE.md")
+        if os.name != "nt":
+            self.skipTest("隱藏屬性只在 Windows")
+        real = versions._set_hidden
+
+        def fake(path, on):
+            if on:
+                raise OSError(5, "存取被拒")
+            return real(path, on)
+        cwd, out = os.getcwd(), io.StringIO()
+        try:
+            os.chdir(self.V)
+            with mock.patch.object(versions, "_set_hidden", fake), contextlib.redirect_stdout(out):
+                code = cli.main(["versions", "revert"])
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(md.read_text(encoding="utf-8"), "舊的 CLAUDE.md\n")
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertIn("CLAUDE.md", log)
 
 
 class MoveByTypeName(Base):

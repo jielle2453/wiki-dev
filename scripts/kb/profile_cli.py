@@ -361,7 +361,7 @@ def _dir_lines(fc, with_created=True):
     """型別夾的動作怎麼說（D-247、D-250）：她改的名字記下了、她自己建的夾收進來、照編號改名、建了的夾。"""
     lines = []
     if fc.get("renamed"):
-        lines.append(RENAMED_DONE.format(pairs="、".join(f"{r['type']} → {r['to']}" for r in fc["renamed"])))
+        lines.append(RENAMED_DONE.format(pairs=profile.renamed_pairs(fc["renamed"])))
     adopted = {profile._key(a) for _t, a, _b in fc.get("adopted") or []}
     lines += [ADOPTED_DONE.format(old=a, new=b) for _t, a, b in fc.get("adopted") or []]
     moves = sorted((a, b) for a, b in fc.get("moves") or [] if profile._key(a) not in adopted)
