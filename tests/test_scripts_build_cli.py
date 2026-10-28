@@ -348,7 +348,7 @@ class ProfileFrom(Base):
         self.assertTrue(out.startswith("已套用客戶設定檔："), out)
         prof = json.loads((self.D / ".system" / "profile.json").read_text(encoding="utf-8"))
         self.assertEqual([t["name"] for t in prof["types"]], ["工程"])
-        self.assertTrue((self.D / "工程").is_dir())
+        self.assertTrue((self.D / "01 工程").is_dir())
         self.assertIn("| 工程 | 事 |", self.md.read_text(encoding="utf-8"))
 
     def test_unreadable_writes_nothing(self):

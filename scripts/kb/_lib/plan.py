@@ -29,7 +29,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from kb._lib import agenda, batches, cards, entities, inventory, pending, rulings, turn
+from kb._lib import agenda, batches, cards, entities, inventory, pending, profile, rulings, turn
 from kb._lib.paths import plugin_root
 
 SYNC = "kb cards sync"
@@ -304,7 +304,7 @@ def _drift(d, out):
         stem = parts[2][:-3]
         results = _rename_results(name, stem, f"用新檔名{stem}")
     elif kind == "moved_type":
-        top = parts[0]
+        top = d.get("found_type") or parts[0]  # 型別夾編號：--type 給型別名，不是夾名
         known = {entities.key(t["name"]) for t in (out.get("profile") or {}).get("types") or []}
         if entities.key(top) in known:
             first = _result(f"跟著改到{top}", [_rename(name, name, "--type", top)])
@@ -590,7 +590,7 @@ NOT_DESTINATIONS = (inventory.INBOX.casefold(), inventory.OUTPUT.casefold())
 
 def _inbox_places(vault, names, where_of):
     """候選的夾：每個實體的檔放在哪些夾（source_edit.where 的份數），收件匣與 AI 產出不算，加總照份數排、最多 INBOX_PLACES 個；
-    都沒有（沒資料夾的客戶）給實體夾 <型別>/<名稱>。知識庫裡的夾去掉「知識庫/」（kb 從知識庫根跑，照相對路徑認）。"""
+    都沒有（沒資料夾的客戶）給實體夾 <型別夾>/<名稱>（型別夾照設定檔，有編號）。知識庫裡的夾去掉「知識庫/」（kb 從知識庫根跑，照相對路徑認）。"""
     counts = {}
     for name in names:
         for row in where_of(name)["folders"]:
@@ -606,8 +606,9 @@ def _inbox_places(vault, names, where_of):
     out = []
     for name in names:
         e, _hit = entities.find(data, name)
-        if e is not None and e.get("type") and f"{e['type']}/{e['name']}" not in out:
-            out.append(f"{e['type']}/{e['name']}")
+        folder = f"{profile.folder_of(vault, e['type'])}/{e['name']}" if e is not None and e.get("type") else None
+        if folder and folder not in out:
+            out.append(folder)
     return out[:INBOX_PLACES]
 
 

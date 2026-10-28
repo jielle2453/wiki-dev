@@ -55,6 +55,7 @@ def _finish_lines(got):
     head = (FIRST_PATCH if got["kind"] == "patch" else FIRST_UP).format(to=got["to"])
     lines = [head + (f"：{got['note']}" if got["note"] else "")]
     lines += [f"轉成新格式：{rel}" for rel in got["migrated"]]
+    lines += list(got.get("migrate_notes") or [])  # 型別夾補上編號：…（型別夾編號，實作疑義裁定 1）
     if got["cards_migrated"]:
         lines.append(f"卡的檔頭跟上了 {got['cards_migrated']} 張")
     lines += [f"補上骨架：{rel}" for rel in got["skeleton_created"]]

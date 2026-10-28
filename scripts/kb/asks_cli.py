@@ -62,7 +62,7 @@ def _scope(vault, names):
         got = turn.touched(now)
         ents |= got["entities"]
         files |= got["files"]
-        by_card = {entities.card_rel(e).casefold(): e["id"] for e in data["entities"]
+        by_card = {entities.card_rel(e, vault).casefold(): e["id"] for e in data["entities"]
                    if e.get("type") and e.get("status") == "active"}
         for row in turn.entries(vault, now["turn"]):
             rel = row["path"]

@@ -55,7 +55,7 @@ def message(text, **kw):
 class Defaults(unittest.TestCase):
     def test_shape(self):
         d = profile.defaults(DAY)
-        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (6, None, None, []))
+        self.assertEqual((d["schema_version"], d["applied"], d["md_sha256"], d["types"]), (7, None, None, []))
         self.assertEqual((d["synthesis_sections"], d["about"], d["preferences"], d["templates"]), ([], [], [], []))
         self.assertEqual([c["name"] for c in d["card_types"]],
                          ["報價", "合約", "會議紀錄", "型錄", "進度表", "範本", "說明", "其他"])
@@ -266,7 +266,7 @@ class Vault(unittest.TestCase):
         (self.V / "說明.txt").write_text("x", encoding="utf-8")
         old = [{"name": "案子"}, {"name": "空的"}, {"name": "沒有夾"}]
         got = profile.folder_check(self.V, [{"name": "工地"}, {"name": "廠商"}], old)
-        self.assertEqual(got["to_create"], ["工地"])
+        self.assertEqual(got["to_create"], ["01 工地"])
         self.assertEqual(got["unlisted"], ["案子", "空的"])
         self.assertEqual(got["removed_empty"], ["空的", "沒有夾"])
         self.assertEqual(got["removed_nonempty"], [("案子", 2)])
@@ -277,7 +277,7 @@ class Vault(unittest.TestCase):
         self.md().write_text(text.replace("| 案子 | 事 |  | 推測 | 2026-10-19 |\n",
                                           "| 案子 | 事 |  | 推測 | 2026-10-19 |\n| 工地 | 事 | x |\n"), encoding="utf-8")
         st = profile.status(self.V)
-        self.assertEqual((st["state"], st["diff"]["types"]["added"], st["to_create"]), ("changed", ["工地"], ["工地"]))
+        self.assertEqual((st["state"], st["diff"]["types"]["added"], st["to_create"]), ("changed", ["工地"], ["02 工地"]))
         self.md().write_text(text + "\n", encoding="utf-8")
         st = profile.status(self.V)
         self.assertEqual(st["state"], "changed")
@@ -332,15 +332,15 @@ class AfterTestParse(unittest.TestCase):
     def test_type_name_too_long(self):
         name = "長" * 41
         self.assertEqual(message(md_with([f"| {name} | 事 | x |"])),
-                         "第 1 節第 1 列的型別名「長長長長長長長長長長…」太長（最多 40 字）")
-        self.assertEqual(profile.parse_md(md_with(["| " + "長" * 40 + " | 事 | x |"]))["types"][0]["name"], "長" * 40)
-        self.assertEqual(message(md_with(["| 工地很長 | 事 | x |"]), max_type_chars=3),
+                         "第 1 節第 1 列的型別名「長長長長長長長長長長…」太長（最多 37 字）")
+        self.assertEqual(profile.parse_md(md_with(["| " + "長" * 37 + " | 事 | x |"]))["types"][0]["name"], "長" * 37)
+        self.assertEqual(message(md_with(["| 工地很長 | 事 | x |"]), max_type_chars=6),
                          "第 1 節第 1 列的型別名「工地很長…」太長（最多 3 字）")
 
     def test_status_uses_config_max(self):
         tmp, V, _raw = make_inv_vault()
         try:
-            (V / ".system" / "config.json").write_text('{"card_title_max_chars": 3}', encoding="utf-8")
+            (V / ".system" / "config.json").write_text('{"card_title_max_chars": 6}', encoding="utf-8")
             md = V / "系統" / "客戶設定檔.md"
             text = md.read_text(encoding="utf-8")
             md.write_text(text.replace("| 案子 | 事 |  | 推測 | 2026-10-19 |\n",
@@ -513,7 +513,7 @@ class SchemaOneMigration(unittest.TestCase):
         p = self.V / ".system" / "profile.json"
         before = p.read_bytes()
         data = profile.load(self.V)
-        self.assertEqual(data["schema_version"], 6)
+        self.assertEqual(data["schema_version"], 7)
         self.assertEqual([(s["type"], [x["name"] for x in s["sections"]], s["source"]) for s in data["synthesis_sections"]],
                          [("案子", ["時程", "金額"], "inferred")])
         self.assertEqual((data["about"], data["preferences"]), ([], []))
@@ -622,7 +622,7 @@ class SchemaTwoLoad(unittest.TestCase):
     def test_load_adds_preferences_in_memory(self):
         before = (self.V / ".system" / "profile.json").read_bytes()
         data = profile.load(self.V)
-        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (6, [], []))
+        self.assertEqual((data["schema_version"], data["preferences"], data["templates"]), (7, [], []))
         self.assertEqual((self.V / ".system" / "profile.json").read_bytes(), before)
         self.assertEqual(profile.stored_schema(self.V), 2)
         self.assertEqual(profile.status(self.V)["state"], "ok")
@@ -847,7 +847,7 @@ class SchemaFour(unittest.TestCase):
             shutil.copy2(PROFILE / "schema3.json", V / ".system" / "profile.json")
             shutil.copy2(PROFILE / "schema3.md", V / "系統" / "客戶設定檔.md")
             data = profile.load(V)
-            self.assertEqual((data["schema_version"], data["templates"]), (6, []))
+            self.assertEqual((data["schema_version"], data["templates"]), (7, []))
             self.assertEqual(profile.stored_schema(V), 3)
             self.assertEqual(profile.status(V)["state"], "ok")
         finally:
@@ -876,7 +876,7 @@ class SchemaFive(unittest.TestCase):
         text = profile.render_text(profile.defaults(DAY))
         self.assertTrue(text.endswith(SECTION8), text[-300:])
         self.assertEqual(profile.defaults(DAY)["tags"], [])
-        self.assertEqual(profile.SCHEMA_VERSION, 6)
+        self.assertEqual(profile.SCHEMA_VERSION, 7)
 
     def test_round_trip(self):
         d = profile.defaults(DAY)
@@ -969,7 +969,7 @@ class SchemaFive(unittest.TestCase):
             shutil.copy2(PROFILE / "schema4.json", V / ".system" / "profile.json")
             shutil.copy2(PROFILE / "schema4.md", V / "系統" / "客戶設定檔.md")
             data = profile.load(V)
-            self.assertEqual((data["schema_version"], data["tags"]), (6, []))
+            self.assertEqual((data["schema_version"], data["tags"]), (7, []))
             self.assertEqual(profile.stored_schema(V), 4)
             self.assertEqual(profile.status(V)["state"], "ok")
         finally:

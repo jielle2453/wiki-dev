@@ -110,7 +110,7 @@ class Check(Base):
         self.assertEqual(data["state"], "changed")
         self.assertEqual(data["diff"]["types"], {"added": ["工地"], "removed": [], "changed": []})
         self.assertEqual((data["unlisted"], data["to_create"], data["removed_empty"], data["removed_nonempty"]),
-                         (["廠商"], ["工地"], [], []))
+                         (["廠商"], ["02 工地"], [], []))
         self.assertIsNone(data["error"])
 
     def test_missing_profile(self):
@@ -130,8 +130,8 @@ class Apply(Base):
     def test_first_apply_creates_folder_and_marks_interview(self):
         self.add_types(ROW)
         t = turn.current(self.V)["turn"]
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +1；建了資料夾 工地"])
-        self.assertTrue((self.V / "工地").is_dir())
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +1；建了資料夾 02 工地"])
+        self.assertTrue((self.V / "02 工地").is_dir())
         data = self.data()
         row = data["types"][-1]
         self.assertEqual((row["name"], row["source"], row["date"]), ("工地", "interview", self.today))
@@ -142,7 +142,7 @@ class Apply(Base):
         manifest = {e["path"] for e in turn.entries(self.V, t)}
         self.assertTrue({profile.PROFILE_POSIX, profile.MD_POSIX} <= manifest)
         prog = self.programs()[-1]
-        self.assertEqual((prog["command"], prog["note"]), ("profile apply", "套用客戶設定檔：型別 +1；建了資料夾 工地"))
+        self.assertEqual((prog["command"], prog["note"]), ("profile apply", "套用客戶設定檔：型別 +1；建了資料夾 02 工地"))
         self.assertEqual(prog["changed"], [{"path": profile.PROFILE_POSIX, "action": "modify"},
                                            {"path": profile.MD_POSIX, "action": "modify"}])
         self.assertEqual(self.apply(), ["客戶設定檔沒有改，沒有套用"])
@@ -151,7 +151,7 @@ class Apply(Base):
         self.add_types(ROW)
         self.apply()
         self.add_types("| 工班 | 對象 | 施工班底 |", "| 業主 | 對象 | 屋主 | 糾正 |  |")
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +2；建了資料夾 工班、業主"])
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +2；建了資料夾 03 工班、04 業主"])
         got = {t["name"]: t["source"] for t in self.data()["types"]}
         self.assertEqual((got["工地"], got["工班"], got["業主"]), ("interview", "confirmed", "corrected"))
         self.add_types("| 水電 | 對象 | x | 亂填 |  |")
@@ -163,11 +163,11 @@ class Apply(Base):
         self.apply()
         self.drop_line("| 工班 | 對象 |")
         self.assertIn("- 型別 少了 工班（空夾會一起拿掉）", self.kb("check").stdout.splitlines())
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 -1（拿掉了空夾 工班）、每類段落 -2"])
-        self.assertFalse((self.V / "工班").exists(), "空夾一起拿掉（確認後修正裁定 21）")
-        self.assertEqual(self.programs()[-1]["note"], "套用客戶設定檔：型別 -1（拿掉了空夾 工班）、每類段落 -2")
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 -1（拿掉了空夾 03 工班）、每類段落 -2"])
+        self.assertFalse((self.V / "03 工班").exists(), "空夾一起拿掉（確認後修正裁定 21）")
+        self.assertEqual(self.programs()[-1]["note"], "套用客戶設定檔：型別 -1（拿掉了空夾 03 工班）、每類段落 -2")
         self.assertEqual([t["name"] for t in self.data()["types"]], ["案子", "工地"])
-        (self.V / "工地" / "a.txt").write_text("x", encoding="utf-8")
+        (self.V / "02 工地" / "a.txt").write_text("x", encoding="utf-8")
         self.drop_line("| 工地 | 事 |")
         before_json, before_md = self.data(), self.md_text()
         self.assertEqual(self.apply(3), ["型別「工地」底下還有 1 項，先搬走再拿掉這列"])
@@ -181,8 +181,8 @@ class Apply(Base):
         lines = self.kb("check").stdout.splitlines()
         self.assertIn("- 型別 多了 業主（對象）", lines)
         self.assertIn("- 型別 少了 客戶（空夾會一起拿掉）", lines)
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +1 -1（拿掉了空夾 客戶）、每類段落 -2；建了資料夾 業主"])
-        self.assertTrue(not (self.V / "客戶").exists() and (self.V / "業主").is_dir())
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +1 -1（拿掉了空夾 02 客戶）、每類段落 -2；建了資料夾 02 業主"])
+        self.assertTrue(not (self.V / "02 客戶").exists() and (self.V / "02 業主").is_dir())
         rows = [(x["type"], y["name"], x["source"]) for x in self.data()["synthesis_sections"] for y in x["sections"]]
         self.assertIn(("業主", "聯絡與往來", "inferred"), rows)
         self.assertNotIn("客戶", {r[0] for r in rows})
@@ -199,8 +199,8 @@ class Apply(Base):
         with mock.patch.object(profile_cli.os, "rmdir", side_effect=PermissionError(32, "被佔用")), \
                 contextlib.redirect_stdout(out):
             self.assertEqual(profile_cli._apply(self.V, False, True), 0)
-        self.assertEqual(out.getvalue().splitlines()[0], "已套用客戶設定檔：型別 -1（客戶 夾是空的，會留著）、每類段落 -2")
-        self.assertTrue((self.V / "客戶").is_dir())
+        self.assertEqual(out.getvalue().splitlines()[0], "已套用客戶設定檔：型別 -1（02 客戶 夾是空的，會留著）、每類段落 -2")
+        self.assertTrue((self.V / "02 客戶").is_dir())
         self.assertEqual([t["name"] for t in self.data()["types"]], ["案子"])
 
     def test_whitespace_only_change_rewrites(self):
@@ -211,7 +211,7 @@ class Apply(Base):
     def test_json(self):
         self.add_types(ROW)
         data = json.loads(self.kb("apply", "--json").stdout)
-        self.assertEqual((data["applied"], data["created_dirs"], data["unskipped"]), (True, ["工地"], 0))
+        self.assertEqual((data["applied"], data["created_dirs"], data["unskipped"]), (True, ["02 工地"], 0))
         data = json.loads(self.kb("apply", "--json").stdout)
         self.assertEqual((data["applied"], data["state"]), (False, "ok"))
 
@@ -235,17 +235,18 @@ class Apply(Base):
         before_json, before_md = self.data(), self.md_text()
         self.add_types(ROW, "| 工班 | 對象 | 施工班底 |")
         self.apply()
-        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("make", "工地"), ("make", "工班")])
-        (self.V / "工班" / "a.txt").write_text("x", encoding="utf-8")
+        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("make", "02 工地"), ("make", "03 工班")])
+        (self.V / "03 工班" / "a.txt").write_text("x", encoding="utf-8")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.data(), before_json)
         # fixture 是 schema 2 的 md：手改過的 md 備進回合的是舊 JSON 的渲染（schema 3 多一個空的第六節）
         self.assertEqual(self.md_text(), profile.render_text(profile.load(self.V)))
-        self.assertEqual(self.md_text()[:len(before_md)], before_md)
-        self.assertFalse((self.V / "工地").exists())
-        self.assertTrue((self.V / "工班" / "a.txt").is_file())
-        self.assertIn("建的資料夾「工班」裡有東西，留著", r.stdout.splitlines())
+        want = before_md.replace("型別名會變成知識庫第一層的資料夾名", "型別名前面會加上編號當資料夾名（例：01 案子）")  # 提示句改了（裁定 4）
+        self.assertEqual(self.md_text()[:len(want)], want)
+        self.assertFalse((self.V / "02 工地").exists())
+        self.assertTrue((self.V / "03 工班" / "a.txt").is_file())
+        self.assertIn("建的資料夾「03 工班」裡有東西，留著", r.stdout.splitlines())
         self.assertNotIn("套用設定檔時建的資料夾還在，要拿掉請自己刪空夾", r.stdout.splitlines())
 
     def test_apply_removing_empty_folder_records_remove(self):
@@ -254,9 +255,9 @@ class Apply(Base):
         t = turn.start(self.V, None, "")["turn"]
         self.drop_line("| 工地 | 事 |")
         self.apply()
-        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("remove", "工地")])
+        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("remove", "02 工地")])
         self.assertEqual(run_kb("versions", "revert", cwd=self.V).returncode, 0)
-        self.assertTrue((self.V / "工地").is_dir())
+        self.assertTrue((self.V / "02 工地").is_dir())
 
 
 class AfterTest(Base):
@@ -273,7 +274,7 @@ class AfterTest(Base):
         real = pathlib.Path.mkdir
 
         def fake(path, *a, **kw):
-            if path.name == "工班":
+            if path.name == "03 工班":
                 raise PermissionError(13, "存取被拒")
             return real(path, *a, **kw)
         out = io.StringIO()
@@ -281,16 +282,16 @@ class AfterTest(Base):
             code = profile_cli._apply(self.V, False, True)
         self.assertEqual(code, 3)
         self.assertEqual(out.getvalue().splitlines(),
-                         ["建不了資料夾「工班」：存取被拒；設定檔沒有套用", "已建的資料夾留著：工地"])
+                         ["建不了資料夾「03 工班」：存取被拒；設定檔沒有套用", "已建的資料夾留著：02 工地"])
         self.assertEqual((self.data(), self.md_text()), (before_json, before_md))
-        self.assertTrue((self.V / "工地").is_dir())
-        self.assertFalse((self.V / "工班").exists())
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +2；建了資料夾 工班"])
+        self.assertTrue((self.V / "02 工地").is_dir())
+        self.assertFalse((self.V / "03 工班").exists())
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 +2；建了資料夾 03 工班"])
 
     def test_too_long_and_windows_name_refused_before_anything(self):
         self.add_types("| " + "長" * 300 + " | 事 | x |")
         before = self.stamps()
-        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「長長長長長長長長長長…」太長（最多 40 字）"])
+        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「長長長長長長長長長長…」太長（最多 37 字）"])
         self.drop_line("| 長")
         self.add_types("| NUL | 事 | x |")
         self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「NUL」是 Windows 保留名，不能當資料夾"])
@@ -337,7 +338,7 @@ class SchemaTwoApply(Base):
         self.drop_line("| 案子 | 金額 |")
         self.apply()
         self.assertNotIn("案子", {s["type"] for s in self.data()["synthesis_sections"]})
-        self.assertEqual(self.data()["schema_version"], 6, "寫的時候寫 6")
+        self.assertEqual(self.data()["schema_version"], 7, "寫的時候寫 7")
 
     def test_drop_type_row_only_applies_and_drops_its_sections(self):
         """實作回報裁定 1：只刪第一節的列，apply 成功，第四節那個型別的列一起拿掉。"""
@@ -346,7 +347,7 @@ class SchemaTwoApply(Base):
         self.assertIn("| 廠商 | 聯絡與往來 |", self.md_text())
         self.drop_line("| 廠商 | 對象 |")
         self.assertEqual(self.kb("check").stdout.splitlines()[0], "客戶設定檔有改：型別 +0 -1 ~0、每類段落 +0 -2 ~0")
-        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 -1（拿掉了空夾 廠商）、每類段落 -2"])
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 -1（拿掉了空夾 02 廠商）、每類段落 -2"])
         self.assertNotIn("廠商", {x["type"] for x in self.data()["synthesis_sections"]})
         self.assertNotIn("| 廠商 |", self.md_text())
 
@@ -411,7 +412,7 @@ class Edit(Base):
         self.assertEqual(self.run_ok("add", "偏好", "偏好=回答先講結論"), ["記下了，每次都照做：回答先講結論"])
         data = self.data()
         self.assertEqual((data["schema_version"], data["preferences"]),
-                         (6, [{"text": "回答先講結論", "use": "全部", "source": "corrected", "date": self.today}]))
+                         (7, [{"text": "回答先講結論", "use": "全部", "source": "corrected", "date": self.today}]))
         self.assertIn(f"## 六、偏好", self.md_text())
         self.assertIn(f"| 回答先講結論 | 全部 | 糾正 | {self.today} |", self.md_text())
         self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
@@ -438,9 +439,9 @@ class Edit(Base):
     def test_add_type_makes_folder_and_section_four(self):
         t = turn.current(self.V)["turn"]
         self.assertEqual(self.run_ok("add", "型別", "名稱=設計師", "大類=對象", "一句說明=外包設計"),
-                         ["已加型別「設計師」（對象）；建了資料夾 設計師"])
-        self.assertTrue((self.V / "設計師").is_dir())
-        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("make", "設計師")])
+                         ["已加型別「設計師」（對象）；建了資料夾 02 設計師"])
+        self.assertTrue((self.V / "02 設計師").is_dir())
+        self.assertEqual([(r["op"], r["from"]) for r in turn.folders(self.V, t)], [("make", "02 設計師")])
         rows = [(s["type"], x["name"]) for s in self.data()["synthesis_sections"] for x in s["sections"]]
         self.assertIn(("設計師", "聯絡與往來"), rows)
         self.assertEqual(self.refused("add", "型別", "名稱=設計師", "大類=事"), "型別「設計師」已經有了，大類不能這樣改")
@@ -587,7 +588,7 @@ class SecondRound(Base):
         self.assertEqual(self.kb("add", "型別", "名稱=設計師", "大類=對象").returncode, 0)
         r = run_kb("entity", "add", "--type", "設計師", "--name", "王設計師", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        rel = "設計師/王設計師/王設計師.md"
+        rel = "02 設計師/王設計師/王設計師.md"
         t = turn.current(self.V)["turn"]
         turn.backup(self.V, rel, t)
         (self.V / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -595,7 +596,7 @@ class SecondRound(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("裡有東西", r.stdout)
-        self.assertFalse((self.V / "設計師").exists())
+        self.assertFalse((self.V / "02 設計師").exists())
         self.assertNotIn("設計師", [t["name"] for t in profile.load(self.V)["types"]])
         self.assertEqual([e["name"] for e in entities.load(self.V)["entities"] if e["name"] == "王設計師"], [])
         self.assertNotIn("第一層夾不在型別表", self.kb("check").stdout)
@@ -694,7 +695,7 @@ class Templates(unittest.TestCase):
         r = self.kb("add", "範本", "文件=報價單", f"底={self.fid}")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "已加範本：報價單"))
         self.assertEqual(self.data()["templates"], [{"doc": "報價單", "card": self.fid, "source": "corrected", "date": today}])
-        self.assertEqual(self.data()["schema_version"], 6)
+        self.assertEqual(self.data()["schema_version"], 7)
         self.assertIn(f"| 報價單 | 報價單範本 | 糾正 | {today} |", self.md_text())
         self.assertEqual(self.data()["md_sha256"], profile.md_sha256(self.V))
         self.assertEqual(self.kb("check").stdout.strip(), "客戶設定檔沒有改")

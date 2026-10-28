@@ -253,26 +253,35 @@ PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
 PROFILE_UNLISTED = "第一層夾{names}不在型別表（請客戶補進設定檔）"
 PROFILE_LINE_MAX = 120
 PROFILE_UNLISTED_SHOWN = 2
+PROFILE_RENAMED = "型別夾{names}：跑 kb profile apply 記下來（不用問）。"
+PROFILE_RENAMED_WITH = "型別夾{names}，套用時一起記下"  # 設定檔也有改：照前半先複述、說好才 apply，不說不用問
+PROFILE_RENAMED_SHOWN = 3
+PROFILE_ORDER = "型別順序"  # 只調了型別表的順序（型別夾會改名）：diff 沒有內容差異時的摘要
 
 
 def line_profile(vault):
-    """客戶設定檔與型別第 7 點：profile.status 只讀、不寫 JSON 也不寫 md。有改（有內容差異）或讀不懂各一句；
-    第一層有不在型別表的夾接在同一行後面，沒有前半時自己成一行（開頭「設定檔：」）；整行超過 120 字夾名只列 2 個。"""
+    """客戶設定檔與型別第 7 點：profile.status 只讀、不寫 JSON 也不寫 md。有改（有內容差異，或調了型別順序）或讀不懂各一句；
+    第一層有不在型別表的夾接在同一行後面，沒有前半時自己成一行（開頭「設定檔：」）；整行超過 120 字夾名只列 2 個。
+    型別夾編號（D-247）：她自己改了型別夾的名字、認得出來（status 的 renamed）就在同一行講「你改名叫…了」，最多列 3 個；
+    那些夾不算不在型別表。設定檔也有改時不說不用問（apply 會連她的手改一起套用）。"""
     from kb._lib import profile
 
     st = profile.status(vault)
     head = None
-    if st["state"] == "changed" and profile.has_diff(st["diff"]):
-        head = PROFILE_CHANGED.format(summary=profile.summary_short(st["diff"]))
+    if st["state"] == "changed" and profile.has_change(st):
+        head = PROFILE_CHANGED.format(summary=profile.summary_short(st["diff"]) or PROFILE_ORDER)
     elif st["state"] == "error":
         head = PROFILE_ERROR.format(error=st["error"])
+    if st.get("renamed"):
+        names = "、".join(f"「{r['type']}」你改名叫「{r['to']}」了" for r in st["renamed"][:PROFILE_RENAMED_SHOWN])
+        head = f"{head}；{PROFILE_RENAMED_WITH.format(names=names)}" if head else PROFILE_RENAMED.format(names=names)
     if not st["unlisted"]:
         return head
 
     def joined(names, more):
         text = "、".join(f"「{n}」" for n in names) + (f"等 {more} 個" if more else "")
         tail = PROFILE_UNLISTED.format(names=text)
-        return f"{head}；{tail}" if head else f"設定檔：{tail}"
+        return f"{head.rstrip('。')}；{tail}" if head else f"設定檔：{tail}"
     line = joined(st["unlisted"], 0)
     if len(line) > PROFILE_LINE_MAX:
         line = joined(st["unlisted"][:PROFILE_UNLISTED_SHOWN], len(st["unlisted"]))

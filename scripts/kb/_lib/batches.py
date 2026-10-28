@@ -141,6 +141,50 @@ def save(vault, data, turn_id):
     write_json_atomic(_path(vault), data)
 
 
+def _moved(text, mapping):
+    for old, new in mapping:
+        if text.casefold().startswith(old.casefold() + "/"):
+            return new + text[len(old):]
+    return text
+
+
+def _follow(value, mapping):
+    """JSON 裡每個字串（含物件的鍵）在舊夾底下的換成新夾。回 (新值, 有沒有改)。"""
+    if isinstance(value, str):
+        new = _moved(value, mapping)
+        return new, new != value
+    if isinstance(value, list):
+        got = [_follow(v, mapping) for v in value]
+        return [v for v, _c in got], any(c for _v, c in got)
+    if isinstance(value, dict):
+        out, hit = {}, False
+        for k, v in value.items():
+            k2, c1 = _follow(k, mapping)
+            v2, c2 = _follow(v, mapping)
+            out[k2] = v2
+            hit = hit or c1 or c2
+        return out, hit
+    return value, False
+
+
+def follow_dirs(vault, mapping, turn_id):
+    """型別夾換了名字（型別夾編號，D-247）：綜合卡路徑當 key 的項目、材料的 dir／path／target… 在 [(舊夾, 新夾)] 底下的
+    換成新夾（批次還記著舊路徑，回報與重派才對得上）。沒檔不寫；讀不懂只記 log。回有沒有改。"""
+    if not _path(vault).is_file():
+        return False
+    with lock(vault):
+        try:
+            data = load(vault)
+        except Unreadable as e:
+            from kb._lib import ledger
+            ledger.log_error(vault, f"型別夾改名時 batches.json 沒跟上：{e}", source="batches")
+            return False
+        new, hit = _follow(data, [(a, b) for a, b in mapping if a != b])
+        if hit:
+            save(vault, new, turn_id)
+    return hit
+
+
 def _new_id(prefix, taken):
     while True:
         got = f"{prefix}-{secrets.token_hex(4)}"
@@ -428,7 +472,7 @@ class _SynthesisContext:
         from kb._lib import synthesis
         key = str(path).casefold()
         live = [e for e in self.data["entities"] if e.get("type") and e.get("status") != "merged"]
-        hit = next((e for e in live if synthesis.card_rel(e).casefold() == key), None)
+        hit = next((e for e in live if synthesis.card_rel(e, self.vault).casefold() == key), None)
         if hit is not None:
             return hit
         by_id = {e.get("id"): e for e in live}
@@ -446,7 +490,7 @@ class _SynthesisContext:
         ms = self.mounts.get(e["name"], [])
         stmts, ruls, finds = synthesis.basis(self.know, e["name"], self.mounts)
         return dict(item, entity_id=e["id"], name=e["name"], type=e["type"],
-                    category=synthesis.category_text(self.prof, e["type"]), target=synthesis.card_rel(e),
+                    category=synthesis.category_text(self.prof, e["type"]), target=synthesis.card_rel(e, self.vault),
                     header=synthesis.header_for(self.vault, e, ms, date.today().isoformat(), self.data, self.mounts,
                                                 self.prof, self.know),
                     sections=synthesis.sections_for(self.prof, e["type"]), cards=[synthesis._brief(m) for m in ms],

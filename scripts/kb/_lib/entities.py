@@ -765,8 +765,11 @@ def mounts(vault, data=None):
 
 # ---------- 綜合卡位置 ----------
 
-def card_rel(entry):
-    return f"{entry.get('type')}/{entry.get('name')}/{entry.get('name')}.md"
+def card_rel(entry, vault=None):
+    """綜合卡該在的位置 <型別夾>/<名稱>/<名稱>.md。型別夾照設定檔記的（profile.folder_of，型別夾編號 D-246）；
+    vault 沒給（或型別不在表）用型別名當夾名。"""
+    folder = profile.folder_of(vault, entry.get("type")) if vault is not None else entry.get("type")
+    return f"{folder}/{entry.get('name')}/{entry.get('name')}.md"
 
 
 def head_id(path):
@@ -812,12 +815,12 @@ def synthesis_files(vault):
     return out
 
 
-def _drift_kind(entry, found):
+def _drift_kind(entry, found, prof=None):
     if not found:
         return "missing"
     top, folder, name = found.split("/")
     stem = name[:-3]
-    if key(top) != key(entry.get("type")):
+    if key(profile.dir_type(prof, top) or top) != key(entry.get("type")):  # 上層夾照設定檔認是哪個型別（型別夾編號）
         return "moved_type"
     folder_ok, file_ok = key(folder) == key(entry["name"]), key(stem) == key(entry["name"])
     if folder_ok and file_ok:
@@ -832,28 +835,30 @@ def _drift_kind(entry, found):
 
 
 def drift(vault, data=None):
-    """只讀。card true、active、不是客戶自己的實體，綜合卡不在 <型別>/<名稱>/<名稱>.md 時，掃型別夾第三層找檔頭編號是它的；
-    回 [{"entity_id","name","type","kind","found"}]，kind：folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing。"""
+    """只讀。card true、active、不是客戶自己的實體，綜合卡不在 <型別夾>/<名稱>/<名稱>.md 時，掃型別夾第三層找檔頭編號是它的；
+    回 [{"entity_id","name","type","kind","found","found_type"}]，kind：folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing；
+    found_type 是 found 的上層夾照設定檔認出的型別名（不是型別夾回 None）。"""
     data = data if data is not None else load(vault)
-    out, index = [], None
+    out, index, prof = [], None, None
     for e in data["entities"]:
         if not e.get("card") or e.get("status") != "active" or is_self(e) or not e.get("type"):
             continue
-        if (Path(vault) / card_rel(e)).is_file():
+        if (Path(vault) / card_rel(e, vault)).is_file():
             continue
         if index is None:
-            index = synthesis_files(vault)
+            index, prof = synthesis_files(vault), _profile(vault)
         found = (index.get(e.get("id")) or [None])[0]
-        kind = _drift_kind(e, found)
+        kind = _drift_kind(e, found, prof)
         if kind:
-            out.append({"entity_id": e["id"], "name": e["name"], "type": e.get("type"), "kind": kind, "found": found})
+            out.append({"entity_id": e["id"], "name": e["name"], "type": e.get("type"), "kind": kind, "found": found,
+                        "found_type": profile.dir_type(prof, found.split("/")[0]) if found else None})
     return out
 
 
 def locate(vault, entry, data=None):
     """這個實體的綜合卡現在在哪（相對路徑）：card_rel 在就是它，否則 drift 找到的；都沒有回 None。"""
-    if (Path(vault) / card_rel(entry)).is_file():
-        return card_rel(entry)
+    if (Path(vault) / card_rel(entry, vault)).is_file():
+        return card_rel(entry, vault)
     if not entry.get("type"):
         return None
     return (synthesis_files(vault).get(entry.get("id")) or [None])[0]
@@ -1055,7 +1060,7 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
             entry["aliases"].append(old_name)
         if row is not None:
             entry["type"] = row["name"]
-        target = card_rel(entry)
+        target = card_rel(entry, vault)
         _occupied(vault, loc, target)
 
         def act(undo):
@@ -1171,7 +1176,7 @@ def merge(vault, src_ref, dst_ref, turn_id):
         if key(src.get("type")) != key(dst.get("type")):
             raise EntityRefused(f"型別不同：先 kb entity rename {src['name']} --to {src['name']} --type {dst.get('type')}")
         loc = locate(vault, src)
-        folder = (loc or card_rel(src)).rpartition("/")[0]
+        folder = (loc or card_rel(src, vault)).rpartition("/")[0]
         if (Path(vault) / folder).is_dir():
             others = _files_under(Path(vault) / folder, skip=(Path(vault) / loc) if loc else None)
             if others:
@@ -1272,7 +1277,7 @@ def clean(vault, rel, turn_id):
         if not eid or not eid.startswith("e-"):
             raise EntityRefused("這不是綜合卡，不能用 clean")
         entry = next((e for e in data["entities"] if e.get("id") == eid), None)
-        if entry is not None and entry.get("type") and key(rel) == key(card_rel(entry)):
+        if entry is not None and entry.get("type") and key(rel) == key(card_rel(entry, vault)):
             raise EntityRefused("這張綜合卡位置是對的，不用清")
         left = _delete_card(vault, rel, turn_id)
     return {"path": rel, "left": left}

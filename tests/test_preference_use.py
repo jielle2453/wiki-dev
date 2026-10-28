@@ -46,8 +46,8 @@ class Schema6(unittest.TestCase):
         self.p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         got = profile.load(self.V)
         self.assertEqual(got["preferences"], [pref("回答先講結論", source="interview")])
-        self.assertEqual(got["schema_version"], 6)
-        self.assertEqual(profile.SCHEMA_VERSION, 6)
+        self.assertEqual(got["schema_version"], 7)
+        self.assertEqual(profile.SCHEMA_VERSION, 7)
 
     def test_render_and_parse_round_trip(self):
         d = with_prefs(pref("回答先講結論"), pref("報價單金額加千分位", "做文件"), pref("人名用連結", "整理成卡"))
@@ -247,7 +247,7 @@ class Cli(unittest.TestCase):
         self.kb("profile", "add", "偏好", "偏好=也找工商時報", "用在哪=每日議題")
         md = (self.V / "系統" / "客戶設定檔.md").read_text(encoding="utf-8")
         self.assertIn("| 也找工商時報 | 每日議題 | 糾正 |", md)
-        self.assertEqual(profile.load(self.V)["schema_version"], 6)
+        self.assertEqual(profile.load(self.V)["schema_version"], 7)
         shutil.rmtree(sk)
         self.assertEqual(profile.load(self.V)["preferences"][-1]["use"], "每日議題")
         self.kb("profile", "show")

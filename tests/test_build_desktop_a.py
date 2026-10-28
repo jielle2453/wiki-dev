@@ -219,7 +219,7 @@ class PendingTypeRename(unittest.TestCase):
         self.assertEqual([self.pending(r) for r in self.rels], [["工程"], ["工程", "廠商"]])
         prof = json.loads((self.V / ".system" / "profile.json").read_text(encoding="utf-8"))
         self.assertIn(("工程", "matter"), [(t["name"], t["category"]) for t in prof["types"]])
-        self.assertTrue((self.V / "工程").is_dir())
+        self.assertTrue((self.V / "03 工程").is_dir())
         todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
         self.assertEqual(sorted(u["reason"] for u in todo["unlinked"]), ["types_added", "types_added"])
 
