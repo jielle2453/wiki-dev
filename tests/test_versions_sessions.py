@@ -175,7 +175,8 @@ class Revert(Base):
         self.prompt(A, "信義王再改")
         self.edit_card(A, "A 改的\n")
         self.edit_card(B, "B 第二次\n")
-        self.assertEqual([w["path"] for w in turn.writes(self.V, t_b)], [CARD_REL])  # 檔案工具經 before_write 也記
+        self.edit_card(B, "B 第二次\n")
+        self.assertEqual([w["path"] for w in turn.writes(self.V, t_b)], [CARD_REL])  # 檔案工具經 before_write 也記；同路徑只一行
         self.stop(A)
         self.stop(B)
         self.prompt(A, "退回上一步")
@@ -318,6 +319,10 @@ class SecretShown(Base):
                                            "tool_name": "Bash", "tool_input": {
                                                "command": f'python "{KB}" convert a.pdf --saved 門 --explicit --password "zq-7731"'}}))
         self.assertNotIn("zq-7731", json.dumps(out, ensure_ascii=False))  # 帶密碼值的不改寫（值不進 hook 輸出）
+        out = json.loads(hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse",
+                                           "tool_name": "Bash",
+                                           "tool_input": {"command": f'python "{KB}" --session {B} unlock get --name 工地大門'}}))
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")  # ask 那條也不准自己帶 --session
         self.prompt(A, "工地大門密碼多少")
         self.prompt(B, "你好")  # B 後開口：current.json 是 B
         import contextlib

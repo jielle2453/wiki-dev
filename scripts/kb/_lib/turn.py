@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from kb._lib import config, credentials, ledger
-from kb._lib.io import FileLock, read_json, write_json_atomic
+from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 TURNS_REL = Path(".system") / "turns"
 VERSIONS_REL = Path(".system") / "versions"
@@ -209,15 +209,17 @@ def _now_file(vault):
 
 
 def now(vault):
-    """這次呼叫的回合（#20 裁定 6）：有 --session 讀那個對話的回合檔，沒有讀 current.json；只讀，沒有回 None、不開新回合。
-    讀「這一句」的旗標、touched、回合代號用這支，不要直接讀 current.json。"""
+    """這次呼叫的回合（#20 裁定 6）：有 --turn（OVERRIDE）是那個回合，有 --session 讀那個對話的回合檔，都沒有讀 current.json；
+    只讀，沒有回 None、不開新回合。讀「這一句」的旗標、touched、回合代號用這支，不要直接讀 current.json。"""
+    if OVERRIDE:
+        return turn_data(vault, OVERRIDE)
     return _read_turn(_now_file(vault))
 
 
 def last(vault):
     """這個對話的回合（--session 的回合檔，沒有讀 current.json；只讀，沒有回 None、不開新回合）：turn note／redact 補記剛答完那句用
-    （D-502 裁定 3）。"""
-    return now(vault)
+    （D-502 裁定 3）。帶 --turn 的 note 走 turn_data，不經這裡。"""
+    return _read_turn(_now_file(vault))
 
 
 def _read_turn(path):
@@ -536,7 +538,7 @@ def backup(vault, rel, turn_id, action=None, by=None):
     manifest = vdir / "manifest.jsonl"
     with FileLock(manifest):
         if any(e.get("path") == rel for e in entries(vault, turn_id)):
-            _append_line(vdir / "writes.jsonl", {"path": rel, "time": _now().strftime("%Y-%m-%dT%H:%M:%S")})
+            _note_write(vault, vdir, turn_id, rel)
             return
         exists = target.is_file()
         action = action or ("modify" if exists else "create")
@@ -547,18 +549,11 @@ def backup(vault, rel, turn_id, action=None, by=None):
         row = {"path": rel, "action": action, "time": _now().strftime("%Y-%m-%dT%H:%M:%S")}
         if by:
             row["by"] = by
-        lead = ""
-        if manifest.is_file() and manifest.stat().st_size > 0:
-            with open(manifest, "rb") as f:
-                f.seek(-1, os.SEEK_END)
-                if f.read(1) != b"\n":
-                    lead = "\n"  # 檔尾是半截行：先補換行，新的一行不被吃掉（第二輪 R2-L5）
-        with open(manifest, "a", encoding="utf-8", newline="\n") as f:
-            f.write(lead + json.dumps(row, ensure_ascii=False) + "\n")
+        _append_line(manifest, row)
 
 
 def _append_line(path, row):
-    """jsonl 追加一行；檔尾是半截行先補換行。呼叫端拿著 manifest 鎖。"""
+    """jsonl 追加一行；檔尾是半截行先補換行，新的一行不被吃掉（第二輪 R2-L5）。呼叫端拿著 manifest 鎖。"""
     lead = ""
     if path.is_file() and path.stat().st_size > 0:
         with open(path, "rb") as f:
@@ -569,8 +564,16 @@ def _append_line(path, row):
         f.write(lead + json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _note_write(vault, vdir, turn_id, rel):
+    """同路徑再寫一次：writes.jsonl 那個路徑只留一行、時間換成這次（重疊檢查只看最晚的，一個 job 改幾百次總目錄也只一行）。
+    呼叫端拿著 manifest 鎖。"""
+    when = _now().strftime("%Y-%m-%dT%H:%M:%S")
+    rows = [r for r in writes(vault, turn_id) if r.get("path") != rel] + [{"path": rel, "time": when}]
+    write_text_atomic(vdir / "writes.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+
+
 def writes(vault, turn_id):
-    """讀 writes.jsonl（#20 裁定 4：同回合同路徑第二次以後的寫入，{path, time}）；壞行跳過並寫一行 hook-errors.log。
+    """讀 writes.jsonl（#20 裁定 4：同回合同路徑第二次以後的寫入，一個路徑一行 {path, time}，時間是最後一次）；壞行跳過並寫一行 hook-errors.log。
     manifest 只記第一次（備份），退回的重疊檢查要知道這回合最後一次寫是什麼時候。"""
     path = Path(vault) / VERSIONS_REL / turn_id / "writes.jsonl"
     if not path.is_file():

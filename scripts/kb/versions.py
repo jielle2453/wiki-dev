@@ -500,7 +500,7 @@ def _turn_of(all_turns, code):
 
 def _list(vault, n, as_json):
     all_turns = turns(vault)
-    current = (turn._read_turn(turn._now_file(vault)) or {}).get("turn")
+    current = (turn.now(vault) or {}).get("turn")
     if as_json:  # --json 照列全部，每筆帶 session（#20）
         print(json.dumps([{
             "turn": t["turn"], "started": t["started"], "prompt_head": t["prompt_head"], "session": _side(t),

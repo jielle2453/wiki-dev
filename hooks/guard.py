@@ -106,6 +106,14 @@ def main():
             if not ok:
                 decision, reason = "deny", why
                 rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": code, "head": str(target)})
+        if decision == "ask" and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
+            tokens = kb_args((payload.get("tool_input") or {}).get("command"), tool)
+            if tokens is not None and _has_flag(split_global(tokens)[0]):
+                decision, reason = "deny", SELF_FLAGS  # 跟 allow 那條一樣：自己帶 --turn／--agent／--session 的不准（#20 第二輪 review）
+                rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                             "head": str((payload.get("tool_input") or {}).get("command") or "")})
+            else:
+                updated = with_session(payload, tool, tokens)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
         if d.vault is not None:
             try:
                 for row in rows:
@@ -113,8 +121,6 @@ def main():
                 ledger.touch_status(d.vault)
             except BaseException as e:  # noqa: BLE001  留痕失敗不改決定
                 ledger.log_error(d.vault, f"{type(e).__name__}: {str(e)[:200]}")
-        if decision == "ask" and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
-            updated = with_session(payload, tool)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
         if decision in ("allow", "deny", "ask"):  # ask：開新口子的密碼動作，Claude Code 跳允許詢問（D-212）
             emit(decision, reason, updated if decision in ("allow", "ask") else None)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
@@ -199,18 +205,17 @@ def scope(payload, tool, d, agent_turn):
         return None, None
     if _has_flag(split_global(tokens)[0]):
         return SELF_FLAGS, None
-    return None, with_session(payload, tool)
+    return None, with_session(payload, tool, tokens)
 
 
-def with_session(payload, tool):
+def with_session(payload, tool, tokens):
     """主對話（沒有 agent_id、有 session_id）的單一 kb 呼叫插 --session <sid>（D-506：每個呼叫都記在這個對話的回合）；
     帶 --turn 的照它（#20 裁定 1）、selftest 不碰回合也要走 cli.main 不建 parser 的那條路（裁定 3），都不插。
-    子命令前自己帶 --turn／--agent／--session、帶密碼值（--password、--value）、拆不開、插不了回 None。"""
+    子命令前自己帶 --turn／--agent／--session、帶密碼值（--password、--value）、拆不開（tokens 是 None）、插不了回 None。"""
     ti = payload.get("tool_input") or {}
     sid = payload.get("session_id")
     if payload.get("agent_id") or not sid:
         return None
-    tokens = kb_args(ti.get("command"), tool)
     if tokens is None:
         return None
     head, cmd, _sub = split_global(tokens)
