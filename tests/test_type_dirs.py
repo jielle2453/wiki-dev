@@ -220,6 +220,45 @@ class ReviewFixes(Base):
         self.assertIn("客戶說好才 apply", line)
 
 
+class Round1(Base):
+    """測試第 1 輪 #2～#5（裁定 6～9）。"""
+    TYPES = (("案子", "事"), ("業主", "對象"), ("工班", "對象"))
+
+    def test_r6_type_named_like_another_types_folder_is_not_adopted(self):
+        self.entity("案子", "信義王")
+        (self.V / "01 案子").rename(self.V / "工程案")
+        turn.start(self.V, None, "")
+        kb(self.V, "profile", "apply")
+        r = self.add_type("工程案", "物")
+        self.assertNotIn("這個夾改叫", r.stdout)
+        self.assertEqual(self.dirs(), ["工程案", "02 業主", "03 工班", "04 工程案"])
+        self.assertTrue((self.V / "工程案/信義王/信義王.md").is_file())
+        self.assertTrue((self.V / "04 工程案").is_dir())
+
+    def test_r7_same_name_folder_is_not_a_rename(self):
+        self.entity("案子", "信義王")
+        (self.V / "01 案子").rename(self.V / "案子")
+        st = profile.status(self.V)
+        self.assertEqual(st["renamed"], [])
+        r = run_session(payload(self.V))
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("你改名叫「案子」了", ctx)
+
+    def test_r8_check_says_the_rename(self):
+        self.entity("案子", "信義王")
+        (self.V / "01 案子").rename(self.V / "工程案")
+        out = kb(self.V, "profile", "check").stdout
+        self.assertIn("型別夾「案子」你改名叫「工程案」了：跑 kb profile apply 記下來（不用問）。", out)
+        self.assertNotIn("客戶設定檔沒有改", out)
+
+    def test_r9_order_number_must_be_ascii_positive(self):
+        for raw in ("abc", "2.5", "-1", "１", "0", "4"):
+            with self.subTest(raw=raw):
+                r = kb(self.V, "profile", "add", "型別", "名稱=業主", f"序號={raw}", "--check", code=3)
+                self.assertEqual(r.stdout.strip(), "序號要寫 1 到 3 的數字")
+        self.assertEqual(self.dirs(), ["01 案子", "02 業主", "03 工班"])
+
+
 class MoveByTypeName(Base):
     """裁定 5：kb source-edit move --to 用型別名寫實體夾（案子/信義王），實際的夾（01 案子/信義王）在不在都認得。"""
 

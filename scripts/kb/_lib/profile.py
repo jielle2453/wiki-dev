@@ -1028,7 +1028,7 @@ def renamed_dirs(vault, types):
     v = Path(vault)
     known = {_key(_dir_of(t)) for t in types}
     unlisted = [n for n in _first_level_dirs(vault) if _key(n) not in known]
-    missing = [t for t in types if not (v / _dir_of(t)).is_dir()]
+    missing = [t for t in types if not (v / _dir_of(t)).is_dir() and not (v / t["name"]).is_dir()]  # 同名夾還在不算（裁定 7）
     if not unlisted or not missing:
         return []
     try:
@@ -1062,6 +1062,19 @@ def renamed_dirs(vault, types):
     return out
 
 
+RENAMED_LINE = "型別夾{names}：跑 kb profile apply 記下來（不用問）。"
+RENAMED_WITH = "型別夾{names}，套用時一起記下"  # 設定檔也有改：照「先複述、說好才 apply」，不說不用問
+RENAMED_SHOWN = 3
+
+
+def renamed_line(renamed, with_change=False):
+    """她改了型別夾名（renamed_dirs）的那一句：開場與 kb profile check 共用（裁定 8），最多列 3 個；沒有回 None。"""
+    if not renamed:
+        return None
+    names = "、".join(f"「{r['type']}」你改名叫「{r['to']}」了" for r in renamed[:RENAMED_SHOWN])
+    return (RENAMED_WITH if with_change else RENAMED_LINE).format(names=names)
+
+
 DIR_TAKEN = "「{rel}」已經有同名的資料夾或檔，沒有改名；先把它搬走"
 CREATE_TAKEN = "「{rel}」已經有同名的檔，不能建成型別夾；先改名或搬走"
 
@@ -1075,6 +1088,11 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
     v = Path(vault)
     old = {_key(t["name"]): t for t in old_types or []}
     out, moves, creates, adopted = [], [], [], []
+    homes = []  # 每列現在住的夾（有 dir 的 dir、升級前的型別名；新列還沒有）：D-250 不收編別的型別的夾（裁定 6）
+    for t in types:
+        prev = old.get(_key(t["name"]))
+        d = t["dir"] if t.get("dir") else (prev or {}).get("dir")
+        homes.append(_key(d) if d else (_key(t["name"]) if prev is not None else None))
     for i, t in enumerate(types):
         row = dict(t)
         prev = old.get(_key(t["name"]))
@@ -1085,7 +1103,8 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
             if not (v / t["name"]).is_dir():
                 creates.append(t["name"])
             continue
-        current = (d if (v / d).is_dir() else None) if d else (t["name"] if (v / t["name"]).is_dir() else None)
+        taken = _key(t["name"]) in {h for j, h in enumerate(homes) if j != i and h}
+        current = (d if (v / d).is_dir() else None) if d else             (t["name"] if (v / t["name"]).is_dir() and not taken else None)
         target = d if d and current and not is_default_dir(t["name"], d) else default_dir(i, t["name"])
         row["dir"] = target
         out.append(row)
@@ -1405,6 +1424,7 @@ def _same(section, label):
 
 TYPE_ORDER_ONLY = "排順序只給 名稱 與 序號（例：kb profile add 型別 名稱=業主 序號=1）"
 TYPE_ORDER_NEW = "新加的型別排最後；先加好，再說要排第幾個"
+TYPE_ORDER_NUMBER = "序號要寫 1 到 {n} 的數字"
 
 
 def _edit_types(out, op, f, today, absent, *_limits):
@@ -1416,12 +1436,10 @@ def _edit_types(out, op, f, today, absent, *_limits):
             raise ProfileError(1, None, TYPE_ORDER_ONLY)
         if row is None:
             raise ProfileError(1, None, TYPE_ORDER_NEW)
-        try:
-            n = int(f["序號"])
-        except ValueError:
-            n = 0
+        raw = f["序號"]
+        n = int(raw) if re.fullmatch(r"[0-9]+", raw) else 0  # 只收半形數字（裁定 9）
         if not 1 <= n <= len(rows):
-            raise ProfileError(1, None, f"沒有第 {f['序號']} 個（型別表現在 {len(rows)} 列）")
+            raise ProfileError(1, None, TYPE_ORDER_NUMBER.format(n=len(rows)))
         if rows.index(row) == n - 1:
             return f"沒有要改的：型別「{row['name']}」已經排第 {n} 個", False
         rows.remove(row)

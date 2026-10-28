@@ -253,9 +253,6 @@ PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
 PROFILE_UNLISTED = "第一層夾{names}不在型別表（請客戶補進設定檔）"
 PROFILE_LINE_MAX = 120
 PROFILE_UNLISTED_SHOWN = 2
-PROFILE_RENAMED = "型別夾{names}：跑 kb profile apply 記下來（不用問）。"
-PROFILE_RENAMED_WITH = "型別夾{names}，套用時一起記下"  # 設定檔也有改：照前半先複述、說好才 apply，不說不用問
-PROFILE_RENAMED_SHOWN = 3
 PROFILE_ORDER = "型別順序"  # 只調了型別表的順序（型別夾會改名）：diff 沒有內容差異時的摘要
 
 
@@ -272,9 +269,9 @@ def line_profile(vault):
         head = PROFILE_CHANGED.format(summary=profile.summary_short(st["diff"]) or PROFILE_ORDER)
     elif st["state"] == "error":
         head = PROFILE_ERROR.format(error=st["error"])
-    if st.get("renamed"):
-        names = "、".join(f"「{r['type']}」你改名叫「{r['to']}」了" for r in st["renamed"][:PROFILE_RENAMED_SHOWN])
-        head = f"{head}；{PROFILE_RENAMED_WITH.format(names=names)}" if head else PROFILE_RENAMED.format(names=names)
+    if st.get("renamed"):  # 句子跟 kb profile check 同一支（profile.renamed_line，裁定 8）
+        text = profile.renamed_line(st["renamed"], with_change=head is not None)
+        head = f"{head}；{text}" if head else text
     if not st["unlisted"]:
         return head
 

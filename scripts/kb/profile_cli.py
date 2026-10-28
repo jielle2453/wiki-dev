@@ -145,10 +145,11 @@ def check_lines(st):
         return [MISSING], 0
     if st["state"] == "error":
         return [f"客戶設定檔讀不懂：{st['error']}"], 3
+    renamed = profile.renamed_line(st.get("renamed"))  # 她改了型別夾名：跟開場同一句，不說沒有改（裁定 8）
     if st["state"] == "ok":
-        return [NO_CHANGE] + _unlisted_line(st), 0
+        return [renamed or NO_CHANGE] + _unlisted_line(st), 0
     if not profile.has_change(st):
-        return [NO_CONTENT_DIFF] + _unlisted_line(st), 0
+        return [renamed or NO_CONTENT_DIFF] + _unlisted_line(st), 0
     summary = profile.summary_full(st["diff"]) or ORDER_SUMMARY
     return [f"客戶設定檔有改：{summary}"] + _detail_lines(st) + _move_lines(st) + _unlisted_line(st), 0
 
@@ -159,7 +160,8 @@ ORDER_SUMMARY = "型別順序"
 def _move_lines(st):
     """套用時型別夾會怎麼改名（D-247、D-248）：先講給她聽，說好才 apply。"""
     lines = [f"- 型別夾 {a} → {b}" for a, b in sorted(st.get("moves") or [])]
-    lines += [f"- 型別夾「{r['type']}」記成你改的名字：{r['to']}" for r in st.get("renamed") or []]
+    if st.get("renamed"):
+        lines.append(profile.renamed_line(st["renamed"], with_change=True))
     return lines
 
 
