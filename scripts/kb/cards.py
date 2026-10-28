@@ -455,7 +455,7 @@ def _session(vault, args, strict=False):
             return sid
     if strict:
         return None
-    data = turn._read_turn(turn._current_file(vault))
+    data = turn.now(vault)
     return data.get("session_id") if data else None
 
 

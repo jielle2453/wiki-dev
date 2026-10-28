@@ -208,10 +208,16 @@ def _now_file(vault):
     return _session_file(vault, SESSION) if SESSION else _current_file(vault)
 
 
+def now(vault):
+    """這次呼叫的回合（#20 裁定 6）：有 --session 讀那個對話的回合檔，沒有讀 current.json；只讀，沒有回 None、不開新回合。
+    讀「這一句」的旗標、touched、回合代號用這支，不要直接讀 current.json。"""
+    return _read_turn(_now_file(vault))
+
+
 def last(vault):
     """這個對話的回合（--session 的回合檔，沒有讀 current.json；只讀，沒有回 None、不開新回合）：turn note／redact 補記剛答完那句用
     （D-502 裁定 3）。"""
-    return _read_turn(_now_file(vault))
+    return now(vault)
 
 
 def _read_turn(path):
@@ -517,7 +523,8 @@ def entries(vault, turn_id):
 
 
 def backup(vault, rel, turn_id, action=None, by=None):
-    """寫入前把舊版複製到 versions/<turn_id>/files/<rel>，manifest 追加一行。同回合同路徑只做第一次。
+    """寫入前把舊版複製到 versions/<turn_id>/files/<rel>，manifest 追加一行。同回合同路徑只做第一次；第二次以後只在
+    writes.jsonl 記這次寫的時間（#20 裁定 4，manifest 不動）。
     action 預設存在 modify、不存在 create；呼叫端刪檔前傳 delete。
     by 只收 "program"：程式自己改的（綜合卡檔頭快取重渲染、改名、合併），寫進那行，大改動門檻不數（實體與綜合卡第 9 點）。
     查重、複製、記帳在同一把鎖裡（第一輪 M1／L3）；複製失敗或鎖逾時丟 OSError（TimeoutError 也是）。
@@ -529,6 +536,7 @@ def backup(vault, rel, turn_id, action=None, by=None):
     manifest = vdir / "manifest.jsonl"
     with FileLock(manifest):
         if any(e.get("path") == rel for e in entries(vault, turn_id)):
+            _append_line(vdir / "writes.jsonl", {"path": rel, "time": _now().strftime("%Y-%m-%dT%H:%M:%S")})
             return
         exists = target.is_file()
         action = action or ("modify" if exists else "create")
@@ -547,6 +555,41 @@ def backup(vault, rel, turn_id, action=None, by=None):
                     lead = "\n"  # 檔尾是半截行：先補換行，新的一行不被吃掉（第二輪 R2-L5）
         with open(manifest, "a", encoding="utf-8", newline="\n") as f:
             f.write(lead + json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _append_line(path, row):
+    """jsonl 追加一行；檔尾是半截行先補換行。呼叫端拿著 manifest 鎖。"""
+    lead = ""
+    if path.is_file() and path.stat().st_size > 0:
+        with open(path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                lead = "\n"
+    with open(path, "a", encoding="utf-8", newline="\n") as f:
+        f.write(lead + json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def writes(vault, turn_id):
+    """讀 writes.jsonl（#20 裁定 4：同回合同路徑第二次以後的寫入，{path, time}）；壞行跳過並寫一行 hook-errors.log。
+    manifest 只記第一次（備份），退回的重疊檢查要知道這回合最後一次寫是什麼時候。"""
+    path = Path(vault) / VERSIONS_REL / turn_id / "writes.jsonl"
+    if not path.is_file():
+        return []
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for lineno, ln in enumerate(f, 1):
+            if not ln.strip():
+                continue
+            try:
+                row = json.loads(ln)
+            except ValueError as e:
+                ledger.log_error(vault, f"writes 壞行跳過 {turn_id}:{lineno}: {type(e).__name__}: {e}")
+                continue
+            if isinstance(row, dict) and row.get("path"):
+                rows.append(row)
+            else:
+                ledger.log_error(vault, f"writes 壞行跳過 {turn_id}:{lineno}: 不是有 path 的物件")
+    return rows
 
 
 FOLDER_OPS = ("move", "make", "remove")

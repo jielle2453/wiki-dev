@@ -79,7 +79,7 @@ def _current_workspace(args):
     vault = find_vault(args)
     if vault is None:
         return None
-    data = turn._read_turn(turn._current_file(vault))
+    data = turn.now(vault)
     try:
         return office.workspace(vault, data["turn"], make=False) if data else None
     except office.Refused:

@@ -9,7 +9,8 @@
 card-maker 第一輪修：記過的子代理只准白名單裡的 kb 子命令（AGENT_ALLOW；convert 不收 --password／--saved／--explicit，entity tag 不收 --said／--from-card），
 也不准讀 .system/unlock.json 與 .system/temp 的密碼檔暫存，其餘 deny「製卡助手不能做這件事」（S3）；指令自己帶了
 --turn／--agent／--session 的（子代理在哪都算，主對話看子命令前的）deny，不改寫（S4）；主對話（沒有 agent_id）的每個單一 kb 呼叫
-插 --session <sid>（D-506：寫入記在這個對話的回合、退回只退這個對話的；兩個視窗開同一個知識庫不串），已經帶 --turn 的不插（#20 裁定 1）。
+插 --session <sid>（D-506：寫入記在這個對話的回合、退回只退這個對話的；兩個視窗開同一個知識庫不串），已經帶 --turn 的與 selftest 不插
+（#20 裁定 1、3）；守門回 ask 的密碼動作（D-212）也一樣插，ask 帶 updatedInput（裁定 5）。
 build 第一輪修 S8：記過的子代理目前認領的是讀舊 wiki（adopt）的批次時，Write／Edit 這類寫檔工具一律 deny。
 build 桌面版確認修：記過的子代理用 Write／Edit／MultiEdit／NotebookEdit 寫到知識庫外面一律 deny（之前把卡寫到知識庫的上一層）。
 第二輪修：--t、--a、--s 開頭而且是這三個旗標前綴的（--tu=、--ses、--ag=…）一樣算；記過的子代理跑 Bash／PowerShell，
@@ -45,6 +46,7 @@ AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards
                ("entity", "tag")}
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
+SECRET_FLAGS = ("--password", "--value")  # 值是密碼的旗標：改寫會把值印進 hook 的輸出（#20 裁定 5 實作疑義）
 TAG_DENY = ("--said", "--from-card")  # 代表她的意思（她親口說的、她在卡上改的），只在主對話用（標籤記在實體上裁定 10）
 QUOTES = "\"'"
 
@@ -111,8 +113,10 @@ def main():
                 ledger.touch_status(d.vault)
             except BaseException as e:  # noqa: BLE001  留痕失敗不改決定
                 ledger.log_error(d.vault, f"{type(e).__name__}: {str(e)[:200]}")
+        if decision == "ask" and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
+            updated = with_session(payload, tool)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
         if decision in ("allow", "deny", "ask"):  # ask：開新口子的密碼動作，Claude Code 跳允許詢問（D-212）
-            emit(decision, reason, updated if decision == "allow" else None)
+            emit(decision, reason, updated if decision in ("allow", "ask") else None)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
         _on_error(e, payload, tool)
 
@@ -193,14 +197,28 @@ def scope(payload, tool, d, agent_turn):
         return None, with_turn(ti, agent_turn, payload.get("agent_id"))
     if tokens is None:
         return None, None
-    head, cmd, _sub = split_global(tokens)
-    if _has_flag(head):
+    if _has_flag(split_global(tokens)[0]):
         return SELF_FLAGS, None
+    return None, with_session(payload, tool)
+
+
+def with_session(payload, tool):
+    """主對話（沒有 agent_id、有 session_id）的單一 kb 呼叫插 --session <sid>（D-506：每個呼叫都記在這個對話的回合）；
+    帶 --turn 的照它（#20 裁定 1）、selftest 不碰回合也要走 cli.main 不建 parser 的那條路（裁定 3），都不插。
+    子命令前自己帶 --turn／--agent／--session、帶密碼值（--password、--value）、拆不開、插不了回 None。"""
+    ti = payload.get("tool_input") or {}
     sid = payload.get("session_id")
-    # selftest 不碰回合，也要走 cli.main 不建 parser 的那條路（換版前先驗新版 裁定 1），不插
-    if not payload.get("agent_id") and sid and cmd != "selftest" and not _has_flag(tokens, ("--turn",)):
-        return None, with_flags(ti, ("--session", sid))  # D-506：每個呼叫都記在這個對話的回合；帶 --turn 的照它（#20 裁定 1）
-    return None, None
+    if payload.get("agent_id") or not sid:
+        return None
+    tokens = kb_args(ti.get("command"), tool)
+    if tokens is None:
+        return None
+    head, cmd, _sub = split_global(tokens)
+    if _has_flag(head) or cmd == "selftest" or _has_flag(tokens, ("--turn",)):
+        return None
+    if _has_flag(tokens, SECRET_FLAGS):
+        return None  # updatedInput 會把整串（含密碼值）印進 hook 的輸出（D-212 守著不帶密碼值），不改寫
+    return with_flags(ti, ("--session", sid))
 
 
 def _outside(payload, tool, vault):

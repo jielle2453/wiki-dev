@@ -165,6 +165,25 @@ class Revert(Base):
         r = self.kb("versions", "revert", sid=A)
         self.assertEqual(r.returncode, 3, r.stdout)
 
+    def test_4e_other_conversation_writes_again_after_us_refused(self):
+        """裁定 4：B 先寫 X（manifest 記第一次）→ A 寫 X → B 再寫 X（只記 writes.jsonl）→ A 退回 exit 3、X 不變。"""
+        t_b = self.prompt(B, "信義王改一下")
+        self.edit_card(B, "B 第一次\n")
+        m = self.V / ".system" / "versions" / t_b / "manifest.jsonl"  # B 的第一次早很多：只靠 writes.jsonl 才看得到
+        m.write_text("".join(json.dumps(dict(json.loads(ln), time="2000-01-01T00:00:00"), ensure_ascii=False) + "\n"
+                             for ln in m.read_text(encoding="utf-8").splitlines()), encoding="utf-8")
+        self.prompt(A, "信義王再改")
+        self.edit_card(A, "A 改的\n")
+        self.edit_card(B, "B 第二次\n")
+        self.assertEqual([w["path"] for w in turn.writes(self.V, t_b)], [CARD_REL])  # 檔案工具經 before_write 也記
+        self.stop(A)
+        self.stop(B)
+        self.prompt(A, "退回上一步")
+        r = self.kb("versions", "revert", sid=A)
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertIn(f"- {CARD_REL}：{said(self.V, t_b)}（另一個對話）", r.stdout.splitlines())
+        self.assertEqual(self.card.read_text(encoding="utf-8"), "B 第二次\n")
+
     def test_4d_terminal_refusal_does_not_say_other_conversation(self):
         """終端機跑的沒有「這個對話」：擋下來的對話回合寫「對話裡」，不說「另一個對話」。"""
         self.prompt(B, "提醒我寄發票")
@@ -283,6 +302,43 @@ class List(Base):
         r = self.kb("versions", "list")  # 終端機：照列全部
         self.assertIn(said(self.V, t_b), r.stdout)
         self.assertNotIn("另一個對話", r.stdout)
+
+
+class SecretShown(Base):
+    """裁定 5：密碼動作（守門回 ask）也插 --session，secret_shown 標在叫它的那個對話的回合。"""
+
+    def test_ask_carries_session_and_secret_shown_lands_in_own_turn(self):
+        out = json.loads(hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse",
+                                           "tool_name": "Bash",
+                                           "tool_input": {"command": f'python "{KB}" unlock get --name 工地大門'}}))
+        out = out["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "ask")
+        self.assertEqual(out["updatedInput"]["command"], f'python "{KB}" --session {A} unlock get --name 工地大門')
+        out = json.loads(hook("guard.py", {"session_id": A, "cwd": str(self.V), "hook_event_name": "PreToolUse",
+                                           "tool_name": "Bash", "tool_input": {
+                                               "command": f'python "{KB}" convert a.pdf --saved 門 --explicit --password "zq-7731"'}}))
+        self.assertNotIn("zq-7731", json.dumps(out, ensure_ascii=False))  # 帶密碼值的不改寫（值不進 hook 輸出）
+        self.prompt(A, "工地大門密碼多少")
+        self.prompt(B, "你好")  # B 後開口：current.json 是 B
+        import contextlib
+        import io
+        from kb import cli
+        from kb._lib import io as kio
+        from kb._lib import unlock
+        old_backend, old_cwd, old_timeout = unlock.BACKEND, os.getcwd(), kio.LOCK_TIMEOUT
+        unlock.BACKEND = unlock.MemoryBackend()
+        try:
+            os.chdir(self.V)
+            with contextlib.redirect_stdout(io.StringIO()) as got:
+                self.assertEqual(cli.main(["unlock", "save", "--kind", "記下的密碼", "--name", "工地大門", "--value", "8899"]), 0)
+                self.assertEqual(cli.main(["--session", A, "unlock", "get", "--name", "工地大門"]), 0, got.getvalue())
+        finally:
+            os.chdir(old_cwd)
+            unlock.BACKEND = old_backend
+            kio.LOCK_TIMEOUT = old_timeout  # kb unlock 會改全域的鎖逾時，不還原會拖慢同一行程後面的測試
+            turn.SESSION = None
+        self.assertTrue(turn._read_turn(turn._session_file(self.V, A)).get("secret_shown"))
+        self.assertFalse(turn._read_turn(turn._session_file(self.V, B)).get("secret_shown"))
 
 
 class TurnNote(Base):

@@ -3,7 +3,7 @@
 每一層 parser 都 allow_abbrev=False（旗標要寫全名）。
 全域 --turn <回合> --agent <agent_id>（放在子命令前、--help 不列）：守門替 card-maker 的 kb 呼叫插的（D-195）；
 有 --turn 時這次呼叫的備份都進那個回合、算對話裡（不寫程式段）；回合不存在、或不是這個對話（--agent 記的回合、
-這個 session 的目前回合或 job 回合）的 exit 3（第一輪修 S4）。--session <sid>：守門替主對話的 cards dispatch／status／stop 插的。
+這個 session 的目前回合或 job 回合）的 exit 3（第一輪修 S4）。--session <sid>：守門替主對話插的，每個單一 kb 呼叫都插（帶 --turn 與 selftest 除外）。
 """
 import argparse
 import importlib

@@ -650,7 +650,7 @@ def current_turn(vault):
     """目前回合代號；只讀 current.json，沒有就回 None（plan.build 是只讀的，不能為了問回合開新的）。"""
     from kb._lib import turn
     try:
-        data = turn._read_turn(turn._current_file(vault))
+        data = turn.now(vault)
     except OSError:
         return None
     return data["turn"] if data else None

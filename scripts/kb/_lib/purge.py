@@ -992,7 +992,7 @@ def own_turns(vault):
     """對話裡這一句的回合代號與它在工作日誌那行的 key（退回自己這句時接著原回合）；終端機跑的（current.json 沒有 session_id
     或已答完）回空的，不讀 turn.current、不開新回合（第八輪）。"""
     try:
-        cur = turn._read_turn(turn._current_file(vault))
+        cur = turn.now(vault)
     except (OSError, ValueError):
         return set()
     if not (cur and cur.get("session_id") and not cur.get("done") and cur.get("turn")):

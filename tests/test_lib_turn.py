@@ -205,6 +205,20 @@ class Current(unittest.TestCase):
         self.assertNotEqual(t["turn"], other["turn"])
         self.assertTrue((self.V / ".system" / "turns" / "nobody.json").exists())
 
+    def test_now_reads_this_conversation_without_starting(self):
+        """#20 裁定 6：now() 有 SESSION 讀那個對話的回合檔（別的對話後開口也一樣），沒有不開新回合；沒有 SESSION 讀 current.json。"""
+        mine = turn.start(self.V, "mine", "a")
+        other = turn.start(self.V, "other", "b")
+        self.assertEqual(turn.now(self.V)["turn"], other["turn"])
+        turn.SESSION = "mine"
+        try:
+            self.assertEqual(turn.now(self.V)["turn"], mine["turn"])
+            turn.SESSION = "nobody"
+            self.assertIsNone(turn.now(self.V))
+            self.assertFalse((self.V / ".system" / "turns" / "nobody.json").exists())
+        finally:
+            turn.SESSION = None
+
     def test_nothing_starts_a_turn(self):
         t = turn.current(self.V, SID)
         self.assertEqual(t["prompt_head"], "")

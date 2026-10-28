@@ -118,6 +118,7 @@ def turns(vault):
             "entries": turn.entries(vault, d.name),
             "folders": turn.folders(vault, d.name),
             "moves": turn.moves(vault, d.name),
+            "writes": turn.writes(vault, d.name),
         })
     if any(not t["session_id"] for t in out):
         jobs = _job_sessions(vault)
@@ -166,8 +167,8 @@ def _uri_rel(uri):
 
 
 def _touches(t):
-    """回合碰過的路徑：[(路徑, 時間)]，manifest、folders.jsonl、moves.jsonl 都算。"""
-    got = [(e.get("path"), e.get("time")) for e in t["entries"]]
+    """回合碰過的路徑：[(路徑, 時間)]，manifest、writes.jsonl（同路徑第二次以後的寫入）、folders.jsonl、moves.jsonl 都算。"""
+    got = [(e.get("path"), e.get("time")) for e in t["entries"] + t.get("writes", [])]
     got += [(f.get(k), f.get("time")) for f in t["folders"] for k in ("from", "to")]
     got += [(_uri_rel(m.get(k)), m.get("time")) for m in t["moves"] for k in ("from", "to")]
     return [(str(p).replace("\\", "/"), str(w or "")) for p, w in got if p]
