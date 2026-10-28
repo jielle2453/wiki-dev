@@ -220,6 +220,33 @@ class ReviewFixes(Base):
         self.assertIn("客戶說好才 apply", line)
 
 
+class MoveByTypeName(Base):
+    """裁定 5：kb source-edit move --to 用型別名寫實體夾（案子/信義王），實際的夾（01 案子/信義王）在不在都認得。"""
+
+    def put(self, name):
+        f = self.V / "AI 產出" / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f"{name}的內容\n", encoding="utf-8")
+        _cards.scan_apply(self.V)
+
+    def test_existing_entity_folder(self):
+        self.entity("案子", "信義王")
+        self.put("報價單.txt")
+        turn.start(self.V, None, "")
+        r = kb(self.V, "source-edit", "move", "AI 產出/報價單.txt", "--to", "案子/信義王")
+        self.assertIn("已搬好", r.stdout)
+        self.assertTrue((self.V / "01 案子/信義王/報價單.txt").is_file())
+        self.assertFalse((self.V / "案子").exists())
+
+    def test_missing_entity_folder_is_made(self):
+        self.entity("業主", "王先生", card=False)
+        self.put("名片.txt")
+        turn.start(self.V, None, "")
+        kb(self.V, "source-edit", "move", "AI 產出/名片.txt", "--to", "業主/王先生")
+        self.assertTrue((self.V / "02 業主/王先生/名片.txt").is_file())
+        self.assertFalse((self.V / "業主").exists())
+
+
 class Remove(Base):
     TYPES = (("案子", "事"), ("業主", "對象"), ("工班", "對象"))
 
