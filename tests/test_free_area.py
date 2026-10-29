@@ -206,11 +206,26 @@ class Agent(FixtureVault):
         self.assertIn("agent_scope", (self.V / ".system" / "ledger.tsv").read_text(encoding="utf-8"))
         self.assertEqual(self.hook("Grep", self.V / "檔案索引", pattern="保固")["permissionDecision"], "allow")
         self.assertEqual(self.hook("Grep", self.V, agent=False, pattern="保固")["permissionDecision"], "allow")
-        for pattern in ("**/*.md", f"{FREE_DIR}/*", "_ex*/*.md"):
+        for pattern in ("**/*.md", f"{FREE_DIR}/*", "_ex*/*.md", FREE_DIR):  # 只點名彈性區本身也擋（寧可多擋）
             self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "deny", pattern)
-        for pattern in ("*.md", "檔案索引/**/*.md", FREE_DIR):
+        for pattern in ("*.md", "檔案索引/**/*.md"):
             self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "allow", pattern)
         self.assertEqual(self.hook("Glob", self.V, agent=False, pattern="**/*.md")["permissionDecision"], "allow")
+
+    def test_6_agent_search_bypasses_denied(self):
+        """裁定 4 的 code-review：樣式帶 ..、絕對路徑、{…}、path 有萬用字元、path 在知識庫上層都算碰到彈性區。"""
+        self.put("筆記.md")
+        index = self.V / "檔案索引"
+        cases = [("Glob", index, {"pattern": f"../{FREE_DIR}/**/*.md"}),
+                 ("Glob", self.V, {"pattern": f"{self.F.as_posix()}/*.md"}),
+                 ("Glob", self.V, {"pattern": f"{{{FREE_DIR},檔案索引}}/*.md"}),
+                 ("Glob", self.V, {"pattern": f"@({FREE_DIR})/*"}),
+                 ("Glob", f"{self.V.as_posix()}/_ex*", {"pattern": "*.md"}),
+                 ("Grep", self.V.parent, {"pattern": "保固"})]
+        for tool, path, extra in cases:
+            out = self.hook(tool, path, **extra)
+            self.assertEqual(out.get("permissionDecision"), "deny", (tool, path, extra))
+        self.assertEqual(self.hook("Glob", index, pattern="../檔案索引/*.md")["permissionDecision"], "allow")
 
     def test_6_agent_reads_index_as_before(self):
         index = self.V / "檔案索引"

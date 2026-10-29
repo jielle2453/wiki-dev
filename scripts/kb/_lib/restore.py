@@ -242,8 +242,11 @@ def _free_digests_zip(zip_path):
 def _free_digests_vault(target):
     """知識庫現在彈性區的檔，同上；連結不跟、讀不到的當內容不同。"""
     out = {}
-    root = Path(target) / FREE_DIR
-    if not root.is_dir():
+    try:  # 不分大小寫找（spec 裁定 5）：_Extras 也是它
+        root = next((p for p in Path(target).iterdir() if p.name.casefold() == FREE_DIR.casefold() and p.is_dir()), None)
+    except OSError:
+        root = None
+    if root is None:
         return out
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]

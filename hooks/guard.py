@@ -86,6 +86,11 @@ def main():
             ti = payload.get("tool_input") or {}
             rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
                          "head": str(ti.get("file_path") or ti.get("notebook_path") or "")})
+        if d.vault is not None and agent_turn and tool in ("Grep", "Glob") and decision != "deny"                 and _search_reaches_free(payload, tool, d.vault):
+            decision, reason = "deny", AGENT_DENY  # 範圍碰到彈性區（spec 裁定 4）：放行、不表態的都擋（知識庫上層是 Z11）
+            ti = payload.get("tool_input") or {}
+            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                         "head": str(ti.get("path") or ti.get("pattern") or "")})
         if d.vault is not None and agent_turn and tool in SHELL_TOOLS and decision != "deny" and decision != "allow":
             decision, reason = "deny", AGENT_DENY  # 守門沒意見或要詢問的 shell 指令：子代理一律不准（第二輪修 R3）
             rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
@@ -187,8 +192,6 @@ def scope(payload, tool, d, agent_turn):
         return AGENT_DENY, None
     if agent_turn and tool in FILE_TOOLS and d.zone == "Z12":
         return AGENT_DENY, None  # 製卡助手不碰客戶自己的區（D-510）
-    if agent_turn and tool in ("Grep", "Glob") and _search_reaches_free(payload, tool, d.vault):
-        return AGENT_DENY, None  # 範圍包含彈性區（spec 裁定 4）：搜整個知識庫也算
     if agent_turn and tool in WRITE_TOOLS and _adopt_agent(d.vault, payload.get("agent_id")):
         return AGENT_DENY, None  # 讀舊 wiki 的批次不寫任何檔
     if tool not in SHELL_TOOLS:
@@ -320,32 +323,48 @@ def _free_target(payload, tokens, vault):
     return False
 
 
+_WILD = set("*?[{")
+_EXTGLOB = ("@(", "+(", "!(")
+
+
 def _search_reaches_free(payload, tool, vault):
-    """Grep／Glob 的範圍包含彈性區根（spec 裁定 4）：path（沒給是 cwd）是彈性區根的上層就算；Glob 另要樣式往下走得到它
-    （有 ** 、或前面幾段照 fnmatch 對得上彈性區根的相對路徑、後面還有段）。路徑在彈性區裡的由 zone Z12 那條擋。"""
+    """製卡助手的 Grep／Glob 範圍會不會碰到彈性區（spec 裁定 4）。path（沒給是 cwd）照萬用字元前的前綴夾算；
+    Glob 的樣式接在 path 後面一起 normalize（.. 與絕對路徑的樣式也算），取第一個萬用字元前的那段當起點：
+    起點在彈性區裡或就是它 → 碰到；起點是它的上層 → Grep 一律算，Glob 看剩下的樣式往下走不走得到（有 **、{…}、extglob
+    一律算走得到，其他每段照 fnmatch 比，兩邊都 casefold）。認不出路徑一律算碰到。"""
     import fnmatch
     from kb.guard import free_root
     from kb._lib.paths import inside, normalize
 
     ti = payload.get("tool_input") or {}
     cwd = payload.get("cwd") or os.getcwd()
+    root = free_root(normalize(str(vault), None))
+    path = str(ti.get("path") or cwd).replace("\\", "/")
+    pattern = str(ti.get("pattern") or "").replace("\\", "/") if tool == "Glob" else ""
+    full = path.rstrip("/") + "/" + pattern if pattern and not (pattern.startswith("/") or pattern[1:3] == ":/") else (pattern or path)
+    segs = full.split("/")
+    k = next((n for n, seg in enumerate(segs) if any(c in _WILD for c in seg) or any(e in seg for e in _EXTGLOB)), len(segs))
+    head_text = "/".join(segs[:k]) or "/"
+    rest = [x for x in segs[k:] if x not in ("", ".")]
     try:
-        start = normalize(str(ti.get("path") or cwd), cwd)
+        head = normalize(head_text, cwd)
     except (OSError, ValueError):
         return True
-    root = free_root(normalize(str(vault), None))
-    if start == root or not inside(root, start):
-        return False
-    if tool == "Grep":
+    if head == root or inside(head, root):
         return True
-    rel = root[len(start):].strip("/").split("/")
-    pat = [x for x in str(ti.get("pattern") or "").replace("\\", "/").split("/") if x not in ("", ".")]
-    for i, seg in enumerate(pat):
-        if seg == "**":
+    if not inside(root, head):
+        return False
+    if tool == "Grep" or (rest and any(c in _WILD for c in str(ti.get("path") or ""))):
+        return True
+    if ".." in rest:
+        return True  # 萬用字元之後還有 ..：看不出最後落在哪
+    rel = root[len(head):].strip("/").split("/")
+    for n, seg in enumerate(rest):
+        if seg == "**" or "{" in seg or any(e in seg for e in _EXTGLOB):
             return True
-        if i >= len(rel):
+        if n >= len(rel):
             return True  # 對上了彈性區根，樣式還往下走
-        if not fnmatch.fnmatch(rel[i], seg.casefold()):
+        if not fnmatch.fnmatchcase(rel[n].casefold(), seg.casefold()):
             return False
     return False
 
