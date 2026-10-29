@@ -58,5 +58,9 @@
   "0.27.0": {
     ".claude/settings.json": "7bc059b1ebedefa4a052efe5216ae840cd3693763960a695fba8d846cccea0e3",
     "CLAUDE.md": "fb8a09e70965ef5bd4183bea052f4c35dbd5186780809c0510ac4caa77e45038"
+  },
+  "0.27.1": {
+    ".claude/settings.json": "7bc059b1ebedefa4a052efe5216ae840cd3693763960a695fba8d846cccea0e3",
+    "CLAUDE.md": "fb8a09e70965ef5bd4183bea052f4c35dbd5186780809c0510ac4caa77e45038"
   }
 }
