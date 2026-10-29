@@ -17,7 +17,7 @@ from tests.test_hooks_guard import run_hook
 from tests.test_type_dirs import Base as TypeBase, kb as kb_type, legacy_vault, top_dirs, uris
 from tests.test_scripts_upgrade_cli import Base as UpgradeBase, run_inproc
 from kb import guard  # noqa: E402
-from kb._lib import backup, batches, build, cards, journal, migrate, profile, restore, skeleton, turn  # noqa: E402
+from kb._lib import backup, batches, build, cards, inventory, journal, migrate, profile, restore, skeleton, turn  # noqa: E402
 from kb._lib.areas import FREE_DIR  # noqa: E402
 
 A, B = "sid-free-a", "sid-free-b"
@@ -232,7 +232,10 @@ class Agent(FixtureVault):
                  ("Glob", self.V, {"pattern": f"@({FREE_DIR})/*"}),
                  ("Glob", f"{self.V.as_posix()}/_ex*", {"pattern": "*.md"}),
                  ("Grep", self.V.parent, {"pattern": "保固"}),
-                 ("Glob", index, {"pattern": f"*/../../{FREE_DIR}/*"})]
+                 ("Glob", index, {"pattern": f"*/../../{FREE_DIR}/*"}),
+                 ("Glob", index, {"pattern": f"{{..,x}}/{FREE_DIR}/*"}),
+                 ("Glob", index, {"pattern": f"@(..)/{FREE_DIR}/*"}),
+                 ("Glob", index, {"pattern": f".?/{FREE_DIR}/*"})]
         for tool, path, extra in cases:
             out = self.hook(tool, path, **extra)
             self.assertEqual(out.get("permissionDecision"), "deny", (tool, path, extra))
@@ -441,13 +444,13 @@ class Restore(unittest.TestCase):
 
     def test_14_unreadable_file_counts_as_different(self):
         """裁定 9：單一檔讀不了（MemoryError、OSError）不讓 check 掛掉，那一份算內容不同。"""
-        real = open
+        real = inventory.sha256_of
 
         def flaky(path, *a, **kw):
             if str(path).endswith("廠商.md"):
                 raise MemoryError
             return real(path, *a, **kw)
-        with mock.patch("kb._lib.restore.open", side_effect=flaky, create=True):
+        with mock.patch.object(inventory, "sha256_of", side_effect=flaky):
             got = restore._free_diff(self.V, self.V, self.zip)
         self.assertEqual(got, {"count": 1, "examples": ["廠商.md"]})
 

@@ -297,9 +297,14 @@ def _secret_target(payload, tool, vault):
     return False
 
 
+class _NO_SOURCES:  # 保留別名的 uri：path_of 不看來源登記
+    entries = ()
+
+
 def _free_target(payload, tokens, vault):
     """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數解回路徑（uri 照 inventory.path_of，跟 convert 同一套），
-    normalize 之後（.. 與 . 收掉）在彈性區根或它底下就算。來源登記讀不了、uri 解不回來的一律算（寧可擋）。"""
+    normalize 之後（.. 與 . 收掉）在彈性區根或它底下就算。保留別名（知識庫、AI 產出、收件匣）不讀來源登記；
+    要讀來源登記而讀不了的一律算（寧可擋）；別名對不到的 convert 也解不回路徑，不算。"""
     from kb.guard import free_root
     from kb._lib import inventory, sources as sources_lib
     from kb._lib.paths import inside, normalize
@@ -312,9 +317,10 @@ def _free_target(payload, tokens, vault):
             continue
         try:
             if t.startswith("file://"):
-                if srcs is None:
+                alias = inventory.split_uri(t.replace("\\", "/"))[0].casefold()
+                if srcs is None and alias not in inventory.RESERVED_CF:
                     srcs = sources_lib.load(vault)
-                p = inventory.path_of(vault, srcs, t.replace("\\", "/"))
+                p = inventory.path_of(vault, srcs or _NO_SOURCES, t.replace("\\", "/"))
                 if p is None:
                     continue  # 別名對不到：convert 也解不回路徑
                 n = normalize(str(p), cwd)
@@ -329,6 +335,12 @@ def _free_target(payload, tokens, vault):
 
 _WILD = set("*?[{")
 _EXTGLOB = ("@(", "+(", "!(")
+
+
+def _may_climb(seg):
+    """這一段會不會展開成 ..：就是 ..、有 {…} 或 extglob（裡面可能寫 ..）、. 開頭又有萬用字元（.?、.*）。* 、** 不配 ..。"""
+    import fnmatch
+    return seg == ".." or "{" in seg or any(e in seg for e in _EXTGLOB) or (seg.startswith(".") and fnmatch.fnmatchcase("..", seg))
 
 
 def _search_reaches_free(payload, tool, vault):
@@ -348,8 +360,8 @@ def _search_reaches_free(payload, tool, vault):
     full = pattern if absolute else (path.rstrip("/") + "/" + pattern if pattern else path)
     segs = full.split("/")
     k = next((n for n, seg in enumerate(segs) if any(c in _WILD for c in seg) or any(e in seg for e in _EXTGLOB)), len(segs))
-    if ".." in segs[k:]:
-        return True
+    if any(_may_climb(seg) for seg in segs[k:]):
+        return True  # 萬用字元之後還可能往上走：看不出最後落在哪
     try:
         head = normalize("/".join(segs[:k]) or "/", cwd)
     except (OSError, ValueError):

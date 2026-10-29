@@ -237,8 +237,8 @@ def _free_digests_zip(zip_path):
                     for chunk in iter(lambda: src.read(1 << 20), b""):
                         h.update(chunk)
                 digest = h.hexdigest()
-            except (OSError, MemoryError, zipfile.BadZipFile):
-                digest = None  # 那一份讀不了：算成內容不同（裁定 9）
+            except Exception:  # noqa: BLE001  壞的壓縮流、不支援的壓縮法、加密的成員都一樣：那一份算內容不同（裁定 9）
+                digest = None
             out[n.casefold()] = (n, digest)
     return out
 
@@ -266,24 +266,19 @@ def _free_digests_vault(target):
 
 
 def _is_link(p):
-    """連結與 junction（重解析點）不跟（spec 裁定 9）；看不了的當連結。"""
-    try:
-        return p.is_symlink() or bool(getattr(os.lstat(p), "st_file_attributes", 0) & 0x400)
-    except OSError:
-        return True
+    """連結與 junction 不跟（spec 裁定 9）：跟清冊走訪同一套判斷（inventory._is_link，長路徑、看不了的照一般檔）。"""
+    from kb._lib import inventory
+    return inventory._is_link(p)
 
 
 def _file_sha256(p):
-    """一次讀 HASH_CHUNK 分段算（spec 裁定 9）；讀不了（OSError、MemoryError）回 None，算成內容不同、不讓 check 掛掉。"""
-    from kb._lib.inventory import HASH_CHUNK
-    h = hashlib.sha256()
+    """照清冊的分段讀（inventory.sha256_of，HASH_CHUNK、長路徑）；讀不了（OSError、MemoryError）回 None，
+    算成內容不同、不讓 check 掛掉（spec 裁定 9）。"""
+    from kb._lib import inventory
     try:
-        with open(p, "rb") as f:
-            for chunk in iter(lambda: f.read(HASH_CHUNK), b""):
-                h.update(chunk)
+        return inventory.sha256_of(p)
     except (OSError, MemoryError):
         return None
-    return h.hexdigest()
 
 
 def _free_diff(vault, target, zip_path):
