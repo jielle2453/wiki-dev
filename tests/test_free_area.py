@@ -213,10 +213,13 @@ class Agent(FixtureVault):
         self.assertIn("agent_scope", (self.V / ".system" / "ledger.tsv").read_text(encoding="utf-8"))
         self.assertEqual(self.hook("Grep", self.V / "檔案索引", pattern="保固")["permissionDecision"], "allow")
         self.assertEqual(self.hook("Grep", self.V, agent=False, pattern="保固")["permissionDecision"], "allow")
-        for pattern in ("**/*.md", f"{FREE_DIR}/*", "_ex*/*.md", FREE_DIR):  # 只點名彈性區本身也擋（寧可多擋）
+        # 裁定 8：起點是知識庫根就擋，不比樣式
+        for pattern in ("**/*.md", f"{FREE_DIR}/*", "_ex*/*.md", FREE_DIR, "_ext*", "_ext?as", "[_]extras", "*.md"):
             self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "deny", pattern)
-        for pattern in ("*.md", "檔案索引/**/*.md"):
-            self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "allow", pattern)
+        self.assertEqual(self.hook("Glob", self.V, pattern="檔案索引/**/*.md")["permissionDecision"], "allow")
+        index = self.V / "檔案索引"
+        self.assertEqual(self.hook("Glob", index, pattern="../*")["permissionDecision"], "deny")
+        self.assertEqual(self.hook("Glob", index, pattern="**/*.md")["permissionDecision"], "allow")
         self.assertEqual(self.hook("Glob", self.V, agent=False, pattern="**/*.md")["permissionDecision"], "allow")
 
     def test_6_agent_search_bypasses_denied(self):
@@ -228,7 +231,8 @@ class Agent(FixtureVault):
                  ("Glob", self.V, {"pattern": f"{{{FREE_DIR},檔案索引}}/*.md"}),
                  ("Glob", self.V, {"pattern": f"@({FREE_DIR})/*"}),
                  ("Glob", f"{self.V.as_posix()}/_ex*", {"pattern": "*.md"}),
-                 ("Grep", self.V.parent, {"pattern": "保固"})]
+                 ("Grep", self.V.parent, {"pattern": "保固"}),
+                 ("Glob", index, {"pattern": f"*/../../{FREE_DIR}/*"})]
         for tool, path, extra in cases:
             out = self.hook(tool, path, **extra)
             self.assertEqual(out.get("permissionDecision"), "deny", (tool, path, extra))
@@ -434,6 +438,18 @@ class Restore(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_14_unreadable_file_counts_as_different(self):
+        """裁定 9：單一檔讀不了（MemoryError、OSError）不讓 check 掛掉，那一份算內容不同。"""
+        real = open
+
+        def flaky(path, *a, **kw):
+            if str(path).endswith("廠商.md"):
+                raise MemoryError
+            return real(path, *a, **kw)
+        with mock.patch("kb._lib.restore.open", side_effect=flaky, create=True):
+            got = restore._free_diff(self.V, self.V, self.zip)
+        self.assertEqual(got, {"count": 1, "examples": ["廠商.md"]})
 
     def test_14_free_area_any_case_is_not_a_type_folder(self):
         """spec 裁定 5：RESERVED_TOP 不分大小寫，_Extras 底下的同名卡不算綜合卡。"""

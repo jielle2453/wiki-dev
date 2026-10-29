@@ -332,45 +332,29 @@ _EXTGLOB = ("@(", "+(", "!(")
 
 
 def _search_reaches_free(payload, tool, vault):
-    """製卡助手的 Grep／Glob 範圍會不會碰到彈性區（spec 裁定 4）。path（沒給是 cwd）照萬用字元前的前綴夾算；
-    Glob 的樣式接在 path 後面一起 normalize（.. 與絕對路徑的樣式也算），取第一個萬用字元前的那段當起點：
-    起點在彈性區裡或就是它 → 碰到；起點是它的上層 → Grep 一律算，Glob 看剩下的樣式往下走不走得到（有 **、{…}、extglob
-    一律算走得到，其他每段照 fnmatch 比，兩邊都 casefold）。認不出路徑一律算碰到。"""
-    import fnmatch
+    """製卡助手的 Grep／Glob 範圍會不會碰到彈性區（spec 裁定 4、8）：起點是 path（沒給是 cwd）接上 Glob 樣式裡第一個萬用字元之前的部分
+    （含 ..、絕對路徑的樣式），normalize 之後在彈性區裡、是它、或是知識庫根與它的上層 → 碰到，不再比樣式；萬用字元之後還有 .. 的也算
+    （看不出最後落在哪）。認不出路徑一律算碰到。"""
     from kb.guard import free_root
     from kb._lib.paths import inside, normalize
 
     ti = payload.get("tool_input") or {}
     cwd = payload.get("cwd") or os.getcwd()
-    root = free_root(normalize(str(vault), None))
+    vault_n = normalize(str(vault), None)
+    root = free_root(vault_n)
     path = str(ti.get("path") or cwd).replace("\\", "/")
     pattern = str(ti.get("pattern") or "").replace("\\", "/") if tool == "Glob" else ""
-    full = path.rstrip("/") + "/" + pattern if pattern and not (pattern.startswith("/") or pattern[1:3] == ":/") else (pattern or path)
+    absolute = pattern.startswith("/") or pattern[1:3] == ":/"
+    full = pattern if absolute else (path.rstrip("/") + "/" + pattern if pattern else path)
     segs = full.split("/")
     k = next((n for n, seg in enumerate(segs) if any(c in _WILD for c in seg) or any(e in seg for e in _EXTGLOB)), len(segs))
-    head_text = "/".join(segs[:k]) or "/"
-    rest = [x for x in segs[k:] if x not in ("", ".")]
+    if ".." in segs[k:]:
+        return True
     try:
-        head = normalize(head_text, cwd)
+        head = normalize("/".join(segs[:k]) or "/", cwd)
     except (OSError, ValueError):
         return True
-    if head == root or inside(head, root):
-        return True
-    if not inside(root, head):
-        return False
-    if tool == "Grep" or (rest and any(c in _WILD for c in str(ti.get("path") or ""))):
-        return True
-    if ".." in rest:
-        return True  # 萬用字元之後還有 ..：看不出最後落在哪
-    rel = root[len(head):].strip("/").split("/")
-    for n, seg in enumerate(rest):
-        if seg == "**" or "{" in seg or any(e in seg for e in _EXTGLOB):
-            return True
-        if n >= len(rel):
-            return True  # 對上了彈性區根，樣式還往下走
-        if not fnmatch.fnmatchcase(rel[n].casefold(), seg.casefold()):
-            return False
-    return False
+    return head == root or inside(head, root) or head == vault_n or inside(vault_n, head)
 
 
 def with_flags(tool_input, *pairs):

@@ -232,10 +232,14 @@ def _free_digests_zip(zip_path):
             if info.is_dir() or not n.casefold().startswith(head) or n.rsplit("/", 1)[-1] == ".gitkeep":
                 continue
             h = hashlib.sha256()
-            with z.open(info) as src:
-                for chunk in iter(lambda: src.read(1 << 20), b""):
-                    h.update(chunk)
-            out[n.casefold()] = (n, h.hexdigest())
+            try:
+                with z.open(info) as src:
+                    for chunk in iter(lambda: src.read(1 << 20), b""):
+                        h.update(chunk)
+                digest = h.hexdigest()
+            except (OSError, MemoryError, zipfile.BadZipFile):
+                digest = None  # 那一份讀不了：算成內容不同（裁定 9）
+            out[n.casefold()] = (n, digest)
     return out
 
 
@@ -248,23 +252,46 @@ def _free_digests_vault(target):
         root = None
     if root is None:
         return out
+    if _is_link(root):
+        return out
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        dirnames[:] = [d for d in dirnames if not _is_link(Path(dirpath) / d)]
         for name in filenames:
             p = Path(dirpath) / name
-            if name == ".gitkeep" or p.is_symlink():
+            if name == ".gitkeep" or _is_link(p):
                 continue
             rel = p.relative_to(target).as_posix()
-            digest = _safe(lambda q=p: hashlib.sha256(q.read_bytes()).hexdigest())
-            out[rel.casefold()] = (rel, digest)
+            out[rel.casefold()] = (rel, _file_sha256(p))
     return out
+
+
+def _is_link(p):
+    """連結與 junction（重解析點）不跟（spec 裁定 9）；看不了的當連結。"""
+    try:
+        return p.is_symlink() or bool(getattr(os.lstat(p), "st_file_attributes", 0) & 0x400)
+    except OSError:
+        return True
+
+
+def _file_sha256(p):
+    """一次讀 HASH_CHUNK 分段算（spec 裁定 9）；讀不了（OSError、MemoryError）回 None，算成內容不同、不讓 check 掛掉。"""
+    from kb._lib.inventory import HASH_CHUNK
+    h = hashlib.sha256()
+    try:
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(HASH_CHUNK), b""):
+                h.update(chunk)
+    except (OSError, MemoryError):
+        return None
+    return h.hexdigest()
 
 
 def _free_diff(vault, target, zip_path):
     """彈性區會變回備份那時的樣子的檔（D-512）：{count, examples}（examples 是檔名，最多 EXAMPLES_MAX 個）。"""
     theirs = _free_digests_zip(zip_path)
     mine = _free_digests_vault(target) if vault is not None else {}
-    keys = sorted(k for k in set(theirs) | set(mine) if k not in mine or k not in theirs or mine[k][1] != theirs[k][1])
+    keys = sorted(k for k in set(theirs) | set(mine)
+                  if k not in mine or k not in theirs or mine[k][1] is None or mine[k][1] != theirs[k][1])
     names = [(mine.get(k) or theirs[k])[0].rsplit("/", 1)[-1] for k in keys]
     return {"count": len(keys), "examples": names[:EXAMPLES_MAX]}
 
