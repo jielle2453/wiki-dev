@@ -28,7 +28,8 @@ plugin 名稱 `wiki-with-willy`（D-069），指令前綴 `/wiki-with-willy:`；
 ```
 llm-wiki-j/
 ├─ README.md            給服務人員與使用者：裝、用、升級
-├─ CLAUDE.md            給改 repo 的 Claude：原始碼地圖、改完要做的事
+├─ CLAUDE.md            給改 repo 的 Claude：改完要做的事、不准、ops 索引
+├─ ops/                 原始碼地圖（map-*.md，按需讀）
 ├─ CHANGELOG.md         一版一段：改了什麼／為什麼／commit／spec
 ├─ LICENSE
 └─ design/
@@ -54,7 +55,7 @@ llm-wiki-j/
 | 決策與理由 | `decisions.md`；spec 與規則只引用編號 |
 | 某版改了什麼 | `CHANGELOG.md` |
 | 延後的想法、別的 session 發現的問題 | `backlog.md` |
-| 怎麼改 repo | `CLAUDE.md` |
+| 怎麼改 repo | `CLAUDE.md`；某個檔做什麼看 `ops/map-*.md` |
 | 怎麼用 plugin | `README.md` |
 | 訪談要問什麼 | `系統/客戶設定檔.md` 每節的提示句，住 `scripts/kb/_lib/profile.py` 的渲染（D-052、D-067、D-111） |
 | 給客戶看的說明（速查卡、資料去向） | `skeleton/` 或由 build 生成到 `系統/建置報告.md` 前半，不在 design |
