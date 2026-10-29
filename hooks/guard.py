@@ -15,6 +15,8 @@ build 第一輪修 S8：記過的子代理目前認領的是讀舊 wiki（adopt�
 build 桌面版確認修：記過的子代理用 Write／Edit／MultiEdit／NotebookEdit 寫到知識庫外面一律 deny（之前把卡寫到知識庫的上一層）。
 第二輪修：--t、--a、--s 開頭而且是這三個旗標前綴的（--tu=、--ses、--ag=…）一樣算；記過的子代理跑 Bash／PowerShell，
 不是「單一 kb 呼叫而且在白名單裡」的一律 deny（&&、管線、環境變數前綴、cd 再接、python -c 都算），客戶按過一律允許 python 也繞不過。
+彈性區（D-510）：檔案工具寫 Z12 放行前一樣備進回合（大改動只數 Z1）；記過的子代理用檔案工具碰 Z12、或單一 kb 呼叫的參數
+指到彈性區（例 convert）一律 deny。
 永不以非 0 結束，永不丟例外到 Claude Code。
 hook 不是從 scripts/ 跑的，所以這裡動 sys.path；hooks/*.py 是唯一准動 sys.path 的地方（CLAUDE.md 三）。
 """
@@ -34,7 +36,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 SHELL_TOOLS = ("Bash", "PowerShell")
-BACKUP_ZONES = ("Z1", "Z3", "Z5")  # 綜合卡、AI 產出、檔案索引：寫前回合備份（D-046 補）
+BACKUP_ZONES = ("Z1", "Z3", "Z5", "Z12")  # 綜合卡、AI 產出、檔案索引、彈性區：寫前回合備份（D-046 補、D-510）
 ERROR_REASON = "守門出錯，這次不放行。說「檢查」我看原因"
 AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent 或 --session"
@@ -183,6 +185,8 @@ def scope(payload, tool, d, agent_turn):
     ti = payload.get("tool_input") or {}
     if agent_turn and tool in FILE_TOOLS and _secret_target(payload, tool, d.vault):
         return AGENT_DENY, None
+    if agent_turn and tool in FILE_TOOLS and d.zone == "Z12":
+        return AGENT_DENY, None  # 製卡助手不碰客戶自己的區（D-510）
     if agent_turn and tool in WRITE_TOOLS and _adopt_agent(d.vault, payload.get("agent_id")):
         return AGENT_DENY, None  # 讀舊 wiki 的批次不寫任何檔
     if tool not in SHELL_TOOLS:
@@ -199,6 +203,8 @@ def scope(payload, tool, d, agent_turn):
         if (cmd, sub) not in AGENT_ALLOW:
             return AGENT_DENY, None
         if cmd == "convert" and _has_flag(tokens, CONVERT_DENY):
+            return AGENT_DENY, None
+        if _free_target(payload, tokens, d.vault):
             return AGENT_DENY, None
         if (cmd, sub) == ("entity", "tag") and _has_flag(tokens, TAG_DENY):
             return AGENT_DENY, None
@@ -283,6 +289,25 @@ def _secret_target(payload, tool, vault):
     if tool in ("Glob", "Grep"):
         pattern = f"{ti.get('pattern') or ''} {ti.get('glob') or ''}".lower()
         return rel == ".system" or rel.startswith(".system/") or "secret" in pattern or "unlock" in pattern
+    return False
+
+
+def _free_target(payload, tokens, vault):
+    """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數照 cwd normalize，在彈性區根或它底下就算。"""
+    from kb.guard import free_root
+    from kb._lib.paths import inside, normalize
+
+    cwd = payload.get("cwd") or os.getcwd()
+    root = free_root(normalize(str(vault), None))
+    for t in tokens:
+        if not t or t.startswith("-"):
+            continue
+        try:
+            n = normalize(t, cwd)
+        except (OSError, ValueError):
+            continue
+        if n == root or inside(n, root):
+            return True
     return False
 
 

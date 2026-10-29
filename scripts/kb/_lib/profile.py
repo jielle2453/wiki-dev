@@ -28,6 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from kb._lib import credentials
+from kb._lib.areas import FREE_DIR
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PROFILE_POSIX = ".system/profile.json"
@@ -914,8 +915,8 @@ def unskipped_kinds(old, new):
 # ---------- 型別夾 ----------
 
 def _first_level_dirs(vault):
-    """知識庫第一層的夾名：不含保留夾、點開頭、隱藏或系統屬性、檔。"""
-    reserved = {_key(n) for n in RESERVED_TYPE_NAMES}
+    """知識庫第一層的夾名：不含保留夾（含彈性區，D-511）、點開頭、隱藏或系統屬性、檔。"""
+    reserved = {_key(n) for n in RESERVED_TYPE_NAMES + (FREE_DIR,)}
     out = []
     try:
         items = sorted(os.scandir(vault), key=lambda i: i.name)
@@ -1090,6 +1091,7 @@ def renamed_line(renamed, with_change=False):
 
 
 DIR_TAKEN = "「{rel}」已經有同名的資料夾或檔，沒有改名；先把它搬走"
+FREE_TAKEN = "型別夾不能叫" + FREE_DIR + "，那是你自己的區"
 CREATE_TAKEN = "「{rel}」已經有同名的檔，不能建成型別夾；先改名或搬走"
 
 
@@ -1097,7 +1099,8 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
     """每個型別應該用哪個夾（D-247、D-250）：照型別表順序走，dir 是她自訂的（不是預設樣子）而且夾在 → 照用；
     其他 → default_dir(第幾列, 名稱)。沒有 dir、舊表也有這一列的是升級前的（夾名就是型別名），照舊不動；
     number_legacy（_lib/migrate 補編號）時也改成預設名字。新的列（舊表沒有）第一層已有同名的夾就把它改名過去（D-250）。
-    列的 dir 沒給時用舊表那一列的。只算不動：回 {"types"（每列帶新的 dir）, "moves" [(現在的夾, 應該的夾)],
+    列的 dir 沒給時用舊表那一列的。夾名是彈性區的（D-512）不收編、不當她自訂的名字留著（改成預設名字），算出來還是它就回 FREE_TAKEN。
+    只算不動：回 {"types"（每列帶新的 dir）, "moves" [(現在的夾, 應該的夾)],
     "creates" [要建的夾], "adopted" [(型別名, 原夾名, 新夾名)]（D-250 要說一聲的）, "refusal"（撞名的那句或 None）}。"""
     v = Path(vault)
     old = {_key(t["name"]): t for t in old_types or []}
@@ -1121,8 +1124,9 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
         if d:
             current = d if (v / d).is_dir() else None
         else:
-            current = t["name"] if (v / t["name"]).is_dir() and not taken else None
-        target = d if d and current and not is_default_dir(t["name"], d) else default_dir(i, t["name"])
+            current = t["name"] if (v / t["name"]).is_dir() and not taken and not _is_free(t["name"]) else None
+        keep = d and current and not is_default_dir(t["name"], d) and not _is_free(d)
+        target = d if keep else default_dir(i, t["name"])
         row["dir"] = target
         out.append(row)
         if current is None:
@@ -1140,7 +1144,13 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
             break
     if refusal is None:
         refusal = next((CREATE_TAKEN.format(rel=c) for c in creates if (v / c).exists()), None)
+    if any(_is_free(_dir_of(r)) for r in out):
+        refusal = FREE_TAKEN
     return {"types": out, "moves": moves, "creates": creates, "adopted": adopted, "refusal": refusal}
+
+
+def _is_free(folder):
+    return _key(folder) == _key(FREE_DIR)
 
 
 def with_renamed(types, old_types, renamed):
