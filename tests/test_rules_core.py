@@ -3,6 +3,9 @@ import re
 import unittest
 from pathlib import Path
 
+from tests import _guard_fixture  # noqa: F401  把 scripts/ 加進 sys.path
+from kb._lib.areas import FREE_DIR  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "rules" / "core.md"
 
@@ -39,6 +42,12 @@ class RulesCore(unittest.TestCase):
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-04 "))
         self.assertEqual(line, "- R-04 不改客戶原檔。改內容一律另存新檔；搬動、改名走 kb 程式；"
                                "刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
+
+    def test_r01_free_area_read_only_when_asked(self):
+        """彈性區（#21，D-511）：R-01 句尾補彈性區平常不讀；夾名照 areas.FREE_DIR。"""
+        line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-01 "))
+        self.assertTrue(line.endswith(f"{FREE_DIR}是客戶自己的：平常不讀不搜，她問到或指名才讀，寫用檔案工具；"
+                                      "卡、成品、客戶原檔的副本不放這裡。"), line)
 
     def test_r07_restore_and_upgrade_after_yes(self):
         """備份還原與換電腦要做的事 12（D-205、D-215）：R-07 這一句跟「升級與打包發行」共用、一字不差。"""
