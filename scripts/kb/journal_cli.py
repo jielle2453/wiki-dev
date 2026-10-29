@@ -86,7 +86,7 @@ def _lines(row):
 def _own_turn(vault):
     """對話裡這一句自己的工作日誌那行（turn hook 已經寫了開口）：--find 不算它，不然「以前問過」永遠成立（answer 裁定 12）。"""
     try:
-        data = turn._read_turn(turn._current_file(vault))
+        data = turn.now(vault)
     except OSError:
         return None
     return turn.journal_key(data) if data and data.get("session_id") and not data.get("done") else None

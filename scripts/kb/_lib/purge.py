@@ -660,7 +660,8 @@ def _scrub_version(vault, vdir, ids, prefix, mask, counts):
 
 
 def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
-    """一個回合夾：卡與綜合卡舊版刪、狀態檔舊版改寫、md 舊版重渲染、總目錄舊版拿掉那些行、manifest 標 purged、moves.jsonl 遮。
+    """一個回合夾：卡與綜合卡舊版刪、狀態檔舊版改寫、md 舊版重渲染、總目錄舊版拿掉那些行、manifest 標 purged、moves.jsonl 遮、
+    writes.jsonl 拿掉那些行。
     每一份各自 try（寫不了的算進還剩的），manifest 不管中途怎樣都在最後寫（第二輪修：刪了檔、帳卻沒改，重跑就認不出來）。"""
     files = vdir / "files"
     manifest = vdir / "manifest.jsonl"
@@ -690,6 +691,34 @@ def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
                 except OSError:
                     counts["left"]["backups"] += 1
         _scrub_moves(vdir, prefix, counts)
+        _scrub_writes(vdir, prefix, shorts, counts)
+
+
+def _scrub_writes(vdir, prefix, shorts, counts):
+    """writes.jsonl（#20 裁定 13，同回合同路徑再寫的時間）：路徑是那些卡或在那夾的卡夾底下的那一行整行拿掉
+    （只是時間紀錄，不留遮過的版本；寫入備份只記知識庫裡的檔，來源夾的原檔不會在這裡）。拿 manifest 鎖的呼叫端叫。"""
+    try:
+        path = vdir / "writes.jsonl"
+        if not path.is_file():
+            return
+        card_dir = _purged_card_dir(prefix)
+        text = path.read_text(encoding="utf-8")
+        out = []
+        for ln in text.splitlines():
+            try:
+                row = json.loads(ln)
+            except ValueError:
+                out.append(ln)
+                continue
+            rel = row.get("path") if isinstance(row, dict) else None
+            if isinstance(rel, str) and _purged_card(rel, shorts, card_dir):
+                continue
+            out.append(ln)
+        new = "".join(x + "\n" for x in out)
+        if new != text:
+            write_text_atomic(path, new)
+    except (OSError, UnicodeDecodeError):
+        counts["left"]["backups"] += 1
 
 
 _NODE = re.compile(r"^( *)- (.*?)\r?\n?$")
@@ -742,13 +771,23 @@ def _card_row(rel, shorts):
     return rel.startswith(cards.CARDS_DIR + "/") and any(rel.endswith(f"-{s}.md") for s in shorts)
 
 
+def _purged_card_dir(prefix):
+    """那夾的卡夾（小寫比對用）。"""
+    alias, spec = inventory.split_uri(prefix)
+    return f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+
+
+def _purged_card(rel, shorts, card_dir):
+    """這個路徑是那些卡，或在那夾的卡夾底下（manifest 與 writes.jsonl 共用）。"""
+    return _card_row(rel, shorts) or rel.casefold().startswith(card_dir)
+
+
 REPORT_PREFIX = "系統/健檢報告/"
 LINT_STATE_POSIX = ".system/lint.json"
 
 
 def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, state):
-    alias, spec = inventory.split_uri(prefix)
-    card_dir = f"{cards.CARDS_DIR}/{alias}/{spec}/".casefold()
+    card_dir = _purged_card_dir(prefix)
     for row in rows:
         if not isinstance(row, dict) or row.get("action") == "purged" or not isinstance(row.get("path"), str):
             continue
@@ -756,7 +795,7 @@ def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, st
         f = files / rel
         if not _under_files(files, f):
             continue  # 紀錄不信（B-080）：解出來不在這個回合的 files/ 底下就不碰
-        if _card_row(rel, shorts) or rel.casefold().startswith(card_dir):
+        if _purged_card(rel, shorts, card_dir):
             # 那些卡的每一行（create 也算）都換掉：路徑本身就帶夾名與卡標題（第三輪修）
             try:
                 if f.is_file():
@@ -992,7 +1031,7 @@ def own_turns(vault):
     """對話裡這一句的回合代號與它在工作日誌那行的 key（退回自己這句時接著原回合）；終端機跑的（current.json 沒有 session_id
     或已答完）回空的，不讀 turn.current、不開新回合（第八輪）。"""
     try:
-        cur = turn._read_turn(turn._current_file(vault))
+        cur = turn.now(vault)
     except (OSError, ValueError):
         return set()
     if not (cur and cur.get("session_id") and not cur.get("done") and cur.get("turn")):

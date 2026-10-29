@@ -57,7 +57,7 @@ def _scope(vault, names):
         e, _hit = entities.find(data, name.strip())
         if e is not None:
             ents.add(e["id"])
-    now = turn._read_turn(turn._current_file(vault))  # 只讀，不開回合
+    now = turn.now(vault)  # 只讀，不開回合
     if now:
         got = turn.touched(now)
         ents |= got["entities"]
@@ -94,7 +94,7 @@ def _others_line(vault, others):
     """這個 session 還沒說過、others > 0 才給；給了就記 asks_told（終端機記不了，每次都給）。"""
     if not others:
         return None
-    now = turn._read_turn(turn._current_file(vault))
+    now = turn.now(vault)
     if now and now.get(turn.SESSION_FLAG):
         return None
     try:

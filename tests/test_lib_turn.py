@@ -197,9 +197,27 @@ class Current(unittest.TestCase):
         last = turn.start(self.V, "other", "b")
         self.assertEqual(turn.current(self.V)["turn"], last["turn"])
 
-    def test_sid_without_file_falls_back_to_current(self):
-        last = turn.start(self.V, "other", "b")
-        self.assertEqual(turn.current(self.V, "nobody")["turn"], last["turn"])
+    def test_sid_without_file_starts_its_own_turn(self):
+        """#20 裁定 2（D-506）：sid 的回合檔不在就開這個 session 的新回合，不退到 current.json（別的對話的）。"""
+        other = turn.start(self.V, "other", "b")
+        t = turn.current(self.V, "nobody")
+        self.assertEqual(t["session_id"], "nobody")
+        self.assertNotEqual(t["turn"], other["turn"])
+        self.assertTrue((self.V / ".system" / "turns" / "nobody.json").exists())
+
+    def test_now_reads_this_conversation_without_starting(self):
+        """#20 裁定 6：now() 有 SESSION 讀那個對話的回合檔（別的對話後開口也一樣），沒有不開新回合；沒有 SESSION 讀 current.json。"""
+        mine = turn.start(self.V, "mine", "a")
+        other = turn.start(self.V, "other", "b")
+        self.assertEqual(turn.now(self.V)["turn"], other["turn"])
+        turn.SESSION = "mine"
+        try:
+            self.assertEqual(turn.now(self.V)["turn"], mine["turn"])
+            turn.SESSION = "nobody"
+            self.assertIsNone(turn.now(self.V))
+            self.assertFalse((self.V / ".system" / "turns" / "nobody.json").exists())
+        finally:
+            turn.SESSION = None
 
     def test_nothing_starts_a_turn(self):
         t = turn.current(self.V, SID)

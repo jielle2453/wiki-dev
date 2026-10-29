@@ -186,8 +186,7 @@ def _session_state(vault):
     """這個對話的整理狀態（B 段落差 4、6）：kb.py --session 給的，沒有就讀 current.json 的那個對話；回合旗標從那個對話的回合檔讀。
     只讀，不開回合。"""
     sid = turn.SESSION
-    cur = turn._read_turn(turn._session_file(vault, sid)) if sid else None
-    cur = cur or turn._read_turn(turn._current_file(vault)) or {}
+    cur = turn.now(vault) or {}
     return batches.session_state(vault, sid or cur.get("session_id"), cur)
 
 
@@ -567,7 +566,7 @@ def _draft_asks(vault):
     """跨對話的草稿：定稿與再改照 SKILL 做（do 空），不要了交 kb output drop-draft（strict）。
     這一回合才寫的草稿不問（剛給客戶看的那份不用回答末尾再問一次）；讀不到回合就照列。"""
     try:  # 只讀 current.json，不開新回合（plan 不寫檔）
-        now = turn._read_turn(turn._current_file(vault))
+        now = turn.now(vault)
         touched = {e.get("path") for e in turn.entries(vault, now["turn"])} if now else set()
     except (OSError, ValueError):
         touched = set()
@@ -998,7 +997,7 @@ def _opened_tell(vault):
     """這一回合用存好的密碼開了同一種的（unlock.json 的 opened）：每份一句（D-181 第 2 點「直接開、末尾講」）。"""
     from kb._lib import unlock
     try:
-        now = turn._read_turn(turn._current_file(vault))
+        now = turn.now(vault)
         opened = unlock.opened_in_turn(vault, now["turn"]) if now else []
         names = rulings.file_names(vault) if opened else {}
     except (OSError, ValueError, KeyError):
