@@ -35,7 +35,7 @@ from kb._lib.areas import FREE_DIR
 
 EXAMPLES_MAX = 3
 SYSTEM = ".system"
-RESERVED_TOP = {".system", ".claude", "系統", "收件匣", "檔案索引", "AI 產出", FREE_DIR}
+RESERVED_TOP = {s.casefold() for s in (".system", ".claude", "系統", "收件匣", "檔案索引", "AI 產出", FREE_DIR)}  # 不分大小寫（spec 裁定 5）
 # 保留、不還原的 .system 底下的項目（名字；鎖檔另判）
 PRESERVED = {"vault.json", "env.json", "turns", "snapshots", "temp", "guard-status", "ledger.tsv", "hook-errors.log"}
 # 現在有就留、空資料夾還原才用備份的
@@ -149,7 +149,7 @@ def _labels(root, names):
             if cid.startswith("f-"):
                 out["cards"][cid] = str(front.get("標題") or p.stem)
     for top in sorted(root.iterdir()) if root.is_dir() else []:
-        if not top.is_dir() or top.name in RESERVED_TOP or top.name.startswith("."):
+        if not top.is_dir() or top.name.casefold() in RESERVED_TOP or top.name.startswith("."):
             continue
         for sub in top.iterdir():
             card = sub / f"{sub.name}.md"

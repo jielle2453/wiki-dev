@@ -179,9 +179,11 @@ class Agent(FixtureVault):
         self.job = turn.start(self.V, A, "好，現在做")["turn"]
         batches.agent_start(self.V, A, AGENT)
 
-    def hook(self, tool, value):
-        data = dict(payload(tool, value, self.V), session_id=A, agent_id=AGENT,
-                    agent_type="wiki-with-willy:card-maker")
+    def hook(self, tool, value, agent=True, **extra):
+        data = dict(payload(tool, value, self.V), session_id=A)
+        data["tool_input"].update(extra)
+        if agent:
+            data.update(agent_id=AGENT, agent_type="wiki-with-willy:card-maker")
         r = run_hook(data)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)["hookSpecificOutput"]
@@ -195,6 +197,20 @@ class Agent(FixtureVault):
         self.assertEqual(out["permissionDecision"], "deny")
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/{FREE_DIR}/筆記.md"')
         self.assertEqual(out["permissionDecision"], "deny", "review #2：uri 寫法也擋")
+
+    def test_6_agent_search_containing_free_area_denied(self):
+        """spec 裁定 4：製卡助手 Grep／Glob 的範圍包含彈性區根就擋；主對話照舊。"""
+        self.put("筆記.md")
+        out = self.hook("Grep", self.V, pattern="保固")
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("agent_scope", (self.V / ".system" / "ledger.tsv").read_text(encoding="utf-8"))
+        self.assertEqual(self.hook("Grep", self.V / "檔案索引", pattern="保固")["permissionDecision"], "allow")
+        self.assertEqual(self.hook("Grep", self.V, agent=False, pattern="保固")["permissionDecision"], "allow")
+        for pattern in ("**/*.md", f"{FREE_DIR}/*", "_ex*/*.md"):
+            self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "deny", pattern)
+        for pattern in ("*.md", "檔案索引/**/*.md", FREE_DIR):
+            self.assertEqual(self.hook("Glob", self.V, pattern=pattern)["permissionDecision"], "allow", pattern)
+        self.assertEqual(self.hook("Glob", self.V, agent=False, pattern="**/*.md")["permissionDecision"], "allow")
 
     def test_6_agent_reads_index_as_before(self):
         index = self.V / "檔案索引"
@@ -396,6 +412,15 @@ class Restore(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_14_free_area_any_case_is_not_a_type_folder(self):
+        """spec 裁定 5：RESERVED_TOP 不分大小寫，_Extras 底下的同名卡不算綜合卡。"""
+        shutil.rmtree(self.F)
+        odd = self.V / FREE_DIR.capitalize() / "某人"
+        odd.mkdir(parents=True)
+        (odd / "某人.md").write_text("# 某人\n", encoding="utf-8")
+        labels = restore._labels(self.V, [])
+        self.assertFalse([k for k in labels["synthesis"] if k.casefold().startswith(FREE_DIR.casefold())])
 
     def test_14_zip_has_free_area_and_check_says_it(self):
         with zipfile.ZipFile(str(self.zip)) as z:

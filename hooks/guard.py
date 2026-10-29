@@ -187,6 +187,8 @@ def scope(payload, tool, d, agent_turn):
         return AGENT_DENY, None
     if agent_turn and tool in FILE_TOOLS and d.zone == "Z12":
         return AGENT_DENY, None  # 製卡助手不碰客戶自己的區（D-510）
+    if agent_turn and tool in ("Grep", "Glob") and _search_reaches_free(payload, tool, d.vault):
+        return AGENT_DENY, None  # 範圍包含彈性區（spec 裁定 4）：搜整個知識庫也算
     if agent_turn and tool in WRITE_TOOLS and _adopt_agent(d.vault, payload.get("agent_id")):
         return AGENT_DENY, None  # 讀舊 wiki 的批次不寫任何檔
     if tool not in SHELL_TOOLS:
@@ -315,6 +317,36 @@ def _free_target(payload, tokens, vault):
             continue
         if n == root or inside(n, root):
             return True
+    return False
+
+
+def _search_reaches_free(payload, tool, vault):
+    """Grep／Glob 的範圍包含彈性區根（spec 裁定 4）：path（沒給是 cwd）是彈性區根的上層就算；Glob 另要樣式往下走得到它
+    （有 ** 、或前面幾段照 fnmatch 對得上彈性區根的相對路徑、後面還有段）。路徑在彈性區裡的由 zone Z12 那條擋。"""
+    import fnmatch
+    from kb.guard import free_root
+    from kb._lib.paths import inside, normalize
+
+    ti = payload.get("tool_input") or {}
+    cwd = payload.get("cwd") or os.getcwd()
+    try:
+        start = normalize(str(ti.get("path") or cwd), cwd)
+    except (OSError, ValueError):
+        return True
+    root = free_root(normalize(str(vault), None))
+    if start == root or not inside(root, start):
+        return False
+    if tool == "Grep":
+        return True
+    rel = root[len(start):].strip("/").split("/")
+    pat = [x for x in str(ti.get("pattern") or "").replace("\\", "/").split("/") if x not in ("", ".")]
+    for i, seg in enumerate(pat):
+        if seg == "**":
+            return True
+        if i >= len(rel):
+            return True  # 對上了彈性區根，樣式還往下走
+        if not fnmatch.fnmatch(rel[i], seg.casefold()):
+            return False
     return False
 
 
