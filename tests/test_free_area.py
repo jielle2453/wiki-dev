@@ -197,6 +197,13 @@ class Agent(FixtureVault):
         self.assertEqual(out["permissionDecision"], "deny")
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/{FREE_DIR}/筆記.md"')
         self.assertEqual(out["permissionDecision"], "deny", "review #2：uri 寫法也擋")
+        for uri in (f"file://AI 產出/../{FREE_DIR}/筆記.md", f"file://知識庫/./{FREE_DIR}/筆記.md",
+                    f"file://知識庫/檔案索引/../{FREE_DIR}/筆記.md", f"file://收件匣/../{FREE_DIR.upper()}/筆記.md",
+                    f"file://客戶案件/../../vault/{FREE_DIR}/筆記.md"):
+            out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "{uri}"')
+            self.assertEqual(out["permissionDecision"], "deny", f"測試 T1：{uri}")
+        out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/案子/信義王/../信義王/x.md"')
+        self.assertEqual(out["permissionDecision"], "allow", "對照：.. 沒走進彈性區的照放")
 
     def test_6_agent_search_containing_free_area_denied(self):
         """spec 裁定 4：製卡助手 Grep／Glob 的範圍包含彈性區根就擋；主對話照舊。"""

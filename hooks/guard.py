@@ -298,26 +298,30 @@ def _secret_target(payload, tool, vault):
 
 
 def _free_target(payload, tokens, vault):
-    """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數照 cwd normalize，在彈性區根或它底下就算。"""
+    """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數解回路徑（uri 照 inventory.path_of，跟 convert 同一套），
+    normalize 之後（.. 與 . 收掉）在彈性區根或它底下就算。來源登記讀不了、uri 解不回來的一律算（寧可擋）。"""
     from kb.guard import free_root
-    from kb._lib import inventory
-    from kb._lib.areas import FREE_DIR
+    from kb._lib import inventory, sources as sources_lib
     from kb._lib.paths import inside, normalize
 
     cwd = payload.get("cwd") or os.getcwd()
     root = free_root(normalize(str(vault), None))
+    srcs = None
     for t in tokens:
         if not t or t.startswith("-"):
             continue
-        if t.startswith("file://"):  # uri 寫法：file://知識庫/<FREE_DIR>/…（convert 照 inventory.path_of 解回彈性區）
-            parts = [x for x in t[len("file://"):].replace("\\", "/").split("/") if x]
-            if len(parts) >= 2 and parts[0].casefold() == inventory.KNOWLEDGE.casefold()                     and parts[1].casefold() == FREE_DIR.casefold():
-                return True
-            continue
         try:
-            n = normalize(t, cwd)
+            if t.startswith("file://"):
+                if srcs is None:
+                    srcs = sources_lib.load(vault)
+                p = inventory.path_of(vault, srcs, t.replace("\\", "/"))
+                if p is None:
+                    continue  # 別名對不到：convert 也解不回路徑
+                n = normalize(str(p), cwd)
+            else:
+                n = normalize(t, cwd)
         except (OSError, ValueError):
-            continue
+            return True
         if n == root or inside(n, root):
             return True
     return False
