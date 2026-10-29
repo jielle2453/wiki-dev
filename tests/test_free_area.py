@@ -158,6 +158,13 @@ class GuardCredential(FixtureVault):
         d = self.decide("Bash", f'grep -r 保固 "{self.V}"')
         self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"))
 
+    def test_5_search_without_path_walks_free_area(self):
+        """review #1：grep -r、rg 沒給路徑時效用 cwd 是範圍；在知識庫根或彈性區裡也要走訪彈性區。"""
+        self.put("子夾/密碼.txt")
+        for cmd, cwd in (("grep -r abc", self.V), ("rg abc", self.V), ("grep -r abc", self.F)):
+            d = self.decide("Bash", cmd, cwd)
+            self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"), (cmd, cwd))
+
     def test_5_other_zones_still_not_walked(self):
         (self.V / "AI 產出" / "帳密.xlsx").write_text("x", encoding="utf-8")
         d = self.decide("Grep", self.V)
@@ -186,6 +193,8 @@ class Agent(FixtureVault):
             self.assertEqual(out["permissionDecision"], "deny", tool)
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "{FREE_DIR}/筆記.md"')
         self.assertEqual(out["permissionDecision"], "deny")
+        out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/{FREE_DIR}/筆記.md"')
+        self.assertEqual(out["permissionDecision"], "deny", "review #2：uri 寫法也擋")
 
     def test_6_agent_reads_index_as_before(self):
         index = self.V / "檔案索引"
@@ -272,6 +281,14 @@ class Profile(TypeBase):
         self.assertTrue((self.V / f"03 {FREE_DIR}").is_dir())
         self.assertTrue((self.V / FREE_DIR).is_dir(), "彈性區照留")
 
+    def test_9_legacy_type_named_free_dir_keeps_its_folder(self):
+        """review #4：升級前就有、夾名是型別名的那列（沒有 dir），補編號時把它的夾搬過去，不另建空夾。"""
+        legacy = [{"name": FREE_DIR, "category": "物"}]
+        (self.V / FREE_DIR / "某實體").mkdir(parents=True, exist_ok=True)
+        plan = profile.dir_plan(self.V, legacy, legacy, number_legacy=True)
+        self.assertEqual(plan["moves"], [(FREE_DIR, f"01 {FREE_DIR}")])
+        self.assertEqual(plan["creates"], [])
+
     def test_9_dir_plan_never_keeps_free_dir(self):
         types = [{"name": "倉庫", "category": "物", "dir": FREE_DIR}]
         (self.V / FREE_DIR).mkdir(exist_ok=True)
@@ -357,6 +374,8 @@ class Build(FixtureVault):
         self.assertEqual(build.report_facts(self.V)["free_files"], 1)
         (self.F / "交接.md").unlink()
         (self.F / ".gitkeep").write_text("", encoding="utf-8")
+        (self.F / "desktop.ini").write_text("", encoding="utf-8")  # review #6：檔案總管留的看不到的檔不算
+        (self.F / "Thumbs.db").write_bytes(b"x")
         (self.F / "空子夾").mkdir()
         build._check(self.V, data, "finish")
         self.assertEqual(build.report_facts(self.V)["free_files"], 0)

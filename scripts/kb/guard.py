@@ -562,6 +562,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
     read_dirs：要走訪的夾（`.`／`..`、效用 cwd 底下存在的裸夾名、裸萬用字元的效用 cwd、
       cwd 在總資料夾外且該管線段有搜尋動詞又沒有存在的讀取路徑時的效用 cwd）；
     implicit_dirs：read_dirs 裡不是指令點名、是隱含的範圍（grep -r 的效用 cwd、cat * 的效用 cwd、. 與 ..），要另外過 Z10／Z10b；
+    free_dirs：總資料夾裡範圍搜尋的效用 cwd（grep -r、rg 沒給路徑），只給 free_scan 看彈性區（D-510）；
     read_paths：存在的讀取路徑（檔或夾）；
     write_targets：真正被寫的路徑（D-186）：導向目標、寫入那一段的路徑；寫入那段沒有自己的路徑（| xargs rm、| Remove-Item）
       就是同一個子指令裡所有的路徑；
@@ -573,7 +574,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
     效用 cwd 跨管線段、跨子指令延續。"""
     cleaned = cmdparse.DISCARD_OUTPUT.sub(" ", command)
     base = normalize(cwd, None)
-    out = {"read_dirs": [], "implicit_dirs": [], "read_paths": set(), "write_targets": set(), "write_globs": [],
+    out = {"read_dirs": [], "implicit_dirs": [], "free_dirs": [], "read_paths": set(), "write_targets": set(), "write_globs": [],
            "globs": [], "cd_dirs": [], "cd_targets": set(), "token": None, "unparsed": False, "has_write": False,
            "list_only": False, "body_reads": [], "stages": []}
     plans = _plan_stages(cleaned, bodies, tool == "PowerShell")
@@ -739,6 +740,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             out["implicit_dirs"].append(base)
         elif search and not has_read_path and not write_verb and base is not None:
             out["implicit_dirs"].append(base)  # 總資料夾裡的隱含範圍：不走訪（D-081），但 Z10／Z10b 照判
+            out["free_dirs"].append(base)  # 彈性區不套內部豁免：範圍是它或含它就走訪它（D-510）
         if not search and not has_read_path and base is not None and (verb in LIST_VERBS or verb == "tree"):
             out["implicit_dirs"].append(base)  # cd 之後的 ls、gci：列的是效用 cwd，跟 ls <那個夾> 一樣過 Z10／Z10b（只列檔名不走訪）
         if stage_write and uncertain:
@@ -1153,6 +1155,7 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     if not info["list_only"]:
         extra = [(p, *classify(p, vault_n, sources)) for p in info["read_dirs"]]
         scanned = []
+        extra += [(p, *classify(p, vault_n, sources)) for p in info["free_dirs"]]
         for p, zone, _alias in classified + head_classified + extra:
             if p in scanned or p in writes or p in body_only or zone == "Z10" or not os.path.isdir(p):
                 continue  # 真正的磁碟根照走訪，撞上限就「範圍太大」（W2）；/c 這種開關 cmdparse 已不當路徑（V5）

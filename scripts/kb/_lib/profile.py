@@ -1124,7 +1124,8 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
         if d:
             current = d if (v / d).is_dir() else None
         else:
-            current = t["name"] if (v / t["name"]).is_dir() and not taken and not _is_free(t["name"]) else None
+            adopt_free = _is_free(t["name"]) and prev is None  # 新加的型別不收編彈性區；舊表本來就有的那列夾就是它自己的
+            current = t["name"] if (v / t["name"]).is_dir() and not taken and not adopt_free else None
         keep = d and current and not is_default_dir(t["name"], d) and not _is_free(d)
         target = d if keep else default_dir(i, t["name"])
         row["dir"] = target

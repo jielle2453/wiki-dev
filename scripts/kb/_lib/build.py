@@ -26,6 +26,7 @@ report（D-066、D-047）：--facts 給數字與清單；--from 收 AI 在工作
 寫 系統/建置報告.md（備進回合）。
 彈性區（D-512）：done finish 時 FREE_DIR 底下還有檔就擋（FREE_NOT_EMPTY，不替她刪）；report --facts 多 free_files。
 """
+import fnmatch
 import json
 import os
 import re
@@ -475,14 +476,15 @@ def _check(vault, data, step):
 
 
 def free_files(vault):
-    """彈性區底下的檔數（D-512）：遞迴、不含 .gitkeep、連結不跟也不算。"""
+    """彈性區底下的檔數（D-512）：遞迴、不含 .gitkeep 與清冊也略過的系統暫存檔（inventory.SKIP_NAMES）、連結不跟也不算。"""
     root = Path(vault) / FREE_DIR
     n = 0
     if not root.is_dir() or _is_link(root):
         return 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not _is_link(Path(dirpath) / d)]
-        n += sum(1 for f in filenames if f != ".gitkeep" and not _is_link(Path(dirpath) / f))
+        n += sum(1 for f in filenames if f != ".gitkeep" and not any(fnmatch.fnmatch(f, s) for s in inventory.SKIP_NAMES)
+                 and not _is_link(Path(dirpath) / f))
     return n
 
 

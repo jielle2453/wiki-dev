@@ -295,12 +295,19 @@ def _secret_target(payload, tool, vault):
 def _free_target(payload, tokens, vault):
     """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數照 cwd normalize，在彈性區根或它底下就算。"""
     from kb.guard import free_root
+    from kb._lib import inventory
+    from kb._lib.areas import FREE_DIR
     from kb._lib.paths import inside, normalize
 
     cwd = payload.get("cwd") or os.getcwd()
     root = free_root(normalize(str(vault), None))
     for t in tokens:
         if not t or t.startswith("-"):
+            continue
+        if t.startswith("file://"):  # uri 寫法：file://知識庫/<FREE_DIR>/…（convert 照 inventory.path_of 解回彈性區）
+            parts = [x for x in t[len("file://"):].replace("\\", "/").split("/") if x]
+            if len(parts) >= 2 and parts[0].casefold() == inventory.KNOWLEDGE.casefold()                     and parts[1].casefold() == FREE_DIR.casefold():
+                return True
             continue
         try:
             n = normalize(t, cwd)
