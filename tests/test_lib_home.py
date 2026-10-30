@@ -1,0 +1,331 @@
+"""_lib/home（Obsidian 首頁，#22，D-252）：willy-home/1 的各區。驗收準則 1（輸出照第 1 節）、2（件數跟既有算法一樣）。"""
+import datetime as dt
+import json
+import shutil
+import unittest
+
+from tests import _cards
+from tests import _entities as E
+from kb._lib import agenda, entities, home, inventory, pending, turn  # noqa: E402
+
+TODAY = "2026-10-30"
+
+
+def day(n):
+    return (dt.date.fromisoformat(TODAY) + dt.timedelta(days=n)).isoformat()
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp, self.V, self.raw = E.make_entity_vault(with_entities=True)
+        self.t = turn.start(self.V, None, "")["turn"]
+        self._today = agenda._today
+        agenda._today = lambda: TODAY
+
+    def tearDown(self):
+        agenda._today = self._today
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def card(self, rel, title):
+        """替原檔寫一張檔案卡，回卡編號。"""
+        _cards.write_card(self.V, E.new_item(self.V, rel), title)
+        return _cards.entry_of(self.V, rel)["id"]
+
+    def add(self, kind, date, text, entity=("信義王",), **kw):
+        return agenda.add(self.V, kind, date, text, list(entity), self.t, **kw)[0]
+
+    def build(self, **kw):
+        return home.build(self.V, today=TODAY, **kw)
+
+
+class Shape(Base):
+    def test_top_level_keys_and_schema(self):
+        out = self.build()
+        self.assertEqual(out["schema"], "willy-home/1")
+        self.assertEqual(out["today"], TODAY)
+        self.assertEqual(set(out), {"schema", "version", "today", "cheer", "counts", "timeline", "todo", "confirm", "others", "recent"})
+        self.assertEqual(set(out["counts"]), {"overdue", "today", "week", "confirm", "other"})
+        self.assertEqual(set(out["todo"]), {"overdue", "today", "week"})
+        self.assertEqual(set(out["timeline"]), {"from", "to", "rows"})
+
+    def test_version_is_plugin_version(self):
+        from kb._lib.paths import read_manifest
+        self.assertEqual(self.build()["version"], read_manifest()["version"])
+
+    def test_empty_agenda(self):
+        out = self.build()
+        self.assertEqual(out["timeline"]["rows"], [])
+        self.assertEqual((out["counts"]["overdue"], out["counts"]["today"], out["counts"]["week"]), (0, 0, 0))
+
+    def test_json_serializable(self):
+        self.add("到期", day(-2), "水電")
+        json.dumps(self.build(), ensure_ascii=False)
+
+
+class Cheer(Base):
+    def test_short_and_from_the_right_group(self):
+        for late in (False, True):
+            for n in range(14):
+                text = home.cheer(day(n), late)
+                self.assertLessEqual(len(text), 12, text)
+                self.assertIn(text, home.CHEER_LATE if late else home.CHEER_PLAIN)
+
+    def test_late_group_when_overdue(self):
+        self.assertIn(self.build()["cheer"], home.CHEER_PLAIN)
+        self.add("到期", day(-1), "過期的")
+        self.assertIn(self.build()["cheer"], home.CHEER_LATE)
+
+    def test_same_day_same_sentence(self):
+        self.assertEqual(self.build()["cheer"], self.build()["cheer"])
+
+
+class Counts(Base):
+    def setUp(self):
+        super().setUp()
+        self.add("到期", day(-3), "逾期一")
+        self.add("承諾", day(-1), "逾期二")
+        self.add("會議", day(-1), "過去的會")  # 會議過了不算逾期
+        self.add("提醒", TODAY, "今天提醒")
+        self.add("到期", TODAY, "今天到期")
+        self.add("會議", day(3), "三天後的會")
+        self.add("到期", day(30), "很久以後", lead_days=7)
+        self.add("提醒", day(20), "提前很久提醒", lead_days=30)
+        self.add("期間", day(40), "施工", start=day(-20))  # 期間不算
+
+    def test_counts_equal_agenda_counts(self):
+        got = self.build()["counts"]
+        want = agenda.counts(self.V, agenda.load(self.V), TODAY)
+        self.assertEqual((got["overdue"], got["today"], got["week"]), (want["overdue"], want["today"], want["upcoming"]))
+        self.assertEqual((got["overdue"], got["today"], got["week"]), (2, 2, 2))
+
+    def test_todo_groups_have_the_same_numbers(self):
+        out = self.build()
+        for key in ("overdue", "today", "week"):
+            self.assertEqual(len(out["todo"][key]), out["counts"][key])
+        self.assertEqual([m["text"] for m in out["todo"]["overdue"]], ["逾期一", "逾期二"])  # 日期早的在前
+
+    def test_opening_line_says_the_same(self):
+        import importlib.util
+        from tests._guard_fixture import ROOT
+        spec = importlib.util.spec_from_file_location("hook_session", ROOT / "hooks" / "session.py")
+        mod = importlib.util.module_from_spec(spec)
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        spec.loader.exec_module(mod)
+        line = mod.line_agenda(self.V)
+        c = self.build()["counts"]
+        self.assertIn(f"逾期 {c['overdue']}", line)
+        self.assertIn(f"今天 {c['today']}", line)
+        self.assertIn(f"天內 {c['week']}", line)
+
+    def test_done_and_cancelled_not_counted(self):
+        it = self.add("到期", day(-9), "做完了")
+        agenda.set_status(self.V, it["id"], "done", self.t)
+        out = self.build()
+        self.assertEqual(out["counts"]["overdue"], 2)
+        self.assertNotIn("做完了", [m["text"] for m in out["todo"]["overdue"]])
+
+
+class Timeline(Base):
+    def test_one_row_per_active_matter_entity_and_other(self):
+        self.add("期間", day(30), "施工", start=day(-10))
+        self.add("到期", day(5), "水電驗收", entity=("大安陳",))
+        self.add("提醒", day(2), "沒掛實體的", entity=())
+        self.add("提醒", day(3), "掛業主的", entity=("林小姐室內設計",))  # 非事類實體 → 其他
+        rows = self.build()["timeline"]["rows"]
+        keys = [r["key"] for r in rows]
+        self.assertEqual(sorted(keys), sorted([E.XINYI, E.DAAN, home.OTHER_KEY]))
+        self.assertEqual(keys[-1], home.OTHER_KEY)  # 其他放最後
+        other = rows[-1]
+        self.assertEqual((other["label"], other["type"]), ("其他", None))
+        self.assertEqual(len(other["marks"]), 2)
+
+    def test_row_fields(self):
+        self.add("期間", day(30), "施工", start=day(-10))
+        row = next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)
+        self.assertEqual((row["label"], row["type"], row["progress"]), ("信義王", "案子", "active"))
+        self.assertEqual(row["links"], [])
+        self.assertEqual(row["pauses"], [])
+
+    def test_bar_and_point_marks(self):
+        self.add("期間", day(30), "施工", start=day(-10))
+        self.add("會議", day(4), "開會", time="14:00")
+        marks = {m["text"]: m for m in next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)["marks"]}
+        bar, point = marks["施工"], marks["開會"]
+        self.assertEqual((bar["shape"], bar["kind"], bar["start"], bar["end"]), ("bar", "period", day(-10), day(30)))
+        self.assertEqual((point["shape"], point["kind"], point["end"], point["time"], point["hard"]), ("point", "meeting", day(4), "14:00", True))
+        for m in (bar, point):
+            self.assertEqual((m["baseline"], m["critical"], m["slack"], m["derived"], m["children"]), (None, False, None, False, []))
+            self.assertEqual(m["entities"], ["信義王"])
+
+    def test_late_inferred_repeat(self):
+        self.add("到期", day(-2), "晚了的")
+        self.add("提醒", day(1), "每週的", repeat="每週")
+        self.add("到期", day(2), "推測的", card=self.card(E.QUOTE, "報價單"))
+        marks = {m["text"]: m for m in next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)["marks"]}
+        self.assertTrue(marks["晚了的"]["late"])
+        self.assertFalse(marks["每週的"]["late"])
+        self.assertEqual(marks["每週的"]["repeat"], "每週")
+        self.assertTrue(marks["推測的"]["inferred"])
+
+    def test_meeting_in_the_past_is_not_late(self):
+        self.add("會議", day(-2), "過去的會")
+        m = next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)["marks"][0]
+        self.assertFalse(m["late"])
+
+    def test_window_from_and_to(self):
+        out = self.build()["timeline"]
+        self.assertEqual(out["from"], day(-7))
+        self.assertEqual(out["to"], day(60))
+
+    def test_far_future_and_cancelled_left_out_but_overdue_open_stays(self):
+        self.add("到期", day(200), "太遠了")
+        c = self.add("到期", day(5), "取消的")
+        agenda.set_status(self.V, c["id"], "cancelled", self.t)
+        self.add("到期", day(-30), "好久前還沒做")
+        texts = [m["text"] for r in self.build()["timeline"]["rows"] for m in r["marks"]]
+        self.assertEqual(texts, ["好久前還沒做"])
+
+    def test_done_before_window_left_out_done_recent_kept(self):
+        old = self.add("到期", day(-30), "舊的完成")
+        new = self.add("到期", day(-3), "剛完成")
+        for it in (old, new):
+            agenda.set_status(self.V, it["id"], "done", self.t)
+        texts = [m["text"] for r in self.build()["timeline"]["rows"] for m in r["marks"]]
+        self.assertEqual(texts, ["剛完成"])
+
+    def test_row_order_nearest_open_date_first(self):
+        self.add("到期", day(20), "晚的", entity=("信義王",))
+        self.add("到期", day(5), "早的", entity=("大安陳",))
+        keys = [r["key"] for r in self.build()["timeline"]["rows"]]
+        self.assertEqual(keys, [E.DAAN, E.XINYI])
+
+    def test_closed_matter_marks_stay_with_progress_closed(self):
+        self.add("提醒", day(2), "還開著")
+        entities.set_progress(self.V, "信義王", "closed", self.t)
+        row = next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)
+        self.assertEqual(row["progress"], "closed")
+
+    def test_paused_entity_listed_with_pauses(self):
+        self.add("期間", day(30), "施工", start=day(-10))
+        entities.set_progress(self.V, "信義王", "paused", self.t)
+        row = next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)
+        self.assertEqual(row["progress"], "paused")
+        self.assertEqual(len(row["pauses"]), 1)
+        self.assertEqual(set(row["pauses"][0]), {"start", "end"})
+
+    def test_alias_of_entity_maps_to_its_row(self):
+        self.add("提醒", day(2), "用別名掛的", entity=("信義王宅",))
+        keys = [r["key"] for r in self.build()["timeline"]["rows"]]
+        self.assertEqual(keys, [E.XINYI])
+
+    def test_done_period_end_uses_ended(self):
+        it = self.add("期間", day(30), "做完的施工", start=day(-20))
+        agenda.set_status(self.V, it["id"], "done", self.t)
+        m = next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)["marks"][0]
+        self.assertEqual((m["status"], m["start"]), ("done", day(-20)))
+        self.assertEqual(m["end"], agenda.get(self.V, it["id"]).get("ended") or day(30))
+
+
+class Sections(Base):
+    def test_others_are_open_pending_not_in_asks(self):
+        out = self.build()
+        asked = {a["key"] for a in out["confirm"]}
+        for o in out["others"]:
+            self.assertNotIn(o["id"], asked)
+            self.assertTrue(o["dismiss"])
+        self.assertEqual(out["counts"]["other"], len(out["others"]))
+        self.assertEqual(out["counts"]["confirm"], len(out["confirm"]))
+
+    def test_confirm_matches_kb_asks(self):
+        from kb import asks_cli
+        want = asks_cli._collect(self.V)[0]
+        got = self.build()["confirm"]
+        self.assertEqual([a["key"] for a in got], [a["key"] for a in want])
+        for g, w in zip(got, want):
+            self.assertEqual(g["text"], w["question"])
+            self.assertEqual(len(g["results"]), len(w["results"]))
+
+    def test_argv_from_do(self):
+        self.assertEqual(home._argv(["kb pending dismiss p-1"]), ["pending", "dismiss", "p-1"])
+        self.assertEqual(home._argv(['kb pending resolve p-1 --how "{客戶的話}"']), ["pending", "resolve", "p-1", "--how", "{客戶的話}"])
+        self.assertEqual(home._argv(['kb entity add "王 先生" --type 業主']), ["entity", "add", "王 先生", "--type", "業主"])
+        self.assertIsNone(home._argv([]))
+        self.assertIsNone(home._argv(["kb a", "kb b"]))
+        self.assertIsNone(home._argv(["kb 'unclosed"]))
+
+    def test_every_confirm_result_has_argv_or_null_and_fill_shape(self):
+        for a in self.build()["confirm"]:
+            for r in a["results"]:
+                self.assertIn("argv", r)
+                self.assertTrue(r["argv"] is None or (isinstance(r["argv"], list) and all(isinstance(x, str) for x in r["argv"])))
+                self.assertTrue(r["fill"] is None or set(r["fill"]) == {"name", "rule"})
+
+
+class Recent(Base):
+    def setUp(self):
+        super().setUp()
+        self.f1 = self.card(E.QUOTE, "報價單")
+        self.f2 = self.card(E.ESTIMATE, "估價單")
+
+    def test_added_newest_first(self):
+        out = self.build()["recent"]
+        self.assertTrue(out)
+        stamps = [r["at"] for r in out if r["why"] == "added"]
+        self.assertEqual(stamps, sorted(stamps, reverse=True))
+        for r in out:
+            self.assertEqual(set(r), {"card", "title", "type", "date", "why", "at", "open", "card_path"})
+
+    def test_opened_come_first_and_deduplicate(self):
+        out = self.build(opened=[self.f2, self.f1, "f-不存在"])
+        self.assertEqual([r["card"] for r in out["recent"][:2]], [self.f2, self.f1])
+        self.assertEqual([r["why"] for r in out["recent"][:2]], ["opened", "opened"])
+        cards = [r["card"] for r in out["recent"]]
+        self.assertEqual(len(cards), len(set(cards)))
+        self.assertNotIn("f-不存在", cards)
+
+    def test_open_path_is_existing_absolute_forward_slash(self):
+        row = next(r for r in self.build(opened=[self.f1])["recent"] if r["card"] == self.f1)
+        self.assertIn("path", row["open"])
+        self.assertNotIn("\\", row["open"]["path"])
+        import os
+        self.assertTrue(os.path.exists(row["open"]["path"]))
+
+    def test_max_from_config(self):
+        (self.V / ".system" / "config.json").write_text(json.dumps({"home_recent_max": 1}), encoding="utf-8")
+        self.assertEqual(len(self.build(opened=[self.f1, self.f2])["recent"]), 1)
+
+    def test_link_entry_opens_with_url(self):
+        data = inventory.load(self.V)
+        e = next(x for x in data["entries"] if x["id"] == self.f1)
+        e["kind"] = "link"
+        e["locations"] = [{"uri": "https://claude.ai/artifact/abc"}]
+        self.assertEqual(home._open_target(self.V, None, e), {"url": "https://claude.ai/artifact/abc"})
+
+
+class Resilience(Base):
+    def test_broken_agenda_still_returns_the_rest(self):
+        (self.V / ".system" / "agenda.json").write_text("{壞掉", encoding="utf-8")
+        out = self.build()
+        self.assertEqual(out["timeline"]["rows"], [])
+        self.assertTrue(any("日程" in w for w in out["warnings"]))
+        self.assertIn("recent", out)
+
+    def test_read_only_and_no_turn(self):
+        before = sorted(p.name for p in (self.V / ".system" / "versions").iterdir()) if (self.V / ".system" / "versions").is_dir() else []
+        files = {str(p): p.stat().st_mtime_ns for p in (self.V / ".system").rglob("*") if p.is_file() and "hook-errors" not in p.name}
+        self.build()
+        after = sorted(p.name for p in (self.V / ".system" / "versions").iterdir()) if (self.V / ".system" / "versions").is_dir() else []
+        self.assertEqual(before, after)
+        for p, m in files.items():
+            self.assertEqual(__import__("pathlib").Path(p).stat().st_mtime_ns, m, p)
+
+    def test_patches_restored_after_build(self):
+        from kb._lib import cards, config
+        real = (cards._scan_groups, cards.open_link, config.get, entities.mounts)
+        self.build()
+        self.assertEqual((cards._scan_groups, cards.open_link, config.get, entities.mounts), real)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -44,3 +44,5 @@
 | `scripts/kb/source_edit.py` | 子命令 `source-edit move`／`rename`／`trash`／`where`／`open`（manage 第二版，D-173～D-178）：本體在 `_lib/source_edit`；move、rename、trash 收 `--check`、在 sources.json 的鎖裡做；拒絕句一字不差（exit 3）、人讀不印編號，終端機記程式段 |
 | `scripts/kb/build.py` | 子命令 `build status`／`start`／`env`／`set`／`facts`／`done`／`redo`／`adopt`／`report`（build）：本體在 `_lib/build`；不收 `--vault`、建置在 cwd；拒絕句一字不差 exit 3；寫入的記程式段 |
 | `scripts/kb/sources/` `sinks/` | 尚未。其餘子命令與 `_lib` 模組 |
+| `scripts/kb/home_cli.py` | 子命令 `home --json [--opened f-…,f-…]`（Obsidian 首頁，#22，D-252）：本體在 `_lib/home`；只讀、不開回合；沒帶 `--json` exit 3「這個指令給外掛用，要帶 --json」；`--opened` 是外掛記的卡編號（新到舊），不在清冊 active 的略過；`--via obsidian` 也不開回合 |
+| `scripts/kb/find_cli.py` | 子命令 `find "<字>" [--json]`（Obsidian 智慧搜尋，#22，D-257）：本體在 `_lib/find`；只讀卡與綜合卡、不讀原檔；人讀第一行「照這樣找：…」、實體一行、每份檔一行「標題（卡型，日期） — 原檔所在的夾」，沒有印「沒有找到」；字開頭是 `-` 要先寫 `--` |
