@@ -1076,7 +1076,9 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
                                                entry["name"])
                 synced = card_base.in_sync(vault, loc)  # 她有沒處理的手改就不換基準（D-270）
                 moved = _move_card(vault, loc, target, text, turn_id, changed, undo)
-                card_base.rekey(vault, loc, target, synced)
+                fake = "---\n---\n"  # replace_title 認得檔頭之後的第一個「# 舊名」
+                card_base.rekey(vault, loc, target, synced, lambda body: synthesis.replace_title(
+                    fake + body, old_name, entry["name"])[len(fake):])  # 她有沒處理的手改：基準的標題也換，程式換的字不算她的
             touched = retarget_cards(vault, {key(old_name): new_name}, turn_id, undo) if old_name != new_name else []
             changed += [{"path": rel, "action": "modify"} for rel, _names in touched]
             if key(old_name) != key(new_name):

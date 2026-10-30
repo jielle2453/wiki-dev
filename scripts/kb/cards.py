@@ -399,7 +399,7 @@ def _edits(vault, args, as_json):
     """她手改過的卡（D-270）：只讀狀態檔與卡；--done 只換基準。"""
     if args.done:
         try:
-            rels = card_base.done(vault, args.done)
+            rels = card_base.done(vault, args.done, turn.current(vault)["turn"])
         except card_base.DoneRefused as e:
             print(str(e))
             return 3

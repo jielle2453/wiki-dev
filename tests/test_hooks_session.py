@@ -1313,7 +1313,8 @@ class OpeningCardEdits(unittest.TestCase):
         mod._START = time.monotonic() - 1000  # 假時鐘：時限早就過了
         lines = mod.status_lines(self.V, "startup")
         self.assertIn("kb.py", lines[0])
-        self.assertEqual(self.edit_lines(lines), [])  # 一張都沒比到：不知道有沒有，不印
+        self.assertEqual(self.edit_lines(lines),  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
+                         ["可能有你改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答。"])
         log = (self.V / ".system" / "hook-errors.log")
         self.assertFalse(log.exists() and "card_base" in log.read_text(encoding="utf-8"))
 

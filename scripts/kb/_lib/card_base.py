@@ -89,8 +89,9 @@ def is_synthesis_text(text):
     return "名稱" in front and "型別" in front
 
 
-def all_cards(vault):
-    """[(相對路徑, 'file'|'synthesis')]，照路徑排。"""
+def all_cards(vault, deadline=None):
+    """[(相對路徑, 'file'|'synthesis')]，照路徑排。deadline（time.monotonic 的時刻）到了就不再讀綜合卡檔頭，回已找到的。"""
+    import time
     out = [(rel, "file") for rel in cards._walk_cards(vault)]
     root = Path(vault)
     try:
@@ -103,6 +104,8 @@ def all_cards(vault):
         except OSError:
             continue
         for d in names:
+            if deadline is not None and time.monotonic() > deadline:
+                return sorted(out)
             f = d / f"{d.name}.md"
             try:
                 if f.is_file() and is_synthesis_text(f.read_text(encoding="utf-8")):
@@ -188,8 +191,10 @@ def in_sync(vault, rel):
         return True
 
 
-def rekey(vault, old, new, synced=True):
-    """卡搬家：紀錄換鍵。synced（搬之前沒有手改）時順便把基準換成新位置現在的內文，內文跟著程式改過（例：改名換標題）。"""
+def rekey(vault, old, new, synced=True, transform=None):
+    """卡搬家：紀錄換鍵。synced（搬之前沒有手改）時順便把基準換成新位置現在的內文，內文跟著程式改過（例：改名換標題）。
+    沒 synced（她有沒處理的手改）時基準不換成現在的內容，但程式自己改的字照 transform(基準內文) 同樣改一遍，
+    免得程式換的字被算進她的 hunks（例：實體改名換標題）。"""
     try:
         def fn(recs):
             got = recs.pop(old, None)
@@ -197,10 +202,54 @@ def rekey(vault, old, new, synced=True):
                 return False
             if synced and card_kind(vault, new):
                 got = _entry(_read_body(vault, new), pending=got.get("pending"))
+            elif transform is not None:
+                got = dict(got, body=transform(got["body"]))
+                got["sha256"] = sha(got["body"])
             recs[new] = got
         _locked(vault, fn)
     except BaseException as e:  # noqa: BLE001
         _log(vault, e)
+
+
+def rekey_folder(vault, src, dst):
+    """整夾搬（型別改名、型別合併、型別夾編號）：夾底下的卡紀錄照原樣換鍵（內文位元組不動，pending 也跟著）。"""
+    try:
+        a, b = src.strip("/") + "/", dst.strip("/") + "/"
+
+        def fn(recs):
+            moved = [k for k in recs if k.startswith(a)]
+            if not moved:
+                return False
+            for k in moved:
+                recs[b + k[len(a):]] = recs.pop(k)
+        _locked(vault, fn)
+    except BaseException as e:  # noqa: BLE001
+        _log(vault, e)
+
+
+def scrub(vault, mention):
+    """purge（不想讓 AI 看到的夾排除後清殘留）：基準與 pending 存的是卡的全文，提到那夾的內容（mention(text) 為真）就換成卡現在的內容、
+    pending 拿掉；卡已經不在的紀錄刪掉。回洗了幾筆。"""
+    n = [0]
+
+    def fn(recs):
+        for rel in list(recs):
+            got = recs[rel]
+            pend = got.get("pending") if isinstance(got.get("pending"), dict) else {}
+            texts = [got["body"]] + [v for v in pend.values() if isinstance(v, str)]
+            try:
+                if not (Path(vault) / rel).is_file():
+                    recs.pop(rel)
+                elif any(mention(t) for t in texts):
+                    recs[rel] = _entry(_read_body(vault, rel))
+                else:
+                    continue
+            except (OSError, UnicodeDecodeError):
+                recs.pop(rel)
+            n[0] += 1
+        return bool(n[0])
+    _locked(vault, fn)
+    return n[0]
 
 
 def forget(vault, *rels):
@@ -262,13 +311,14 @@ def edits(vault, deadline=None, persist=True):
     沒紀錄的卡（含搬了沒換鍵的）補基準、不報；persist=False 時不寫狀態檔。被刪的卡不列。"""
     import time
     recs = load(vault)
-    found = all_cards(vault)
+    found = all_cards(vault, deadline)
+    cut = deadline is not None and time.monotonic() > deadline  # 找卡就用完時限：後面的卡沒看到，不能拿「沒對應檔」當搬了
     live = {rel for rel, _k in found}
     orphans = {}  # sha → 沒對應檔的紀錄路徑：卡搬了但沒人換鍵
     for rel, got in recs.items():
-        if rel not in live:
+        if rel not in live and not cut:
             orphans.setdefault(got["sha256"], rel)
-    out, added, drop, more = [], {}, [], False
+    out, added, drop, more = [], {}, [], cut
     for rel, kind in found:
         if deadline is not None and time.monotonic() > deadline:
             more = True
@@ -308,8 +358,9 @@ class DoneRefused(ValueError):
     pass
 
 
-def done(vault, paths):
-    """Claude 處理完了：這幾張的基準換成現在的內容。路徑不是卡或不存在就整個拒絕。"""
+def done(vault, paths, turn_id=None):
+    """Claude 處理完了：這幾張的基準換成現在的內容（pending 清掉）。路徑不是卡或不存在就整個拒絕。
+    turn_id：這一回合；之後同一回合 Claude 再寫那張卡，record_write 認得「這回合處理過了」，不拿回合備份比出反向的假通知。"""
     rels = []
     for p in paths:
         rel = str(p).replace("\\", "/").strip("/")
@@ -317,7 +368,7 @@ def done(vault, paths):
             raise DoneRefused(f"「{p}」不是卡（要寫知識庫相對路徑，例：檔案索引/…/xxx.md）或檔案不存在")
         rels.append(rel)
     bodies = {rel: _read_body(vault, rel) for rel in rels}
-    _locked(vault, lambda recs: [recs.__setitem__(r, _entry(b)) for r, b in bodies.items()])
+    _locked(vault, lambda recs: [recs.__setitem__(r, _entry(b, turn_id)) for r, b in bodies.items()])
     return rels
 
 

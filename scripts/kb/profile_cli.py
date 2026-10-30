@@ -27,7 +27,7 @@ import json
 import os
 
 from kb import journal_cli
-from kb._lib import agenda, cards, config, entities, inventory, pending, profile, synthesis, turn
+from kb._lib import agenda, card_base, cards, config, entities, inventory, pending, profile, synthesis, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib.plan import cmd
@@ -974,6 +974,7 @@ def _move(vault, undo, turn_id, src, dst):
     os.rename(vault / src, vault / dst)
     undo.moved(src, dst)
     undo.folder(turn_id, "move", src, dst)
+    card_base.rekey_folder(vault, src, dst)  # 夾底下的卡紀錄跟著換鍵（手改卡，D-270）
 
 
 def _folder(row):

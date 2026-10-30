@@ -121,6 +121,7 @@ def _check_card(vault, rel, sources, turn_id, payload):
     by_id = {e.get("id"): e for e in inventory.load(vault)["entries"]}
     ok, reason = cards.validate(vault, rel, by_id, sources)
     if not ok:
+        _record_base(vault, rel, turn_id, notify=False)  # 擋回的版本也是 Claude 寫的，不能下次被當成她改（裁定 5 #2）
         _block(BLOCK_REASON.format(reason))
         return
     _record_base(vault, rel, turn_id)
@@ -137,12 +138,12 @@ def _check_card(vault, rel, sources, turn_id, payload):
         _log(e, payload)
 
 
-def _record_base(vault, rel, turn_id):
+def _record_base(vault, rel, turn_id, notify=True):
     """驗過的卡把內文記成基準（D-270）：Claude 寫的不算她改。記不了只記 log（card_base 自己吞）。
     寫之前那一版（回合備份）跟基準不同＝她改了還沒處理（裁定 2）：card_base 留成待處理，這裡回 Claude 一句（寫入已發生，不擋）。"""
     from kb._lib import card_base
     found = card_base.record_write(vault, rel, turn_id, _backup_of(vault, rel, turn_id))
-    if found:
+    if found and notify:
         shown = "；".join(f"「{h['before'][:60]}」→「{h['after'][:60]}」" for h in found[:HAND_SHOWN]) \
             + ("…" if len(found) > HAND_SHOWN else "")
         _block(HAND_EDIT_NOTICE.format(hunks=shown, path=rel))
@@ -170,10 +171,12 @@ def _check_synthesis(vault, rel, turn_id, payload):
         return
     ok, reason = synthesis.validate(vault, rel)
     if not ok:
+        _record_base(vault, rel, turn_id, notify=False)
         _block(SYNTHESIS_BLOCK.format(reason))
         return
     lost = _lost_events(vault, rel, turn_id)
     if lost:
+        _record_base(vault, rel, turn_id, notify=False)
         shown = "；".join(l[:60] for l in lost[:JISHI_SHOWN]) + ("…" if len(lost) > JISHI_SHOWN else "")
         _block(JISHI_BLOCK.format(n=len(lost), lines=shown))
         return

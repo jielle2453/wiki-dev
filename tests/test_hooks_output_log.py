@@ -246,10 +246,48 @@ class CardCheck(unittest.TestCase):
         card_base.done(self.V, [rel])
         self.assertEqual(card_base.edits(self.V)["edits"], [])
 
-    def test_blocked_card_not_recorded(self):
+    def test_blocked_new_card_is_claudes_not_hers(self):
         from kb._lib import card_base
-        self.write(self.text.replace("標題: 大安陳會議一", "標題: "))
-        self.assertEqual(card_base.load(self.V), {})
+        self.write(self.text.replace("標題: 大安陳會議一", "標題: "))  # 裁定 5 #2：擋回也記基準
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_blocked_write_still_recorded_as_base(self):
+        """裁定 5 #2：Claude 把卡寫成有錯的版本被擋回、沒修好：那是 Claude 寫的，下次不能當成她改的。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("標題: 大安陳會議一", "標題: ").replace("紀錄", "Claude 第二版紀錄"))
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_blocked_write_keeps_her_pending_edit(self):
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("標題: 大安陳會議一", "標題: "))
+        (line,) = r.stdout.splitlines()
+        self.assertTrue(json.loads(line)["reason"].startswith("檔頭有錯："))
+        (item,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(item["path"], rel)
+        self.assertTrue(any("她改的紀錄" in h["after"] for h in item["hunks"]))
+
+    def test_z5_done_then_rewrite_same_turn_no_false_notice(self):
+        """裁定 5 #3：--done 之後同一回合 Claude 再寫那張卡，不出反向的假通知。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("第一次", "第二次"))
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
+        card_base.done(self.V, [rel], turn.current(self.V, SID)["turn"])
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        r = self.write(self.text.replace("第一次", "第三次").replace("紀錄", "她改的紀錄"))
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_edit_tool_checked_too(self):
         self.write(self.text)
@@ -376,6 +414,24 @@ class SynthesisCheck(unittest.TestCase):
         self.assertEqual((got["path"], got["kind"]), (rel, "synthesis"))
         self.assertIn({"before": "", "after": "- 交屋延到 12 月"}, got["hunks"])
         card_base.done(self.V, [rel])
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z1_blocked_write_still_recorded_as_base(self):
+        """裁定 5 #2：Z1 驗證沒過（含紀事少了）的寫入也記基準，下次不被當成她改。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text = self.E.synthesis_text(empty, "王宅")
+        rel = item["path"]
+        self.write(rel, text)
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(rel, text.replace("## 現況", "## 近況"))  # 驗證沒過
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
         self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_block_sentences(self):
