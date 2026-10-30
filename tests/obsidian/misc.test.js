@@ -26,6 +26,7 @@ test('manifest.json：id、桌面版限定、版號跟 plugin.json 一樣', () =
 test('styles.css：藏「檔案索引」夾的規則在，顏色用 Obsidian 的變數', () => {
   const css = fs.readFileSync(path.join(ROOT, 'obsidian', 'styles.css'), 'utf8');
   assert.match(css, /\.nav-folder-title\[data-path="檔案索引"\]/);
+  assert.match(css, /\.nav-file-title\[data-path="CLAUDE\.md"\]\s*\{\s*display: none;/, '知識庫根的 CLAUDE.md 也藏（D-266）');
   assert.match(css, /var\(--background-primary\)/);
   assert.match(css, /var\(--text-normal\)/);
 });
@@ -114,7 +115,8 @@ test('實體總覽：叫 kb lookup（帶 --json），抽屜畫出別名、標籤
   assert.ok(d.classList.contains('is-open'));
   assert.match(d.textContent, /← 回上一頁/);
   assert.match(d.textContent, /王大明/);
-  assert.strictEqual(byClass(d, 'wwh-alias').length, 2);
+  assert.match(d.textContent, /也叫：王先生、大明/);
+  assert.strictEqual(byTag(d, 'button').filter((b) => b.textContent !== '← 回上一頁' && b.textContent !== '✕').length, 0, '小預覽只看：沒有改名、別名、標籤、結案的按鈕（D-266）');
   assert.match(d.textContent, /階段/);
   assert.match(d.textContent, /報價 v2/);
   assert.match(d.textContent, /交圖/);
@@ -189,8 +191,8 @@ test('首頁按鈕接到動作：打勾的 checkbox 叫 kb agenda done', async (
   assert.ok(byClass(view.root, 'wwh-todo')[0].classList.contains('is-done'));
 });
 
-test('其他要處理的：不用管 → kb pending dismiss', async () => {
-  const { plugin, calls } = makeActionPlugin();
+test('其他要處理的：只列出來，沒有按鈕（D-266 拿掉「不用管」）', () => {
+  const { plugin } = makeActionPlugin();
   plugin.home = lib.normalizeHome({ others: [{ id: 'p-3', kind: 'missing_file', text: '有一份檔不見了', dismiss: true }, { id: 'p-4', text: '不能不管', dismiss: false }] });
   plugin.ui.othersOpen = true;
   const view = new lib.HomeView({}, plugin);
@@ -198,10 +200,43 @@ test('其他要處理的：不用管 → kb pending dismiss', async () => {
   view.render();
   const rows = byClass(view.root, 'wwh-other');
   assert.strictEqual(rows.length, 2);
-  assert.strictEqual(byTag(rows[1], 'button').length, 0);
-  byTag(rows[0], 'button')[0].fire('click');
-  await tick();
-  assert.deepStrictEqual(calls[0], ['pending', 'dismiss', 'p-3']);
+  for (const r of rows) assert.strictEqual(byTag(r, 'button').length, 0);
+});
+
+test('日程.md 的哪一行：先找文字加日期都有的，再找文字，找不到回頁頂', () => {
+  const page = ['# 日程', '## 逾期', '- 2026-10-28（週三）提醒 看工地', '## 今天', '- 2026-10-30（週五）提醒 看工地', '- 2026-10-30（週五）到期 訂窗簾'].join('\n');
+  assert.strictEqual(lib.findAgendaLine(page, { text: '訂窗簾', end: '2026-10-30' }), 5);
+  assert.strictEqual(lib.findAgendaLine(page, { text: '看工地', end: '2026-10-30' }), 4, '同樣的字看日期挑');
+  assert.strictEqual(lib.findAgendaLine(page, { text: '看工地', end: '2026-12-01' }), 2, '日期對不上就用第一個有字的');
+  assert.strictEqual(lib.findAgendaLine(page, { text: '不在頁上', end: '2026-10-30' }), 0);
+  assert.strictEqual(lib.findAgendaLine('', { text: 'x' }), 0);
+  assert.strictEqual(lib.findAgendaLine(page, {}), 0);
+});
+
+test('點日程那件：開日程.md，游標跳到那一行', async () => {
+  const opened = [];
+  const cursor = [];
+  const editor = { setCursor: (pos) => cursor.push(pos), scrollIntoView: () => {} };
+  const app = {
+    vault: { adapter: { getBasePath: () => '/v', read: async (rel) => (rel === '系統/日程.md' ? '# 日程\n- 2026-10-30（週五）到期 訂窗簾\n' : '') } },
+    workspace: { openLinkText: async (link) => opened.push(link), getActiveViewOfType: () => ({ editor }), getLeavesOfType: () => [] },
+  };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  await plugin.openAgendaLine({ id: 'a-1', text: '訂窗簾', end: '2026-10-30' });
+  assert.deepStrictEqual(opened, ['系統/日程']);
+  assert.deepStrictEqual(cursor, [{ line: 1, ch: 0 }]);
+});
+
+test('點案子名稱：開它的綜合卡；還沒有綜合卡就開旁邊的小預覽', async () => {
+  const { plugin, calls } = makeDrawerPlugin({ 信義王: { query: '信義王', entity: { name: '信義王', type: '案子' }, synthesis: '01 案子/信義王/信義王.md' }, 新案: { query: '新案', entity: { name: '新案', type: '案子' }, synthesis: null } });
+  const opened = [];
+  plugin.openPathInVault = (rel) => opened.push(rel);
+  await plugin.openSynthesis('信義王');
+  assert.deepStrictEqual(calls[0], ['lookup', '信義王', '--json']);
+  assert.deepStrictEqual(opened, ['01 案子/信義王/信義王.md']);
+  plugin.openEntity = (n) => opened.push('drawer:' + n);
+  await plugin.openSynthesis('新案');
+  assert.strictEqual(opened[1], 'drawer:新案');
 });
 
 test('表單：必填空著不送出，填了才算數；Enter 送出；關掉 = null', async () => {

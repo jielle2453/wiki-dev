@@ -1,9 +1,9 @@
 'use strict';
 /*
- * wiki-with-willy 的 Obsidian 外掛（D-252～D-265，issue #22）。
+ * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，issue #22）。
  *
  * 純 CommonJS、不打包、不加依賴。要算的都在 kb（kb home / kb find / kb renders apply …），這裡只負責：
- * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把按鈕變成 kb 指令（和反悔的相反指令）。
+ * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
  * 要測的純函式都從 module.exports 的 `lib` 匯出（tests/obsidian/*.test.js 用假的 obsidian 模組載入）。
  * 不把任何路徑寫進設定（D-019）：每次載入照 installed_plugins.json 找 kb.py。
  */
@@ -14,7 +14,7 @@ const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
 
-const { Plugin, ItemView, Modal, Menu, Notice, MarkdownView } = obsidian;
+const { Plugin, ItemView, Modal, Notice, MarkdownView } = obsidian;
 
 // ---------------------------------------------------------------------------------------------------------------
 // 常數
@@ -380,7 +380,11 @@ function layoutTimeline(timeline, opts) {
   return { fromN, toN, from: dayToIso(fromN), to: dayToIso(toN), spanDays: span, ticks, todayPct, rows };
 }
 
-/** 月曆：回 {year, month, weeks:[[{date, day, inMonth, isToday, marks:[…]}]×7]}。bar 每天都列，點只在那天。 */
+/**
+ * 月曆：回 {year, month, weeks:[{days:[{date, day, inMonth, isToday, marks}]×7, bars:[…], lanes}]}。
+ * 期間（不只一天的）畫成橫跨那一週的一條 bar（col 0~6 起、span 天）：名字只在開頭那週（或這個月曆第一週）寫，
+ * 跨週的下一週接著畫；單天的與點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
+ */
 function layoutMonth(timeline, opts) {
   const options = opts || {};
   const todayN = dayNumber(options.today);
@@ -393,8 +397,7 @@ function layoutMonth(timeline, opts) {
   const endN = first + lastDay - 1;
   const gridEnd = endN + (6 - weekdayOf(endN));
   const flat = [];
-  for (const r of asArray(isObject(timeline) ? timeline.rows : [])) {
-    if (!isObject(r)) continue;
+  for (const r of asArray(openMarksOnly(timeline).rows)) {
     const stack = [];
     for (const m of asArray(r.marks)) {
       stack.push(m);
@@ -405,36 +408,51 @@ function layoutMonth(timeline, opts) {
       if (sp) flat.push({ m, sp, row: r.label || r.key || '' });
     }
   }
+  const info = (f) => ({
+    id: f.m.id || null,
+    text: f.m.text || '',
+    kind: f.m.kind || null,
+    row: f.row,
+    late: f.m.late === true,
+    inferred: f.m.inferred === true,
+    status: f.m.status || 'open',
+    raw: f.m,
+  });
   const weeks = [];
   for (let n = startN; n <= gridEnd; n += 7) {
-    const week = [];
+    const days = [];
     for (let i = 0; i < 7; i++) {
       const day = n + i;
-      const inMonth = day >= first && day <= endN;
-      const marks = [];
-      for (const f of flat) {
-        if (day < f.sp.first || day > f.sp.last) continue;
-        marks.push({
-          id: f.m.id || null,
-          text: f.m.text || '',
-          kind: f.m.kind || null,
-          row: f.row,
-          late: f.m.late === true,
-          inferred: f.m.inferred === true,
-          status: f.m.status || 'open',
-          continues: f.sp.shape === 'bar' && day > f.sp.first,
-          raw: f.m,
-        });
-      }
-      week.push({
+      days.push({
         date: dayToIso(day),
         day: new Date(day * 86400000).getUTCDate(),
-        inMonth,
+        inMonth: day >= first && day <= endN,
         isToday: todayN === day,
-        marks,
+        marks: flat.filter((f) => f.sp.first === day && f.sp.last === day).map(info),
       });
     }
-    weeks.push(week);
+    const bars = flat
+      .filter((f) => f.sp.last > f.sp.first && f.sp.first <= n + 6 && f.sp.last >= n)
+      .map((f) => {
+        const col = Math.max(f.sp.first, n) - n;
+        const end = Math.min(f.sp.last, n + 6) - n;
+        return Object.assign(info(f), {
+          col,
+          span: end - col + 1,
+          label: f.sp.first >= n || weeks.length === 0,
+          continuesLeft: f.sp.first < n,
+          continuesRight: f.sp.last > n + 6,
+        });
+      })
+      .sort((a, b) => a.col - b.col || b.span - a.span || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
+    const laneEnds = [];
+    for (const b of bars) {
+      let lane = laneEnds.findIndex((e) => e < b.col);
+      if (lane < 0) lane = laneEnds.length;
+      laneEnds[lane] = b.col + b.span - 1;
+      b.lane = lane;
+    }
+    weeks.push({ days, bars, lanes: laneEnds.length });
   }
   return { year, month, weeks };
 }
@@ -659,20 +677,8 @@ function classify(res) {
   return { kind: 'failed', message: '沒做成：' + (firstLine(res.stderr) || firstLine(res.stdout) || `結束碼 ${res.code}`) };
 }
 
-/** `--check --json` 的結果：{error} | {refuse} | {effects}。refuse 有字時 kb 會 exit 3，但 JSON 照印。 */
-function interpretCheck(res) {
-  const j = parseJson(res.stdout);
-  if (isObject(j) && (Array.isArray(j.effects) || j.refuse !== undefined)) {
-    if (j.refuse) return { refuse: String(j.refuse) };
-    if (res.code === 0 || res.code === 3) return { effects: asArray(j.effects).map(String) };
-  }
-  const c = classify(res);
-  if (c.kind === 'ok') return { effects: [] };
-  return c.kind === 'refused' ? { refuse: c.message } : { error: c.message };
-}
-
 // ---------------------------------------------------------------------------------------------------------------
-// 動作（D-254、D-256）：每個動作 = 指令 + 反悔的相反指令；有連帶影響的先 --check 跳確認框
+// 動作（D-254、D-266）：首頁只留四個——打勾、改日期時間、新增日程、回答「要你確認的」；每個動作 = 指令 + 反悔的相反指令
 // ---------------------------------------------------------------------------------------------------------------
 
 const PROGRESS_WORD = { ongoing: '進行中', active: '進行中', closed: '結案', paused: '擱置', 進行中: '進行中', 結案: '結案', 擱置: '擱置' };
@@ -721,11 +727,6 @@ const actions = {
     return { id: 'edit', args, undo: backable ? () => ({ args: back }) : null };
   },
 
-  /** 推測的記成確認：不帶欄位；不給復原。 */
-  confirmInferred(item) {
-    return { id: 'confirm-inferred', args: ['agenda', 'edit', item.id], undo: null };
-  },
-
   /** 新增日程；復原 = 取消新的那一條。 */
   add(form) {
     const args = ['agenda', 'add'];
@@ -745,28 +746,6 @@ const actions = {
     };
   },
 
-  /** 取消；有期間的先 --check 跳確認框。復原 reopen。 */
-  cancel(item) {
-    const a = {
-      id: 'cancel',
-      args: ['agenda', 'cancel', item.id],
-      undo: () => ({ args: ['agenda', 'reopen', item.id] }),
-    };
-    if (isPeriodKind(item.kind)) {
-      a.check = {
-        args: ['agenda', 'cancel', item.id, '--check', '--json'],
-        title: `取消「${item.text || ''}」？`,
-        okText: '取消這件',
-      };
-    }
-    return a;
-  },
-
-  /** 其他要處理的「不用管」；不給復原。 */
-  dismiss(pendingId) {
-    return { id: 'dismiss', args: ['pending', 'dismiss', pendingId], undo: null };
-  },
-
   /** 「要你確認的」選一個結果：照 argv；`{name}` 換成她填的；不給復原。argv 是 null 的不是指令（回 null）。 */
   result(result, fillValue) {
     if (!isObject(result) || !Array.isArray(result.argv)) return null;
@@ -781,56 +760,6 @@ const actions = {
     return { id: 'result', args, undo: null };
   },
 
-  /** 結案、擱置、改回進行中；先 --check。復原 = 改回原狀態。 */
-  progress(name, state, oldState) {
-    const word = progressWord(state);
-    const oldWord = progressWord(oldState);
-    return {
-      id: 'progress',
-      check: { args: ['entity', 'progress', name, word, '--check', '--json'], title: `${name}記成${word}？`, okText: `記成${word}` },
-      args: ['entity', 'progress', name, word],
-      undo: oldWord ? () => ({ args: ['entity', 'progress', name, oldWord] }) : null,
-    };
-  },
-
-  /** 改名；先 --check。復原 = 改回原名。 */
-  rename(oldName, newName) {
-    return {
-      id: 'rename',
-      check: { args: ['entity', 'rename', oldName, '--to', newName, '--check', '--json'], title: `把「${oldName}」改名叫「${newName}」？`, okText: '改名' },
-      args: ['entity', 'rename', oldName, '--to', newName],
-      undo: () => ({ args: ['entity', 'rename', newName, '--to', oldName] }),
-    };
-  },
-
-  /** 合併；先 --check。復原 = kb versions revert（只挑 Obsidian 那組，D-255）；被擋就把拒絕句印在框裡。 */
-  merge(source, target) {
-    return {
-      id: 'merge',
-      check: { args: ['entity', 'merge', source, '--into', target, '--check', '--json'], title: `把「${source}」併進「${target}」？`, okText: '合併' },
-      args: ['entity', 'merge', source, '--into', target],
-      undo: () => ({ args: ['versions', 'revert'], refusalModal: true }),
-    };
-  },
-
-  /** 加、拿掉別名；復原 = 相反。 */
-  alias(name, word, mode) {
-    const adding = mode !== 'remove';
-    return {
-      id: adding ? 'alias-add' : 'alias-remove',
-      args: ['entity', 'alias', name, adding ? '--add' : '--remove', word],
-      undo: () => ({ args: ['entity', 'alias', name, adding ? '--remove' : '--add', word] }),
-    };
-  },
-
-  /** 改標籤；復原 = 改回原標籤（原本空的 = 欄=）。 */
-  tag(name, field, words, oldWords) {
-    return {
-      id: 'tag',
-      args: ['entity', 'tag', name, `${field}=${asArray(words).join(',')}`, '--said'],
-      undo: () => ({ args: ['entity', 'tag', name, `${field}=${asArray(oldWords).join(',')}`, '--said'] }),
-    };
-  },
 };
 
 async function runUndo(ctx, u) {
@@ -841,36 +770,17 @@ async function runUndo(ctx, u) {
     if (ctx.refresh) ctx.refresh();
     return { ok: true };
   }
-  if (c.kind === 'refused' && u.refusalModal && ctx.info) {
-    await ctx.info({ title: '退不了', lines: [c.message] });
-    return { ok: false, refused: true };
-  }
   ctx.toast(c.message);
   if (c.kind === 'failed' && ctx.log) ctx.log(res.stderr || res.stdout);
   return { ok: false };
 }
 
 /**
- * 執行一個動作：有 check 先問；成功 toast kb 的那句（原樣）加「復原」；失敗照 exit 3／其他分。
- * ctx：{kb(args)→res, toast(text, {undo}), confirm({title, lines, okText})→bool, info?, refresh?, log?}
+ * 執行一個動作：成功 toast kb 的那句（原樣）加「復原」；失敗照 exit 3／其他分。
+ * ctx：{kb(args)→res, toast(text, {undo}), refresh?, log?}
  */
 async function performAction(ctx, action) {
   if (!action) return { ok: false };
-  if (action.check) {
-    const res = await ctx.kb(action.check.args);
-    const chk = interpretCheck(res);
-    if (chk.error) {
-      ctx.toast(chk.error);
-      if (ctx.log) ctx.log(res.stderr || res.stdout);
-      return { ok: false };
-    }
-    if (chk.refuse) {
-      ctx.toast(chk.refuse);
-      return { ok: false, refused: true };
-    }
-    const yes = await ctx.confirm({ title: action.check.title, lines: chk.effects, okText: action.check.okText || '好，做' });
-    if (!yes) return { ok: false, cancelled: true };
-  }
   const res = await ctx.kb(action.args);
   const c = classify(res);
   if (c.kind !== 'ok') {
@@ -1333,7 +1243,7 @@ function longDate(iso) {
 /** 這一塊預設收起；有逾期或今天那件還沒做的才預設展開（裁定 28）。 */
 function rowDefaultCollapsed(row, todayN) {
   const marks = asArray(row && row.marks);
-  return !marks.some((m) => m.status === 'open' && (m.late || (todayN !== null && m.shape === 'point' && dayNumber(m.end) === todayN)));
+  return !marks.some((m) => m.status === 'open' && (m.late || isDueToday(m, todayN)));
 }
 
 function rowIsCollapsed(ui, row, todayN) {
@@ -1352,9 +1262,37 @@ function markWhen(m, todayN) {
   if (n === null) return '';
   let text = `${shortDate(m.end)}（週${WEEKDAY[weekdayOf(n)]}）`;
   if (m.time) text += ` ${m.time}`;
-  if (m.status === 'done') text += ' · 完成了';
-  else if (m.status === 'open' && todayN !== null && n < todayN) text += ` · 過了 ${todayN - n} 天`;
+  if (m.status === 'open' && todayN !== null && n < todayN) text += ` · 過了 ${todayN - n} 天`;
   return text;
+}
+
+/** 這一件是不是今天到期、還沒做的點。 */
+function isDueToday(m, todayN) {
+  return todayN !== null && m.status === 'open' && m.shape === 'point' && dayNumber(m.end) === todayN;
+}
+
+/** 首頁畫的時間軸與月曆：做完、取消的不畫（裁定 30）；整塊都沒了的那一列也不畫。 */
+function openMarksOnly(timeline) {
+  const keep = (m) => isObject(m) && m.status !== 'done' && m.status !== 'cancelled';
+  const tl = isObject(timeline) ? timeline : {};
+  const rows = asArray(tl.rows)
+    .filter(isObject)
+    .map((r) => Object.assign({}, r, { marks: asArray(r.marks).filter(keep).map((m) => Object.assign({}, m, { children: asArray(m.children).filter(keep) })) }))
+    .filter((r) => r.marks.length);
+  return Object.assign({}, tl, { rows });
+}
+
+/** 日程.md 裡這一件住在第幾行（0 起算）：先找「文字加日期」都有的，再找文字，找不到回 0（開頁頂）。 */
+function findAgendaLine(content, item) {
+  const lines = String(content == null ? '' : content).split('\n');
+  const want = String((item && item.text) || '').trim();
+  if (!want) return 0;
+  const day = itemDate(item);
+  const has = (l, t) => l.includes(t);
+  let at = day ? lines.findIndex((l) => has(l, want) && has(l, day)) : -1;
+  if (at < 0) at = lines.findIndex((l) => has(l, want));
+  if (at < 0) at = lines.findIndex((l) => has(l, want.slice(0, 8)));
+  return at < 0 ? 0 : at;
 }
 
 class HomeView extends ItemView {
@@ -1448,8 +1386,8 @@ class HomeView extends ItemView {
     this.root.appendChild(this.bannerEl);
     this.root.appendChild(this.topEl);
     this.root.appendChild(this.searchEl);
-    this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
+    this.root.appendChild(this.timelineEl);
     clear(this.contentEl);
     this.contentEl.appendChild(this.root);
     this.contentEl.appendChild(this.drawerEl); // 抽屜蓋在首頁右邊，不跟著首頁捲動
@@ -1503,7 +1441,7 @@ class HomeView extends ItemView {
     }
   }
 
-  // ---- 鼓勵句與件數 ----
+  // ---- 日期、一句話、三個數字 ----
   renderTop(el) {
     const home = this.plugin.home;
     if (!home) {
@@ -1514,17 +1452,16 @@ class HomeView extends ItemView {
       h('div', { cls: 'wwh-greet' }, h('p', { cls: 'wwh-date', text: longDate(home.today) }), h('h1', { cls: 'wwh-cheer', text: home.cheer || '' })),
     );
     const c = home.counts;
-    const chip = (label, n, cls) => h('span', { cls: ['wwh-count', cls, n ? 'has' : ''], text: `${label} ${n}` });
+    const big = (label, n, cls) =>
+      h('div', { cls: ['wwh-count', cls, n ? 'has' : ''] }, h('span', { cls: 'wwh-count-n', text: String(n) }), h('span', { cls: 'wwh-count-label', text: label }));
     el.appendChild(
       h(
         'div',
         { cls: 'wwh-counts' },
-        chip('已經過了', c.overdue, 'overdue'),
-        chip('今天', c.today, 'today'),
-        chip('這週', c.week, 'week'),
-        chip('要你確認', c.confirm, 'confirm'),
-        chip('其他要處理', c.other, 'other'),
-        h('button', { cls: 'wwh-small-btn wwh-add-btn', text: '＋ 新增日程', on: { click: () => this.plugin.addAgendaForm() } }),
+        big('已經過了', c.overdue, 'overdue'),
+        big('今天', c.today, 'today'),
+        big('要你確認', c.confirm, 'confirm'),
+        h('div', { cls: 'wwh-counts-minor', text: `這週 ${c.week}　其他要處理 ${c.other}` }),
       ),
     );
   }
@@ -1698,6 +1635,12 @@ class HomeView extends ItemView {
   }
 
   // ---- 時間軸 ----
+  /** 時間軸的版面：做完、取消的不畫（裁定 30）。 */
+  timelineLayout() {
+    const home = this.plugin.home;
+    return layoutTimeline(openMarksOnly(home.timeline), { today: home.today });
+  }
+
   renderTimeline(el) {
     const p = this.plugin;
     const home = p.home;
@@ -1705,19 +1648,19 @@ class HomeView extends ItemView {
     const head = h('div', { cls: 'wwh-section-head' }, h('h2', { text: '手上的事' }));
     const tools = h('div', { cls: 'wwh-tools' });
     if (home && ui.timelineMode === 'timeline') { // kb home 還沒回來時不畫，按了也沒東西可展開
-      const layout = layoutTimeline(home.timeline, { today: home.today });
+      const layout = this.timelineLayout();
       const todayN = dayNumber(home.today);
       const allOpen = layout.rows.length > 0 && layout.rows.every((r) => !rowIsCollapsed(ui, r, todayN));
       tools.appendChild(
-        h('button', { cls: 'wwh-text-btn', text: allOpen ? '全部收起' : '全部展開', on: { click: () => this.setAllRows(allOpen) } }),
+        h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text: allOpen ? '全部收起' : '全部展開', on: { click: () => this.setAllRows(allOpen) } }),
       );
     }
     tools.appendChild(
       h(
         'span',
         { cls: 'wwh-toggle' },
-        h('button', { cls: ['wwh-seg', ui.timelineMode === 'timeline' ? 'is-on' : ''], text: '時間軸', on: { click: () => this.setMode('timeline') } }),
-        h('button', { cls: ['wwh-seg', ui.timelineMode === 'month' ? 'is-on' : ''], text: '月曆', on: { click: () => this.setMode('month') } }),
+        h('span', { cls: ['wwh-seg', ui.timelineMode === 'timeline' ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, text: '時間軸', on: { click: () => this.setMode('timeline') } }),
+        h('span', { cls: ['wwh-seg', ui.timelineMode === 'month' ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, text: '月曆', on: { click: () => this.setMode('month') } }),
       ),
     );
     head.appendChild(tools);
@@ -1727,7 +1670,7 @@ class HomeView extends ItemView {
       this.renderMonth(el, home);
       return;
     }
-    const layout = layoutTimeline(home.timeline, { today: home.today });
+    const layout = this.timelineLayout();
     if (!layout.rows.length) {
       el.appendChild(h('div', { cls: 'wwh-empty', text: '手上沒有排日期的事' }));
       return;
@@ -1746,7 +1689,7 @@ class HomeView extends ItemView {
 
   setAllRows(collapsed) {
     if (!this.plugin.home) return;
-    const layout = layoutTimeline(this.plugin.home.timeline, { today: this.plugin.home.today });
+    const layout = this.timelineLayout();
     for (const r of layout.rows) this.plugin.ui.rowCollapsed[r.key] = collapsed;
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
   }
@@ -1794,36 +1737,36 @@ class HomeView extends ItemView {
       ui.rowCollapsed[row.key] = !collapsed;
       this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     };
+    // 標題前一個小箭頭、整個標題列可點收合；名稱本身點下去開綜合卡
+    const name = isOther
+      ? h('span', { cls: 'wwh-row-name', text: row.label })
+      : h('span', {
+          cls: 'wwh-row-name wwh-row-link',
+          title: `開「${row.label}」的綜合卡`,
+          text: row.label,
+          on: {
+            click: (e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              this.plugin.openSynthesis(row.label);
+            },
+          },
+        });
     const left = h(
       'div',
       { cls: 'wwh-cell-left wwh-row-head' },
       h(
-        'button',
-        { cls: 'wwh-fold', title: collapsed ? '展開' : '收起', attrs: { 'aria-expanded': collapsed ? 'false' : 'true' }, on: { click: toggle } },
+        'div',
+        { cls: 'wwh-fold', title: collapsed ? '展開' : '收起', attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' }, on: { click: toggle } },
         h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
-        h('span', { cls: 'wwh-row-name', text: row.label }),
+        name,
         h('span', { cls: 'wwh-muted wwh-row-count', text: open ? `${open} 件` : '' }),
         row.progress && progressWord(row.progress) !== '進行中'
           ? h('span', { cls: ['wwh-badge', `is-${row.progress}`], text: progressWord(row.progress) || row.progress })
           : null,
       ),
-      isOther
-        ? null
-        : h(
-            'button',
-            { cls: 'wwh-sq-btn wwh-info-btn', title: `看「${row.label}」的總覽`, on: { click: () => this.plugin.openEntity(row.label) } },
-            icon('info', 14, 1.7),
-          ),
-      isOther
-        ? null
-        : h(
-            'button',
-            { cls: 'wwh-sq-btn', title: '這件事可以做的', on: { click: (e) => this.plugin.entityMenu(e, row.label, row.progress) } },
-            icon('dots', 14, 1.7),
-          ),
     );
-    const headLine = h('div', { cls: 'wwh-line wwh-head-line' }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.summary(row) : null));
-    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
+    const headLine = h('div', { cls: 'wwh-line wwh-head-line', on: { click: toggle } }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.summary(row, todayN) : null));
+    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open'] }, headLine);
     if (!collapsed) {
       const rows = h('div', { cls: 'wwh-rows' });
       row.marks.forEach((m) => rows.appendChild(this.markLine(m, todayN)));
@@ -1834,20 +1777,18 @@ class HomeView extends ItemView {
   }
 
   /** 收起來的摘要：期間（實心）的色條加每件一個點。 */
-  summary(row) {
+  summary(row, todayN) {
     const box = h('div', { cls: 'wwh-summary' });
     for (const m of row.marks) {
       if (m.depth) continue;
       if (m.shape === 'bar' && !m.inferred) {
-        box.appendChild(
-          h('span', { cls: ['wwh-sum-bar', m.late ? 'is-late' : '', m.status === 'done' ? 'is-done' : ''], style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) }),
-        );
+        box.appendChild(h('span', { cls: ['wwh-sum-bar', m.late ? 'is-late' : ''], style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) }));
         continue;
       }
       const at = m.shape === 'bar' ? Math.min(100, m.leftPct + m.widthPct) : m.leftPct;
       box.appendChild(
         h('span', {
-          cls: ['wwh-sum-dot', m.late ? 'is-late' : '', m.inferred ? 'is-inferred' : '', m.status === 'done' ? 'is-done' : ''],
+          cls: ['wwh-sum-dot', m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : ''],
           style: { left: `${at}%` },
           title: describeMark(m),
         }),
@@ -1885,16 +1826,10 @@ class HomeView extends ItemView {
     return svg;
   }
 
-  /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號（期間是色條、點是帶種類圖示的小圓）。 */
+  /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號。只有過期、今天的記號上色，其他淺灰；點下去開日程.md 那一行。 */
   markLine(m, todayN) {
-    const state = [
-      m.late ? 'is-late' : '',
-      m.inferred ? 'is-inferred' : '',
-      m.critical ? 'is-critical' : '',
-      m.status === 'done' ? 'is-done' : '',
-      m.status === 'cancelled' ? 'is-cancelled' : '',
-    ];
-    const onClick = (e) => this.plugin.itemMenu(e, m.raw);
+    const state = [m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : '', m.critical ? 'is-critical' : ''];
+    const onClick = () => this.plugin.openAgendaLine(m.raw);
     const kind = m.kind && ICON_SHAPES[m.kind] ? m.kind : m.shape === 'bar' ? 'period' : null;
     const left = h(
       'div',
@@ -1924,48 +1859,63 @@ class HomeView extends ItemView {
     const base = today !== null ? new Date(today * 86400000) : new Date();
     const cur = ui.month || { year: base.getUTCFullYear(), month: base.getUTCMonth() };
     const m = layoutMonth(home.timeline, { today: home.today, year: cur.year, month: cur.month });
+    const rerender = () => this.safe('時間軸', this.timelineEl, (e2) => this.renderTimeline(e2));
     const go = (delta) => {
       ui.month = shiftMonth(cur.year, cur.month, delta);
-      this.safe('時間軸', this.timelineEl, (e2) => this.renderTimeline(e2));
+      rerender();
     };
+    const textBtn = (text, fn) => h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text, on: { click: fn } });
     el.appendChild(
       h(
         'div',
         { cls: 'wwh-month-head' },
-        h('button', { cls: 'wwh-small-btn', text: '‹', on: { click: () => go(-1) } }),
+        textBtn('‹', () => go(-1)),
         h('span', { cls: 'wwh-month-title', text: `${m.year} 年 ${m.month + 1} 月` }),
-        h('button', { cls: 'wwh-small-btn', text: '›', on: { click: () => go(1) } }),
-        h('button', {
-          cls: 'wwh-small-btn',
-          text: '回到今天',
-          on: {
-            click: () => {
-              ui.month = null;
-              this.safe('時間軸', this.timelineEl, (e2) => this.renderTimeline(e2));
-            },
-          },
+        textBtn('›', () => go(1)),
+        textBtn('回到今天', () => {
+          ui.month = null;
+          rerender();
         }),
       ),
     );
     const grid = h('div', { cls: 'wwh-month' });
-    for (const w of WEEKDAY) grid.appendChild(h('div', { cls: 'wwh-month-dow', text: w }));
+    const dows = h('div', { cls: 'wwh-month-dows' });
+    for (const w of WEEKDAY) dows.appendChild(h('div', { cls: 'wwh-month-dow', text: w }));
+    grid.appendChild(dows);
+    const onClick = (raw) => () => this.plugin.openAgendaLine(raw);
     for (const week of m.weeks) {
-      for (const d of week) {
-        const cell = h('div', { cls: ['wwh-day', d.inMonth ? '' : 'is-out', d.isToday ? 'is-today' : ''] }, h('div', { cls: 'wwh-day-num', text: String(d.day) }));
-        const shown = d.marks.slice(0, 3);
-        for (const mk of shown) {
+      const wk = h('div', { cls: 'wwh-week' });
+      const marksRow = String(week.lanes + 2);
+      week.days.forEach((d, i) => {
+        const col = String(i + 1);
+        wk.appendChild(h('div', { cls: ['wwh-day', d.inMonth ? '' : 'is-out', d.isToday ? 'is-today' : ''], style: { gridColumn: col, gridRow: '1' } }, h('span', { cls: 'wwh-day-num', text: String(d.day) })));
+        if (!d.marks.length) return;
+        const cell = h('div', { cls: 'wwh-day-marks', style: { gridColumn: col, gridRow: marksRow } });
+        for (const mk of d.marks.slice(0, 3)) {
           cell.appendChild(
             h('div', {
-              cls: ['wwh-day-mark', mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', mk.inferred ? 'is-inferred' : '', mk.status === 'done' ? 'is-done' : ''],
-              text: `${mk.continues ? '↳ ' : ''}${mk.text}`,
+              cls: ['wwh-day-mark', mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', d.isToday ? 'is-today' : '', mk.inferred ? 'is-inferred' : ''],
+              text: mk.text,
               title: `${mk.row ? mk.row + '：' : ''}${mk.text}`,
-              on: { click: (e) => this.plugin.itemMenu(e, mk.raw) },
+              on: { click: onClick(mk.raw) },
             }),
           );
         }
-        if (d.marks.length > shown.length) cell.appendChild(h('div', { cls: 'wwh-muted wwh-day-more', text: `還有 ${d.marks.length - shown.length} 件` }));
-        grid.appendChild(cell);
+        if (d.marks.length > 3) cell.appendChild(h('div', { cls: 'wwh-muted wwh-day-more', text: `還有 ${d.marks.length - 3} 件` }));
+        wk.appendChild(cell);
+      });
+      for (const b of week.bars) {
+        wk.appendChild(
+          h('div', {
+            cls: ['wwh-mbar', b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
+            style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
+            title: `${b.row ? b.row + '：' : ''}${b.text}`,
+            text: b.label ? b.text : '',
+            on: { click: onClick(b.raw) },
+          }),
+        );
       }
+      grid.appendChild(wk);
     }
     el.appendChild(grid);
   }
@@ -1973,16 +1923,24 @@ class HomeView extends ItemView {
   // ---- 待辦 ----
   renderTodo(el) {
     const p = this.plugin;
-    el.appendChild(h('h2', { text: '待辦' }));
+    el.appendChild(
+      h(
+        'div',
+        { cls: 'wwh-section-head' },
+        h('h2', { text: '待辦' }),
+        h('span', { cls: 'wwh-text-btn wwh-add-btn', attrs: { role: 'button', tabindex: '0' }, text: '＋新增日程', on: { click: () => p.addAgendaForm() } }),
+      ),
+    );
     if (!p.home) return;
     const ui = p.ui;
     for (const g of todoGroups(p.home)) {
       const collapsed = ui.todoCollapsed[g.key] !== undefined ? ui.todoCollapsed[g.key] : g.defaultCollapsed;
+      // 標題前一個小箭頭，標題本身可點；不畫成按鈕
       const head = h(
-        'button',
+        'div',
         {
           cls: ['wwh-group-head', `is-${g.key}`],
-          attrs: { 'aria-expanded': collapsed ? 'false' : 'true' },
+          attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' },
           on: {
             click: () => {
               ui.todoCollapsed[g.key] = !collapsed;
@@ -1992,7 +1950,7 @@ class HomeView extends ItemView {
         },
         h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
         h('span', { text: g.label }),
-        h('span', { cls: 'wwh-pill', text: String(g.items.length) }),
+        h('span', { cls: 'wwh-group-count', text: String(g.items.length) }),
       );
       const box = h('div', { cls: 'wwh-group' }, head);
       el.appendChild(box);
@@ -2005,6 +1963,7 @@ class HomeView extends ItemView {
     }
   }
 
+  /** 一件待辦：勾選框、標題（點下去開日程.md 那一行）、案子·種類·推測合成一行淡小字、日期（點了改日期時間）。 */
   todoRow(it, groupKey) {
     const row = h('div', { cls: ['wwh-todo', groupKey === 'overdue' || it.late ? 'is-late' : '', it.inferred ? 'is-inferred' : ''] });
     const box = h('input', {
@@ -2019,46 +1978,65 @@ class HomeView extends ItemView {
       },
     });
     const names = asArray(it.entities);
-    const kind = it.kind && ICON_SHAPES[KIND_BY_LABEL[it.kind] || it.kind] ? KIND_BY_LABEL[it.kind] || it.kind : null;
-    const meta = h('div', { cls: 'wwh-todo-meta' }, h('span', { cls: 'wwh-todo-kind' }, kind ? icon(kind, 13) : null, kindLabel(it.kind) || ''));
-    if (names.length) meta.appendChild(h('a', { cls: 'wwh-todo-entity wwh-link', text: names[0], on: { click: () => this.plugin.openEntity(names[0]) } }));
-    if (it.inferred) {
-      meta.appendChild(h('span', { cls: 'wwh-tag-inferred', text: '推測' }));
-      meta.appendChild(h('button', { cls: 'wwh-small-btn wwh-soft-btn', text: '推測的，記成確認', on: { click: () => this.plugin.runAction(actions.confirmInferred(it)) } }));
+    const bits = [];
+    if (names.length) {
+      bits.push(
+        h('span', {
+          cls: 'wwh-todo-entity wwh-link',
+          title: `開「${names[0]}」的綜合卡`,
+          text: names[0],
+          on: {
+            click: (e) => {
+              if (e && e.stopPropagation) e.stopPropagation();
+              this.plugin.openSynthesis(names[0]);
+            },
+          },
+        }),
+      );
     }
+    if (kindLabel(it.kind)) bits.push(h('span', { text: kindLabel(it.kind) }));
+    if (it.inferred) bits.push(h('span', { cls: 'wwh-tag-inferred', text: '推測' }));
+    const meta = h('div', { cls: 'wwh-todo-meta' });
+    bits.forEach((b, i) => {
+      if (i) meta.appendChild(h('span', { cls: 'wwh-dot-sep', text: '·' }));
+      meta.appendChild(b);
+    });
     row.appendChild(box);
-    row.appendChild(h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', text: it.text || '' }), meta));
-    row.appendChild(h('button', { cls: 'wwh-todo-when', title: '改日期、時間', text: formatWhen(it) || '（沒日期）', on: { click: () => this.plugin.editDateForm(it) } }));
-    row.appendChild(h('button', { cls: 'wwh-sq-btn', title: '更多', on: { click: (e) => this.plugin.itemMenu(e, it) } }, icon('dots', 14, 1.7)));
+    row.appendChild(
+      h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開日程.md 這一行', text: it.text || '', on: { click: () => this.plugin.openAgendaLine(it) } }), meta),
+    );
+    row.appendChild(
+      h('span', { cls: 'wwh-todo-when', attrs: { role: 'button', tabindex: '0' }, title: '改日期、時間', text: formatWhen(it) || '（沒日期）', on: { click: () => this.plugin.editDateForm(it) } }),
+    );
     return row;
   }
 
   // ---- 要你確認的、其他要處理的 ----
   renderRight(el) {
     const p = this.plugin;
-    const sure = h('section', { cls: 'wwh-card wwh-card-confirm' }, h('h2', { text: '要你確認的' }));
+    const sure = h('section', { cls: 'wwh-block wwh-block-confirm' }, h('h2', { text: '要你確認的' }));
     el.appendChild(sure);
     if (!p.home) return;
     if (!p.home.confirm.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     for (const c of p.home.confirm) {
       const card = h('div', { cls: 'wwh-confirm' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
-      const btns = h('div', { cls: 'wwh-confirm-buttons' });
+      const answers = h('div', { cls: 'wwh-confirm-buttons' });
       asArray(c.results)
         .filter(isObject)
-        .forEach((r, i) => {
-          btns.appendChild(h('button', { cls: ['wwh-small-btn', i === 0 ? 'is-primary' : ''], text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
+        .forEach((r) => {
+          answers.appendChild(h('span', { cls: 'wwh-answer', attrs: { role: 'button', tabindex: '0' }, text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
         });
-      card.appendChild(btns);
+      card.appendChild(answers);
       sure.appendChild(card);
     }
     const open = p.ui.othersOpen;
-    const others = h('section', { cls: 'wwh-card wwh-card-others' });
+    const others = h('section', { cls: 'wwh-block wwh-block-others' });
     others.appendChild(
       h(
-        'button',
+        'div',
         {
           cls: 'wwh-group-head is-others',
-          attrs: { 'aria-expanded': open ? 'true' : 'false' },
+          attrs: { role: 'button', tabindex: '0', 'aria-expanded': open ? 'true' : 'false' },
           on: {
             click: () => {
               p.ui.othersOpen = !open;
@@ -2068,22 +2046,13 @@ class HomeView extends ItemView {
         },
         h('span', { cls: ['wwh-chev', open ? 'is-open' : ''] }, icon('chevron', 14, 2)),
         h('span', { text: '其他要處理的' }),
-        h('span', { cls: 'wwh-pill', text: String(p.home.others.length) }),
+        h('span', { cls: 'wwh-group-count', text: String(p.home.others.length) }),
       ),
     );
     el.appendChild(others);
     if (!open) return;
     if (!p.home.others.length) others.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
-    for (const o of p.home.others) {
-      others.appendChild(
-        h(
-          'div',
-          { cls: 'wwh-other' },
-          h('span', { cls: 'wwh-other-text', text: o.text || '' }),
-          o.dismiss ? h('button', { cls: 'wwh-small-btn', text: '不用管', on: { click: () => p.runAction(actions.dismiss(o.id)) } }) : null,
-        ),
-      );
-    }
+    for (const o of p.home.others) others.appendChild(h('div', { cls: 'wwh-other' }, h('span', { cls: 'wwh-other-text', text: o.text || '' })));
   }
 
   // ---- 實體總覽（右側抽屜）----
@@ -2125,37 +2094,16 @@ class HomeView extends ItemView {
         { cls: 'wwh-drawer-title' },
         h('h3', { text: e.name }),
         h('span', { cls: 'wwh-muted', text: [e.type, prog && prog !== '進行中' ? prog : ''].filter(Boolean).join('，') }),
-        h('button', { cls: 'wwh-icon-btn', text: '⋯', title: '這件事可以做的', on: { click: (ev) => p.entityMenu(ev, e.name, e.progress) } }),
       ),
     );
-    // 別名
-    const aliasBox = h('div', { cls: 'wwh-drawer-aliases' }, h('span', { cls: 'wwh-muted', text: '也叫：' }));
-    for (const a of asArray(e.aliases)) {
-      aliasBox.appendChild(
-        h(
-          'span',
-          { cls: 'wwh-alias' },
-          a,
-          h('button', { cls: 'wwh-icon-btn', text: '✕', title: '拿掉這個別名', on: { click: () => p.runAction(actions.alias(e.name, a, 'remove')) } }),
-        ),
-      );
-    }
-    aliasBox.appendChild(h('button', { cls: 'wwh-small-btn', text: '＋別名', on: { click: () => p.aliasForm(e.name) } }));
-    el.appendChild(aliasBox);
+    const aliases = asArray(e.aliases);
+    if (aliases.length) el.appendChild(h('div', { cls: 'wwh-drawer-aliases' }, h('span', { cls: 'wwh-muted', text: '也叫：' }), aliases.join('、')));
     // 標籤
     const tags = asArray(got.tags).filter(isObject);
     if (tags.length) {
       const box = h('div', { cls: 'wwh-drawer-tags' });
       for (const t of tags) {
-        box.appendChild(
-          h(
-            'div',
-            { cls: 'wwh-drawer-line' },
-            h('span', { cls: 'wwh-muted', text: `${t.field}：` }),
-            asArray(t.words).join('、') || '（沒有）',
-            h('button', { cls: 'wwh-icon-btn', text: '✎', title: '改標籤', on: { click: () => p.tagForm(e.name, t.field, asArray(t.words)) } }),
-          ),
-        );
+        box.appendChild(h('div', { cls: 'wwh-drawer-line' }, h('span', { cls: 'wwh-muted', text: `${t.field}：` }), asArray(t.words).join('、') || '（沒有）'));
       }
       el.appendChild(box);
     }
@@ -2325,8 +2273,6 @@ class WikiWithWillyPlugin extends Plugin {
     return {
       kb: (args) => this.kb(args),
       toast: (t, o) => this.toast(t, o),
-      confirm: async (o) => !!(await openForm(this.app, Object.assign({ okText: '好，做' }, o))),
-      info: (o) => openForm(this.app, Object.assign({ hideCancel: true, okText: '知道了' }, o)),
       refresh: () => this.scheduleRefresh(),
       log: (m) => console.error('[wiki-with-willy]', m),
     };
@@ -2537,42 +2483,33 @@ class WikiWithWillyPlugin extends Plugin {
     this.renderAll();
   }
 
-  // ---- 選單與表單 ----
-  showMenu(ev, entries) {
-    const menu = new Menu();
-    for (const e of entries) menu.addItem((it) => it.setTitle(e.title).onClick(e.run));
-    if (ev && ev.clientX !== undefined) menu.showAtMouseEvent(ev);
-    else menu.showAtPosition({ x: 0, y: 0 });
+  // ---- 點下去：日程開日程.md 那一行、案子開綜合卡（D-266）----
+  async openAgendaLine(it) {
+    const rel = MANAGED_PAGES[0];
+    let line = 0;
+    try {
+      line = findAgendaLine(await this.app.vault.adapter.read(rel), it);
+    } catch (e) {
+      console.error('[wiki-with-willy] 讀不到日程.md', e);
+    }
+    await this.app.workspace.openLinkText(rel.replace(/\.md$/, ''), '', false);
+    const view = this.app.workspace.getActiveViewOfType ? this.app.workspace.getActiveViewOfType(MarkdownView) : null;
+    if (view && view.editor) {
+      const pos = { line, ch: 0 };
+      view.editor.setCursor(pos);
+      if (view.editor.scrollIntoView) view.editor.scrollIntoView({ from: pos, to: pos }, true);
+    }
   }
 
-  /** 一筆日程（時間軸的 mark、待辦的項目）能做的事。 */
-  itemMenu(ev, it) {
-    const entries = [];
-    if (it.status === 'done' || it.status === 'cancelled') {
-      entries.push({ title: '重新打開', run: () => this.runAction({ id: 'reopen', args: ['agenda', 'reopen', it.id], undo: () => ({ args: ['agenda', it.status === 'done' ? 'done' : 'cancel', it.id] }) }) });
-    } else {
-      entries.push({ title: '打勾，完成了', run: () => this.runAction(actions.done(it)) });
-      entries.push({ title: '改日期、時間', run: () => this.editDateForm(it) });
-      if (it.inferred) entries.push({ title: '推測的，記成確認', run: () => this.runAction(actions.confirmInferred(it)) });
-      entries.push({ title: '取消這件', run: () => this.runAction(actions.cancel(it)) });
+  /** 點案子名稱開它的綜合卡；還沒有綜合卡就開旁邊的小預覽。 */
+  async openSynthesis(name) {
+    const res = await this.kb(['lookup', name, '--json']);
+    const got = classify(res).kind === 'ok' ? parseJson(res.stdout) : null;
+    if (got && got.synthesis) {
+      this.openPathInVault(got.synthesis);
+      return;
     }
-    const names = asArray(it.entities);
-    if (names.length) entries.push({ title: `看「${names[0]}」`, run: () => this.openEntity(names[0]) });
-    this.showMenu(ev, entries);
-  }
-
-  entityMenu(ev, name, progress) {
-    const entries = [{ title: '看總覽', run: () => this.openEntity(name) }];
-    const cur = progressWord(progress);
-    if (cur) {
-      if (cur !== '結案') entries.push({ title: '記成結案', run: () => this.runAction(actions.progress(name, 'closed', progress)) });
-      if (cur !== '擱置') entries.push({ title: '記成擱置', run: () => this.runAction(actions.progress(name, 'paused', progress)) });
-      if (cur !== '進行中') entries.push({ title: '改回進行中', run: () => this.runAction(actions.progress(name, 'active', progress)) });
-    }
-    entries.push({ title: '改名', run: () => this.renameForm(name) });
-    entries.push({ title: '合併到另一個……', run: () => this.mergeForm(name) });
-    entries.push({ title: '加別名', run: () => this.aliasForm(name) });
-    this.showMenu(ev, entries);
+    this.openEntity(name);
   }
 
   entityNames() {
@@ -2643,53 +2580,6 @@ class WikiWithWillyPlugin extends Plugin {
       fillValue = v.value;
     }
     return this.runAction(actions.result(result, fillValue));
-  }
-
-  async renameForm(name) {
-    const v = await openForm(this.app, {
-      title: `把「${name}」改名`,
-      okText: '下一步',
-      fields: [{ key: 'name', label: '新名字', type: 'text', value: name, required: true }],
-    });
-    if (!v || v.name === name) return null;
-    const r = await this.runAction(actions.rename(name, v.name));
-    if (r && r.ok && this.ui.drawer.open) {
-      this.ui.drawer.stack[this.ui.drawer.stack.length - 1] = v.name;
-    }
-    return r;
-  }
-
-  async mergeForm(name) {
-    const v = await openForm(this.app, {
-      title: `把「${name}」併進哪一個？`,
-      okText: '下一步',
-      fields: [{ key: 'into', label: '併進（目標的名字）', type: 'text', value: '', required: true, list: this.entityNames() }],
-    });
-    if (!v || v.into === name) return null;
-    const r = await this.runAction(actions.merge(name, v.into));
-    if (r && r.ok && this.ui.drawer.open) this.ui.drawer.stack[this.ui.drawer.stack.length - 1] = v.into;
-    return r;
-  }
-
-  async aliasForm(name) {
-    const v = await openForm(this.app, {
-      title: `給「${name}」加別名`,
-      okText: '加',
-      fields: [{ key: 'word', label: '別名', type: 'text', value: '', required: true }],
-    });
-    if (!v) return null;
-    return this.runAction(actions.alias(name, v.word, 'add'));
-  }
-
-  async tagForm(name, field, words) {
-    const v = await openForm(this.app, {
-      title: `改「${name}」的「${field}」`,
-      okText: '改',
-      fields: [{ key: 'words', label: '多個詞用逗號分開；空著是沒有', type: 'text', value: words.join('、') }],
-    });
-    if (!v) return null;
-    const next = v.words.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
-    return this.runAction(actions.tag(name, field, next, words));
   }
 
   // ---- 程式產生的頁 ----
@@ -2907,7 +2797,6 @@ module.exports.lib = {
   buildKbArgs,
   createKbRunner,
   classify,
-  interpretCheck,
   progressWord,
   actions,
   performAction,
@@ -2926,6 +2815,9 @@ module.exports.lib = {
   hasCarriedSection,
   splitCardRefs,
   rowDefaultCollapsed,
+  isDueToday,
+  openMarksOnly,
+  findAgendaLine,
   rowIsCollapsed,
   markWhen,
   fileExt,

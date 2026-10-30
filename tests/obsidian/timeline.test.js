@@ -179,19 +179,22 @@ test('時間軸：不認得的 shape、kind、壞日期不畫那筆、不報錯'
   assert.doesNotThrow(() => lib.layoutTimeline({ from: 'x', to: 'y', rows: [{ marks: [{ shape: 'bar' }] }] }));
 });
 
-test('月曆：bar 每天都列，點只在那天，星期日起算', () => {
+test('月曆：點只在那天，期間是一週一條 bar，星期日起算', () => {
   const home = sample();
   const m = lib.layoutMonth(home.timeline, { today: home.today });
   assert.strictEqual(m.year, 2026);
   assert.strictEqual(m.month, 9); // 10 月
-  assert.ok(m.weeks.every((w) => w.length === 7));
-  const day = (iso) => m.weeks.flat().find((d) => d.date === iso);
+  assert.ok(m.weeks.every((w) => w.days.length === 7));
+  const days = m.weeks.flatMap((w) => w.days);
+  const day = (iso) => days.find((d) => d.date === iso);
   assert.ok(day('2026-10-30').isToday);
-  assert.strictEqual(day('2026-10-25').marks.some((x) => x.text === '施工'), true);
-  assert.strictEqual(day('2026-10-24').marks.some((x) => x.text === '施工'), false);
   assert.strictEqual(day('2026-10-28').marks.filter((x) => x.text === '回覆報價').length, 1);
   assert.strictEqual(day('2026-10-29').marks.some((x) => x.text === '回覆報價'), false);
-  assert.strictEqual(new Date(m.weeks[0][0].date + 'T00:00:00Z').getUTCDay(), 0);
+  assert.ok(days.every((d) => d.marks.every((x) => x.text !== '施工')), '期間不進格子，畫成 bar');
+  const week = m.weeks.find((w) => w.days.some((d) => d.date === '2026-10-25'));
+  const bar = week.bars.find((b) => b.text === '施工');
+  assert.deepStrictEqual([bar.col, bar.span, bar.label, bar.continuesLeft, bar.continuesRight], [0, 7, true, false, true], '10/25 週日起、橫跨整週');
+  assert.strictEqual(new Date(m.weeks[0].days[0].date + 'T00:00:00Z').getUTCDay(), 0);
   const next = lib.shiftMonth(2026, 11, 1);
   assert.deepStrictEqual(next, { year: 2027, month: 0 });
 });
@@ -386,4 +389,154 @@ test('時間軸：子項縮排、連線與基準線在展開的那一塊裡畫�
   assert.strictEqual(byClass(row, 'wwh-links').length, 1);
   assert.strictEqual(byClass(row, 'wwh-link-path').length, 2, '找不到一端的那條不畫');
   assert.strictEqual(byClass(row, 'wwh-baseline').length, 1);
+});
+
+// ---- 裁定 30（D-266）：首頁只放看與找，動作只留四個 ----
+
+test('版面（裁定 30）：數字 → 搜尋 → 待辦｜要你確認的 → 手上的事', () => {
+  const { view } = viewOf();
+  const kids = Array.from(view.root.children);
+  const order = [view.topEl, view.searchEl, view.colsEl, view.timelineEl].map((e) => kids.indexOf(e));
+  assert.ok(order.every((n) => n >= 0) && order.every((n, i) => i === 0 || n > order[i - 1]), order.join());
+  const counts = byClass(view.topEl, 'wwh-count').map((c) => c.textContent);
+  assert.deepStrictEqual(counts, ['1已經過了', '1今天', '1要你確認'], '大數字只有三個');
+  assert.match(byClass(view.topEl, 'wwh-counts-minor')[0].textContent, /這週 2.*其他要處理 1/, '這週、其他要處理是淡的小字');
+});
+
+test('份量（裁定 30）：沒有按鈕的框；收合是標題前的小箭頭，標題本身可點，不是 button', () => {
+  const { view } = viewOf();
+  assert.strictEqual(byClass(view.root, 'wwh-info-btn').length, 0, 'ⓘ 拿掉');
+  assert.strictEqual(byClass(view.root, 'wwh-sq-btn').length, 0, '「⋯」拿掉');
+  assert.strictEqual(byClass(view.root, 'wwh-card').length, 0, '卡片外框拿掉');
+  const heads = byClass(view.colsEl, 'wwh-group-head').concat(byClass(view.root, 'wwh-fold'));
+  assert.ok(heads.length >= 4);
+  for (const hd of heads) {
+    assert.notStrictEqual(hd.tagName.toLowerCase(), 'button');
+    assert.strictEqual(byClass(hd, 'wwh-chev').length, 1, '標題前有小箭頭');
+  }
+  const toggles = byClass(view.timelineEl, 'wwh-text-btn').concat(byClass(view.timelineEl, 'wwh-seg'));
+  assert.ok(toggles.every((t) => t.tagName.toLowerCase() !== 'button'), '「全部展開」與時間軸／月曆都不是按鈕');
+});
+
+test('待辦（裁定 30）：標題、案子·種類·推測一行淡小字、日期不加框；沒有「⋯」與「記成確認」', () => {
+  const { view } = viewOf();
+  view.plugin.ui.todoCollapsed.week = false;
+  view.render();
+  const rows = byClass(view.leftEl, 'wwh-todo');
+  assert.strictEqual(rows.length, 3);
+  const inferred = rows[2]; // 看工地：推測的、沒有案子
+  assert.strictEqual(byClass(inferred, 'wwh-todo-text')[0].textContent, '看工地');
+  assert.strictEqual(byClass(inferred, 'wwh-todo-meta')[0].textContent, '會議·推測');
+  assert.strictEqual(byTag(inferred, 'button').length, 0, '沒有任何按鈕');
+  const first = rows[0];
+  assert.strictEqual(byClass(first, 'wwh-todo-meta')[0].textContent, '信義王·承諾');
+  assert.strictEqual(byClass(first, 'wwh-todo-when')[0].textContent, '10/28（週三）');
+  assert.strictEqual(byTag(first, 'button').length, 0);
+});
+
+test('待辦（裁定 30）：「＋新增日程」在待辦標題旁；點日期改日期時間；點標題開日程.md；點案子開綜合卡', () => {
+  const calls = [];
+  const { view } = viewOf(null, {
+    addAgendaForm: () => calls.push('add'),
+    editDateForm: (it) => calls.push('edit:' + it.id),
+    openAgendaLine: (it) => calls.push('line:' + it.id),
+    openSynthesis: (n) => calls.push('card:' + n),
+  });
+  const add = byClass(view.leftEl, 'wwh-add-btn')[0];
+  assert.strictEqual(add.textContent, '＋新增日程');
+  add.fire('click');
+  const row = byClass(view.leftEl, 'wwh-todo')[0];
+  byClass(row, 'wwh-todo-when')[0].fire('click');
+  byClass(row, 'wwh-todo-text')[0].fire('click');
+  byClass(row, 'wwh-todo-entity')[0].fire('click', { stopPropagation() {} });
+  assert.deepStrictEqual(calls, ['add', 'edit:a-late', 'line:a-late', 'card:信義王']);
+});
+
+test('要你確認的（裁定 30）：答案是淡的文字選項，不是按鈕；點了照 argv 做', () => {
+  const chosen = [];
+  const { view } = viewOf(null, { chooseResult: (c, r) => chosen.push(r.label) });
+  const answers = byClass(view.rightEl, 'wwh-answer');
+  assert.deepStrictEqual(answers.map((a) => a.textContent), ['是，合併', '跟 Claude 說']);
+  assert.ok(answers.every((a) => a.tagName.toLowerCase() !== 'button'));
+  answers[0].fire('click');
+  assert.deepStrictEqual(chosen, ['是，合併']);
+});
+
+test('時間軸（裁定 30）：做完的不畫；只有過期、今天的記號上色', () => {
+  const raw = sample();
+  raw.timeline.rows[0].marks.push(mark({ id: 'a-done', shape: 'point', kind: 'deadline', start: null, end: '2026-11-01', text: '已做完的事', status: 'done', children: [] }));
+  raw.timeline.rows[0].marks.push(mark({ id: 'a-due', shape: 'point', kind: 'deadline', start: null, end: '2026-10-30', text: '今天到期的', children: [] }));
+  const { view } = viewOf(raw);
+  view.setAllRows(false);
+  const names = byClass(view.timelineEl, 'wwh-mark-text').map((e) => e.textContent);
+  assert.ok(!names.includes('已做完的事'), '做完的不畫');
+  assert.ok(names.includes('今天到期的'));
+  const line = (t) => byClass(view.timelineEl, 'wwh-mark-line').find((l) => byClass(l, 'wwh-mark-text')[0].textContent === t);
+  assert.ok(line('今天到期的').classList.contains('is-today'));
+  assert.ok(line('回覆報價').classList.contains('is-late'));
+  assert.ok(!line('驗收會議').classList.contains('is-late') && !line('驗收會議').classList.contains('is-today'), '其他的不上色');
+  const kept = lib.openMarksOnly(raw.timeline);
+  assert.ok(kept.rows.every((r) => r.marks.every((m) => m.status === 'open')));
+  assert.strictEqual(lib.openMarksOnly({ rows: [{ key: 'x', marks: [mark({ status: 'done' })] }] }).rows.length, 0, '整塊都做完了就不畫那一塊');
+});
+
+test('時間軸（裁定 30）：名稱開綜合卡、標題列收合；點一件開日程.md 那一行', () => {
+  const calls = [];
+  const { view, plugin } = viewOf(null, { openSynthesis: (n) => calls.push('card:' + n), openAgendaLine: (it) => calls.push('line:' + it.id) });
+  const row = byClass(view.timelineEl, 'wwh-row')[0];
+  byClass(row, 'wwh-row-name')[0].fire('click', { stopPropagation() {} });
+  assert.deepStrictEqual(calls, ['card:信義王']);
+  assert.strictEqual(plugin.ui.rowCollapsed['e-1a2b3c4d'], undefined, '點名稱不收合');
+  byClass(row, 'wwh-mark-label')[0].fire('click');
+  assert.match(calls[1], /^line:a-/, '開的是日程那一件');
+});
+
+test('月曆（裁定 30）：期間畫成橫跨那一週的一條 bar，名字只在開頭寫，跨週接著畫；推測的淡色；做完的不畫', () => {
+  const raw = sample();
+  raw.timeline.rows = [
+    {
+      key: 'e-1', label: '信義王', type: '案子', progress: 'active', pauses: [], links: [],
+      marks: [
+        mark({ id: 'p1', start: '2026-10-05', end: '2026-10-16', text: '水電', children: [] }),
+        mark({ id: 'p2', start: '2026-10-07', end: '2026-10-09', text: '放樣', inferred: true, children: [] }),
+        mark({ id: 'p3', start: '2026-10-12', end: '2026-10-13', text: '做完的期間', status: 'done', children: [] }),
+        mark({ id: 'p4', shape: 'bar', start: '2026-10-21', end: '2026-10-21', text: '單天', children: [] }),
+        mark({ id: 'q1', shape: 'point', kind: 'deadline', start: null, end: '2026-10-20', text: '交圖', children: [] }),
+      ],
+    },
+  ];
+  const m = lib.layoutMonth(raw.timeline, { today: raw.today });
+  const wk = (iso) => m.weeks.find((w) => w.days.some((d) => d.date === iso));
+  const w1 = wk('2026-10-05'); // 10/4（日）起的一週
+  const w2 = wk('2026-10-12');
+  const pipe1 = w1.bars.find((b) => b.text === '水電');
+  const pipe2 = w2.bars.find((b) => b.text === '水電');
+  assert.deepStrictEqual([pipe1.col, pipe1.span, pipe1.label, pipe1.continuesRight], [1, 6, true, true]);
+  assert.deepStrictEqual([pipe2.col, pipe2.span, pipe2.label, pipe2.continuesLeft], [0, 6, false, true], '下一週接著畫、不重寫名字');
+  assert.deepStrictEqual(w1.bars.map((b) => b.lane), [0, 1], '同一週重疊的 bar 疊在不同層');
+  assert.ok(!m.weeks.some((w) => w.bars.some((b) => b.text === '做完的期間')), '做完的不畫');
+  const cell = (iso) => m.weeks.flatMap((w) => w.days).find((d) => d.date === iso);
+  assert.deepStrictEqual(cell('2026-10-21').marks.map((x) => x.text), ['單天'], '單天的才佔格子');
+  assert.deepStrictEqual(cell('2026-10-20').marks.map((x) => x.text), ['交圖']);
+
+  const { view } = viewOf(raw);
+  view.setMode('month');
+  const bars = byClass(view.timelineEl, 'wwh-mbar');
+  assert.strictEqual(bars.length, 3, '水電兩週各一條、放樣一條');
+  assert.deepStrictEqual(bars.map((b) => b.textContent), ['水電', '放樣', ''], '第二週那條不寫名字');
+  assert.ok(bars[1].classList.contains('is-inferred'), '推測的用淡色，不用虛線框');
+  assert.strictEqual(bars[0].styleMap['grid-column'], '2 / span 6');
+  assert.ok(bars[2].classList.contains('clip-left'));
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-day-mark').map((e) => e.textContent).sort().join(), '交圖,單天');
+});
+
+test('月曆（裁定 30）：點 bar 或單天的記號，開日程.md 那一行', () => {
+  const calls = [];
+  const raw = sample();
+  raw.timeline.rows = [{ key: 'e-1', label: '信義王', type: '案子', progress: 'active', pauses: [], links: [], marks: [mark({ id: 'p1', start: '2026-10-05', end: '2026-10-09', text: '水電', children: [] }), mark({ id: 'q1', shape: 'point', kind: 'deadline', start: null, end: '2026-10-20', text: '交圖', children: [] })] }];
+  const { view } = viewOf(raw, { openAgendaLine: (it) => calls.push(it.id) });
+  view.setMode('month');
+  byClass(view.timelineEl, 'wwh-mbar')[0].fire('click');
+  byClass(view.timelineEl, 'wwh-day-mark')[0].fire('click');
+  assert.deepStrictEqual(calls, ['p1', 'q1']);
 });
