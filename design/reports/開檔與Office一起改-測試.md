@@ -115,3 +115,45 @@ code-review 另外 2 條沒列：「`-ArgumentList` 含空白的元素加雙引�
 
 - 這輪 code-review 子代理沒有結果，只有我在主線程讀 diff 加探測；要另外的審查，得再開一次。
 - 確認情境、全套，同第 1 輪。
+
+## 第 3 輪
+
+日期：2026-10-31
+測的版本：實作 `9148e8b`（裁定 29）、`6c1c711`（裁定 31），併入 main `8e5472b` 後的 `17fe4dc`。
+做法：同前兩輪的假知識庫，每條丟 `kb guard decide --json`（cwd＝`<V>`），用 `git archive main`（`8e5472b`）解出的 main 跑同一條對照。這輪只驗裁定 29、31，再針對比對豁免做繞過探測。另外的審查沒跑：實作那輪已經用 API `claude -p` 審過，這輪的 diff 只有 `_compare_only` 一段，由我在主線程自己讀過並探測，沒有花費。
+
+### 結論
+
+**裁定 29 驗收 (a)～(g) 7 條、裁定 31 放行 6 條與照擋 9 條全過；回歸照舊。** 新發現 2 條：#10（低，這題新放寬：PowerShell 的 `-eq` 會把比對的字面值回傳出來，main 會擋的寫法這輪會 pass，但能做到的事 main 用變數本來就做得到）、#11（**高，main 本來就有、spec 外**：`clc`、`epcsv`、`iwr -OutFile`、`([type]'System.IO.File')::Delete` 這幾種寫法守門看不出是寫入，總目錄、客戶原檔可以直接清空）。#11 不擋這題進確認，但建議另起一題。
+
+相關測試：spec 列的 9 檔，加上 `grep -l "cmdparse\|kb.guard" tests/*.py` 多找到的 `test_lib_selftest`、`test_manage2_round4`，共 11 檔（這次的 grep 只多找到 2 檔，前兩輪寫 6 檔，用的 grep 式子應該不同，沒追）。序列跑：**361 passed、3191 subtests passed、exit 0**（148 秒）。
+
+### 裁定逐條
+
+前綴 `W`＝`$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\AI 產出\x.docx') {`；Excel、PowerPoint 換成對應的 Application 與 `Workbooks`／`Presentations`。
+
+| 項 | 判 | 指令（摘要） | worktree |
+|---|---|---|---|
+| 29(a) | 過 | `W $x.Content.InsertAfter('下週三前回覆'); $x.Save() } }` | pass |
+| 29(b) | 過 | `Where-Object { $_.FullName -eq '<V>\AI 產出\x.docx' }`＋InsertAfter＋Save | pass |
+| 29(c) | 過 | Excel `Where-Object { $_.FullName -eq … t.xlsx }` 改 `Range('A1').Value2`；PowerPoint `-ilike … s.pptx` 改 TextRange | pass／pass |
+| 29(d) | 過 | Bash `python -c "…GetActiveObject('Word.Application')… x.FullName == r'<V>/AI 產出/x.docx' … InsertAfter('x'); d.Save()"` | pass |
+| 29(e) | 過 | (a) 再加 `$x.SaveAs('<V>\AI 產出\y.docx')` | deny Z3 output_shell |
+| 29(f) | 過 | (a) 前加 `$w.Documents.Open('<V>\AI 產出\x.docx')` | deny Z3 output_shell |
+| 29(g) | 過 | 沒附著的 `if ('<V>\AI 產出\x.docx' -eq $a) { Remove-Item … }` | deny Z3 output_shell |
+| 31 放行 | 過 | `InsertAfter('請 copy 這段')`、`InsertAfter('zip code')`、`$x.Tables.Add(…)`、`$x.Comments.Add(…)`、Excel `$b.Worksheets.Add()`、PowerPoint `$q.Slides.Add(2, 1)` | 6 條都 pass |
+| 31 照擋 | 過 | `$w.Documents.Add()`、`$e.Workbooks.Add()`、`$p.Presentations.Add()`；引號外的 `copy a b`、`iex 'x'`、`& 'x.ps1'`、`. 'x.ps1'`、`Invoke-Command { 1 }`；句尾 `; Remove-Item x.tmp` | 9 條都 deny Z3 output_shell |
+| 回歸 | 過 | 驗收 1、6 第一條 pass；7 第一條 deny Z8 protected；9 第一條 deny Z3 run_file；10 第一條 deny Z10 excluded；12 deny Z3；13 deny Z3 output_shell；14 用 Name 比對 pass。語料 1064 條，前 1053 條跟 `9148e8b^` 逐筆相同，這兩個 commit 只新增 11 條 | — |
+
+### 發現
+
+| # | 嚴重 | 內容 | 證據（worktree／main） |
+|---|---|---|---|
+| 10 | 低 | **這題新放寬，但沒有多出新能力。** 裁定 29 的前提「路徑只拿來比對」在 PowerShell 不成立：左邊是陣列時，`@($w.Documents).FullName -eq '<路徑>'` 回傳的是比對到的元素（就是那個路徑字串），不是 True／False。拿它當寫入的參數，字面值仍算「只出現在比對」，所以 `_touches_output` 跳過了。用的寫入方式要避開 `_COM_WRITE`、引號外的 `WRITE_WORDS` 與 `WRITE_CODE`（例如 #11 那幾種，或 Excel `Close($true, <新檔名>)`、PowerPoint `PublishSlides`）。**同樣的事不寫字面值也做得到**：`$t = $w.ActiveDocument.FullName; clc $t`、用 Name 比對再 `clc $x.FullName`、`$env:X` 在 main 都是 pass（D-515 附著不表態，加上守門展不開變數）。所以實際風險跟 main 一樣，只是 main 多擋了「字面值寫出來」那一種。修法（給設計參考）：比對的左邊限定是單一物件的 `$var.FullName`／`$_.FullName`（不收 `@(…)`、`(…)` 後面接 `.FullName`），或者比對式要放在 `if (…)`／`Where-Object {…}` 的條件裡才豁免 | `W` 換成 `$t = @($w.Documents).FullName -eq '<V>\AI 產出\x.docx';` 再接：`([type]'System.IO.File')::Delete($t)`、FSO `.DeleteFile($t)`、`clc $t`、`$w \| epcsv $t`、`epal $t`、`sp $t IsReadOnly $true`、`iwr https://example.com -OutFile $t`、`Add-Type …VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($t)` → pass／main 都是 deny Z3。直接當參數 `clc (@($w.Documents).FullName -eq '<V>\AI 產出\x.docx')`（`-ceq` 也是）→ pass／deny Z3。比對資料夾 `@($e.Workbooks).FullName -eq '<V>\AI 產出'` 再 `Close($true, $d + '\n.xlsx')` → pass／deny。Excel `if ($b.FullName -eq …) { $b.Close($true, $b.Path + '\y.xlsx') }`、PowerPoint `$q.PublishSlides($q.Path)` → pass／deny。對照組：`$t = $w.ActiveDocument.FullName; ([type]'System.IO.File')::Delete($t)`、`…; clc $t`、Name 比對後 `clc $x.FullName`、`$t = $env:X; clc $t`、Excel `$e.ActiveWorkbook.Close($true, $e.ActiveWorkbook.Path + '\y.xlsx')` → worktree 與 main 都是 pass。有擋的：`Start-Transcript`（`start` 在 `_COM_WRITE`）、`([type]'System.IO.File')::Move`、`ExecuteExcel4Macro('FILE.DELETE(…)')` → deny Z3 |
+| 11 | **高** | **main 本來就有、spec 外，跟附著 Office 無關。** 幾種 PowerShell 寫法守門認不出是寫入：別名 `clc`（Clear-Content，全名會擋）、`epcsv`（Export-Csv）、`epal`（Export-Alias）、`sp`（Set-ItemProperty）、`iwr`／`Invoke-WebRequest -OutFile`、`[type]` 拿到的 `System.IO.File` 的 `::Delete`、FSO 的 `DeleteFile`。不在 Z3 的區沒有第 (2) 條「參數碰到就擋」可以兜底，所以**字面路徑直接寫出來就會 pass**：總目錄、系統檔清空，客戶原檔清空、刪除都可以。Z3 有第 (2) 條兜底才擋到。建議跟裁定 32「守門：直譯器與編碼指令」放同一題，或另開一題補別名與 `-OutFile` | `clc '<V>\總目錄.md'`、`clc '<RAW>\客戶案件\a.docx'`、`$null \| epcsv '<V>\總目錄.md'`、`iwr https://example.com -OutFile '<V>\總目錄.md'`、`([type]'System.IO.File')::Delete('<RAW>\客戶案件\a.docx')` → worktree 與 main 都是 pass；`Clear-Content '<V>\總目錄.md'` → deny Z8 protected（全名有收）；附著加 `-eq` 回傳 Z9／Z8／Z6 路徑再 `clc` → 兩邊都 pass |
+
+### 沒測到的
+
+- 確認情境 3、4（人眼、真 Word）照舊交確認 session。
+- python win32com 的 `Documents.Open`、`SaveAs2` 這一類是裁定 32 另起的題目，這輪沒測。
+- 全套沒跑（照只跑相關測試的規則）。
