@@ -193,7 +193,7 @@ test('月曆：點只在那天，期間是一週一條 bar，星期日起算', (
   assert.ok(days.every((d) => d.marks.every((x) => x.text !== '施工')), '期間不進格子，畫成 bar');
   const week = m.weeks.find((w) => w.days.some((d) => d.date === '2026-10-25'));
   const bar = week.bars.find((b) => b.text === '施工');
-  assert.deepStrictEqual([bar.col, bar.span, bar.label, bar.continuesLeft, bar.continuesRight], [0, 7, true, false, true], '10/25 週日起、橫跨整週');
+  assert.deepStrictEqual([bar.col, bar.span, bar.continuesLeft, bar.continuesRight], [0, 7, false, true], '10/25 週日起、橫跨整週');
   assert.strictEqual(new Date(m.weeks[0].days[0].date + 'T00:00:00Z').getUTCDay(), 0);
   const next = lib.shiftMonth(2026, 11, 1);
   assert.deepStrictEqual(next, { year: 2027, month: 0 });
@@ -491,7 +491,7 @@ test('時間軸（裁定 30）：名稱開綜合卡、標題列收合；點一�
   assert.match(calls[1], /^line:a-/, '開的是日程那一件');
 });
 
-test('月曆（裁定 30）：期間畫成橫跨那一週的一條 bar，名字只在開頭寫，跨週接著畫；推測的淡色；做完的不畫', () => {
+test('月曆（裁定 30）：期間畫成橫跨那一週的一條 bar，每一週那段都寫名字，跨週接著畫；推測的淡色；做完的不畫', () => {
   const raw = sample();
   raw.timeline.rows = [
     {
@@ -511,8 +511,8 @@ test('月曆（裁定 30）：期間畫成橫跨那一週的一條 bar，名字�
   const w2 = wk('2026-10-12');
   const pipe1 = w1.bars.find((b) => b.text === '水電');
   const pipe2 = w2.bars.find((b) => b.text === '水電');
-  assert.deepStrictEqual([pipe1.col, pipe1.span, pipe1.label, pipe1.continuesRight], [1, 6, true, true]);
-  assert.deepStrictEqual([pipe2.col, pipe2.span, pipe2.label, pipe2.continuesLeft], [0, 6, false, true], '下一週接著畫、不重寫名字');
+  assert.deepStrictEqual([pipe1.col, pipe1.span, pipe1.continuesRight], [1, 6, true]);
+  assert.deepStrictEqual([pipe2.col, pipe2.span, pipe2.continuesLeft], [0, 6, true], '下一週接著畫');
   assert.deepStrictEqual(w1.bars.map((b) => b.lane), [0, 1], '同一週重疊的 bar 疊在不同層');
   assert.ok(!m.weeks.some((w) => w.bars.some((b) => b.text === '做完的期間')), '做完的不畫');
   const cell = (iso) => m.weeks.flatMap((w) => w.days).find((d) => d.date === iso);
@@ -523,7 +523,7 @@ test('月曆（裁定 30）：期間畫成橫跨那一週的一條 bar，名字�
   view.setMode('month');
   const bars = byClass(view.timelineEl, 'wwh-mbar');
   assert.strictEqual(bars.length, 3, '水電兩週各一條、放樣一條');
-  assert.deepStrictEqual(bars.map((b) => b.textContent), ['水電', '放樣', ''], '第二週那條不寫名字');
+  assert.deepStrictEqual(bars.map((b) => b.textContent), ['水電', '放樣', '水電'], '每一週那段都寫名字（裁定 31）');
   assert.ok(bars[1].classList.contains('is-inferred'), '推測的用淡色，不用虛線框');
   assert.strictEqual(bars[0].styleMap['grid-column'], '2 / span 6');
   assert.ok(bars[2].classList.contains('clip-left'));

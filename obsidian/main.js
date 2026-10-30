@@ -382,7 +382,7 @@ function layoutTimeline(timeline, opts) {
 
 /**
  * 月曆：回 {year, month, weeks:[{days:[{date, day, inMonth, isToday, marks}]×7, bars:[…], lanes}]}。
- * 期間（不只一天的）畫成橫跨那一週的一條 bar（col 0~6 起、span 天）：名字只在開頭那週（或這個月曆第一週）寫，
+ * 期間（不只一天的）畫成橫跨那一週的一條 bar（col 0~6 起、span 天）：每一週那段都寫名字（寫在開頭、太長截斷，裁定 31），
  * 跨週的下一週接著畫；單天的與點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
  */
 function layoutMonth(timeline, opts) {
@@ -439,7 +439,6 @@ function layoutMonth(timeline, opts) {
         return Object.assign(info(f), {
           col,
           span: end - col + 1,
-          label: f.sp.first >= n || weeks.length === 0,
           continuesLeft: f.sp.first < n,
           continuesRight: f.sp.last > n + 6,
         });
@@ -1910,7 +1909,7 @@ class HomeView extends ItemView {
             cls: ['wwh-mbar', b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
             style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
             title: `${b.row ? b.row + '：' : ''}${b.text}`,
-            text: b.label ? b.text : '',
+            text: b.text,
             on: { click: onClick(b.raw) },
           }),
         );
