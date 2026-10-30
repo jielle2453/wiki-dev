@@ -4,6 +4,16 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.31.0 — 2026-10-31
+- **給客戶的一句話**：叫我打開檔案不會再被擋；你開著的 Word、Excel、PowerPoint 要改，我直接改你畫面上那份，不用先關、不另存副本，改錯了在 Office 按復原就好。
+- **改了什麼**：開檔與開著的 Office 一起改不擋（D-514～D-516，issue #24 併 #18）。守門：打開檔案、資料夾、網址的指令（Start-Process、Invoke-Item、start、explorer 等）沒把輸出導向檔案的一律當讀（`_lib/cmdparse.py` 的 `open_stage`），開程式照它裡面跑的指令判，開知識庫或原檔裡的執行檔、巨集照執行判；不再把 `start-process` 當寫入字（#18）。用 PowerShell `GetActiveObject` 附著到開著的 Word、Excel、PowerPoint 改：不擋、不問、不備份，含登記的客戶原檔；拿完整路徑（FullName）跟知識庫路徑比對的照讀判（`guard.py` 的 `_compare_only`），開新檔、另存、匯出、刪除照原本判。`rules/core.md` R-01 拿掉「客戶原檔只讀」、R-04 拿掉「不改客戶原檔、改內容一律另存新檔」；produce skill 拿掉另存副本、請她關 Word 的句子；骨架 `CLAUDE.md` 第 3 行改成教怎麼附著改開著的那份：用 FullName 比對、直接改，文件原本沒有沒存的編輯（Saved 是 True）才替她存，有的話照改、請她自己存；不拿副本、不開修訂、不關她的檔也不關 Office；沒開著的請她先打開。
+- **為什麼**：叫 AI 打開它做好的檔會被守門當成寫入擋下（#18、#24），客戶要 AI 跟她開著的 Office 一起改，原本規則要另存副本、請她先關檔（jacky 10-30：開檔沒導向輸出就是讀；附著改不擋不問不備份，退回交給 Office）。測試三輪（`design/reports/開檔與Office一起改-測試.md`）；確認六輪，情境 1、2、3a、3b、4、4b 都過，3、4 由確認 session 照 jacky 要求代跑、以 COM 讀 Word 畫面判（`design/reports/開檔與Office一起改-確認.md`）。
+- **還沒驗、還沒定的**：Claude 桌面版沒跑；情境 3、4 沒有人親眼看。D-514 jielle2453 以訊息同意、由 jacky 轉述，issue 上還沒留言紀錄。
+- **已知問題**：改原檔沒有備份，退回只能靠 Office 的復原與版本（jacky 接受）；用 python 附著再開檔、另存，以及 EncodedCommand、PowerShell 別名這類寫法守門還看不出來，另起一題；`kb office render` 偶爾留下唯讀暫存檔；同一則回答兩組編號撞號時，客戶回「1」要多問一輪。
+- **commit**：375c805、af40b38、11b72ca、b898e99、9148e8b、6c1c711（分支 spec/開檔與Office一起改）
+- **spec**：design/specs/2026-10-30-開檔與Office一起改.md
+- **關掉的 issue**：#24、#18
+
 ## 0.30.0 — 2026-10-31
 - **給客戶的一句話**：你在 Obsidian 直接改檔案卡或案子的卡，下次開對話我會先照你改的把日程和相關的卡改好，再告訴你改了什麼；跟原檔不一樣的，以你改的為準。
 - **改了什麼**：她手改了卡，系統跟著更新（D-270，B-511 擴大）。新狀態檔 `.system/card_base.json`（schema 1）記每張檔案卡與綜合卡最後一次由程式或 Claude 寫的內文（`_lib/card_base.py`）：Claude 寫卡（PostToolUse Z5、Z1，含被擋回的）、實體改名合併拿掉、型別改名合併、搬卡、刪卡、退回都跟著更新，第一次用到時把現在的內容當基準。新子命令 `kb cards edits [--json] [--done <路徑>…]` 列出她改過的卡與改動的段。開場段有她改過的卡多一行，Claude 照 note skill（`references/hand-edit.md`）先處理再回答：記成她說的（口述、跟原檔不同時加「口述為準」）、日期改日程、相關綜合卡更新、一句話告知；只改錯字不提、看不懂就問。她改了還沒處理、Claude 又寫同一張卡時，她那段留成待處理並當場提醒 Claude。排除「不想讓 AI 看到」的夾清殘留時一起洗 `card_base.json`。`rules/core.md` R-02 補一句。只比內文，檔頭標籤行照原本的 tag_edit。
