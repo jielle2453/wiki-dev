@@ -34,6 +34,7 @@ from pathlib import Path
 
 from kb._lib import config, content_fp, credentials
 from kb._lib import sources as sources_lib
+from kb._lib.areas import FREE_DIR
 from kb._lib.io import FileLock, read_json, write_json_atomic
 from kb._lib.paths import inside, long_path, normalize
 
@@ -44,8 +45,8 @@ EMPTY = {"schema_version": SCHEMA_VERSION, "entries": []}
 
 KNOWLEDGE, INBOX, OUTPUT = "知識庫", "收件匣", "AI 產出"  # 總資料夾自身的三個保留別名（D-042）
 RESERVED_CF = {a.casefold() for a in (KNOWLEDGE, INBOX, OUTPUT)}
-# 知識庫根第一層不當型別夾的保留夾（跟 guard.RESERVED 同一組；隱藏夾另由「. 開頭」跳過）
-VAULT_RESERVED_DIRS = {"ai 產出", "收件匣", "檔案索引", "系統"}
+# 知識庫根第一層不當型別夾的保留夾（跟 guard.RESERVED 同一組；隱藏夾另由「. 開頭」跳過；彈性區不盤點，D-511）
+VAULT_RESERVED_DIRS = {"ai 產出", "收件匣", "檔案索引", "系統", FREE_DIR.casefold()}
 SKIP_NAMES = ("~$*", "*.tmp", "Thumbs.db", "desktop.ini", ".DS_Store")
 HIDDEN_OR_SYSTEM = 0x2 | 0x4
 REPARSE_POINT = 0x400

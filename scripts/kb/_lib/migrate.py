@@ -15,12 +15,15 @@ entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 act
 型別表有沒有 dir 的列算 6、都有算 7。rewrite 照 dir_plan 把夾名就是型別名的夾改成預設名字（01 案子）、寫 dir；沒有夾的 dir 寫預設名字
 （之後照常補建）；她以前改過名、認得出來的（profile.renamed_dirs）dir 記那個夾、不動。設定檔與夾在同一套 _Undo、寫前備進回合，
 做完照 profile_cli._follow 跟上清冊、檔案卡、總目錄與綜合卡快取；md 有手改未套用、背景整理在跑時 Skip。
+彈性區（D-512）：再一列，rel 也是 profile.json：型別表有列的 dir 是 FREE_DIR（她自己把型別夾改名成它）算 6、沒有算 7。
+rewrite 照 dir_plan（叫 FREE_DIR 的夾名不留，改回預設編號名）改夾名、寫 dir，跟補編號那列同一套 _follow；Skip 的條件也一樣。
 apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
 """
 from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cards, entities, inventory, profile
+from kb._lib.areas import FREE_DIR
 from kb._lib import pending as pending_lib  # 這支自己有 pending()
 from kb._lib.io import FileLock, read_json, write_text_atomic
 
@@ -105,6 +108,7 @@ def _rewrite_entities(vault, turn_id):
 DIRS_PENDING = "設定檔有沒套用的改動，先 kb profile apply 再升級"
 DIRS_BUSY = "背景整理還在跑，型別夾先不補編號；等它做完再跑一次 kb upgrade --finish"
 DIRS_NOTE = "型別夾補上編號：{pairs}"
+FREE_NOTE = "型別夾「" + FREE_DIR + "」改成「{to}」：這個名字現在是你自己的區"
 
 
 def _dirs_stored(vault):
@@ -118,7 +122,23 @@ def _dirs_stored(vault):
     return 6 if any(not t.get("dir") for t in data["types"]) else profile.SCHEMA_VERSION
 
 
-def _rewrite_dirs(vault, turn_id):
+def _free_stored(vault):
+    """彈性區那列：型別表有列的 dir 是 FREE_DIR 算 6，沒有（或沒有型別）算 7；沒有設定檔、讀不了回 None。"""
+    try:
+        data = profile.load(vault)
+    except (ValueError, OSError):
+        return None
+    if data is None:
+        return None
+    return 6 if any(profile._is_free(t.get("dir") or "") for t in data["types"]) else profile.SCHEMA_VERSION
+
+
+def _rewrite_free(vault, turn_id):
+    """D-512：dir 是 FREE_DIR 的型別夾改成預設編號名（dir_plan 不留這個名字），其他列照舊。回 notes 給 apply。"""
+    return _rewrite_dirs(vault, turn_id, free=True)
+
+
+def _rewrite_dirs(vault, turn_id, free=False):
     """D-249：沒有 dir 的列補上編號（profile.dir_plan(number_legacy=True)）；她以前改過名的記她的夾名。回 notes 給 apply。"""
     from kb import profile_cli
     from kb._lib import backup
@@ -131,9 +151,9 @@ def _rewrite_dirs(vault, turn_id):
         if profile.md_sha256(vault) != data.get("md_sha256"):
             raise Skip(DIRS_PENDING)
         effective = profile.with_renamed(data["types"], data["types"], [])
-        found = profile.renamed_dirs(vault, effective, data["types"])
+        found = [] if free else profile.renamed_dirs(vault, effective, data["types"])
         plan = profile.dir_plan(vault, profile.with_renamed(data["types"], data["types"], found), data["types"],
-                                number_legacy=True)
+                                number_legacy=not free)
         if plan["refusal"]:
             raise Skip(plan["refusal"])
         renamed = [r for r in found if not r["default"]]
@@ -151,6 +171,8 @@ def _rewrite_dirs(vault, turn_id):
         _changed, touched = entities._guarded(vault, act)
     if touched or plan["moves"] or pairs:
         profile_cli._refresh(vault, touched + profile_cli._moved_names(vault, data, list(plan["moves"]) + pairs), turn_id)
+    if free:
+        return {"notes": [FREE_NOTE.format(to=b) for a, b in sorted(plan["moves"]) if profile._is_free(a)]}
     notes = [DIRS_NOTE.format(pairs="、".join(f"{a} → {b}" for a, b in sorted(plan["moves"])))] if plan["moves"] else []
     if renamed:
         notes.append(profile_cli.RENAMED_DONE.format(pairs=profile.renamed_pairs(renamed)))
@@ -171,6 +193,7 @@ STATE_FILES = (
     Migration(pending_lib.PENDING_POSIX, lambda: pending_lib.SCHEMA_VERSION, _raw_version(pending_lib.PENDING_POSIX),
               _rewrite_pending),
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _dirs_stored, _rewrite_dirs),
+    Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _free_stored, _rewrite_free),
 )
 CARD_HEADER_MIGRATIONS = []
 

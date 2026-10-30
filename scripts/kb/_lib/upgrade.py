@@ -33,6 +33,7 @@ from pathlib import Path
 
 from kb._lib import backup, config, env, migrate, paths, skeleton
 from kb._lib import vault as vault_lib
+from kb._lib.areas import FREE_DIR, FREE_SINCE_AFTER
 from kb._lib.io import FileLock, read_json, write_json_atomic
 
 HISTORY_REL = ".system/upgrade-history.json"
@@ -829,6 +830,24 @@ def _pending_snapshot(vault, hist, plugin):
     return None
 
 
+FREE_LINE = "第一層的「" + FREE_DIR + "」現在是你自己的區：我平常不讀，你問到才讀。"
+
+
+def _free_line(vault, cur):
+    """D-512、spec 裁定 2：從 FREE_SINCE_AFTER（含）以前升上來、第一層本來就有不是型別夾的 FREE_DIR 時講一句；
+    升級前的版本看不懂不講（寧可少說）。"""
+    from kb._lib import profile
+    was = parse_version(cur)
+    if was is None or was > parse_version(FREE_SINCE_AFTER) or not (Path(vault) / FREE_DIR).is_dir():
+        return None
+    try:
+        if profile.type_of_folder(vault, FREE_DIR) is not None:
+            return None  # migrate 沒改成（md 有手改這類）還是型別夾：不是她自己的區
+    except (ValueError, OSError):
+        return None
+    return FREE_LINE
+
+
 def finish(vault, turn_id):
     """kb upgrade --finish。回 {"already": True, "to": X}（一樣版本、第一次記錄）或
     {"already": False, "from","to","kind","snapshot","migrated","migrate_skipped","migrate_notes","cards_migrated",
@@ -865,13 +884,14 @@ def finish(vault, turn_id):
                 by = "auto"
         if k != "downgrade":
             mig = migrate.apply(vault, turn_id)  # 先於 kb init：init 自己也會升設定檔 schema，但不備進回合（驗收 8 要退得回）
+            free_line = _free_line(vault, cur)  # init 之前看：init 會把彈性區補出來
             had = {rel for rel in skeleton.files() if (Path(vault) / rel).exists()}
             _run_init(vault)
             sk = skeleton.reconcile(vault, turn_id, from_version=cur)
             created = sorted({rel for rel in skeleton.files() if rel not in had and (Path(vault) / rel).exists()}
                              | set(sk["created"]))  # 缺的骨架檔多半是 init 補的，reconcile 看到時已經在了
             result.update(migrated=mig["migrated"], migrate_skipped=mig["skipped"], cards_migrated=mig["cards"],
-                          migrate_notes=mig.get("notes") or [],
+                          migrate_notes=(mig.get("notes") or []) + ([free_line] if free_line else []),
                           skeleton_created=created, skeleton_replaced=sk["replaced"], skeleton_ask=sk["ask"])
         result["snapshot"] = snapshot if k != "patch" else None
         hist["current"], hist["pending"] = plugin, None

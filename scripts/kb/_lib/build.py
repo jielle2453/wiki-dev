@@ -24,7 +24,9 @@ adopt（D-193）：--check 只讀舊 vault；--extract 把要讀的文字（hot.
 .system/temp/adopt/（每段不超過 adopt_chunk_chars），舊 vault 一個字都不改。
 report（D-066、D-047）：--facts 給數字與清單；--from 收 AI 在工作區寫好的那份，驗六個標題、遮值、沒內容的段拿掉、數字段由程式接上，
 寫 系統/建置報告.md（備進回合）。
+彈性區（D-512）：done finish 時 FREE_DIR 底下還有檔就擋（FREE_NOT_EMPTY，不替她刪）；report --facts 多 free_files。
 """
+import fnmatch
 import json
 import os
 import re
@@ -37,6 +39,7 @@ from pathlib import Path
 from kb import guard
 from kb._lib import batches, config, credentials, entities, extract, inventory, office, pending, profile, turn
 from kb._lib import sources as sources_lib
+from kb._lib.areas import FREE_DIR
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 from kb._lib.paths import read_manifest
 
@@ -85,6 +88,7 @@ REPORT_PLACE = "建置報告要先寫在工作區（.system/temp/office/ 底下�
 REPORT_UNREADABLE = "讀不到寫好的建置報告：{}"
 ADOPT_PLACE = "切段的暫存位置不對（.system/temp 是連結），沒有寫"
 SAMPLE_RUNNING = "抽樣還在背景做，做完再往下"
+FREE_NOT_EMPTY = "交貨前" + FREE_DIR + "要是空的：還有 {n} 份"  # D-512：程式不替她刪，擋住讓人處理
 TERMINAL = "終端機"  # 沒有守門插的 --session：終端機跑的
 ENV_KEYS = ("python", "kb", "trust", "memory", "sac", "pdf", "office", "disk", "old_wiki")  # 九項
 
@@ -464,8 +468,24 @@ def _check(vault, data, step):
         if n:
             raise Refused(LEFT_TAGS.format(n=n))
     elif step == "finish":
+        n = free_files(vault)
+        if n:
+            raise Refused(FREE_NOT_EMPTY.format(n=n))
         if not data.get("report"):
             raise Refused(NO_REPORT)
+
+
+def free_files(vault):
+    """彈性區底下的檔數（D-512）：遞迴、不含 .gitkeep 與清冊也略過的系統暫存檔（inventory.SKIP_NAMES）、連結不跟也不算。"""
+    root = Path(vault) / FREE_DIR
+    n = 0
+    if not root.is_dir() or _is_link(root):
+        return 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not _is_link(Path(dirpath) / d)]
+        n += sum(1 for f in filenames if f != ".gitkeep" and not any(fnmatch.fnmatch(f, s) for s in inventory.SKIP_NAMES)
+                 and not _is_link(Path(dirpath) / f))
+    return n
 
 
 # ---------- 環境（D-189） ----------
@@ -1109,7 +1129,7 @@ def report_facts(vault):
             "merged": [{"from": e["name"], "into": names.get(e.get("merged_into"), e.get("merged_into"))}
                        for e in ents if e.get("status") == "merged"],
             "blocked": [i for i in (data.get("env") or {}).get("items") or [] if i.get("level") != "ok"],
-            "given_up": given, "adopt_skipped": skipped,
+            "given_up": given, "adopt_skipped": skipped, "free_files": free_files(vault),
             "people": data.get("people"), "no_sources": bool(data.get("no_sources")), "adopt": data.get("adopt"),
             "started": data.get("started"), "finished": _stamp(now),
             "minutes": int((now - started).total_seconds() // 60) if started else None}
