@@ -82,3 +82,58 @@
 - 驗收 14「沒裝 Obsidian」只能用替身（這台真的裝了）。
 - 驗收 17 的 `release.py build` 是在暫存 clone 重指 tag 跑的，沒有跑 `publish`。
 - 沒有 Mac 可驗 `os.startfile` 不存在的路徑（讀碼：未接 AttributeError）。
+
+## 第 2 輪
+
+日期：2026-10-30
+給誰看：設計 session（llm-wiki-j-85）
+測的版本：分支 spec/obsidian-home，commit e80790b（merge main 77ae2fd 之後；第 1 輪修正是 89d40a9，裁定 11～20）
+做法：第 1 輪同一套重現步驟再跑一遍（同一份 spike 複本與 1000 張卡的庫，每條在新複本上跑真的 `kb.py`）；退步檢查跑全套 pytest、node、code-review（high，只看 `git diff 05b24f7..HEAD`），速度在全套結束後重量；子代理的疑點我自己重現過才寫。
+
+### 結論
+
+**第 1 輪要修的 12 條（#2、#3、#4、#5～#9、#11 a b d e、#10）全部照裁定修好；沒有退步；可以進確認。** 新發現 5 條，都是「低」（#13～#17），沒有高、沒有中；#1（守門拼接）與 #11 c、#12 照你說的不驗，維持不修。
+
+- 全套 `python -m pytest -n auto -q tests`：3783 passed、2 skipped（同第 1 輪那兩條，跟這題無關）、exit 0；第 1 輪那條 SyntaxWarning 也不見了。
+- `node --test "tests/obsidian/*.test.js"`：96/96（第 1 輪 92，多 4 條）。
+- 速度（全套結束後量，5 次）：`kb home` spike 庫 中位數 0.297／最慢 0.315；1000 張卡的庫 0.664／最慢 0.942（第一次是冷啟動，再量兩輪各是 0.672／0.687、0.668／0.675）。`kb find` 1000 張卡的庫 0.313／最慢 0.317；走 fallback（先 0 筆再重找）0.541／0.547。都過驗收 1、3 的線。
+
+### 第 1 輪發現逐條
+
+| 第 1 輪 # | 裁定 | 判定 | 證據 |
+|---|---|---|---|
+| 2 | 11 | 過 | `find "水電"` 17、`"木作"` 6、`"水電 木作"` 20（第 1 輪是 3）；`"水電 燈具"` 20；`"王宅 中山林"` 仍 50（實體本來就是或）；`"王宅 水電 木作"`（不同種類且）2 筆。 |
+| 3 | 12、19 | 過 | `find "燈具升級"` → parsed `字 燈具升級`、`fallback: true`、2 筆，第 1 筆是「信義王宅追加燈具升級」；`"追加燈具升級"` → 1 筆，就是那張卡（第 1 輪都是 0）；沒有 fallback 的照舊：`"升級"` 3 筆、parsed 不變；裁定 19 的例外：`"內湖李 今天"`、`"王宅 去年"`（整串只剩一個認得的實體加時間詞）0 筆、parsed 保持 實體＋時間、沒有 `fallback`；全部都不認得的 `"xyzabc"` 0 筆不重找。`find.md` 多一條 fallback 的說法。 |
+| 4 | 13 | 過 | 對話 A 加提醒、之後 Obsidian 加提醒，`--session A versions revert` → exit 3，列「- .system/agenda.json：10-30 13:10 你在 Obsidian 按的／- 系統/日程.md：…你在 Obsidian 按的」，結尾「那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。」不再有「對話外」與「到那個對話退回」；兩條提醒都還在。撞到別的對話照舊「那一次（另一個對話）」。混合情形見 #15。 |
+| 5 | 14 | 過 | `--via obsidian renders apply` 日程／待處理／裁示各種沒事的呼叫 ×4、`renders drop c-nope`（exit 3「沒有這一筆」）：`.system/versions` 157 → 157，沒有空回合；真的有事（勾、刪、改日期、加字）才開（→158），再跑一次沒事不開（→158），`drop` 真的拿掉一筆才開（→159）。第 1 輪是每次都開。merge 後復原仍退得掉（驗收 6 沿用）。 |
+| 6 | 14 | 過 | `sources.json` 壞掉：`kb home --json` exit 0，`rows` 5、`recent` 0、`confirm` 0，`warnings` 說「來源清單讀不到：…」「要問你的事讀不到：…」；agenda、inventory、entities、pending、rulings 壞掉各自 exit 0、只那一區空白並有 warning（agenda 壞：rows 0、recent 20、confirm 7）；profile、renders 壞掉整頁照出。 |
+| 7 | 14 | 過 | 替身跑法：Obsidian 在跑且未登記 → exit 3 同一句、`.obsidian/plugins/wiki-with-willy/` 沒被建、設定檔沒寫、沒叫 startfile；未裝 → exit 3，也沒放檔；正常 open 才放四個檔並登記、叫一次 `obsidian://`；`plugins` 是檔案時不 traceback，`notes` 印「Obsidian 外掛沒放成：…」，`opened: true`。 |
+| 8 | 14 | 過 | `obsidian_cli.py` 檔頭改成 `%APPDATA%/obsidian/…`；`python -W error` parse 通過；我另外把 `scripts/`、`hooks/`、`tools/` 所有 `.py` 都用 `-W error` parse 一遍，沒有任何檔有無效跳脫；全套輸出沒有 warnings 那段。 |
+| 9 | 14 | 過 | `main.js`：`doSearch` 帶 `searchSeq`，回來時編號不符就丟、`clearSearch` 也加編號；`renderTimeline` 在 `home` 空的時候不畫「全部展開／收起」，`setAllRows` 開頭 `if (!this.plugin.home) return`；新增的 node 測試 4 條（慢查詢蓋不掉快的、清掉後舊結果丟掉、home 空時沒按鈕且 `setAllRows` 不丟、有資料時照常有）都過。（真的 Obsidian 裡的行為留給確認。） |
+| 10 | 15、20 | 過 | 造 `.obsidian/bookmarks.json`（兩張薪資卡的 file 書籤、一個 `type: folder` 指到 `檔案索引/公司行政/薪資`、一個群組含薪資卡與日程、一個士林黃的卡、一個 search 書籤）後 `kb folders exclude "公司行政/薪資" --kind hidden`：薪資卡、那夾的 folder 書籤、群組裡的薪資卡都拿掉，士林黃的卡、群組與群組裡的日程、search 書籤、指到別夾的 folder 書籤留著；成功句「Obsidian 裡清了：工作區 4 處、書籤 3 個、外掛最近 2 筆；Obsidian 自己的快取在知識庫外面，下次打開 Obsidian 會自己丟掉」（數字對得上：lastOpenFiles 2＋分頁 2、書籤 3、data.json 2）；`bookmarks.json` 壞掉 → 整份不動、「還沒清完：狀態檔 1 個；…」exit 3。workspace.json、data.json、carried 沿用第 1 輪的驗證（再跑一次結果相同）。 |
+| 11 a b | 14 | 過 | `_lib/build.py` 檔頭順序「…tags → obsidian → finish → done」；`ops/map-lib-platform.md` build 那列前半「…adopt → tags → obsidian → finish → done」。 |
+| 11 d | 14 | 過 | 日程頁有 carried「測試」、頁面另外被她勾了一件，`renders.keep` 換成丟 OSError：`renders drop c-…` → 「她那份沒存成，這次先不動；再說一次」exit 3，日程.md 與 `carried` 都沒動（第 1 輪是照樣蓋掉）。 |
+| 11 e | 14 | 過 | 把 `agenda._apply_hand` 換成丟例外，她改了日程.md 之後 `kb agenda add`：exit 0、新的一條有加進去、`hook-errors.log` 多一行「系統/日程.md 認手改失敗，這次照常寫、不照做：RuntimeError: boom」，之後的寫入不再每次失敗。（副作用見 #14。） |
+
+### 退步檢查
+
+- 全套、node、速度：見結論。守門語料與 `--via` 相關測試都在全套裡，沒紅。
+- code-review（high，`git diff 05b24f7..HEAD`）回 8 條 PLAUSIBLE，我逐條重現或讀碼：#14（手改失敗後她的改動不見）、#15（混合重疊的結尾句）、#13（fallback 去時間詞用 `replace(…, 1)`）重現了；pending 沒用 `hand.guarded` 讀碼確認（#16）；搜尋編號掛在 view 實例讀碼成立、沒在真 Obsidian 重現（#17）。另三條不成立或不改：purge 的「工作區 N 處」是「處」不是「張」，lastOpenFiles 與分頁各算一處，成功句與實際相符；`renders apply` 在她沒改頁面時直接回「沒事」，不會漏掉別的步驟（我的 spike 庫上待處理頁連叫四次沒有開回合）；fallback 把 `parsed` 換成第二次那份是裁定 12 的設計（見 #13 的提醒）。
+
+### 發現
+
+| # | 嚴重 | 內容 | 證據 |
+|---|---|---|---|
+| 13 | 低 | **`kb find` 的 fallback 去時間詞有兩個小缺口**。(a) 用 `rest.replace(時間詞, " ", 1)` 去第一次出現的位置，時間詞藏在別的字裡就切錯：「去年度 報價 去年」去掉的是「去年度」裡的「去年」，留下字「度」去比標題與內文，結果 52 筆；「報價 今年 今年度報告」留下「度報告」。(b) fallback 的結果是「字」之間為「或」：原本認到的實體、卡型被換成字，時間條件整個丟掉，會變很寬（「信義王 去年 報價」第一次 0 筆，fallback 後 64 筆，其中有今年的卡；「王宅 上個月 xyz」23 筆）。(b) 是裁定 12 的設計，不算偏離；因為只有 `fallback: true` 一個旗標，對話要照 `find.md` 那條說「原本的條件沒有找到，改成這幾個字」才不會誤導。 | 見上面的 `find` 輸出；人讀模式第一行只印「照這樣找：字 信義王、字 報價」，看不出時間條件被拿掉。 |
+| 14 | 低 | **認手改失敗時，她改的東西被頁面重寫蓋掉，`renders apply` 還回「這頁沒有要照做的」**。裁定 14 要的是不讓之後每次寫都失敗，這點做到了；代價是那一次她打的勾、刪的行、改的日期、新打的字都沒進資料也沒進「你加的」，只留在 `.system/handedits/`（而且存了兩份：consume 裡一份、`guarded` 裡又一份），她回到頁面看到的是被重寫的頁、被告知沒事。要靠 hook-errors.log 或 `kb lint handedit` 才找得回來。 | 把 `_apply_hand` 換成丟例外後：`agenda add` 成功、`renders apply` 印「這頁沒有要照做的」、`日程.md` 裡 `[x]` 與「測試」都不見、水電預計完成（10/30）仍 open；`.system/handedits/` 多 `…131231-日程.md` 與 `…131231-2-日程.md`。 |
+| 15 | 低 | **退回被「別的對話」和 Obsidian 同時擋住時，結尾句只講 Obsidian**。`versions.py` 的結尾只要 hits 裡有一筆 Obsidian 的就換成「那份後來你在 Obsidian 改過…跟我說要改成什麼」，另一個對話那一筆原本「到那個對話退回它」的指引就沒了。兩行都還列得出來，所以只是說明不完整。 | 複本上 A、B 兩個對話與 Obsidian 都改了日程，`--session A versions revert` → 列「那一次（另一個對話）」與「你在 Obsidian 按的」兩組，結尾只有 Obsidian 那句。 |
+| 16 | 低 | **待處理頁的手改仍是舊寫法**。`hand.guarded` 的 docstring 寫「三頁的 `_consume_hand` 都用」，實際只有日程與裁示用；`pending._hand_edit` 還是自己的 try/except 回 None，沒有 deepcopy 退回，若 `_apply_hand` 做到一半丟例外，已經標成處理好的幾筆會被寫回 `pending.json`（`_apply_hand` 很簡單，實際不容易發生）。 | 讀碼：`scripts/kb/_lib/pending.py` `_hand_edit`（約 156～169 行）對 `scripts/kb/_lib/hand.py` `guarded`。 |
+| 17 | 低 | **搜尋的請求編號掛在 HomeView 實例上，狀態卻在 plugin 上共用**。她關掉首頁分頁再重開（新的 view 從 0 起算）時，舊 view 還在路上的查詢回來，比對的是它自己的編號，照樣通過，會寫進共用的 `plugin.ui.search` 蓋掉新 view 的結果。要關掉分頁的當下剛好有查詢沒回來才會發生，機率很小。 | 讀碼：`obsidian/main.js` `doSearch`（`this.searchSeq`）、`clearSearch`；node 測試只涵蓋同一個 view 的情形。 |
+
+### plugin-dev 審查（第 2 輪）
+
+這輪動到的 skill 文字只有 `skills/answer/references/find.md` 一行（fallback 的說法），寫法跟同一節其他點一致（欄位名用反引號、一句講程式做了什麼、一句講對話怎麼說），沒問題；`hooks/`、`plugin.json` 這輪沒動，第 1 輪的 `claude plugin validate .` 結果仍適用，沒有重跑。
+
+### 沒測到
+
+沿用第 1 輪「沒測到」那幾條（真的 Obsidian 畫面與互動、`installed_plugins.json` 找 kb、磁碟機代號的原檔、真的沒裝 Obsidian、Mac）。這輪新增：fallback 在對話裡 Claude 實際怎麼說（要看 skill 實跑，留給確認）；外掛搜尋競態只有假 DOM 的 node 測試，沒有在真的 Obsidian 裡連按 Enter 試。
