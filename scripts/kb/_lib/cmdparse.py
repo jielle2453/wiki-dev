@@ -626,8 +626,8 @@ def _quote_arg(value):
 
 
 def _verb_word(value):
-    """這個字當開檔動詞看：只認裸名稱（explorer、explorer.exe、Start-Process、Microsoft.PowerShell.Management\\Start-Process）；
-    帶路徑的（C:\\x\\explorer.exe）是別的程式，回 None。"""
+    """這個字是裸名稱（explorer、explorer.exe、Start-Process、Microsoft.PowerShell.Management\\Start-Process）就回動詞；
+    帶路徑的（C:\\x\\explorer.exe）回 None。"""
     low = value.lower()
     if low.startswith(_PS_MODULE):
         low = low[len(_PS_MODULE):]
@@ -773,14 +773,17 @@ def _positional_targets(rest, powershell, table=None):
 
 def open_stage(verb, words, powershell=False, base=None):
     """D-514 開檔段。verb 是這段的動詞（verb_of），words 是 raw_words 拆的字（引號原樣），base 是效用 cwd（判夾用）。
-    不是開檔動詞回 None；是的話回 {"targets", "kind", "program", "verb_flag", "writes", "reads", "cwd", "opaque"}，路徑是原字串。
+    不是開檔動詞回 None；是的話回 {"targets", "kind", "program", "verb_flag", "writes", "reads", "cwd", "opaque", "exe"}，
+    路徑是原字串；exe 是動詞用完整路徑寫時的那個程式檔（裸名稱是 None）。
     PowerShell 的 start 是 Start-Process 的別名；Bash 的 start 與 cmd /c start 照 cmd 的規則。"""
     if verb not in OPEN_VERBS and verb != "cmd":
         return None
     values = [_unquote(w, powershell)[0] for w in words]
     idx = next((k for k, v in enumerate(values) if _base(v) == verb), None)
-    if idx is None or _verb_word(values[idx]) != verb:
+    if idx is None:
         return None
+    # 完整路徑寫的（C:\Windows\explorer.exe、…\cmd.exe）照同一個動詞判，那個程式檔交 guard 查 run_file（測試第 1 輪裁定 11）
+    exe = values[idx] if _verb_word(values[idx]) is None else None
     rest = words[idx + 1:]
     if verb == "cmd":
         k = 0
@@ -804,7 +807,7 @@ def open_stage(verb, words, powershell=False, base=None):
     program = got["program"]
     if program is None and got["targets"]:
         program = _quote_arg(next((t for t in got["targets"] if not _openable(t, base)), got["targets"][0]))
-    got.update(kind=kind, program=program if kind == "run" else None)
+    got.update(kind=kind, program=program if kind == "run" else None, exe=exe)
     return got
 
 

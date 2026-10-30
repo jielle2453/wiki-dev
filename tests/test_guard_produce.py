@@ -299,6 +299,41 @@ class OpenFile(Base):
         d = self.ps("Invoke-Item '<RAW>\\客戶案件\\a.txt','C:\\Windows\\notepad.exe'")
         self.assertNotEqual(d.reason_code, "run_file", "文件目標不算程式檔")
 
+    def test_round1_fixes(self):
+        """測試第 1 輪裁定 9、10、11。"""
+        case = self.raw / "客戶案件"
+        pw = case / "深" / "密碼.txt"  # 測試報告 #1：密碼檔在子夾，萬用字元展開到夾、走訪才找得到
+        pw.parent.mkdir(exist_ok=True)
+        pw.write_text("x", encoding="utf-8")
+        self.addCleanup(shutil.rmtree, pw.parent, True)
+        try:  # 9：同句別段讀到的夾不給開夾豁免
+            for tool, cmd in (("Bash", "explorer <RAW>/客戶案件 ; grep -r x <RAW>/客戶案件/*"),
+                              ("PowerShell", "explorer '<RAW>\\客戶案件'; Get-ChildItem -Recurse '<RAW>\\客戶案件\\*' | Get-Content")):
+                with self.subTest(cmd=cmd):
+                    d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                    self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"))
+            self.assertEqual(self.bash("explorer <RAW>/客戶案件").decision, "pass")
+            d = self.ps("explorer '<RAW>'; Get-Content '<RAW>\\客戶案件\\a.txt'")
+            self.assertEqual(d.decision, "deny", "開的夾底下有別段讀的路徑：照一般規則（Z10b）")
+        finally:
+            pw.unlink()
+        w = case / "onlyw.wsf"  # 10
+        w.write_text("x", encoding="utf-8")
+        try:
+            d = self.ps("cd '<RAW>\\客戶案件'; Start-Process onlyw")
+            self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z9", "run_file"))
+        finally:
+            w.unlink()
+        for tool, cmd, zone in (("PowerShell", "C:\\Windows\\explorer.exe '<V>\\AI 產出\\x.bat'", "Z3"),  # 11
+                                ("PowerShell", 'C:\\Windows\\System32\\cmd.exe /c start "" "<V>\\AI 產出\\x.bat"', "Z3"),
+                                ("Bash", '/c/Windows/System32/cmd.exe //c start "" "<V>/AI 產出/x.bat"', "Z3"),
+                                ("PowerShell", "& '<V>\\AI 產出\\explorer.exe' '<V>\\AI 產出\\a.docx'", "Z3")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", zone, "run_file"))
+        self.assertEqual(self.ps("C:\\Windows\\explorer.exe '<V>\\AI 產出\\a.docx'").decision, "pass")
+        self.assertEqual(self.ps('C:\\Windows\\System32\\cmd.exe /c start "" "<V>\\AI 產出\\a.docx"').decision, "pass")
+
     def test_com_open_still_denied(self):
         d = self.ps("$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
                     "$w.Documents.Open('<V>\\AI 產出\\a.docx')")

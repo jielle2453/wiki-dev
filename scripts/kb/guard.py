@@ -60,7 +60,7 @@ SHELL_WRITE = ("deny", "shell_write", "用指令改的退不回來，請用檔�
 # produce：指令碰到 AI 產出一律擋（讀也擋）；成品經 kb output save 放進來、轉 PDF 與看版面經 kb office（D-170）
 OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放進來；要轉 PDF 或看版面用 kb office")
 RUN_FILE = ("deny", "run_file", "知識庫與原檔夾裡的程式或巨集檔不直接執行；要打開給客戶看，請用 PDF、Word 這類文件")
-_RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk")  # 裸程式名在效用 cwd 底下找的副檔名
+_RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk", ".wsf", ".wsh", ".vbe", ".jse", ".msc", ".cpl")  # 裸程式名在效用 cwd 底下找的副檔名
 SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
 # B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
 SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
@@ -774,7 +774,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             own.extend(uncertain)  # cd 到展不開的萬用字元之後才寫：那些夾整個算目標（第九輪 Z1、驗收 90）
         own = [p for p in dict.fromkeys(own) if p not in redirect_targets]
         if not open_kind:
-            other_paths.update(own + stage_reads + redirect_targets)
+            other_paths.update(own + stage_reads + redirect_targets + [_pattern_head(g) for g in stage_globs])
         sub_paths.setdefault(plan["sub"], []).extend(own + stage_reads)
         sub_globs.setdefault(plan["sub"], []).extend(stage_globs)
         if stage_write:
@@ -794,7 +794,9 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
         else:
             out["unparsed"] = True
     out["cd_targets"] -= cd_written
-    out["open_exempt"] = open_targets - other_paths - out["write_targets"] - out["cd_targets"]
+    # 開夾的豁免只給同一句沒有別段讀到的夾：別段的讀取範圍含這個夾或在它底下，照一般規則走訪（測試第 1 輪裁定 9）
+    others = other_paths | out["write_targets"] | out["cd_targets"] | set(out["read_dirs"] + out["implicit_dirs"] + out["free_dirs"])
+    out["open_exempt"] = {t for t in open_targets if not any(inside(o, t) or inside(t, o) for o in others)}
     out["final_base"] = base  # 這段指令跑完時的效用 cwd（指令替換遞迴用）
     return out
 
@@ -1159,6 +1161,11 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     # 開檔段開的是程式（D-514）：程式檔在知識庫或來源裡擋 run_file；其餘把程式名加參數那行照直接下那行判（內層 deny 就 deny）
     for plan in info["stages"]:
         opened = plan.get("open")
+        if opened is not None and opened.get("exe"):  # 完整路徑寫的動詞（…\explorer.exe）本身在知識庫或來源裡（裁定 11）
+            p = _program_file(opened["exe"], plan.get("base"))
+            zone = classify(p, vault_n, sources)[0] if p is not None else None
+            if zone in VAULT_ZONES or zone in SOURCE_ZONES:
+                return deny(zone, RUN_FILE[1], RUN_FILE[2])
         if opened is None or opened["kind"] != "run" or opened["opaque"]:
             continue
         base = plan.get("base")

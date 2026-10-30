@@ -11364,6 +11364,75 @@
    "expect": "pass",
    "來源": "開檔與Office一起改 驗收 14",
    "note": "D-515 附著 PowerPoint 改"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "explorer <RAW>/客戶案件 ; grep -r x <RAW>/客戶案件/*"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<RAW>/客戶案件/深/密碼.txt"
+   ],
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 9",
+   "note": "開夾之後同句遞迴讀同一個夾：照走訪（測試報告 #1）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "explorer <RAW>/客戶案件"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<RAW>/客戶案件/深/密碼.txt"
+   ],
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 9",
+   "note": "單獨開夾照舊不走訪"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "cd '<RAW>\\客戶案件'; Start-Process onlyw"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<RAW>/客戶案件/onlyw.wsf"
+   ],
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 10",
+   "note": "裸名稱補 .wsf 找得到 → run_file"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "C:\\Windows\\explorer.exe '<RAW>\\客戶案件\\evil.bat'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 11",
+   "note": "完整路徑的 explorer.exe 照同一個動詞判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "C:\\Windows\\System32\\cmd.exe /c start \"\" \"<RAW>\\客戶案件\\evil.bat\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 11",
+   "note": "完整路徑的 cmd.exe /c start"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "C:\\Windows\\explorer.exe '<V>\\AI 產出'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 測試第 1 輪裁定 11",
+   "note": "完整路徑的 explorer.exe 開夾"
   }
  ]
 }

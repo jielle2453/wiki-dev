@@ -408,10 +408,22 @@ class OpenStage(unittest.TestCase):
 
     def test_not_open_verb(self):
         for text, ps in (("Get-Content 'C:\\x\\a.docx'", True), ("cmd /c del x.docx", True), ('cmd /c "start x.docx"', True),
-                         ("$w.Documents.Open('C:\\x\\a.docx')", True), ("& 'C:\\x\\AI 產出\\explorer.exe' a.docx", True),
-                         ('"C:/x/start" a.docx', False)):
+                         ("$w.Documents.Open('C:\\x\\a.docx')", True)):
             with self.subTest(text=text):
                 self.assertIsNone(op(text, ps))
+
+    def test_full_path_verb_same_verb(self):
+        """裁定 11：完整路徑的 explorer.exe、cmd.exe /c start 照同一個動詞判，程式檔另回 exe 給 guard 查 run_file。"""
+        for text, ps, targets, exe in (
+                ("C:\\Windows\\explorer.exe 'C:\\x\\a.docx'", True, ["C:\\x\\a.docx"], "C:\\Windows\\explorer.exe"),
+                ("& 'C:\\x\\AI 產出\\explorer.exe' a.docx", True, ["a.docx"], "C:\\x\\AI 產出\\explorer.exe"),
+                ('C:\\Windows\\System32\\cmd.exe /c start "" C:\\x\\a.docx', True, ["C:\\x\\a.docx"],
+                 "C:\\Windows\\System32\\cmd.exe"),
+                ('"C:/x/start" a.docx', False, ["a.docx"], "C:/x/start"),
+                ("explorer a.docx", True, ["a.docx"], None)):
+            with self.subTest(text=text):
+                got = op(text, ps)
+                self.assertEqual((got["targets"], got["exe"]), (targets, exe))
 
     def test_start_process_targets(self):
         for text in ("Start-Process 'C:\\x\\AI 產出\\a.docx'", "Start-Process -FilePath 'C:\\x\\AI 產出\\a.docx'",
