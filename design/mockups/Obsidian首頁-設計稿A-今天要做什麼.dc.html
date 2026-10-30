@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>首頁：今天要做什麼</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457B8}a:hover{color:#1A4290}
+</style>
+</helmet>
+<div style="min-height: 1180px; background: #FFFFFF; color: #1F1F1E; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column;">
+  <div style="height: 36px; background: #EDEDEB; border-bottom: 1px solid #DCDCD8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5E5E5A;">知識庫 · 首頁</div>
+  <div style="display: flex; flex-wrap: wrap; flex-grow: 1;">
+    <nav aria-label="檔案樹" style="flex: 1 1 220px; max-width: 260px; background: #F5F5F4; border-right: 1px solid #E4E4E1; padding: 16px 12px; box-sizing: border-box; font-size: 14px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; background: #E8EEFA; color: #1A4290; font-weight: 500; text-decoration: none;">首頁</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">總目錄</a>
+      <div style="height: 10px;"></div>
+      <div style="padding: 6px 10px; font-weight: 500;">01 案子</div>
+      <sc-for list="{{ cases }}" as="c" hint-placeholder-count="5">
+        <a href="#" style="display: block; padding: 5px 10px 5px 26px; border-radius: 6px; color: #3A3A37; text-decoration: none;">{{ c.name }}</a>
+      </sc-for>
+      <div style="padding: 6px 10px; font-weight: 500;">02 業主</div>
+      <div style="padding: 6px 10px; font-weight: 500;">03 廠商</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">AI 產出</div>
+      <div style="padding: 6px 10px; color: #3A3A37; display: flex; justify-content: space-between;"><span>收件匣</span><span style="font-size: 12px; background: #FBEDE4; color: #A4410E; padding: 0 8px; border-radius: 10px;">2</span></div>
+      <div style="padding: 6px 10px; color: #3A3A37;">系統</div>
+    </nav>
+    <main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px; max-width: 1180px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <p style="margin: 0; font-size: 14px; color: #5E5E5A;">10 月 29 日 星期四</p>
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700;">早安。今天有 2 件事，1 件已經過期</h1>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label for="q" style="font-size: 13px; color: #5E5E5A;">找人、案子或檔案</label>
+        <input id="q" type="search" placeholder="例：信義王宅、王先生、報價第三版" style="font: inherit; font-size: 15px; padding: 12px 14px; border: 1px solid #CFCFCA; border-radius: 8px; max-width: 560px; box-sizing: border-box; width: 100%;">
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px;">
+        <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+          <div style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 13px; color: #5E5E5A;">{{ t.label }}</span>
+            <span style="font-size: 30px; font-weight: 700; color: {{ t.color }};">{{ t.value }}</span>
+            <span style="font-size: 12px; color: #5E5E5A;">{{ t.hint }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px;">
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+          <h2 style="margin: 0; font-size: 17px;">今天與這週</h2>
+          <sc-for list="{{ agenda }}" as="a" hint-placeholder-count="6">
+            <div style="display: flex; gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid #F0F0EE;">
+              <span style="flex: 0 0 74px; font-size: 13px; font-weight: 500; padding: 2px 8px; border-radius: 6px; text-align: center; background: {{ a.chipBg }}; color: {{ a.chipFg }};">{{ a.when }}</span>
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                <span style="font-size: 15px;">{{ a.text }}</span>
+                <a href="#" style="font-size: 13px; text-decoration: none;">{{ a.entity }}</a>
+              </div>
+            </div>
+          </sc-for>
+        </section>
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+          <h2 style="margin: 0; font-size: 17px;">要你確認的</h2>
+          <sc-for list="{{ asks }}" as="q" hint-placeholder-count="3">
+            <div style="padding: 10px 0; border-top: 1px solid #F0F0EE; display: flex; flex-direction: column; gap: 8px;">
+              <span style="font-size: 15px; line-height: 1.5;">{{ q.text }}</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">{{ q.yes }}</button>
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">{{ q.no }}</button>
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: #5E5E5A;">先放著</button>
+              </div>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+      <section style="display: flex; flex-direction: column; gap: 12px;">
+        <h2 style="margin: 0; font-size: 17px;">進行中的案子</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
+          <sc-for list="{{ active }}" as="c" hint-placeholder-count="4">
+            <a href="#" style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: #1F1F1E;">
+              <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+                <span style="font-size: 16px; font-weight: 700;">{{ c.name }}</span>
+                <span style="font-size: 12px; padding: 2px 8px; border-radius: 10px; background: {{ c.stageBg }}; color: {{ c.stageFg }};">{{ c.stage }}</span>
+              </div>
+              <span style="font-size: 13px; color: #5E5E5A;">業主 {{ c.owner }} · {{ c.span }}</span>
+              <div style="height: 6px; background: #EDEDEB; border-radius: 3px; overflow: hidden;"><div style="height: 6px; background: #2457B8; width: {{ c.pct }};"></div></div>
+              <span style="font-size: 13px;">下一件：{{ c.next }}</span>
+            </a>
+          </sc-for>
+        </div>
+      </section>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px;">
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px;">
+          <h2 style="margin: 0; font-size: 17px;">案子在哪個階段</h2>
+          <sc-for list="{{ stages }}" as="s" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="flex: 0 0 44px; font-size: 14px;">{{ s.name }}</span>
+              <div style="flex-grow: 1; height: 18px; background: #F5F5F4; border-radius: 4px; overflow: hidden;"><div style="height: 18px; background: {{ s.color }}; width: {{ s.pct }};"></div></div>
+              <span style="flex: 0 0 28px; font-size: 14px; font-weight: 500; text-align: right;">{{ s.n }}</span>
+            </div>
+          </sc-for>
+        </section>
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+          <h2 style="margin: 0; font-size: 17px;">最近整理好的</h2>
+          <sc-for list="{{ recent }}" as="r" hint-placeholder-count="4">
+            <div style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid #F0F0EE; font-size: 14px;">
+              <a href="#" style="text-decoration: none;">{{ r.title }}</a>
+              <span style="color: #5E5E5A; flex-shrink: 0;">{{ r.where }} · {{ r.date }}</span>
+            </div>
+          </sc-for>
+          <p style="margin: 4px 0 0; font-size: 13px; color: #A4410E;">收件匣有 2 份還沒歸位</p>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const warn = { bg: '#FBEDE4', fg: '#A4410E' };
+    const today = { bg: '#E8EEFA', fg: '#1A4290' };
+    const later = { bg: '#F5F5F4', fg: '#3A3A37' };
+    const ag = (when, text, entity, c) => ({ when, text, entity, chipBg: c.bg, chipFg: c.fg });
+    const stage = (s) => s === '施工' ? { stageBg: '#E8EEFA', stageFg: '#1A4290' } : { stageBg: '#F5F5F4', stageFg: '#3A3A37' };
+    return {
+      cases: [{ name: '信義王宅' }, { name: '大安陳宅' }, { name: '中和林宅廚房' }, { name: '松山張宅' }, { name: '永和吳宅' }],
+      tiles: [
+        { label: '進行中的案子', value: '4', hint: '2 個施工、2 個報價', color: '#1F1F1E' },
+        { label: '這週要做', value: '5', hint: '今天 1 件', color: '#1F1F1E' },
+        { label: '過期了', value: '1', hint: '10/27 該回覆選樣', color: '#A4410E' },
+        { label: '要你確認', value: '3', hint: '最久的放了 4 天', color: '#2457B8' }
+      ],
+      agenda: [
+        ag('過期 2 天', '回覆陳小姐建材選樣', '大安陳宅', warn),
+        ag('今天 14:00', '現場會議（木作收尾）', '信義王宅', today),
+        ag('10/30 週五', '系統櫃進場', '中和林宅廚房', later),
+        ag('10/31 週六', '第二版報價給陳小姐', '大安陳宅', later),
+        ag('11/03 週二', '水電驗收', '信義王宅', later),
+        ag('11/05 週四', '丈量', '松山張宅', later)
+      ],
+      asks: [
+        { text: '「順發水電」和「順發水電行」是同一家嗎？', yes: '是同一家', no: '不是' },
+        { text: '信義王宅的完工日：報價寫 11/30，第 3 次會議紀錄寫 12 月中，要用哪個？', yes: '用 12 月中', no: '用 11/30' },
+        { text: '「林宅追加估價（草稿）」要定稿嗎？', yes: '定稿', no: '再改' }
+      ],
+      active: [
+        Object.assign({ name: '信義王宅', owner: '王先生', stage: '施工', span: '9/12～12 月中', pct: '52%', next: '今天 現場會議' }, stage('施工')),
+        Object.assign({ name: '中和林宅廚房', owner: '林太太', stage: '施工', span: '10/1～11/20', pct: '58%', next: '10/30 系統櫃進場' }, stage('施工')),
+        Object.assign({ name: '大安陳宅', owner: '陳小姐', stage: '報價', span: '10/20 起', pct: '10%', next: '10/31 第二版報價' }, stage('報價')),
+        Object.assign({ name: '松山張宅', owner: '張先生', stage: '報價', span: '10/25 起', pct: '4%', next: '11/05 丈量' }, stage('報價'))
+      ],
+      stages: [
+        { name: '報價', n: 2, pct: '40%', color: '#8AA7DE' },
+        { name: '施工', n: 2, pct: '40%', color: '#2457B8' },
+        { name: '保固', n: 2, pct: '40%', color: '#B9B9B4' },
+        { name: '結案', n: 5, pct: '100%', color: '#DCDCD8' }
+      ],
+      recent: [
+        { title: '信義王宅會議紀錄第3次', where: '信義王宅', date: '10/28' },
+        { title: '林宅系統櫃圖面', where: '中和林宅廚房', date: '10/28' },
+        { title: '陳宅報價第一版', where: '大安陳宅', date: '10/27' },
+        { title: '順發水電 10 月請款單', where: '順發水電', date: '10/26' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

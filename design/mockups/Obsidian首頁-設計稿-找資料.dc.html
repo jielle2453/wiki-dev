@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>找資料：名單、標籤篩、總覽</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457B8}a:hover{color:#1A4290}
+</style>
+</helmet>
+<div style="min-height: 1180px; background: #FFFFFF; color: #1F1F1E; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column;">
+  <div style="height: 36px; background: #EDEDEB; border-bottom: 1px solid #DCDCD8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5E5E5A;">知識庫 · 找資料</div>
+  <div style="display: flex; flex-wrap: wrap; flex-grow: 1;">
+    <nav aria-label="檔案樹" style="flex: 1 1 220px; max-width: 260px; background: #F5F5F4; border-right: 1px solid #E4E4E1; padding: 16px 12px; box-sizing: border-box; font-size: 14px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">首頁</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; background: #E8EEFA; color: #1A4290; font-weight: 500; text-decoration: none;">找資料</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">總目錄</a>
+      <div style="height: 10px;"></div>
+      <div style="padding: 6px 10px; font-weight: 500;">01 案子</div>
+      <div style="padding: 6px 10px; font-weight: 500;">02 業主</div>
+      <div style="padding: 6px 10px; font-weight: 500;">03 廠商</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">AI 產出</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">收件匣</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">系統</div>
+    </nav>
+    <main style="flex: 999 1 560px; min-width: 0; padding: 28px 32px 48px; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 24px; align-content: flex-start;">
+      <div style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;" role="group" aria-label="型別">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+            <button type="button" onClick="{{ t.pick }}" style="font: inherit; font-size: 15px; padding: 8px 18px; min-height: 44px; border-radius: 8px; border: 1px solid {{ t.bd }}; background: {{ t.bg }}; color: {{ t.fg }}; font-weight: 500;">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; background: #FAFAF9;">
+          <sc-for list="{{ facets }}" as="f" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="flex: 0 0 44px; font-size: 14px; color: #3A3A37; font-weight: 500;">{{ f.name }}</span>
+              <sc-for list="{{ f.words }}" as="w" hint-placeholder-count="4">
+                <button type="button" onClick="{{ w.toggle }}" aria-pressed="{{ w.on }}" style="font: inherit; font-size: 14px; padding: 4px 14px; min-height: 34px; border-radius: 17px; border: 1px solid {{ w.bd }}; background: {{ w.bg }}; color: {{ w.fg }};">{{ w.w }}</button>
+              </sc-for>
+            </div>
+          </sc-for>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span style="font-size: 14px; color: #3A3A37;">{{ countLine }}</span>
+            <button type="button" onClick="{{ clear }}" style="font: inherit; font-size: 13px; padding: 4px 12px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">清除條件</button>
+          </div>
+        </section>
+        <div style="overflow-x: auto; border: 1px solid #E4E4E1; border-radius: 10px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px;">
+            <thead>
+              <tr style="background: #F5F5F4; text-align: left;">
+                <th style="padding: 10px 14px; font-weight: 500;">名稱</th>
+                <sc-for list="{{ heads }}" as="h" hint-placeholder-count="3">
+                  <th style="padding: 10px 14px; font-weight: 500;">{{ h }}</th>
+                </sc-for>
+                <th style="padding: 10px 14px; font-weight: 500;">更新</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+                <tr style="border-top: 1px solid #F0F0EE; background: {{ r.bg }};">
+                  <td style="padding: 10px 14px;"><button type="button" onClick="{{ r.pick }}" style="font: inherit; font-size: 14px; font-weight: 500; padding: 4px 0; min-height: 32px; border: none; background: transparent; color: #2457B8; text-align: left;">{{ r.name }}</button></td>
+                  <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="3">
+                    <td style="padding: 10px 14px; color: {{ c.fg }};">{{ c.v }}</td>
+                  </sc-for>
+                  <td style="padding: 10px 14px; color: #5E5E5A;">{{ r.updated }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+            <p style="margin: 0; padding: 18px; font-size: 14px; color: #5E5E5A;">沒有符合的。換個條件，或清除條件看全部。</p>
+          </sc-if>
+        </div>
+      </div>
+
+      <aside aria-label="總覽" style="flex: 1 1 320px; min-width: 0; border: 1px solid #E4E4E1; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; align-self: flex-start;">
+        <sc-if value="{{ hasPicked }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <span style="font-size: 13px; color: #5E5E5A;">{{ d.type }}</span>
+            <h2 style="margin: 0; font-size: 22px;">{{ d.name }}</h2>
+          </div>
+          <p style="margin: 0; font-size: 15px; line-height: 1.6;">{{ d.summary }}</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <sc-for list="{{ d.tagChips }}" as="g" hint-placeholder-count="3">
+              <span style="font-size: 13px; padding: 2px 10px; border-radius: 12px; background: #F5F5F4; color: #3A3A37;">{{ g }}</span>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+            <span style="font-size: 13px; color: #5E5E5A;">下一件</span>
+            <span style="font-size: 15px;">{{ d.next }}</span>
+          </div>
+          <sc-if value="{{ d.hasAsk }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 10px 12px; border-radius: 8px; background: #FBEDE4; color: #7A300A; font-size: 14px; line-height: 1.5;">要你確認：{{ d.ask }}</div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+            <span style="font-size: 13px; color: #5E5E5A;">檔案 {{ d.fileCount }} 份</span>
+            <sc-for list="{{ d.files }}" as="x" hint-placeholder-count="3">
+              <a href="#" style="font-size: 14px; text-decoration: none;">{{ x }}</a>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+            <span style="font-size: 13px; color: #5E5E5A;">相關</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <sc-for list="{{ d.related }}" as="y" hint-placeholder-count="2">
+                <a href="#" style="font-size: 14px; padding: 4px 12px; border-radius: 14px; border: 1px solid #C9D5EE; text-decoration: none;">{{ y }}</a>
+              </sc-for>
+            </div>
+          </div>
+          <a href="#" style="align-self: flex-start; font-size: 14px; font-weight: 500; padding: 10px 16px; min-height: 44px; box-sizing: border-box; border-radius: 8px; background: #2457B8; color: #FFFFFF; text-decoration: none; display: flex; align-items: center;">打開綜合卡</a>
+        </sc-if>
+        <sc-if value="{{ noPicked }}" hint-placeholder-val="{{ false }}">
+          <p style="margin: 0; font-size: 14px; color: #5E5E5A;">點左邊的名稱看總覽。</p>
+        </sc-if>
+      </aside>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  data() {
+    const it = (id, name, tags, updated, summary, next, files, related, ask) => ({ id, name, tags, updated, summary, next, files, related, ask: ask || '' });
+    return {
+      '案子': {
+        fields: ['區域', '類型', '階段'],
+        dict: { '區域': ['信義', '大安', '中和', '松山', '永和'], '類型': ['全室', '局部', '廚衛'], '階段': ['報價', '施工', '保固'] },
+        items: [
+          it('c1', '信義王宅', { '區域': '信義', '類型': '全室', '階段': '施工' }, '10/28', '信義區三房全室翻修，業主王先生。目前是報價第三版，總價 128 萬。', '今天 14:00 現場會議（木作收尾）', ['信義王宅會議紀錄第3次', '信義王報價第三版', '信義王宅會議紀錄第1次', '信義王報價第一版'], ['王先生', '順發水電', '大明木作'], '完工日兩份寫法不同：報價寫 11/30，會議紀錄寫 12 月中'),
+          it('c2', '大安陳宅', { '區域': '大安', '類型': '全室', '階段': '報價' }, '10/27', '大安區老公寓全室翻新，還在報價。', '10/31 第二版報價給陳小姐', ['陳宅報價第一版', '陳宅丈量圖', '陳宅現況照片'], ['陳小姐']),
+          it('c3', '中和林宅廚房', { '區域': '中和', '類型': '廚衛', '階段': '施工' }, '10/28', '中和林宅廚房改中島，系統櫃 10/30 進場。', '10/30 系統櫃進場', ['林宅系統櫃圖面', '林宅廚房報價', '林宅追加估價（草稿）'], ['林太太', '光華系統櫃'], '「林宅追加估價（草稿）」要定稿嗎？'),
+          it('c4', '松山張宅', null, '10/25', '松山區新案，下週丈量。', '11/05 丈量', ['張宅需求訪談'], ['張先生']),
+          it('c5', '永和吳宅', { '區域': '永和', '類型': '局部', '階段': '保固' }, '09/30', '永和吳宅客廳與主臥局部翻修，保固到 2027 年 3 月。', '沒有排定的事', ['吳宅完工驗收單', '吳宅保固書'], ['吳先生', '永信油漆']),
+          it('c6', '大安周宅浴室', { '區域': '大安', '類型': '廚衛', '階段': '保固' }, '08/14', '大安周宅兩間浴室翻新，保固中。', '沒有排定的事', ['周宅浴室報價', '周宅完工照片'], ['周小姐', '順發水電'])
+        ]
+      },
+      '業主': {
+        fields: ['來源', '預算'],
+        dict: { '來源': ['朋友介紹', '網路', '舊客戶'], '預算': ['300 萬以下', '300 萬以上'] },
+        items: [
+          it('o1', '王先生', { '來源': '朋友介紹', '預算': '300 萬以下' }, '10/28', '信義王宅業主，平日晚上方便電話聯絡。', '今天 14:00 現場會議', ['信義王報價第三版', '信義王宅會議紀錄第3次'], ['信義王宅']),
+          it('o2', '陳小姐', { '來源': '網路', '預算': '300 萬以上' }, '10/27', '大安陳宅業主，在意建材環保標章。', '10/31 第二版報價', ['陳宅報價第一版'], ['大安陳宅']),
+          it('o3', '林太太', { '來源': '舊客戶', '預算': '300 萬以下' }, '10/28', '中和林宅廚房業主，2023 年做過浴室。', '10/30 系統櫃進場', ['林宅廚房報價'], ['中和林宅廚房']),
+          it('o4', '張先生', null, '10/25', '松山張宅業主，新客戶。', '11/05 丈量', ['張宅需求訪談'], ['松山張宅']),
+          it('o5', '吳先生', { '來源': '朋友介紹', '預算': '300 萬以下' }, '09/30', '永和吳宅業主。', '沒有排定的事', ['吳宅保固書'], ['永和吳宅']),
+          it('o6', '周小姐', { '來源': '網路', '預算': '300 萬以下' }, '08/14', '大安周宅浴室業主。', '沒有排定的事', ['周宅浴室報價'], ['大安周宅浴室'])
+        ]
+      },
+      '廠商': {
+        fields: ['工種'],
+        dict: { '工種': ['水電', '木作', '系統櫃', '油漆'] },
+        items: [
+          it('v1', '順發水電', { '工種': '水電' }, '10/26', '合作最久的水電，請款每月 25 日。', '11/03 信義王宅水電驗收', ['順發水電 10 月請款單', '順發水電報價'], ['信義王宅', '大安周宅浴室'], '「順發水電」和「順發水電行」是同一家嗎？'),
+          it('v2', '大明木作', { '工種': '木作' }, '10/22', '信義王宅的木作。', '今天 信義王宅木作收尾', ['大明木作報價'], ['信義王宅']),
+          it('v3', '光華系統櫃', { '工種': '系統櫃' }, '10/28', '中和林宅廚房的系統櫃。', '10/30 系統櫃進場', ['林宅系統櫃圖面'], ['中和林宅廚房']),
+          it('v4', '永信油漆', { '工種': '油漆' }, '09/18', '永和吳宅的油漆。', '沒有排定的事', ['永信油漆請款單'], ['永和吳宅'])
+        ]
+      }
+    };
+  }
+  renderVals() {
+    const all = this.data();
+    const st = this.state || {};
+    const type = st.type || '案子';
+    const sel = st.sel || (st.type ? {} : { '階段': ['施工'] });
+    const T = all[type];
+    const active = Object.keys(sel).filter((f) => sel[f] && sel[f].length);
+    const untagged = T.items.filter((x) => !x.tags).length;
+    const matches = T.items.filter((x) => active.every((f) => x.tags && sel[f].indexOf(x.tags[f]) >= 0));
+    const pickedId = st.picked || 'c1';
+    const shown = matches.find((x) => x.id === pickedId) || matches[0] || null;
+    const tabs = Object.keys(all).map((name) => {
+      const on = name === type;
+      return {
+        label: name + ' ' + all[name].items.length,
+        bg: on ? '#E8EEFA' : '#FFFFFF', fg: on ? '#1A4290' : '#1F1F1E', bd: on ? '#2457B8' : '#CFCFCA',
+        pick: () => this.setState({ type: name, sel: {}, picked: all[name].items[0].id })
+      };
+    });
+    const facets = T.fields.map((f) => ({
+      name: f,
+      words: T.dict[f].map((w) => {
+        const cur = sel[f] || [];
+        const on = cur.indexOf(w) >= 0;
+        return {
+          w, on,
+          bg: on ? '#2457B8' : '#FFFFFF', fg: on ? '#FFFFFF' : '#1F1F1E', bd: on ? '#2457B8' : '#CFCFCA',
+          toggle: () => {
+            const next = Object.assign({}, sel);
+            next[f] = on ? cur.filter((v) => v !== w) : cur.concat([w]);
+            this.setState({ type, sel: next, picked: pickedId });
+          }
+        };
+      })
+    }));
+    let countLine = '共 ' + T.items.length + ' 個';
+    if (active.length) {
+      countLine = T.items.length + ' 個中 ' + matches.length + ' 個符合';
+      if (untagged) countLine += '；另有 ' + untagged + ' 個還沒照字典標過';
+    } else if (untagged) {
+      countLine += '，其中 ' + untagged + ' 個還沒照字典標過';
+    }
+    const rows = matches.map((x) => ({
+      name: x.name, updated: x.updated,
+      bg: shown && shown.id === x.id ? '#F2F6FD' : '#FFFFFF',
+      cells: T.fields.map((f) => x.tags ? { v: x.tags[f], fg: '#1F1F1E' } : { v: '還沒標', fg: '#8C8C87' }),
+      pick: () => this.setState({ type, sel, picked: x.id })
+    }));
+    const d = shown ? {
+      type: type, name: shown.name, summary: shown.summary, next: shown.next,
+      tagChips: shown.tags ? T.fields.map((f) => f + ' ' + shown.tags[f]) : ['還沒照字典標過'],
+      files: shown.files.slice(0, 3), fileCount: shown.files.length,
+      related: shown.related, ask: shown.ask, hasAsk: !!shown.ask
+    } : { tagChips: [], files: [], related: [] };
+    return {
+      tabs, facets, countLine, rows, heads: T.fields, d,
+      empty: matches.length === 0,
+      hasPicked: !!shown, noPicked: !shown,
+      clear: () => this.setState({ type, sel: {}, picked: pickedId })
+    };
+  }
+}
+</script>
+</body>
+</html>
