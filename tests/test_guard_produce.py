@@ -404,6 +404,16 @@ class OpenFile(Base):
             "# GetActiveObject('Word.Application')\nGet-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
             "$null='GetActiveObject(\"Word.Application\")'; Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
         ))
+        cases += (  # 裁定 31：寫進文件的字不算寫入動詞；文件裡的 Add 不擋，開新檔的 Add 照擋
+            ("引號內 copy", "PowerShell", loop2 + "$x.Content.InsertAfter('請 copy 這段'); $x.Save() } }", "pass"),
+            ("引號內 zip", "PowerShell", loop2 + "$x.Content.InsertAfter('zip code'); $x.Save() } }", "pass"),
+            ("Tables.Add", "PowerShell", loop2 + "[void]$x.Tables.Add($x.Range(0,0), 2, 2); $x.Save() } }", "pass"),
+            ("Comments.Add", "PowerShell", loop2 + "[void]$x.Comments.Add($x.Paragraphs.Item(1).Range, '請確認'); $x.Save() } }", "pass"),
+            ("Workbooks.Add", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                            "$b=$e.Workbooks | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.xlsx' }; [void]$e.Workbooks.Add(); $b.Save()",
+             "deny"),
+            ("引號外 copy", "PowerShell", loop2 + "$x.Save() } }; copy 'C:\\x\\a' 'C:\\x\\b'", "deny"),
+        )
         for name, tool, cmd, want in cases:
             with self.subTest(case=name, cmd=cmd):
                 d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)

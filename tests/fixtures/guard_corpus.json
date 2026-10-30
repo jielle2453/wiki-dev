@@ -11568,6 +11568,45 @@
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(g) 沒附著、路徑在 -eq 左邊加 Remove-Item"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('請 copy 這段'); $x.Save() } }"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 31",
+   "note": "(4) 寫進文件的字有寫入動詞不算"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { [void]$x.Tables.Add($x.Range(0,0), 2, 2); $x.Save() } }"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 31",
+   "note": "(5) 文件裡的 Tables.Add 不擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Save() } }; [void]$w.Documents.Add()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 31",
+   "note": "(5) 開新檔的 Documents.Add( 照擋"
   }
  ]
 }

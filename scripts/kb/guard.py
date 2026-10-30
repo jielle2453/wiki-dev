@@ -66,7 +66,7 @@ _RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk", "
 _COM_ATTACH = re.compile(r"GetActiveObject\s*\(\s*['\"](?:Word|Excel|PowerPoint)\.Application['\"]", re.IGNORECASE)
 _COM_CALL = re.compile(r"GetActiveObject\s*\(", re.IGNORECASE)
 _COM_WRITE = re.compile(
-    r"\.Open\w*\s*\(|SaveAs|SaveCopyAs|\.Export\w*\s*\(|\.Add\s*\(|\.(?:Delete|MoveTo|CopyTo|Kill|Run)\s*\(|WordBasic|InvokeMember|"
+    r"\.Open\w*\s*\(|SaveAs|SaveCopyAs|\.Export\w*\s*\(|(?:Documents|Workbooks|Presentations)\.Add\s*\(|\.(?:Delete|MoveTo|CopyTo|Kill|Run)\s*\(|WordBasic|InvokeMember|"
     r"\[(?:System\.)?IO\.|::new\b|New-Object|\.Attributes\b|"
     r"(?<![\w.-])(?:Get-ChildItem|gci|dir|ls|Get-Item|gi|Get-ItemProperty|gp|Resolve-Path|rvpa|Invoke-\w+|iex|ii|"
     r"Start-Process|saps|start|cmd|powershell|pwsh|wscript|cscript|mshta|rundll32)\b",
@@ -1040,6 +1040,7 @@ def _expand_glob(token, hidden=False):
 
 def _compare_only(command, powershell):
     """裁定 29：整句（引號外、註解外）附著到開著的 Office，又沒有另開、另存、新增、刪搬跑、寫入動詞、導向、& 與 dot-source 時，
+    寫入動詞只看引號外（寫進文件的字不算），新增只擋開新檔的 Documents／Workbooks／Presentations.Add（裁定 31）；
     只出現在 `.FullName` 比對運算子右邊（PowerShell -eq -ieq -ceq -like -ilike -clike、python ==）、不含萬用字元的字串；
     同一個字串在句子別處也出現就不算。其餘情況回空集合。"""
     bare = cmdparse.outside_quotes(command, powershell)
@@ -1047,7 +1048,7 @@ def _compare_only(command, powershell):
         return frozenset()
     bare = re.sub(r"(^|\s)#[^\n]*", r"\1", re.sub(r"<#.*?#>", " ", bare, flags=re.S))
     if (not _COM_ATTACH.search(command) or not _COM_CALL.search(bare) or _COM_WRITE.search(command)
-            or cmdparse.WRITE_WORDS.search(command) or cmdparse.WRITE_CODE.search(command)
+            or cmdparse.WRITE_WORDS.search(bare) or cmdparse.WRITE_CODE.search(command)
             or cmdparse.REDIRECT.search(bare) or "&" in bare or _DOT_SOURCE.search(bare)):
         return frozenset()
     found = [m.group(2) for m in _COMPARE_LIT.finditer(command) if m.group(2) and not any(ch in m.group(2) for ch in "*?[")]
