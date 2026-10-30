@@ -41,6 +41,24 @@ class HomeCli(unittest.TestCase):
         self.assertEqual(out["recent"][0]["card"], fid)
         self.assertEqual(out["recent"][0]["why"], "opened")
 
+    def test_from_to_set_the_timeline_window(self):
+        r = run_kb("home", "--json", "--from", "2026-01-01", "--to", "2026-03-31", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        tl = json.loads(r.stdout)["timeline"]
+        self.assertEqual((tl["from"], tl["to"]), ("2026-01-01", "2026-03-31"))
+
+    def test_from_to_are_optional(self):
+        tl = json.loads(run_kb("home", "--json", cwd=self.V).stdout)["timeline"]
+        one = json.loads(run_kb("home", "--json", "--to", "2099-01-01", cwd=self.V).stdout)["timeline"]
+        self.assertEqual(one["from"], tl["from"])
+        self.assertEqual(one["to"], "2099-01-01")
+
+    def test_bad_dates_or_reversed_range_exit_3(self):
+        for args in (("--from", "明天"), ("--to", "2026-13-40"), ("--from", "2026-05-01", "--to", "2026-04-01")):
+            r = run_kb("home", "--json", *args, cwd=self.V)
+            self.assertEqual(r.returncode, 3, args)
+            self.assertIn("日期", r.stdout)
+
     def test_not_in_vault(self):
         with tempfile.TemporaryDirectory() as d:
             r = run_kb("home", "--json", cwd=Path(d))

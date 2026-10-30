@@ -300,6 +300,68 @@ class Sections(Base):
                 self.assertTrue(r["fill"] is None or set(r["fill"]) == {"name", "rule"})
 
 
+class SetAside(Base):
+    """裁定 34：「下次再問」「先放著」這類答案，非急的給 asks set-aside 的 argv；有時間性的照舊不收（D-226），argv 留 null。"""
+
+    def ask(self, urgent, labels=("還沒，下次再問",), **kw):
+        return {"key": "inbox:x@1", "kind": "inbox", "question": "放哪裡？", "urgent": urgent,
+                "results": [dict({"n": 0, "label": lab, "do": [], "strict": False, "fill": []}, **kw) for lab in labels]}
+
+    def test_not_urgent_gets_set_aside_argv(self):
+        got = home._confirm(self.V, [self.ask(False, ("先放著", "還沒，下次再問", "之後再說"))])[0]["results"]
+        for r in got:
+            self.assertEqual(r["argv"], ["asks", "set-aside", "inbox:x@1"])
+
+    def test_urgent_keeps_null_argv(self):
+        got = home._confirm(self.V, [self.ask(True)])[0]["results"]
+        self.assertIsNone(got[0]["argv"])
+
+    def test_other_labels_and_given_argv_untouched(self):
+        a = self.ask(False, ("名字對",))
+        a["results"].append({"n": 0, "label": "先放著", "do": [], "strict": False, "fill": [], "argv": ["pending", "x"]})
+        got = home._confirm(self.V, [a])[0]["results"]
+        self.assertIsNone(got[0]["argv"])
+        self.assertEqual(got[1]["argv"], ["pending", "x"])
+
+    def test_real_overdue_ask_is_urgent_and_not_set_aside(self):
+        self.add("到期", day(-2), "過了的事")
+        asks = [a for a in self.build()["confirm"] if a["kind"] == "overdue"]
+        self.assertTrue(asks and asks[0]["urgent"])
+        later = next(r for r in asks[0]["results"] if r["label"] == "還沒，下次再問")
+        self.assertIsNone(later["argv"])
+
+
+class Range(Base):
+    """裁定 34：build 可指定時間軸的起訖；沒帶照舊今天前 7 天到 home_timeline_days。"""
+
+    def test_default_window_unchanged(self):
+        out = self.build()["timeline"]
+        self.assertEqual((out["from"], out["to"]), (day(-7), day(60)))
+
+    def test_given_window_is_used(self):
+        self.add("到期", day(100), "三個月後的事")
+        out = self.build(lo=day(-30), hi=day(120))["timeline"]
+        self.assertEqual((out["from"], out["to"]), (day(-30), day(120)))
+        self.assertEqual([m["text"] for r in out["rows"] for m in r["marks"]], ["三個月後的事"])
+
+    def test_only_one_end_given_other_default(self):
+        out = self.build(hi=day(200))["timeline"]
+        self.assertEqual((out["from"], out["to"]), (day(-7), day(200)))
+        out = self.build(lo=day(-90))["timeline"]
+        self.assertEqual((out["from"], out["to"]), (day(-90), day(60)))
+
+    def test_done_before_given_from_still_left_out(self):
+        it = self.add("到期", day(-20), "舊的完成")
+        agenda.set_status(self.V, it["id"], "done", self.t)
+        self.assertEqual([m for r in self.build(lo=day(-10))["timeline"]["rows"] for m in r["marks"]], [])
+        self.assertEqual([m["text"] for r in self.build(lo=day(-30))["timeline"]["rows"] for m in r["marks"]], ["舊的完成"])
+
+    def test_other_sections_do_not_change_with_window(self):
+        a, b = self.build(), self.build(lo=day(-300), hi=day(300))
+        for key in ("todo", "confirm", "counts", "others", "cheer"):
+            self.assertEqual(a[key], b[key], key)
+
+
 class Recent(Base):
     def setUp(self):
         super().setUp()

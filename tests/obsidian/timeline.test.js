@@ -361,13 +361,12 @@ test('時間軸（裁定 28）：收起來是摘要列，期間一條色條、�
 test('時間軸（裁定 32）：軸頭上排月份、下排日期、畫週線；今天的旗子在日期那一排，附近的日期讓位', () => {
   const { view } = viewOf();
   const axis = byClass(view.root, 'wwh-axis')[0];
-  const months = byClass(axis, 'is-month').map((t) => t.textContent);
-  assert.ok(months.length >= 2 && months.every((t) => /月$/.test(t)), months.join());
-  assert.strictEqual(months[0], '10月', '起點那個月也標');
+  const months = byClass(axis, 'is-month').filter((t) => !t.classList.contains('is-pinned')).map((t) => t.textContent);
+  assert.deepStrictEqual(months, ['11月', '12月'], '每個月 1 號一個');
   const days = byClass(axis, 'is-day');
   assert.ok(days.length >= 8 && days.every((t) => /^\d{1,2}$/.test(t.textContent)), '下排是每週一個日期');
   const flagPct = parseFloat(byClass(axis, 'wwh-today-flag')[0].styleMap.left);
-  assert.ok(days.every((t) => Math.abs(parseFloat(t.styleMap.left) - flagPct) > 4.5), '今天附近的日期讓位給旗子');
+  assert.ok(days.every((t) => Math.abs(parseFloat(t.styleMap.left) - flagPct) > 6.4), '今天附近的日期讓位給旗子');
   assert.ok(byClass(axis, 'is-week').length >= 8, '每週一一條線');
   assert.strictEqual(byClass(axis, 'wwh-today-flag').length, 1);
   assert.ok(byClass(view.root, 'wwh-today-line').length >= 3, '每塊一條今天線');
@@ -593,4 +592,315 @@ test('要你確認的（裁定 32）：一題一張卡', () => {
   const cards = byClass(view.rightEl, 'wwh-confirm');
   assert.strictEqual(cards.length, 2);
   assert.ok(cards.every((c) => c.classList.contains('wwh-paper')), '白底淡陰影的卡');
+});
+
+// ---- 裁定 34：每個答案點了都有反應；待辦白卡；版面寬度；時間軸縮放與左右捲動 ----
+
+const fs = require('node:fs');
+const path = require('node:path');
+const CSS = fs.readFileSync(path.join(__dirname, '..', '..', 'obsidian', 'styles.css'), 'utf8');
+
+function confirmHome(results) {
+  const raw = sample();
+  raw.confirm = [{ key: 'q1', text: '12/3 王先生簽約過了，完成了嗎？', results }];
+  return raw;
+}
+
+test('要你確認的（裁定 34）：答案分三種——有 argv 的跑、有 argv 又要填的先填、只能在對話做的複製一句話', () => {
+  assert.strictEqual(lib.answerKind({ label: '是', argv: ['a'], fill: null }), 'run');
+  assert.strictEqual(lib.answerKind({ label: '先放著', argv: ['asks', 'set-aside', 'k'], fill: null }), 'run');
+  assert.strictEqual(lib.answerKind({ label: '改到某天', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD' } }), 'fill');
+  assert.strictEqual(lib.answerKind({ label: '名字改成別的', argv: null, fill: { name: '新名字', rule: 'x' } }), 'chat', '兩條指令的（有 fill 但 argv 是 null）也是對話');
+  assert.strictEqual(lib.answerKind({ label: '照你改的做', argv: null, fill: null }), 'chat');
+  assert.strictEqual(lib.answerKind(null), 'chat');
+});
+
+test('要你確認的（裁定 34）：只能在對話做的答案，字旁有小對話圖示；點了呼叫 chooseResult（複製一句話）', () => {
+  const chosen = [];
+  const raw = confirmHome([{ label: '是', argv: ['x'], fill: null }, { label: '照你改的做', argv: null, fill: null }]);
+  const { view } = viewOf(raw, { chooseResult: (c, r) => chosen.push(r.label) });
+  const answers = byClass(view.rightEl, 'wwh-answer');
+  assert.deepStrictEqual(answers.map((a) => a.classList.contains('is-chat')), [false, true]);
+  assert.strictEqual(byClass(answers[0], 'wwh-answer-chat').length, 0);
+  assert.strictEqual(byClass(answers[1], 'wwh-answer-chat').length, 1);
+  assert.strictEqual(byTag(answers[1], 'svg').length, 1, '小對話圖示');
+  assert.strictEqual(answers[1].textContent, '照你改的做', '圖示不佔字');
+  answers[1].fire('click');
+  assert.deepStrictEqual(chosen, ['照你改的做']);
+});
+
+test('要你確認的（裁定 34）：要填的答案點了在卡上展開小輸入，日期用日期選擇、名字用文字框，Enter 才跑、Esc 取消', () => {
+  const chosen = [];
+  const raw = confirmHome([
+    { label: '還沒，改到某天', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD' } },
+    { label: '跟已有的另一個是同一個', argv: ['entity', 'merge', '王先生', '--into', '{同一個}'], fill: { name: '同一個', rule: '一個名字' } },
+    { label: '不用了', argv: ['agenda', 'cancel', 'a-1'], fill: null },
+  ]);
+  const { view, plugin } = viewOf(raw, { chooseResult: (c, r, v) => chosen.push([r.label, v]) });
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0, '沒點之前不展開');
+  byClass(view.rightEl, 'wwh-answer')[0].fire('click');
+  const input = byClass(view.rightEl, 'wwh-fill-input')[0];
+  assert.strictEqual(input.attrs.type, 'date');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill-label')[0].textContent, '新日期：');
+  assert.ok(byClass(view.rightEl, 'wwh-answer')[0].classList.contains('is-on'));
+  // 沒填就按 Enter：不跑
+  input.value = '';
+  input.fire('keydown', { key: 'Enter', target: input });
+  assert.deepStrictEqual(chosen, []);
+  // 填好按 Enter：跑，帶著填的值，展開收起
+  input.value = '2026-11-20';
+  input.fire('keydown', { key: 'Enter', target: input });
+  assert.deepStrictEqual(chosen, [['還沒，改到某天', '2026-11-20']]);
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0);
+  assert.strictEqual(plugin.ui.confirmFill, null);
+  // 名字：文字框；注音選字中的 Enter 不跑；Esc 取消
+  byClass(view.rightEl, 'wwh-answer')[1].fire('click');
+  const text = byClass(view.rightEl, 'wwh-fill-input')[0];
+  assert.strictEqual(text.attrs.type, 'text');
+  text.value = '王大明';
+  text.fire('compositionstart');
+  text.fire('keydown', { key: 'Enter', target: text });
+  assert.strictEqual(chosen.length, 1, '選字中不跑');
+  text.fire('compositionend');
+  text.fire('keydown', { key: 'Escape', target: text });
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0, 'Esc 收起');
+  assert.strictEqual(chosen.length, 1);
+  // 沒有 fill 的照舊一點就跑
+  byClass(view.rightEl, 'wwh-answer')[2].fire('click');
+  assert.deepStrictEqual(chosen[1], ['不用了', undefined]);
+});
+
+test('要你確認的（裁定 34）：填空的小輸入在重畫之後還在（記著填到一半的字），換一題就收起', () => {
+  const raw = confirmHome([{ label: '改到某天', argv: ['a', '{d}'], fill: { name: 'd', rule: 'YYYY-MM-DD' } }]);
+  const { view, plugin } = viewOf(raw, {});
+  byClass(view.rightEl, 'wwh-answer')[0].fire('click');
+  const input = byClass(view.rightEl, 'wwh-fill-input')[0];
+  input.value = '2026-12-01';
+  input.fire('input', { target: input });
+  view.render();
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill-input')[0].value, '2026-12-01');
+  plugin.home = lib.normalizeHome(Object.assign(sample(), { confirm: [{ key: 'other', text: '別題', results: [{ label: 'x', argv: null }] }] }));
+  view.render();
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0);
+});
+
+test('要你確認的（裁定 34）：fillDecision 與 chatPhrase', () => {
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Enter', value: ' 王大明 ' }), { run: true, value: '王大明' });
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Enter', value: '  ' }), {});
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Enter', value: 'x', isComposing: true }), {});
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Enter', value: 'x', keyCode: 229 }), {});
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Enter', value: '明天', type: 'date' }), {}, '日期格式不對不跑');
+  assert.deepStrictEqual(lib.fillDecision({ key: 'Escape' }), { cancel: true });
+  assert.strictEqual(lib.fillInputType({ name: '新日期', rule: 'YYYY-MM-DD' }), 'date');
+  assert.strictEqual(lib.fillInputType({ name: '新名字', rule: '一個名字' }), 'text');
+  assert.strictEqual(lib.chatPhrase({ text: '這題？' }, { label: '照你改的做' }), '關於「這題？」，我選「照你改的做」');
+  assert.strictEqual(lib.chatPhrase({ text: '這題？' }, { label: '名字改成別的', fill: { name: '新名字' } }), '關於「這題？」，我選「名字改成別的」，新名字是：');
+});
+
+test('版面（裁定 34）：待辦整區也是白卡；版面放寬到 1600px；答案間距約 20px；兩欄空隙縮小', () => {
+  const { view } = viewOf();
+  assert.ok(view.leftEl.classList.contains('wwh-paper'), '待辦整區白卡淡陰影');
+  assert.match(CSS, /\.wwh-root > \* \{[^}]*max-width: 1600px/);
+  assert.match(CSS, /\.wwh-confirm-buttons \{[^}]*gap: 8px 20px/);
+  assert.match(CSS, /\.wwh-cols \{[^}]*gap: 28px 20px/);
+});
+
+// ---- 時間軸縮放與左右捲動 ----
+
+test('時間軸（裁定 34）：縮放四段、預設三個月；壞值退回預設', () => {
+  assert.deepStrictEqual(lib.TIMELINE_ZOOMS.map((z) => [z.days, z.label]), [[14, '兩週'], [30, '一個月'], [90, '三個月'], [180, '半年']]);
+  assert.strictEqual(lib.DEFAULT_ZOOM, 90);
+  assert.strictEqual(lib.zoomOf(30), 30);
+  assert.strictEqual(lib.zoomOf('180'), 180);
+  assert.strictEqual(lib.zoomOf(7), 90);
+  assert.strictEqual(lib.zoomOf(undefined), 90);
+  assert.strictEqual(lib.defaultUi().timelineDays, 90);
+});
+
+test('時間軸（裁定 34）：日期刻度跟著縮放——兩週內每天，其他每週一；點的字寬跟著畫面', () => {
+  const tl = { from: '2026-10-23', to: '2026-12-31', rows: [] };
+  const w = lib.layoutTimeline(tl, { today: '2026-10-30', visibleDays: 90 });
+  const d = lib.layoutTimeline(tl, { today: '2026-10-30', visibleDays: 14 });
+  assert.ok(w.ticks.every((t) => t.kind !== 'day') && w.ticks.some((t) => t.kind === 'week'));
+  assert.strictEqual(d.ticks.filter((t) => t.kind === 'day').length, 70, '每天一格（1 號也有日期，月份另標）');
+  assert.strictEqual(d.ticks.filter((t) => t.kind === 'week').length, 0);
+  assert.strictEqual(w.visibleDays, 90);
+  assert.ok(Math.abs(w.slidePct - (70 / 90) * 100) < 1e-9);
+  assert.ok(Math.abs(d.slidePct - (70 / 14) * 100) < 1e-9);
+  assert.strictEqual(lib.layoutTimeline(tl, { today: '2026-10-30' }).visibleDays, 70, '沒給就是整段');
+});
+
+test('時間軸（裁定 34）：起點、夾住、要不要多載', () => {
+  const n = (s) => lib.dayNumber(s);
+  assert.strictEqual(lib.defaultTimelineStart(n('2026-10-30'), 90), n('2026-10-30') - 9);
+  assert.strictEqual(lib.defaultTimelineStart(n('2026-10-30'), 14), n('2026-10-30') - 1);
+  const from = n('2026-10-23');
+  const to = n('2026-12-31');
+  assert.strictEqual(lib.clampTimelineStart(from - 50, 30, from, to), from);
+  assert.strictEqual(lib.clampTimelineStart(to + 50, 30, from, to), to + 1 - 30);
+  assert.strictEqual(lib.clampTimelineStart(from + 3, 200, from, to), from, '範圍比畫面窄就貼著起點');
+  const today = n('2026-10-30');
+  assert.strictEqual(lib.wantedTimelineRange(from + 20, 30, from, to, today, true), null, '離兩邊都夠遠');
+  const right = lib.wantedTimelineRange(to - 40, 30, from, to, today, true);
+  assert.deepStrictEqual(right, { from: '2026-10-23', to: lib.dayToIso(to - 40 + 60) });
+  const left = lib.wantedTimelineRange(from + 5, 30, from, to, today, true);
+  assert.deepStrictEqual(left, { from: lib.dayToIso(from + 5 - 30), to: '2026-12-31' });
+  assert.strictEqual(lib.wantedTimelineRange(from, 30, from, to, today, false), null, '沒捲過不看左邊');
+  assert.strictEqual(lib.wantedTimelineRange(today + 725, 30, from, today + 730, today, true), null, '載到上限就不再載');
+  assert.strictEqual(lib.initialTimelineRange(30, '2026-10-30'), null);
+  assert.deepStrictEqual(lib.initialTimelineRange(90, '2026-10-30'), { from: '2026-10-23', to: lib.dayToIso(n('2026-10-30') + 135) });
+  assert.deepStrictEqual(lib.homeArgs(['f-1'], { from: '2026-10-23', to: '2027-03-01' }), ['home', '--json', '--opened', 'f-1', '--from', '2026-10-23', '--to', '2027-03-01']);
+  assert.deepStrictEqual(lib.homeArgs([], null), ['home', '--json']);
+});
+
+test('時間軸（裁定 34）：滾輪橫著捲只認觸控板左右或 Shift＋滾輪，直著滾交給頁面', () => {
+  assert.strictEqual(lib.horizontalWheel({ deltaX: 40, deltaY: 3 }), 40);
+  assert.strictEqual(lib.horizontalWheel({ deltaX: 0, deltaY: 60, shiftKey: true }), 60);
+  assert.strictEqual(lib.horizontalWheel({ deltaX: 0, deltaY: 60 }), 0);
+  assert.strictEqual(lib.horizontalWheel({ deltaX: 2, deltaY: 60 }), 0);
+  assert.strictEqual(lib.horizontalWheel({ deltaX: 0, deltaY: 3, shiftKey: true, deltaMode: 1 }), 48);
+});
+
+test('時間軸（裁定 34）：軸、每塊的記號與背景層都放在一層會平移的 slide 裡；左欄不動', () => {
+  const { view } = viewOf();
+  view.setAllRows(false);
+  const slides = byClass(view.timelineEl, 'wwh-slide');
+  assert.ok(slides.length >= 1 + 3 + 9, '軸一個、每塊的背景層與每件的記號各一個');
+  const w = (70 / 90) * 100;
+  assert.ok(slides.every((s) => Math.abs(parseFloat(s.styleMap.width) - w) < 1e-6), '寬度是整段除以畫面看的天數');
+  for (const left of byClass(view.timelineEl, 'wwh-cell-left')) assert.strictEqual(byClass(left, 'wwh-slide').length, 0, '左欄不在 slide 裡');
+  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
+  assert.strictEqual(Math.abs(parseFloat(gantt.styleMap['--wwh-tx'])), 0, '預設起點是起日，沒平移');
+});
+
+test('時間軸（裁定 34）：Shift＋滾輪、觸控板左右都會捲，軸與每一塊一起平移（只改一個變數，不重畫），夾在已載入的範圍內', () => {
+  const { view, plugin } = viewOf(null, { ui: Object.assign(lib.defaultUi(), { timelineDays: 30 }) }); // 載到的 70 天比畫面看的長才捲得動
+  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
+  const before = view.timelineEl.children.length;
+  let prevented = 0;
+  gantt.fire('wheel', { deltaX: 0, deltaY: 100, shiftKey: true, preventDefault: () => prevented++ });
+  assert.strictEqual(prevented, 1);
+  assert.ok(typeof plugin.ui.tlStart === 'number');
+  const tx = parseFloat(gantt.styleMap['--wwh-tx']);
+  assert.ok(tx < 0, '往右捲，軸往左平移');
+  gantt.fire('wheel', { deltaX: 100, deltaY: 0, preventDefault: () => prevented++ });
+  assert.ok(parseFloat(gantt.styleMap['--wwh-tx']) < tx);
+  assert.strictEqual(view.timelineEl.children.length, before, '沒重畫');
+  gantt.fire('wheel', { deltaX: 0, deltaY: 100, preventDefault: () => prevented++ });
+  assert.strictEqual(prevented, 2, '直著滾不攔');
+  gantt.fire('wheel', { deltaX: -99999, deltaY: 0, preventDefault() {} });
+  assert.strictEqual(plugin.ui.tlStart, lib.dayNumber('2026-10-23'), '往左捲回去不超過起日');
+  gantt.fire('wheel', { deltaX: 99999, deltaY: 0, preventDefault() {} });
+  assert.strictEqual(plugin.ui.tlStart, lib.dayNumber('2026-12-31') + 1 - 30, '往右捲到底，最後一天剛好貼右邊');
+});
+
+test('時間軸（裁定 34）：按住拖背景捲；拖在記號或左欄上不算；拖完那下 click 吃掉', () => {
+  const { view, plugin } = viewOf(null, { ui: Object.assign(lib.defaultUi(), { timelineDays: 30 }) });
+  view.setAllRows(false);
+  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
+  const left = byClass(view.timelineEl, 'wwh-cell-left')[0];
+  const mark = byClass(view.timelineEl, 'wwh-mark')[0];
+  gantt.fire('mousedown', { target: mark, clientX: 500, button: 0 });
+  view.contentEl.fire('mousemove', { clientX: 300 });
+  assert.strictEqual(plugin.ui.tlStart, null, '記號上不拖');
+  gantt.fire('mousedown', { target: left, clientX: 500, button: 0 });
+  view.contentEl.fire('mousemove', { clientX: 300 });
+  assert.strictEqual(plugin.ui.tlStart, null, '左欄上不拖');
+  const bg = byClass(view.timelineEl, 'wwh-cell-track')[0];
+  gantt.fire('mousedown', { target: bg, clientX: 500, button: 0 });
+  view.contentEl.fire('mousemove', { clientX: 498 });
+  assert.strictEqual(plugin.ui.tlStart, null, '動不到 4px 不算拖');
+  view.contentEl.fire('mousemove', { clientX: 350 });
+  const s1 = plugin.ui.tlStart;
+  assert.ok(typeof s1 === 'number' && s1 > lib.dayNumber('2026-10-23'), '往左拖 = 往後看');
+  assert.ok(gantt.classList.contains('is-dragging'));
+  view.contentEl.fire('mouseup');
+  assert.ok(!gantt.classList.contains('is-dragging'));
+  let stopped = 0;
+  gantt.fire('click', { stopPropagation: () => stopped++ });
+  assert.strictEqual(stopped, 1, '拖完那下 click 被吃掉');
+  gantt.fire('click', { stopPropagation: () => stopped++ });
+  assert.strictEqual(stopped, 1, '只吃一下');
+  view.contentEl.fire('mousemove', { clientX: 100 });
+  assert.strictEqual(plugin.ui.tlStart, s1, '放開後再動不捲');
+});
+
+test('時間軸（裁定 34）：四段縮放按下去換、記起來；「回到今天」把捲動歸零', () => {
+  const saved = [];
+  const { view, plugin } = viewOf(null, { saveTimelineDays: (d) => saved.push(d) });
+  const segs = () => byClass(view.timelineEl, 'wwh-zoom')[0];
+  assert.deepStrictEqual(byClass(segs(), 'wwh-seg').map((s) => s.textContent), ['兩週', '一個月', '三個月', '半年']);
+  assert.deepStrictEqual(byClass(segs(), 'wwh-seg').map((s) => s.classList.contains('is-on')), [false, false, true, false]);
+  byClass(segs(), 'wwh-seg')[1].fire('click');
+  assert.strictEqual(plugin.ui.timelineDays, 30);
+  assert.deepStrictEqual(saved, [30]);
+  assert.deepStrictEqual(byClass(segs(), 'wwh-seg').map((s) => s.classList.contains('is-on')), [false, true, false, false]);
+  const slide = byClass(view.timelineEl, 'wwh-slide')[0];
+  assert.ok(Math.abs(parseFloat(slide.styleMap.width) - (70 / 30) * 100) < 1e-6, '看得少，軸拉得長');
+  plugin.ui.tlStart = lib.dayNumber('2026-11-10');
+  byClass(segs(), 'wwh-seg')[0].fire('click'); // 30 -> 14
+  assert.strictEqual(plugin.ui.tlStart, lib.dayNumber('2026-11-10') + 15 - 7, '捲過的，換縮放留在看著的中間');
+  byClass(view.timelineEl, 'wwh-today-btn')[0].fire('click');
+  assert.strictEqual(plugin.ui.tlStart, null);
+  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
+  assert.ok(parseFloat(gantt.styleMap['--wwh-tx']) <= 0);
+});
+
+test('時間軸（裁定 34）：兩週的軸每天一格；釘在左邊的月份跟著捲動換', () => {
+  const { view, plugin } = viewOf();
+  byClass(byClass(view.timelineEl, 'wwh-zoom')[0], 'wwh-seg')[0].fire('click');
+  const axis = byClass(view.timelineEl, 'wwh-axis')[0];
+  assert.ok(byClass(axis, 'is-day').length >= 60, '每天一個日期（今天旁邊那幾個讓位給旗子）');
+  const pinned = byClass(axis, 'is-pinned')[0];
+  plugin.ui.tlStart = lib.dayNumber('2026-11-12');
+  view.applyScroll();
+  assert.strictEqual(pinned.textContent, '2026/11月');
+  assert.ok(!pinned.classList.contains('wwh-hidden'));
+  plugin.ui.tlStart = lib.dayNumber('2026-11-01');
+  view.applyScroll();
+  assert.ok(pinned.classList.contains('wwh-hidden'), '剛好 1 號，月份就在軸上，不用釘');
+  assert.deepStrictEqual(lib.pinnedMonth(lib.dayNumber('2026-11-30'), 14), { label: '2026/11月', hide: true }, '下個月 1 號就在左邊不遠，讓給它');
+});
+
+test('時間軸（裁定 34）：捲到快出範圍就跟 kb 要一段，記下範圍；同一段要過就不再要', async () => {
+  const asked = [];
+  const app = { vault: { adapter: { getBasePath: () => '/v' } }, workspace: { getLeavesOfType: () => [] } };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  plugin.ui = lib.defaultUi();
+  plugin.home = lib.normalizeHome(sample());
+  plugin.data = lib.sanitizeData(null);
+  plugin.runner = {
+    run: async (args) => {
+      asked.push(args);
+      return { code: 0, stdout: JSON.stringify(sample()), stderr: '' };
+    },
+  };
+  plugin.renderAll = () => {};
+  plugin.checkSelfUpdate = () => {};
+  const t = (s) => lib.dayNumber(s);
+  assert.strictEqual(plugin.ensureTimelineRange(t('2026-11-10'), 30, true), false, '離邊夠遠不要');
+  assert.strictEqual(plugin.ensureTimelineRange(t('2026-12-20'), 30, true), true);
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(asked[0].slice(asked[0].indexOf('--from')), ['--from', '2026-10-23', '--to', lib.dayToIso(t('2026-12-20') + 60)]);
+  assert.strictEqual(plugin.ensureTimelineRange(t('2026-12-20'), 30, true), false, '同一段要過了不再要（回來的範圍沒變也不會一直要）');
+  assert.deepStrictEqual(plugin.ui.tlRange, { from: '2026-10-23', to: lib.dayToIso(t('2026-12-20') + 60) });
+  await plugin.refresh();
+  assert.ok(asked[asked.length - 1].includes('--to'), '之後每次重新整理都帶著這個範圍');
+});
+
+test('時間軸（裁定 34）：縮放記在 data.json，開起來讀回；其他欄位不被洗掉', async () => {
+  assert.strictEqual(lib.sanitizeData({ opened: [], timelineDays: 30 }).timelineDays, 30);
+  assert.strictEqual(lib.sanitizeData({ opened: [], timelineDays: 7 }).timelineDays, undefined);
+  assert.deepStrictEqual(Object.keys(lib.sanitizeData({ opened: [], extra: 1 })), ['opened']);
+  const kept = lib.recordOpened({ opened: [], timelineDays: 180 }, 'f-1a2b3c4d', '2026-10-30T10:00:00');
+  assert.strictEqual(kept.timelineDays, 180, '記開過的卡不洗掉縮放');
+  const saves = [];
+  const app = { vault: { adapter: { getBasePath: () => '/v' } }, workspace: { getLeavesOfType: () => [] } };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  plugin.data = lib.sanitizeData({ opened: [{ card: 'f-1a2b3c4d', at: 't' }] });
+  plugin.saveData = async (d) => saves.push(d);
+  await plugin.saveTimelineDays(30);
+  assert.deepStrictEqual(saves[0], { opened: [{ card: 'f-1a2b3c4d', at: 't' }], timelineDays: 30 });
+  await plugin.saveTimelineDays(5);
+  assert.strictEqual(saves[1].timelineDays, 90, '壞值存預設');
 });

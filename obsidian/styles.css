@@ -86,7 +86,7 @@
 
 .wwh-root > * {
   flex: 0 0 auto;
-  max-width: 1200px;
+  max-width: 1600px;
 }
 
 .wwh-hidden {
@@ -565,6 +565,36 @@
   position: relative;
   flex: 1;
   min-width: 0;
+  overflow: clip;
+}
+
+/* 軸頭、每一件的記號、每一塊的背景層都放在一層 slide 裡：寬度 = 整段 ÷ 畫面看的天數，--wwh-tx（在 .wwh-gantt 上）平移 */
+.wwh-slide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(var(--wwh-tx, 0%));
+  will-change: transform;
+}
+
+.wwh-gantt {
+  --wwh-tx: 0%;
+}
+
+.wwh-gantt.is-dragging,
+.wwh-gantt.is-dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.wwh-gantt .wwh-cell-track,
+.wwh-gantt .wwh-axis-track {
+  cursor: grab;
+}
+
+.wwh-gantt .wwh-mark {
+  cursor: pointer;
 }
 
 .wwh-axis {
@@ -579,6 +609,7 @@
 .wwh-axis-track {
   position: relative;
   flex: 1;
+  overflow: clip;
   height: 46px;
   border-bottom: 1px solid var(--wwh-line-soft);
 }
@@ -601,6 +632,13 @@
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.wwh-tick.is-pinned {
+  left: 0;
+  z-index: 2;
+  padding-right: 6px;
+  background: var(--wwh-paper);
 }
 
 .wwh-today-flag {
@@ -707,6 +745,10 @@
 
 .wwh-overlay .wwh-grid.is-month {
   background: var(--background-modifier-border);
+}
+
+.wwh-overlay .wwh-grid.is-day {
+  opacity: 0.6;
 }
 
 .wwh-overlay .wwh-grid,
@@ -1169,7 +1211,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 28px 40px;
+  gap: 28px 20px;
 }
 
 .wwh-col-left {
@@ -1177,6 +1219,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-sizing: border-box;
+  padding: 16px 18px 12px;
 }
 
 .wwh-col-right {
@@ -1324,7 +1368,7 @@
 .wwh-confirm-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 8px 20px;
 }
 
 .wwh-answer {
@@ -1336,6 +1380,43 @@
 .wwh-answer:hover {
   color: var(--text-accent-hover);
   text-decoration: underline;
+}
+
+.wwh-answer.is-on {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.wwh-answer-chat {
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: -2px;
+  color: var(--text-faint);
+}
+
+.wwh-answer-chat svg {
+  width: 13px;
+  height: 13px;
+}
+
+.wwh-fill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.wwh-fill-label,
+.wwh-fill-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.wwh-fill-input {
+  min-width: 160px;
+  max-width: 100%;
+  font-size: 13px;
 }
 
 .wwh-other {

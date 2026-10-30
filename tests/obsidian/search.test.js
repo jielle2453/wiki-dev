@@ -314,7 +314,7 @@ test('時間軸：kb home 還沒回來（home 是空的）時不畫「全部展�
 test('時間軸：有資料時有「全部展開」那一顆', () => {
   const { view } = makeView();
   const labels = byClass(view.timelineEl, 'wwh-text-btn').map((b) => b.textContent);
-  assert.deepStrictEqual(labels, ['全部展開'], labels.join()); // 一顆，照現在的狀態換字（裁定 28）
+  assert.deepStrictEqual(labels, ['全部展開', '回到今天'], labels.join()); // 展開那顆照現在的狀態換字（裁定 28）；回到今天是裁定 34 加的
 });
 
 test('搜尋：關掉首頁分頁重開（新的 view），舊 view 還在路上的查詢回來也不蓋新的結果（請求編號放在 plugin 上，裁定 25）', async () => {

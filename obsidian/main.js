@@ -1,6 +1,6 @@
 'use strict';
 /*
- * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，裁定 32，issue #22）。
+ * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，裁定 34，issue #22）。
  *
  * 純 CommonJS、不打包、不加依賴。要算的都在 kb（kb home / kb find / kb renders apply …），這裡只負責：
  * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
@@ -225,6 +225,7 @@ function layoutTimeline(timeline, opts) {
     toN = Math.max(...all);
   }
   const span = toN - fromN + 1;
+  const visible = Number(options.visibleDays) > 0 ? Number(options.visibleDays) : span; // 畫面一次看幾天（裁定 34）；沒給就是整段
   const pct = (n) => ((n - fromN) / span) * 100;
   const minWidth = Math.max(0.5, 100 / span);
 
@@ -300,7 +301,7 @@ function layoutTimeline(timeline, opts) {
     tops.sort((a, b) => a.sort - b.sort);
     const lanes = []; // 每層最後佔到的位置（百分比）；exclusive 的層不再放別人
     const placed = [];
-    const labelReserve = 14; // 點的字大約佔的寬度（百分比）
+    const labelReserve = 14 * Math.min(1, visible / span); // 點的字大約佔的寬度（百分比，整段的）
     for (const t of tops) {
       const m = t.mark;
       const need = m.shape === 'point' ? m.leftPct + labelReserve : m.leftPct + m.widthPct;
@@ -365,19 +366,104 @@ function layoutTimeline(timeline, opts) {
     });
   }
 
-  // 軸上的刻度：每個月 1 號、每週一
+  // 軸上的刻度：每個月 1 號；畫面看兩週以內每天一格，其他每週一
   const ticks = [];
+  const everyDay = visible <= 16;
   for (let n = fromN; n <= toN; n++) {
     const d = new Date(n * 86400000);
     if (d.getUTCDate() === 1) {
       const label = d.getUTCMonth() === 0 || n === fromN ? `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}月` : `${d.getUTCMonth() + 1}月`;
       ticks.push({ date: dayToIso(n), pct: pct(n), label, kind: 'month' });
-    } else if (d.getUTCDay() === 1 && span <= 120) {
+      if (everyDay) ticks.push({ date: dayToIso(n), pct: pct(n), label: '1', kind: 'day' });
+    } else if (everyDay) {
+      ticks.push({ date: dayToIso(n), pct: pct(n), label: String(d.getUTCDate()), kind: 'day' });
+    } else if (d.getUTCDay() === 1 && span <= 800) {
       ticks.push({ date: dayToIso(n), pct: pct(n), label: String(d.getUTCDate()), kind: 'week' });
     }
   }
   const todayPct = todayN !== null && todayN >= fromN && todayN <= toN ? pct(todayN) + 0.5 * (100 / span) : null;
-  return { fromN, toN, from: dayToIso(fromN), to: dayToIso(toN), spanDays: span, ticks, todayPct, rows };
+  return { fromN, toN, from: dayToIso(fromN), to: dayToIso(toN), spanDays: span, visibleDays: visible, slidePct: (span / visible) * 100, ticks, todayPct, rows };
+}
+
+// ---- 時間軸縮放與左右捲動（裁定 34）----
+const TIMELINE_ZOOMS = [
+  { days: 14, label: '兩週' },
+  { days: 30, label: '一個月' },
+  { days: 90, label: '三個月' },
+  { days: 180, label: '半年' },
+];
+const DEFAULT_ZOOM = 90;
+const TIMELINE_LIMIT_DAYS = 730; // 往前往後最多載到今天的兩年
+
+function zoomOf(v) {
+  const n = Number(v);
+  return TIMELINE_ZOOMS.some((z) => z.days === n) ? n : DEFAULT_ZOOM;
+}
+
+/** 沒捲過的時候，畫面最左邊是哪一天：今天前面留一點點（約可見天數的一成）。 */
+function defaultTimelineStart(todayN, visible) {
+  return todayN - Math.round(visible * 0.1);
+}
+
+/** 畫面最左邊那天不能捲出已載入的範圍；範圍比畫面窄就貼著起點。 */
+function clampTimelineStart(start, visible, fromN, toN) {
+  const max = Math.max(fromN, toN + 1 - visible);
+  return Math.max(fromN, Math.min(start, max));
+}
+
+/** 捲到快出已載入的範圍（離邊不到半個畫面）時，要再載哪一段：回 {from, to}（YYYY-MM-DD）；不用載回 null。
+ * 沒捲過（explicit 為 false）不看左邊；最多載到今天前後兩年，載不下去了也回 null。 */
+function wantedTimelineRange(start, visible, fromN, toN, todayN, explicit) {
+  const margin = visible * 0.5;
+  const needLeft = explicit && start - fromN < margin;
+  const needRight = toN + 1 - (start + visible) < margin;
+  if (!needLeft && !needRight) return null;
+  const lo = todayN - TIMELINE_LIMIT_DAYS;
+  const hi = todayN + TIMELINE_LIMIT_DAYS;
+  const nf = needLeft ? Math.max(lo, Math.min(fromN, Math.floor(start - visible))) : fromN;
+  const nt = needRight ? Math.min(hi, Math.max(toN, Math.ceil(start + visible * 2))) : toN;
+  if (nf === fromN && nt === toN) return null;
+  return { from: dayToIso(nf), to: dayToIso(nt) };
+}
+
+/** 第一次叫 kb home 就帶的範圍：看一個月以內的用 kb 預設；看三個月、半年的先多載一些，免得一打開就要再叫一次。 */
+function initialTimelineRange(zoom, todayIso) {
+  const n = dayNumber(todayIso);
+  if (zoomOf(zoom) <= 30 || n === null) return null;
+  return { from: dayToIso(n - 7), to: dayToIso(n + Math.round(zoomOf(zoom) * 1.5)) };
+}
+
+/** 滾輪橫著捲的量（像素）：觸控板左右（deltaX 大過 deltaY），或按著 Shift 滾（deltaY）；直著滾回 0，交給頁面。 */
+function horizontalWheel(e) {
+  if (!e) return 0;
+  const unit = e.deltaMode === 1 ? 16 : 1;
+  const dx = (Number(e.deltaX) || 0) * unit;
+  const dy = (Number(e.deltaY) || 0) * unit;
+  if (Math.abs(dx) > Math.abs(dy)) return dx;
+  if (e.shiftKey && dy) return dy;
+  return 0;
+}
+
+/** 按住拖背景捲：在右邊的時間格上、不是記號才算；左欄、記號本身照舊是點。 */
+function dragStartsHere(target) {
+  let inTrack = false;
+  for (let el = target; el; el = el.parentNode) {
+    const c = el.classList;
+    if (!c) continue;
+    if (c.contains('wwh-gantt')) break;
+    if (c.contains('wwh-mark') || c.contains('wwh-sum-dot') || c.contains('wwh-sum-bar') || c.contains('wwh-cell-left')) return false;
+    if (c.contains('wwh-cell-track') || c.contains('wwh-axis-track') || c.contains('wwh-slide')) inTrack = true;
+  }
+  return inTrack;
+}
+
+/** 軸頭釘在左邊的月份：畫面最左邊那天所在的月（那天剛好是 1 號，或下個月 1 號就在左邊不遠處，就不用釘）。 */
+function pinnedMonth(startN, visible) {
+  const n = Math.floor(startN);
+  const d = new Date(n * 86400000);
+  const next = Math.round(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) / 86400000);
+  const hide = d.getUTCDate() === 1 || next - startN < visible * 0.12;
+  return { label: `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}月`, hide };
 }
 
 /**
@@ -534,7 +620,9 @@ function sanitizeData(raw) {
     seen.add(o.card);
     opened.push({ card: o.card, at: typeof o.at === 'string' ? o.at : '' });
   }
-  return { opened: opened.slice(0, OPENED_MAX) };
+  const out = { opened: opened.slice(0, OPENED_MAX) };
+  if (isObject(raw) && TIMELINE_ZOOMS.some((z) => z.days === raw.timelineDays)) out.timelineDays = raw.timelineDays; // 上次選的縮放（裁定 34）
+  return out;
 }
 
 /** 開過的卡編號放最前面、不重複、最多 30 筆；只存編號與時間（D-262）。 */
@@ -542,16 +630,24 @@ function recordOpened(data, card, nowIso) {
   const base = sanitizeData(data);
   if (typeof card !== 'string' || !/^f-[0-9a-f]+$/.test(card)) return base;
   const rest = base.opened.filter((o) => o.card !== card);
-  return { opened: [{ card, at: nowIso || new Date().toISOString() }, ...rest].slice(0, OPENED_MAX) };
+  return Object.assign({}, base, { opened: [{ card, at: nowIso || new Date().toISOString() }, ...rest].slice(0, OPENED_MAX) });
 }
 
 function openedIds(data) {
   return sanitizeData(data).opened.map((o) => o.card);
 }
 
-function homeArgs(ids) {
+/** 本機的今天（YYYY-MM-DD）；第一次叫 kb home 還不知道 kb 的今天時用。 */
+function localIso(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function homeArgs(ids, range) {
   const args = ['home', '--json'];
   if (ids && ids.length) args.push('--opened', ids.join(','));
+  if (range && range.from) args.push('--from', range.from);
+  if (range && range.to) args.push('--to', range.to);
   return args;
 }
 
@@ -688,6 +784,49 @@ const PROGRESS_WORD = { ongoing: '進行中', active: '進行中', closed: '結�
 
 function progressWord(p) {
   return PROGRESS_WORD[p] || null;
+}
+
+/** 「要你確認的」的一個答案點了會怎樣（裁定 34）：run = 照 argv 跑；fill = 先在卡上填空再跑；chat = 只能在對話裡做，複製一句話。 */
+function answerKind(r) {
+  if (!isObject(r) || !Array.isArray(r.argv)) return 'chat';
+  return isObject(r.fill) ? 'fill' : 'run';
+}
+
+/** 填空用什麼輸入：日期（YYYY-MM-DD）用日期選擇，其他用文字框。 */
+function fillInputType(fill) {
+  if (!isObject(fill)) return 'text';
+  return fill.rule === 'YYYY-MM-DD' || /日期$/.test(String(fill.name || '')) ? 'date' : 'text';
+}
+
+/** 填空框按鍵：Enter（注音選字中不算）且有填才跑；Escape 取消。 */
+function fillDecision(ev) {
+  if (!ev) return {};
+  if (ev.key === 'Escape') return { cancel: true };
+  if (ev.key !== 'Enter' || ev.composing || ev.isComposing || ev.keyCode === 229) return {};
+  const value = String(ev.value == null ? '' : ev.value).trim();
+  if (!value) return {};
+  if (ev.type === 'date' && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)) return {};
+  return { run: true, value };
+}
+
+/** 只能在對話裡做的答案：給她貼到對話的一句現成的話。 */
+function chatPhrase(c, r) {
+  const q = String((c && c.text) || '').trim();
+  const label = String((r && r.label) || '').trim();
+  const tail = isObject(r && r.fill) ? `，${r.fill.name || '內容'}是：` : '';
+  return q ? `關於「${q}」，我選「${label}」${tail}` : `我選「${label}」${tail}`;
+}
+
+/** 把那句話複製起來並提示；複製不了就把話顯示出來讓她自己複製。 */
+async function copyForChat(ctx, phrase) {
+  try {
+    await ctx.writeClipboard(phrase);
+    ctx.toast(`這題要跟 Claude 說，已複製「${phrase}」，貼到對話就好`);
+    return true;
+  } catch (e) {
+    ctx.toast(`這題要跟 Claude 說，沒辦法複製，請自己複製：${phrase}`);
+    return false;
+  }
 }
 
 function putFlag(args, flag, value) {
@@ -1149,6 +1288,10 @@ function openForm(app, opts) {
 function defaultUi() {
   return {
     timelineMode: 'timeline', // timeline | month
+    timelineDays: DEFAULT_ZOOM, // 時間軸一次看幾天（14／30／90／180），記在 data.json
+    tlStart: null, // 畫面最左邊是哪一天（天數）；沒捲過是 null，照今天算
+    tlRange: null, // 已經跟 kb 要過的範圍 {from, to}；捲到外面才會變大
+    confirmFill: null, // 「要你確認的」展開著填空的那個答案 {key, index, value, focus}
     month: null, // {year, month}
     rowCollapsed: {},
     todoCollapsed: {},
@@ -1177,6 +1320,7 @@ const ICON_SHAPES = {
     ['path', { d: 'm5.3 8.2 2 2 3.5-4' }],
   ],
   deadline: [['path', { d: 'M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5' }]],
+  chat: [['path', { d: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' }]],
   reminder: [
     ['path', { d: 'M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z' }],
     ['path', { d: 'M6.7 14.2a1.4 1.4 0 0 0 2.6 0' }],
@@ -1337,7 +1481,7 @@ class HomeView extends ItemView {
     this.dropdownEl = h('div', { cls: 'wwh-dropdown' });
     this.recentEl = h('div', { cls: 'wwh-dropdown wwh-recent' });
     this.timelineEl = h('section', { cls: 'wwh-section wwh-timeline-section' });
-    this.leftEl = h('div', { cls: 'wwh-col wwh-col-left' });
+    this.leftEl = h('div', { cls: 'wwh-col wwh-col-left wwh-paper' });
     this.rightEl = h('div', { cls: 'wwh-col wwh-col-right' });
     this.colsEl = h('div', { cls: 'wwh-cols' }, this.leftEl, this.rightEl);
     this.drawerEl = h('aside', { cls: 'wwh-drawer' });
@@ -1392,6 +1536,9 @@ class HomeView extends ItemView {
     this.root.appendChild(this.searchEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
+    this.contentEl.addEventListener('mousemove', (e) => this.onDragMove(e));
+    this.contentEl.addEventListener('mouseup', () => this.onDragEnd());
+    this.contentEl.addEventListener('mouseleave', () => this.onDragEnd());
     clear(this.contentEl);
     this.contentEl.appendChild(this.root);
     this.contentEl.appendChild(this.drawerEl); // 抽屜蓋在首頁右邊，不跟著首頁捲動
@@ -1629,7 +1776,123 @@ class HomeView extends ItemView {
   /** 時間軸的版面：做完、取消的不畫（裁定 30）。 */
   timelineLayout() {
     const home = this.plugin.home;
-    return layoutTimeline(openMarksOnly(home.timeline), { today: home.today });
+    return layoutTimeline(openMarksOnly(home.timeline), { today: home.today, visibleDays: zoomOf(this.plugin.ui.timelineDays) });
+  }
+
+  /** 畫面現在最左邊是哪一天、軸要平移多少（占整段的百分比）。 */
+  tlGeom(layout) {
+    const ui = this.plugin.ui;
+    const lay = layout || this.tlLayout;
+    const visible = lay.visibleDays;
+    const explicit = typeof ui.tlStart === 'number';
+    const todayN = dayNumber(this.plugin.home && this.plugin.home.today);
+    const wanted = explicit ? ui.tlStart : defaultTimelineStart(todayN === null ? lay.fromN : todayN, visible);
+    const start = clampTimelineStart(wanted, visible, lay.fromN, lay.toN);
+    return { visible, start, explicit, tx: -((start - lay.fromN) / lay.spanDays) * 100 };
+  }
+
+  /** 把捲動位置寫到軸上（只改一個 CSS 變數，不重畫），釘著的月份跟著換，再看要不要多載一段。 */
+  applyScroll() {
+    if (!this.ganttEl || !this.tlLayout) return;
+    const g = this.tlGeom();
+    this.ganttEl.style.setProperty('--wwh-tx', `${g.tx}%`);
+    if (this.pinnedEl) {
+      const pm = pinnedMonth(g.start, g.visible);
+      this.pinnedEl.textContent = pm.label;
+      this.pinnedEl.classList.toggle('wwh-hidden', pm.hide);
+    }
+    this.queueRangeCheck();
+  }
+
+  queueRangeCheck() {
+    if (this.rangeTimer) clearTimeout(this.rangeTimer);
+    this.rangeTimer = softTimeout(() => {
+      this.rangeTimer = null;
+      this.checkRange();
+    }, 250);
+  }
+
+  checkRange() {
+    const p = this.plugin;
+    if (!this.tlLayout || !p.ensureTimelineRange) return false;
+    const g = this.tlGeom();
+    return p.ensureTimelineRange(g.start, g.visible, g.explicit);
+  }
+
+  pxPerDay() {
+    const el = this.axisTrackEl;
+    const w = (el && (el.clientWidth || el.offsetWidth)) || 700;
+    return w / this.tlLayout.visibleDays;
+  }
+
+  scrollTimelineTo(start) {
+    if (!this.tlLayout) return;
+    const lay = this.tlLayout;
+    this.plugin.ui.tlStart = clampTimelineStart(start, lay.visibleDays, lay.fromN, lay.toN);
+    this.applyScroll();
+  }
+
+  scrollTimelineByPx(px) {
+    if (!this.tlLayout || !px) return;
+    this.scrollTimelineTo(this.tlGeom().start + px / this.pxPerDay());
+  }
+
+  backToToday() {
+    this.plugin.ui.tlStart = null;
+    this.applyScroll();
+  }
+
+  setZoom(days) {
+    const ui = this.plugin.ui;
+    const old = zoomOf(ui.timelineDays);
+    const next = zoomOf(days);
+    if (next === old) return;
+    if (typeof ui.tlStart === 'number') ui.tlStart = ui.tlStart + old / 2 - next / 2; // 捲過的，留在看著的那個中間
+    ui.timelineDays = next;
+    if (this.plugin.saveTimelineDays) this.plugin.saveTimelineDays(next);
+    this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
+  }
+
+  onGanttWheel(e) {
+    const px = horizontalWheel(e);
+    if (!px) return;
+    if (e.preventDefault) e.preventDefault();
+    this.scrollTimelineByPx(px);
+  }
+
+  onGanttDown(e) {
+    if (!e || e.button || !this.tlLayout || !dragStartsHere(e.target)) return;
+    this.drag = { x0: e.clientX, start0: this.tlGeom().start, ppd: this.pxPerDay(), moved: false };
+  }
+
+  onDragMove(e) {
+    const d = this.drag;
+    if (!d) return;
+    const dx = d.x0 - e.clientX;
+    if (!d.moved && Math.abs(dx) < 4) return;
+    d.moved = true;
+    if (this.ganttEl) this.ganttEl.classList.add('is-dragging');
+    this.scrollTimelineTo(d.start0 + dx / d.ppd);
+  }
+
+  onDragEnd() {
+    const d = this.drag;
+    this.drag = null;
+    if (this.ganttEl) this.ganttEl.classList.remove('is-dragging');
+    if (d && d.moved) this.dragMoved = true; // 緊接著那下 click 不算
+  }
+
+  /** 拖完放開時瀏覽器會再補一個 click：吃掉，免得拖一下就把整塊收起來或開了一件。 */
+  onGanttClickCapture(e) {
+    if (!this.dragMoved) return;
+    this.dragMoved = false;
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (e && e.preventDefault) e.preventDefault();
+  }
+
+  /** 軸上、每塊上面的內容都放進這一層：寬度是整段除以畫面看的天數，平移由 --wwh-tx 決定。 */
+  slide(...kids) {
+    return h('div', { cls: 'wwh-slide', style: { width: `${this.tlLayout.slidePct}%` } }, ...kids);
   }
 
   renderTimeline(el) {
@@ -1644,6 +1907,18 @@ class HomeView extends ItemView {
       const allOpen = layout.rows.length > 0 && layout.rows.every((r) => !rowIsCollapsed(ui, r, todayN));
       tools.appendChild(
         h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text: allOpen ? '全部收起' : '全部展開', on: { click: () => this.setAllRows(allOpen) } }),
+      );
+    }
+    if (home && ui.timelineMode === 'timeline') {
+      tools.appendChild(h('span', { cls: 'wwh-text-btn wwh-today-btn', attrs: { role: 'button', tabindex: '0' }, text: '回到今天', on: { click: () => this.backToToday() } }));
+      tools.appendChild(
+        h(
+          'span',
+          { cls: 'wwh-toggle wwh-zoom' },
+          TIMELINE_ZOOMS.map((z) =>
+            h('span', { cls: ['wwh-seg', zoomOf(ui.timelineDays) === z.days ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, text: z.label, on: { click: () => this.setZoom(z.days) } }),
+          ),
+        ),
       );
     }
     tools.appendChild(
@@ -1667,10 +1942,14 @@ class HomeView extends ItemView {
       return;
     }
     const todayN = dayNumber(home.today);
-    const table = h('div', { cls: 'wwh-gantt' }, this.axis(layout));
+    this.tlLayout = layout;
+    const table = h('div', { cls: 'wwh-gantt', on: { wheel: (e) => this.onGanttWheel(e), mousedown: (e) => this.onGanttDown(e) } }, this.axis(layout));
+    table.addEventListener('click', (e) => this.onGanttClickCapture(e), true);
+    this.ganttEl = table;
     layout.rows.forEach((row, i) => table.appendChild(this.timelineBlock(layout, row, i, todayN)));
     el.appendChild(table);
     el.appendChild(this.legend());
+    this.applyScroll();
   }
 
   setMode(mode) {
@@ -1703,24 +1982,23 @@ class HomeView extends ItemView {
     );
   }
 
-  /** 軸頭（黏住）：上排月份、下排日期（每週一個）；今天的旗子放在日期那排，附近的日期讓位。 */
+  /** 軸頭（黏住）：上排月份、下排日期（兩週內每天，其他每週一）；今天的旗子放在日期那排，附近的日期讓位；捲走的月份釘在左邊。 */
   axis(layout) {
-    const track = h('div', { cls: 'wwh-axis-track' });
-    const months = layout.ticks.filter((t) => t.kind === 'month');
-    if (!months.length || months[0].pct > 8) {
-      const d = new Date(layout.fromN * 86400000);
-      track.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: '0%' }, text: `${d.getUTCMonth() + 1}月` }));
-    }
+    const sl = this.slide();
+    const near = Math.max(0.6, layout.visibleDays * 0.05) * (100 / layout.spanDays);
     for (const t of layout.ticks) {
-      if (t.kind === 'month') track.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: `${t.pct}%` }, text: t.label }));
+      if (t.kind === 'month') sl.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: `${t.pct}%` }, text: t.label }));
       else {
-        track.appendChild(h('i', { cls: 'wwh-grid is-week', style: { left: `${t.pct}%` } }));
-        if (layout.todayPct === null || Math.abs(t.pct - layout.todayPct) > 4.5) {
-          track.appendChild(h('span', { cls: 'wwh-tick is-day', style: { left: `${t.pct}%` }, text: t.label }));
+        sl.appendChild(h('i', { cls: ['wwh-grid', `is-${t.kind}`], style: { left: `${t.pct}%` } }));
+        if (layout.todayPct === null || Math.abs(t.pct - layout.todayPct) > near) {
+          sl.appendChild(h('span', { cls: 'wwh-tick is-day', style: { left: `${t.pct}%` }, text: t.label }));
         }
       }
     }
-    if (layout.todayPct !== null) track.appendChild(h('span', { cls: 'wwh-today-flag', style: { left: `${layout.todayPct}%` }, text: '今天' }));
+    if (layout.todayPct !== null) sl.appendChild(h('span', { cls: 'wwh-today-flag', style: { left: `${layout.todayPct}%` }, text: '今天' }));
+    this.pinnedEl = h('span', { cls: 'wwh-tick is-month is-pinned' });
+    const track = h('div', { cls: 'wwh-axis-track' }, sl, this.pinnedEl);
+    this.axisTrackEl = track;
     return h('div', { cls: 'wwh-axis' }, h('div', { cls: 'wwh-cell-left' }), track);
   }
 
@@ -1748,7 +2026,7 @@ class HomeView extends ItemView {
           : null,
       ),
     );
-    const headLine = h('div', { cls: 'wwh-line wwh-head-line', on: { click: toggle } }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.summary(row, todayN) : null));
+    const headLine = h('div', { cls: 'wwh-line wwh-head-line', on: { click: toggle } }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.slide(this.summary(row, todayN)) : null));
     const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
     if (!collapsed) {
       const rows = h('div', { cls: 'wwh-rows' });
@@ -1782,14 +2060,16 @@ class HomeView extends ItemView {
 
   /** 每塊的背景層：週線、暫停、連線、今天線；蓋在右邊那欄上、不吃點擊。 */
   overlay(layout, row, collapsed) {
-    const lay = h('div', { cls: 'wwh-overlay' });
+    const outer = h('div', { cls: 'wwh-overlay' });
+    const lay = this.slide();
+    outer.appendChild(lay);
     const rows = collapsed ? 0 : row.marks.length;
     const height = HEAD_H + rows * ROW_H;
     for (const t of layout.ticks) lay.appendChild(h('i', { cls: ['wwh-grid', `is-${t.kind}`], style: { left: `${t.pct}%` } }));
     for (const p of row.pauses) lay.appendChild(h('i', { cls: 'wwh-pause', style: { left: `${p.leftPct}%`, width: `${p.widthPct}%` } }));
     if (!collapsed && row.links.length) lay.appendChild(this.linksSvg(row, height));
     if (layout.todayPct !== null) lay.appendChild(h('i', { cls: 'wwh-today-line', style: { left: `${layout.todayPct}%` } }));
-    return lay;
+    return outer;
   }
 
   linksSvg(row, height) {
@@ -1820,11 +2100,12 @@ class HomeView extends ItemView {
       h('span', { cls: ['wwh-kind-ico', m.kind ? `kind-${m.kind}` : ''] }, kind ? icon(kind, 15, 1.5) : null),
       h('span', { cls: 'wwh-mark-lines' }, h('span', { cls: 'wwh-mark-text', text: m.text }), h('span', { cls: 'wwh-mark-when', text: markWhen(m, todayN) })),
     );
-    const track = h('div', { cls: 'wwh-cell-track' });
+    const sl = this.slide();
+    const track = h('div', { cls: 'wwh-cell-track' }, sl);
     if (m.baseline) {
-      track.appendChild(h('i', { cls: 'wwh-baseline', style: { left: `${m.baseline.leftPct}%`, width: `${m.baseline.widthPct}%` }, title: '原定' }));
+      sl.appendChild(h('i', { cls: 'wwh-baseline', style: { left: `${m.baseline.leftPct}%`, width: `${m.baseline.widthPct}%` }, title: '原定' }));
     }
-    track.appendChild(this.markEl(m, state, kind, onClick));
+    sl.appendChild(this.markEl(m, state, kind, onClick));
     return h('div', { cls: ['wwh-line', 'wwh-mark-line', ...state] }, left, track);
   }
 
@@ -2001,17 +2282,55 @@ class HomeView extends ItemView {
     el.appendChild(sure);
     if (!p.home) return;
     if (!p.home.confirm.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
+    let toFocus = null;
     for (const c of p.home.confirm) {
       const card = h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
       const answers = h('div', { cls: 'wwh-confirm-buttons' });
-      asArray(c.results)
-        .filter(isObject)
-        .forEach((r) => {
-          answers.appendChild(h('span', { cls: 'wwh-answer', attrs: { role: 'button', tabindex: '0' }, text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
-        });
+      const results = asArray(c.results).filter(isObject);
+      const fillState = p.ui.confirmFill && p.ui.confirmFill.key === c.key ? p.ui.confirmFill : null;
+      results.forEach((r, i) => {
+        const kind = answerKind(r);
+        const on = !!fillState && fillState.index === i && kind === 'fill';
+        const click = () => {
+          if (kind !== 'fill') {
+            p.ui.confirmFill = null;
+            p.chooseResult(c, r);
+            return;
+          }
+          p.ui.confirmFill = on ? null : { key: c.key, index: i, value: '', focus: true };
+          this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+        };
+        answers.appendChild(
+          h(
+            'span',
+            { cls: ['wwh-answer', kind === 'chat' ? 'is-chat' : '', on ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, title: kind === 'chat' ? '這題要在對話裡說，點了會複製一句話' : null, on: { click } },
+            r.label || '',
+            kind === 'chat' ? h('span', { cls: 'wwh-answer-chat' }, icon('chat', 13, 1.5)) : null,
+          ),
+        );
+      });
       card.appendChild(answers);
+      if (fillState && results[fillState.index] && answerKind(results[fillState.index]) === 'fill') {
+        const r = results[fillState.index];
+        const input = this.fillInput(c, r, fillState);
+        card.appendChild(
+          h(
+            'div',
+            { cls: 'wwh-fill' },
+            h('span', { cls: 'wwh-fill-label', text: r.fill.name ? `${r.fill.name}：` : '' }),
+            input,
+            h('span', { cls: 'wwh-fill-hint', text: '按 Enter' }),
+            h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text: '取消', on: { click: () => this.closeFill() } }),
+          ),
+        );
+        if (fillState.focus) {
+          fillState.focus = false;
+          toFocus = input;
+        }
+      }
       sure.appendChild(card);
     }
+    if (toFocus && toFocus.focus) toFocus.focus();
     const open = p.ui.othersOpen;
     const others = h('section', { cls: 'wwh-block wwh-block-others' });
     others.appendChild(
@@ -2036,6 +2355,43 @@ class HomeView extends ItemView {
     if (!open) return;
     if (!p.home.others.length) others.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     for (const o of p.home.others) others.appendChild(h('div', { cls: 'wwh-other' }, h('span', { cls: 'wwh-other-text', text: o.text || '' })));
+  }
+
+  /** 卡上展開的小輸入：日期用日期選擇、其他用文字框；Enter 才跑（注音選字中不算），Esc 取消。 */
+  fillInput(c, r, state) {
+    const type = fillInputType(r.fill);
+    let composing = false;
+    return h('input', {
+      cls: 'wwh-fill-input',
+      attrs: { type, placeholder: type === 'date' ? '' : r.fill.name || '' },
+      value: state.value || '',
+      on: {
+        compositionstart: () => {
+          composing = true;
+        },
+        compositionend: () => {
+          composing = false;
+        },
+        input: (e) => {
+          state.value = e && e.target ? e.target.value : state.value;
+        },
+        keydown: (e) => {
+          const d = fillDecision({ key: e.key, isComposing: e.isComposing, keyCode: e.keyCode, composing, value: e.target ? e.target.value : state.value, type });
+          if (d.cancel) this.closeFill();
+          else if (d.run) {
+            if (e.preventDefault) e.preventDefault();
+            this.plugin.ui.confirmFill = null;
+            this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+            this.plugin.chooseResult(c, r, d.value);
+          }
+        },
+      },
+    });
+  }
+
+  closeFill() {
+    this.plugin.ui.confirmFill = null;
+    this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
   }
 
   // ---- 實體總覽（右側抽屜）----
@@ -2142,6 +2498,7 @@ class WikiWithWillyPlugin extends Plugin {
     this.loadedVersion = this.manifest && this.manifest.version;
     this.vaultPath = this.basePath();
     this.data = sanitizeData(await this.loadData());
+    this.ui.timelineDays = zoomOf(this.data.timelineDays);
     this.kbInfo = findKb({ vaultPath: this.vaultPath });
     this.runner = null;
     if (this.kbInfo.ok) {
@@ -2287,7 +2644,8 @@ class WikiWithWillyPlugin extends Plugin {
     try {
       do {
         this.refreshAgain = false;
-        const res = await this.runner.run(homeArgs(openedIds(this.data)));
+        const range = this.ui.tlRange || initialTimelineRange(this.ui.timelineDays, localIso(new Date()));
+        const res = await this.runner.run(homeArgs(openedIds(this.data), range));
         const c = classify(res);
         if (c.kind === 'ok') {
           const j = parseJson(res.stdout);
@@ -2366,6 +2724,33 @@ class WikiWithWillyPlugin extends Plugin {
     };
   }
 
+  /** 記住時間軸上次選的縮放（data.json）。 */
+  async saveTimelineDays(days) {
+    this.data = Object.assign({}, this.data, { timelineDays: zoomOf(days) });
+    try {
+      await this.saveData(this.data);
+    } catch (e) {
+      console.error('[wiki-with-willy] 存不了時間軸的縮放', e);
+    }
+  }
+
+  /** 時間軸捲到快出已載入的範圍：多跟 kb 要一段（記下範圍，之後每次重新整理都帶著）。回有沒有去要。 */
+  ensureTimelineRange(start, visible, explicit) {
+    const tl = this.home && this.home.timeline;
+    if (!tl || !this.runner) return false;
+    const from = dayNumber(tl.from);
+    const to = dayNumber(tl.to);
+    const today = dayNumber(this.home.today);
+    if (from === null || to === null || today === null) return false;
+    const want = wantedTimelineRange(start, visible, from, to, today, explicit);
+    if (!want) return false;
+    const have = this.ui.tlRange;
+    if (have && have.from === want.from && have.to === want.to) return false; // 要過了還沒回來（或回不來），不重複要
+    this.ui.tlRange = want;
+    this.refresh();
+    return true;
+  }
+
   async recordOpened(card) {
     if (!card) return;
     this.data = recordOpened(this.data, card, new Date().toISOString());
@@ -2400,20 +2785,21 @@ class WikiWithWillyPlugin extends Plugin {
     this.app.workspace.openLinkText(String(rel).replace(/\.md$/, ''), '', false);
   }
 
-  async askClaude(q) {
-    return copyAskClaude(
-      {
-        toast: (t) => this.toast(t),
-        writeClipboard: async (t) => {
-          try {
-            await navigator.clipboard.writeText(t);
-          } catch (e) {
-            require('electron').clipboard.writeText(t);
-          }
-        },
+  clipCtx() {
+    return {
+      toast: (t) => this.toast(t),
+      writeClipboard: async (t) => {
+        try {
+          await navigator.clipboard.writeText(t);
+        } catch (e) {
+          require('electron').clipboard.writeText(t);
+        }
       },
-      q,
-    );
+    };
+  }
+
+  async askClaude(q) {
+    return copyAskClaude(this.clipCtx(), q);
   }
 
   // ---- 實體抽屜 ----
@@ -2547,9 +2933,9 @@ class WikiWithWillyPlugin extends Plugin {
     return this.runAction(a);
   }
 
-  async chooseResult(item, result) {
-    if (!Array.isArray(result.argv)) {
-      this.toast(NEED_CLAUDE_TEXT);
+  async chooseResult(item, result, fillValue) {
+    if (answerKind(result) === 'chat') {
+      await copyForChat(this.clipCtx(), chatPhrase(item, result)); // 只能在對話裡做：複製一句現成的話（裁定 34）
       return null;
     }
     const argv = result.argv;
@@ -2561,8 +2947,7 @@ class WikiWithWillyPlugin extends Plugin {
       if (r && r.ok && Array.isArray(result.after)) await this.kb(result.after);
       return r;
     }
-    let fillValue;
-    if (result.fill) {
+    if (result.fill && fillValue === undefined) {
       const f = isObject(result.fill) ? result.fill : { label: String(result.fill) };
       const v = await openForm(this.app, {
         title: result.label || '請填',
@@ -2771,6 +3156,7 @@ module.exports.lib = {
   isNetworkPath,
   nativePath,
   dayNumber,
+  dayToIso,
   formatWhen,
   markSpan,
   layoutTimeline,
@@ -2818,6 +3204,22 @@ module.exports.lib = {
   icon,
   RECENT_MAX,
   MONTH_COLORS,
+  TIMELINE_ZOOMS,
+  DEFAULT_ZOOM,
+  zoomOf,
+  defaultTimelineStart,
+  clampTimelineStart,
+  wantedTimelineRange,
+  initialTimelineRange,
+  horizontalWheel,
+  dragStartsHere,
+  pinnedMonth,
+  answerKind,
+  fillInputType,
+  fillDecision,
+  chatPhrase,
+  copyForChat,
+  localIso,
   HomeView,
   FormModal,
   defaultUi,

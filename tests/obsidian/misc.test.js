@@ -167,11 +167,8 @@ function makeActionPlugin() {
   return { plugin, calls, toasts };
 }
 
-test('要你確認的：argv 是 null 的結果提示到對話跟 Claude 說；有 argv 的照做', async () => {
-  const { plugin, calls, toasts } = makeActionPlugin();
-  await plugin.chooseResult({}, { label: '跟 Claude 說', argv: null });
-  assert.strictEqual(toasts[0].t, '到對話跟 Claude 說');
-  assert.strictEqual(calls.length, 0);
+test('要你確認的：有 argv 的照做（argv 是 null 的見裁定 34 那幾個測試）', async () => {
+  const { plugin, calls } = makeActionPlugin();
   await plugin.chooseResult({}, { label: '是，合併', argv: ['entity', 'merge', '王先生', '--into', '王大明'], fill: null });
   assert.deepStrictEqual(calls[0], ['entity', 'merge', '王先生', '--into', '王大明']);
 });
@@ -282,4 +279,33 @@ test('日期顯示：11/5（週四）10:00', () => {
   assert.strictEqual(lib.formatWhen({ end: '2026-11-05', time: '10:00' }), '11/5（週四） 10:00');
   assert.strictEqual(lib.formatWhen({ date: '2026-10-30' }), '10/30（週五）');
   assert.strictEqual(lib.formatWhen({}), '');
+});
+
+test('要你確認的（裁定 34）：只能在對話做的答案，點了把一句現成的話複製起來並提示，不叫 kb', async () => {
+  const { plugin, calls, toasts } = makeActionPlugin();
+  const clip = [];
+  plugin.clipCtx = () => ({ toast: (t) => plugin.toast(t), writeClipboard: async (t) => clip.push(t) });
+  await plugin.chooseResult({ text: '「王先生」是新的名字嗎？' }, { label: '照你改的做', argv: null, fill: null });
+  assert.deepStrictEqual(clip, ['關於「「王先生」是新的名字嗎？」，我選「照你改的做」']);
+  assert.strictEqual(toasts[0].t, '這題要跟 Claude 說，已複製「關於「「王先生」是新的名字嗎？」，我選「照你改的做」」，貼到對話就好');
+  assert.strictEqual(calls.length, 0);
+  // 兩條指令的（有 fill、argv 是 null）也一樣
+  await plugin.chooseResult({ text: '名字？' }, { label: '名字改成別的', argv: null, fill: { name: '新名字', rule: 'x' } });
+  assert.strictEqual(clip[1], '關於「名字？」，我選「名字改成別的」，新名字是：');
+  assert.strictEqual(calls.length, 0);
+});
+
+test('要你確認的（裁定 34）：複製不了就把那句話顯示出來讓她自己複製', async () => {
+  const toasts = [];
+  const ok = await lib.copyForChat({ toast: (t) => toasts.push(t), writeClipboard: async () => { throw new Error('no'); } }, '那句話');
+  assert.strictEqual(ok, false);
+  assert.match(toasts[0], /請自己複製：那句話$/);
+});
+
+test('要你確認的（裁定 34）：「先放著」的 argv 照跑；要填的把填的值換進 argv', async () => {
+  const { plugin, calls } = makeActionPlugin();
+  await plugin.chooseResult({}, { label: '先放著', argv: ['asks', 'set-aside', 'inbox:x@1'], fill: null });
+  assert.deepStrictEqual(calls[0], ['asks', 'set-aside', 'inbox:x@1']);
+  await plugin.chooseResult({}, { label: '還沒，改到某天', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD' } }, '2026-11-20');
+  assert.deepStrictEqual(calls[1], ['agenda', 'edit', 'a-1', '--date', '2026-11-20']);
 });

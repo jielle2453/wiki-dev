@@ -129,10 +129,11 @@ def _in_window(it, lo, hi):
     return start <= hi
 
 
-def _timeline(vault, items, ent_data, today, card_of=None):
+def _timeline(vault, items, ent_data, today, card_of=None, lo=None, hi=None):
+    """lo、hi 是外掛捲到別段時指定的起訖（裁定 34）；沒給就是今天前 7 天到後 home_timeline_days 天。"""
     now = dt.date.fromisoformat(today)
-    lo = (now - dt.timedelta(days=7)).isoformat()
-    hi = (now + dt.timedelta(days=config.get(vault, "home_timeline_days"))).isoformat()
+    lo = lo or (now - dt.timedelta(days=7)).isoformat()
+    hi = hi or (now + dt.timedelta(days=config.get(vault, "home_timeline_days"))).isoformat()
     matters = _matter_rows(vault, ent_data)
     buckets = {}
     for it in items:
@@ -168,6 +169,9 @@ def _argv(do):
     return parts[1:] if parts[:1] == ["kb"] and len(parts) > 1 else None
 
 
+SET_ASIDE_LABELS = ("先放著", "還沒，下次再問", "之後再說")  # 這幾個答案的意思都是「這題先不管」（裁定 34）
+
+
 def _confirm(vault, asks):
     out = []
     for a in asks:
@@ -175,7 +179,10 @@ def _confirm(vault, asks):
         for r in a.get("results") or []:
             fills = r.get("fill") or []
             fill = {"name": fills[0].get("name"), "rule": fills[0].get("rule")} if fills and isinstance(fills[0], dict) else None
-            results.append({"label": r.get("label"), "argv": r["argv"] if "argv" in r else _argv(r.get("do")), "fill": fill,
+            argv = r["argv"] if "argv" in r else _argv(r.get("do"))
+            if argv is None and not r.get("do") and not fills and r.get("label") in SET_ASIDE_LABELS and not a.get("urgent") and a.get("key"):
+                argv = ["asks", "set-aside", a["key"]]  # 有時間性的不收（D-226），argv 留 null：外掛當成只能在對話說的
+            results.append({"label": r.get("label"), "argv": argv, "fill": fill,
                             "strict": bool(r.get("strict")), "note": r.get("note")})
             if r.get("after"):
                 results[-1]["after"] = r["after"]  # 這個結果做完要接著跑的指令（renders drop）
@@ -232,13 +239,14 @@ def _recent(vault, opened, sources):
     return rows
 
 
-def build(vault, opened=(), today=None, hour=None):
-    """willy-home/1。opened 是外掛記的卡編號（新到舊）；hour 是問候句挑時段用的鐘點（沒給就是現在）。"""
+def build(vault, opened=(), today=None, hour=None, lo=None, hi=None):
+    """willy-home/1。opened 是外掛記的卡編號（新到舊）；hour 是問候句挑時段用的鐘點（沒給就是現在）；
+    lo、hi 是時間軸的起訖日期（裁定 34，外掛左右捲到已載入的範圍外時用；其他區不受影響）。"""
     with _one_read():
-        return _build(vault, opened, today, dt.datetime.now().hour if hour is None else hour)
+        return _build(vault, opened, today, dt.datetime.now().hour if hour is None else hour, lo, hi)
 
 
-def _build(vault, opened, today, hour):
+def _build(vault, opened, today, hour, lo=None, hi=None):
     today = today or agenda._today()
     warnings = []
 
@@ -265,7 +273,7 @@ def _build(vault, opened, today, hour):
         "cheer": cheer(today, hour),
         "counts": {"overdue": got["overdue"], "today": got["today"], "week": got["upcoming"], "confirm": len(confirm),
                    "other": len(others)},
-        "timeline": _timeline(vault, items, ent_data, today, card_of),
+        "timeline": _timeline(vault, items, ent_data, today, card_of, lo, hi),
         "todo": todo, "confirm": confirm, "others": others,
         "recent": [] if sources is None else safe("最近", lambda: _recent(vault, list(opened or []), sources), []),
     }
