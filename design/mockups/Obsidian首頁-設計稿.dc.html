@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>首頁：通用版</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="position: relative; min-height: 1700px; background: #FFFFFF; color: #1F1F1E; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden;">
+  <div style="height: 36px; background: #EDEDEB; border-bottom: 1px solid #DCDCD8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5E5E5A;">知識庫 · 首頁</div>
+  <div style="display: flex; flex-wrap: wrap; flex-grow: 1;">
+    <nav aria-label="檔案樹" style="flex: 1 1 200px; max-width: 240px; background: #F5F5F4; border-right: 1px solid #E4E4E1; padding: 16px 12px; box-sizing: border-box; font-size: 14px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; background: #E8EEFA; color: #1A4290; font-weight: 500; text-decoration: none;">首頁</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">總目錄</a>
+      <div style="height: 10px;"></div>
+      <sc-for list="{{ treeTypes }}" as="t" hint-placeholder-count="3">
+        <div style="padding: 6px 10px; font-weight: 500;">{{ t }}</div>
+      </sc-for>
+      <div style="padding: 6px 10px; color: #3A3A37;">AI 產出</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">收件匣</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">系統</div>
+    </nav>
+
+    <main style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 56px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px; max-width: 1200px;">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <p style="margin: 0; font-size: 14px; color: #5E5E5A;">10 月 29 日 星期四</p>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 700;">{{ cheer }}</h1>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #FBEDE4; color: #A4410E; font-weight: 500;">已經過了 {{ nPast }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #E8EEFA; color: #1A4290; font-weight: 500;">今天 {{ nToday }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #F5F5F4; color: #3A3A37;">這週 {{ nWeek }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #F5F5F4; color: #3A3A37;">要你確認 {{ nAsk }}</span>
+        </div>
+      </div>
+
+      <!-- 搜尋：認得名字與別名、檔案種類、時間、標籤，剩下的字比對檔名與卡的內文；空著時給「最近」 -->
+      <div style="position: relative; max-width: 720px; z-index: 4; display: flex; flex-direction: column; gap: 6px;">
+        <label for="gq" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">找人、案子或檔案</label>
+        <input id="gq" type="search" autocomplete="off" value="{{ q }}" onChange="{{ setQ }}" onFocus="{{ openSearch }}" placeholder="找人、案子或檔案" style="font: inherit; font-size: 15px; padding: 11px 14px; border: 1px solid {{ qBd }}; border-radius: 8px; width: 100%; box-sizing: border-box;">
+        <p style="margin: 0; font-size: 12px; color: #5E5E5A;">可以打名字、檔案種類、時間，例如：{{ example }}</p>
+        <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+          <div role="region" aria-label="搜尋結果" style="position: absolute; left: 0; right: 0; top: 52px; background: #FFFFFF; border: 1px solid #E4E4E1; border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,0.14); padding: 10px 12px 12px; max-height: 560px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+            <sc-if value="{{ hasUnderstood }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 6px 8px; border-bottom: 1px solid #F0F0EE;">
+                <span style="font-size: 12px; color: #5E5E5A;">照這樣找：</span>
+                <sc-for list="{{ understood }}" as="u" hint-placeholder-count="2">
+                  <span style="font-size: 12px; padding: 1px 8px; border-radius: 10px; background: #E8EEFA; color: #1A4290;">{{ u }}</span>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-for list="{{ sections }}" as="s" hint-placeholder-count="2">
+              <div style="display: flex; flex-direction: column; padding-top: 4px;">
+                <h3 style="margin: 4px 6px 2px; font-size: 12px; font-weight: 700; color: #5E5E5A; letter-spacing: 0.04em;">{{ s.title }}</h3>
+                <sc-for list="{{ s.ents }}" as="r" hint-placeholder-count="2">
+                  <button type="button" onClick="{{ r.open }}" style="font: inherit; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 8px; min-height: 40px; border: none; border-radius: 8px; background: transparent; text-align: left; color: #1F1F1E;">
+                    <span style="font-size: 15px; font-weight: 500; color: #2457B8;">{{ r.name }}</span>
+                    <span style="font-size: 12px; color: #5E5E5A;">{{ r.note }}</span>
+                  </button>
+                </sc-for>
+                <sc-for list="{{ s.files }}" as="f" hint-placeholder-count="3">
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <button type="button" onClick="{{ f.openRaw }}" title="開原檔" style="font: inherit; flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 8px; min-height: 44px; border: none; border-radius: 8px; background: transparent; text-align: left; color: #1F1F1E;">
+                      <span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: {{ f.extBg }}; color: {{ f.extFg }};">{{ f.ext }}</span>
+                      <span style="min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+                        <span style="font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ f.title }}</span>
+                        <span style="font-size: 12px; color: #5E5E5A;">{{ f.sub }}</span>
+                      </span>
+                    </button>
+                    <button type="button" onClick="{{ f.openCard }}" aria-label="{{ f.cardLabel }}" title="看卡" style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E4E4E1; background: #FFFFFF; color: #5E5E5A; display: flex; align-items: center; justify-content: center; padding: 0;">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h3.5"/></svg>
+                    </button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 8px 6px 2px; font-size: 14px; color: #3A3A37;">沒找到「{{ q }}」。</p>
+            </sc-if>
+            <sc-if value="{{ showAsk }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 6px 2px; border-top: 1px solid #F0F0EE;">
+                <span style="font-size: 13px; color: #5E5E5A;">{{ askLead }}</span>
+                <button type="button" onClick="{{ askClaude }}" style="font: inherit; font-size: 13px; padding: 0 12px; min-height: 32px; border-radius: 6px; border: 1px solid #2457B8; background: #FFFFFF; color: #2457B8;">到對話問 Claude</button>
+              </div>
+            </sc-if>
+            <div style="display: flex; justify-content: flex-end; padding-top: 4px;">
+              <button type="button" onClick="{{ closeSearch }}" style="font: inherit; font-size: 13px; padding: 0 12px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #3A3A37;">關閉</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- 手上的〈事〉：一個一段，可收合；展開是每件細項一列 -->
+      <sc-for list="{{ matterSecs }}" as="s" hint-placeholder-count="1">
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px 14px; overflow-x: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;">
+            <h2 style="margin: 0; font-size: 17px;">{{ s.title }}</h2>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <sc-if value="{{ isGantt }}" hint-placeholder-val="{{ true }}">
+                <button type="button" onClick="{{ s.toggleAll }}" style="font: inherit; font-size: 13px; padding: 0 6px; min-height: 32px; border: none; background: transparent; color: #3A3A37; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #CFCFCA;">{{ s.allLabel }}</button>
+              </sc-if>
+              <div role="group" aria-label="怎麼看" style="display: flex; border: 1px solid #CFCFCA; border-radius: 8px; overflow: hidden;">
+                <button type="button" onClick="{{ showGantt }}" aria-pressed="{{ isGantt }}" style="font: inherit; font-size: 13px; padding: 0 16px; min-height: 36px; border: none; background: {{ gBg }}; color: {{ gFg }}; font-weight: 500;">時間軸</button>
+                <button type="button" onClick="{{ showMonth }}" aria-pressed="{{ isMonth }}" style="font: inherit; font-size: 13px; padding: 0 16px; min-height: 36px; border: none; border-left: 1px solid #CFCFCA; background: {{ mBg }}; color: {{ mFg }}; font-weight: 500;">月曆</button>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ isGantt }}" hint-placeholder-val="{{ true }}">
+            <div style="min-width: 820px; display: flex; flex-direction: column;">
+              <div style="display: flex;">
+                <div style="flex: 0 0 250px;"></div>
+                <div style="flex-grow: 1; position: relative; height: 26px; border-bottom: 1px solid #E4E4E1;">
+                  <sc-for list="{{ months }}" as="m" hint-placeholder-count="3">
+                    <span style="position: absolute; top: 4px; left: {{ m.left }}; font-size: 13px; font-weight: 500; color: #3A3A37; padding-left: 6px;">{{ m.name }}</span>
+                  </sc-for>
+                  <span style="position: absolute; top: 4px; left: {{ todayLeft }}; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: #FFFFFF; background: #A4410E; padding: 0 6px; border-radius: 4px;">今天</span>
+                </div>
+              </div>
+
+              <sc-for list="{{ s.blocks }}" as="b" hint-placeholder-count="3">
+                <div style="border-bottom: 1px solid #E4E4E1; background: {{ b.bg }};">
+                  <div style="display: flex; align-items: center;">
+                    <div style="flex: 0 0 250px; display: flex; align-items: center; gap: 4px; min-width: 0;">
+                      <button type="button" onClick="{{ b.toggle }}" aria-expanded="{{ b.open }}" style="font: inherit; flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px 4px; min-height: 48px; border: none; background: transparent; text-align: left; color: #1F1F1E;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: rotate({{ b.rot }}); flex-shrink: 0; color: #5E5E5A;"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                        <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ b.name }}</span>
+                        <span style="font-size: 12px; color: #5E5E5A; flex-shrink: 0;">{{ b.count }}</span>
+                      </button>
+                      <button type="button" onClick="{{ b.openEnt }}" aria-label="{{ b.entLabel }}" style="width: 32px; height: 32px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E4E4E1; background: #FFFFFF; color: #2457B8; display: flex; align-items: center; justify-content: center; padding: 0;">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 7.2V11M8 5v.1"/></svg>
+                      </button>
+                    </div>
+                    <div style="flex-grow: 1; position: relative; height: 48px;">
+                      <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="10">
+                        <div style="position: absolute; top: 0; bottom: 0; left: {{ w.left }}; width: 1px; background: #F0F0EE;"></div>
+                      </sc-for>
+                      <sc-if value="{{ b.collapsedView }}" hint-placeholder-val="{{ false }}">
+                        <div style="position: absolute; top: 21px; height: 6px; border-radius: 3px; left: {{ b.left }}; width: {{ b.width }}; background: #8AA7DE;"></div>
+                        <sc-for list="{{ b.dots }}" as="d" hint-placeholder-count="3">
+                          <div style="position: absolute; top: 19px; width: 10px; height: 10px; border-radius: 5px; transform: translateX(-50%); left: {{ d.left }}; background: {{ d.color }}; opacity: {{ d.op }}; border: 2px solid #FFFFFF;"></div>
+                        </sc-for>
+                      </sc-if>
+                      <div style="position: absolute; top: 0; bottom: 0; width: 2px; background: #A4410E; left: {{ todayLeft }};"></div>
+                    </div>
+                  </div>
+
+                  <sc-if value="{{ b.open }}" hint-placeholder-val="{{ true }}">
+                    <sc-for list="{{ b.rows }}" as="r" hint-placeholder-count="4">
+                      <div style="display: flex; align-items: center; opacity: {{ r.op }};">
+                        <div style="flex: 0 0 250px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 26px; box-sizing: border-box; min-width: 0;">
+                          <span style="width: 24px; height: 24px; flex-shrink: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: {{ r.iconBg }}; color: {{ r.iconFg }};">
+                            <sc-if value="{{ r.isMeet }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5.5" r="2.4"/><circle cx="11.6" cy="6.2" r="1.9"/><path d="M1.6 13.5c.4-2.4 2.2-4 4.4-4s4 1.6 4.4 4M10.6 9.4c1.9-.3 3.5.9 3.9 3.4"/></svg></sc-if>
+                            <sc-if value="{{ r.isProm }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.3 8.2 2 2 3.5-4"/></svg></sc-if>
+                            <sc-if value="{{ r.isDue }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5"/></svg></sc-if>
+                            <sc-if value="{{ r.isRem }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z"/><path d="M6.7 14.2a1.4 1.4 0 0 0 2.6 0"/></svg></sc-if>
+                            <sc-if value="{{ r.isPer }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 1.8h7M4.5 14.2h7M5 1.8c0 3.6 6 3.6 6 6.2s-6 2.6-6 6.2M11 1.8c0 3.6-6 3.6-6 6.2s6 2.6 6 6.2"/></svg></sc-if>
+                          </span>
+                          <div style="min-width: 0; display: flex; flex-direction: column;">
+                            <span style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: {{ r.deco }}; color: {{ r.textFg }};">{{ r.text }}</span>
+                            <span style="font-size: 11px; color: #5E5E5A;">{{ r.when }}</span>
+                          </div>
+                        </div>
+                        <div style="flex-grow: 1; position: relative; height: 40px;">
+                          <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="10">
+                            <div style="position: absolute; top: 0; bottom: 0; left: {{ w.left }}; width: 1px; background: #F0F0EE;"></div>
+                          </sc-for>
+                          <sc-if value="{{ r.isBar }}" hint-placeholder-val="{{ false }}">
+                            <div style="position: absolute; top: 15px; height: 10px; left: {{ r.left }}; width: {{ r.width }}; background: #8AA7DE; border-radius: {{ r.radius }};"></div>
+                          </sc-if>
+                          <sc-if value="{{ r.isMark }}" hint-placeholder-val="{{ true }}">
+                            <div style="position: absolute; top: 8px; width: 24px; height: 24px; border-radius: 12px; transform: translateX(-50%); left: {{ r.left }}; background: #FFFFFF; border: 1.5px solid {{ r.markBd }}; color: {{ r.markFg }}; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
+                              <sc-if value="{{ r.isMeet }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5.5" r="2.4"/><circle cx="11.6" cy="6.2" r="1.9"/><path d="M1.6 13.5c.4-2.4 2.2-4 4.4-4s4 1.6 4.4 4M10.6 9.4c1.9-.3 3.5.9 3.9 3.4"/></svg></sc-if>
+                              <sc-if value="{{ r.isProm }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.3 8.2 2 2 3.5-4"/></svg></sc-if>
+                              <sc-if value="{{ r.isDue }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5"/></svg></sc-if>
+                              <sc-if value="{{ r.isRem }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z"/><path d="M6.7 14.2a1.4 1.4 0 0 0 2.6 0"/></svg></sc-if>
+                            </div>
+                          </sc-if>
+                          <div style="position: absolute; top: 0; bottom: 0; width: 2px; background: #A4410E; left: {{ todayLeft }};"></div>
+                        </div>
+                      </div>
+                    </sc-for>
+                    <div style="height: 6px;"></div>
+                  </sc-if>
+                </div>
+              </sc-for>
+
+              <div style="display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 10px; font-size: 12px; color: #3A3A37;">
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5.5" r="2.4"/><circle cx="11.6" cy="6.2" r="1.9"/><path d="M1.6 13.5c.4-2.4 2.2-4 4.4-4s4 1.6 4.4 4M10.6 9.4c1.9-.3 3.5.9 3.9 3.4"/></svg>會議</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.3 8.2 2 2 3.5-4"/></svg>承諾</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5"/></svg>到期</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z"/><path d="M6.7 14.2a1.4 1.4 0 0 0 2.6 0"/></svg>提醒</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 18px; height: 8px; border-radius: 4px; background: #8AA7DE;"></span>期間</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 10px; height: 10px; border-radius: 5px; border: 1.5px solid #A4410E;"></span>過了還沒收尾</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isMonth }}" hint-placeholder-val="{{ false }}">
+            <div style="min-width: 700px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #E4E4E1; border-left: 1px solid #E4E4E1;">
+              <sc-for list="{{ dow }}" as="d" hint-placeholder-count="7">
+                <div style="padding: 6px 8px; font-size: 12px; color: #5E5E5A; border-right: 1px solid #E4E4E1; border-bottom: 1px solid #E4E4E1; background: #FAFAF9;">{{ d }}</div>
+              </sc-for>
+              <sc-for list="{{ cells }}" as="c" hint-placeholder-count="35">
+                <div style="min-height: 80px; padding: 6px; box-sizing: border-box; border-right: 1px solid #E4E4E1; border-bottom: 1px solid #E4E4E1; display: flex; flex-direction: column; gap: 3px; background: {{ c.bg }};">
+                  <span style="font-size: 12px; font-weight: {{ c.weight }}; color: {{ c.fg }};">{{ c.label }}</span>
+                  <sc-for list="{{ c.ev }}" as="e" hint-placeholder-count="1">
+                    <span style="font-size: 12px; line-height: 1.35; padding: 2px 6px; border-radius: 4px; background: {{ e.bg }}; color: {{ e.fg }}; text-decoration: {{ e.deco }};">{{ e.text }}</span>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+        <section style="flex: 3 1 460px; min-width: 0; border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;">
+          <h2 style="margin: 0; font-size: 17px;">待辦</h2>
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+            <div style="display: flex; flex-direction: column; padding-top: 12px;">
+              <h3 style="margin: 0;">
+                <button type="button" onClick="{{ g.toggleOpen }}" aria-expanded="{{ g.open }}" style="font: inherit; width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 0; min-height: 34px; border: none; background: transparent; color: {{ g.color }}; font-size: 14px; font-weight: 700; text-align: left;">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: rotate({{ g.rot }}); flex-shrink: 0;"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                  <span>{{ g.title }}</span>
+                  <span style="font-size: 12px; font-weight: 500; padding: 0 8px; border-radius: 10px; background: {{ g.cntBg }}; color: {{ g.color }};">{{ g.count }}</span>
+                  <span style="font-size: 12px; font-weight: 400; color: #5E5E5A; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ g.peek }}</span>
+                </button>
+              </h3>
+              <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+                <sc-if value="{{ g.empty }}" hint-placeholder-val="{{ false }}">
+                  <p style="margin: 0; padding: 6px 0 4px; font-size: 13px; color: #5E5E5A;">{{ g.emptyText }}</p>
+                </sc-if>
+                <sc-for list="{{ g.rows }}" as="t" hint-placeholder-count="3">
+                  <div style="border-top: 1px solid #F0F0EE; padding: 9px 0; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: flex-start; gap: 10px;">
+                      <input type="checkbox" id="{{ t.cid }}" checked="{{ t.done }}" onChange="{{ t.toggle }}" aria-label="{{ t.checkLabel }}" style="width: 20px; height: 20px; margin: 2px 0 0; flex-shrink: 0; accent-color: #2457B8;">
+                      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px;">
+                        <label for="{{ t.cid }}" style="font-size: 15px; line-height: 1.4; color: {{ t.textFg }}; text-decoration: {{ t.deco }}; cursor: pointer;">{{ t.text }}</label>
+                        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: #5E5E5A;">
+                          <span style="display: inline-flex; align-items: center; gap: 4px; color: #3A3A37;">
+                            <sc-if value="{{ t.isMeet }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5.5" r="2.4"/><circle cx="11.6" cy="6.2" r="1.9"/><path d="M1.6 13.5c.4-2.4 2.2-4 4.4-4s4 1.6 4.4 4M10.6 9.4c1.9-.3 3.5.9 3.9 3.4"/></svg></sc-if>
+                            <sc-if value="{{ t.isProm }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.3 8.2 2 2 3.5-4"/></svg></sc-if>
+                            <sc-if value="{{ t.isDue }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5"/></svg></sc-if>
+                            <sc-if value="{{ t.isRem }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z"/><path d="M6.7 14.2a1.4 1.4 0 0 0 2.6 0"/></svg></sc-if>
+                            {{ t.kind }}
+                          </span>
+                          <sc-if value="{{ t.hasEnt }}" hint-placeholder-val="{{ true }}">
+                            <button type="button" onClick="{{ t.openEnt }}" style="font: inherit; font-size: 12px; padding: 0; min-height: 24px; border: none; background: transparent; color: #2457B8; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: #C9D5EE;">{{ t.ent }}</button>
+                          </sc-if>
+                          <sc-if value="{{ t.hasRepeat }}" hint-placeholder-val="{{ false }}">
+                            <span style="display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 4px; background: #F5F5F4; color: #3A3A37;">
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7V6a2 2 0 0 1 2-2h8l-2-2M13.5 9v1a2 2 0 0 1-2 2h-8l2 2"/></svg>{{ t.repeat }}</span>
+                          </sc-if>
+                          <sc-if value="{{ t.inferred }}" hint-placeholder-val="{{ false }}">
+                            <span style="padding: 0 6px; border-radius: 4px; border: 1px dashed #8C8C87; color: #3A3A37;">推測</span>
+                            <button type="button" onClick="{{ t.confirm }}" style="font: inherit; font-size: 12px; padding: 0 8px; min-height: 24px; border-radius: 4px; border: 1px solid #C9D5EE; background: #F2F6FD; color: #1A4290;">記成確認</button>
+                          </sc-if>
+                        </div>
+                      </div>
+                      <button type="button" onClick="{{ t.openMove }}" aria-expanded="{{ t.moving }}" aria-label="{{ t.dateLabel }}" title="點一下改日期或時間" style="flex-shrink: 0; font: inherit; font-size: 12px; font-weight: 500; padding: 2px 8px; min-height: 26px; border-radius: 6px; border: 1px solid {{ t.chipBd }}; background: {{ t.chipBg }}; color: {{ t.chipFg }}; display: inline-flex; align-items: center; gap: 4px;">
+                        <span>{{ t.when }}</span>
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+                      </button>
+                    </div>
+                    <sc-if value="{{ t.moving }}" hint-placeholder-val="{{ false }}">
+                      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; margin-left: 30px; border-radius: 8px; background: #FAFAF9; border: 1px solid #E4E4E1;">
+                        <button type="button" onClick="{{ t.toTomorrow }}" style="font: inherit; font-size: 12px; padding: 0 10px; min-height: 30px; border-radius: 15px; border: 1px solid #C9D5EE; background: #F2F6FD; color: #1A4290;">明天</button>
+                        <button type="button" onClick="{{ t.toMonday }}" style="font: inherit; font-size: 12px; padding: 0 10px; min-height: 30px; border-radius: 15px; border: 1px solid #C9D5EE; background: #F2F6FD; color: #1A4290;">下週一</button>
+                        <label style="font-size: 12px; color: #5E5E5A; display: flex; align-items: center; gap: 4px;">日期<input type="date" value="{{ t.dateVal }}" onChange="{{ t.toDate }}" style="font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #CFCFCA; border-radius: 6px;"></label>
+                        <label style="font-size: 12px; color: #5E5E5A; display: flex; align-items: center; gap: 4px;">時間<input type="time" value="{{ t.timeVal }}" onChange="{{ t.toTime }}" style="font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #CFCFCA; border-radius: 6px;"></label>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </sc-for>
+          <div style="border-top: 1px solid #F0F0EE; margin-top: 10px; padding-top: 12px; display: flex; gap: 6px; flex-wrap: wrap;">
+            <label for="gNew" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">新增一件事</label>
+            <input id="gNew" type="text" value="{{ newText }}" onChange="{{ setText }}" placeholder="新增一件事" style="font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #CFCFCA; border-radius: 6px; flex: 1 1 200px; min-width: 0;">
+            <label for="gNewDate" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">日期</label>
+            <input id="gNewDate" type="date" value="{{ newDate }}" onChange="{{ setDate }}" style="font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #CFCFCA; border-radius: 6px;">
+            <button type="button" onClick="{{ addItem }}" style="font: inherit; font-size: 14px; padding: 0 16px; min-height: 38px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">新增</button>
+          </div>
+        </section>
+
+        <div style="flex: 2 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 20px;">
+          <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;">
+            <h2 style="margin: 0 0 6px; font-size: 17px;">要你確認的</h2>
+            <sc-for list="{{ asks }}" as="q" hint-placeholder-count="2">
+              <div style="padding: 10px 0; border-top: 1px solid #F0F0EE; display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-size: 15px; line-height: 1.5;">{{ q.text }}</span>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" onClick="{{ q.answer }}" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">{{ q.yes }}</button>
+                  <button type="button" onClick="{{ q.answer }}" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">{{ q.no }}</button>
+                  <button type="button" onClick="{{ q.answer }}" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: #5E5E5A;">先放著</button>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noAsks }}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 0; padding: 8px 0; font-size: 14px; color: #5E5E5A;">都確認完了。</p>
+            </sc-if>
+          </section>
+
+          <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 12px 20px; display: flex; flex-direction: column; gap: 2px;">
+            <h2 style="margin: 0;">
+              <button type="button" onClick="{{ pendG.toggleOpen }}" aria-expanded="{{ pendG.open }}" style="font: inherit; width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 0; min-height: 40px; border: none; background: transparent; color: #1F1F1E; font-size: 17px; font-weight: 700; text-align: left;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform: rotate({{ pendG.rot }}); flex-shrink: 0;"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                <span>其他要處理的</span>
+                <span style="font-size: 12px; font-weight: 500; padding: 0 8px; border-radius: 10px; background: #F5F5F4; color: #3A3A37;">{{ pendG.count }}</span>
+              </button>
+            </h2>
+            <sc-if value="{{ pendG.peekShow }}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 0 0 4px 22px; font-size: 13px; color: #5E5E5A;">{{ pendG.peek }}</p>
+            </sc-if>
+            <sc-if value="{{ pendG.open }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ pendG.empty }}" hint-placeholder-val="{{ false }}">
+                <p style="margin: 0; padding: 6px 0 4px; font-size: 13px; color: #5E5E5A;">沒有別的要處理。</p>
+              </sc-if>
+              <sc-for list="{{ pendG.rows }}" as="r" hint-placeholder-count="4">
+                <div style="border-top: 1px solid #F0F0EE; padding: 10px 0; display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-size: 15px; line-height: 1.4;">{{ r.text }}</span>
+                    <span style="font-size: 12px; color: #5E5E5A;">{{ r.hint }}</span>
+                  </div>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button type="button" onClick="{{ r.go }}" style="font: inherit; font-size: 13px; padding: 0 12px; min-height: 32px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">{{ r.goLabel }}</button>
+                    <button type="button" onClick="{{ r.dismiss }}" style="font: inherit; font-size: 13px; padding: 0 12px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #3A3A37;">不用管</button>
+                  </div>
+                </div>
+              </sc-for>
+            </sc-if>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <sc-if value="{{ hasDrawer }}" hint-placeholder-val="{{ false }}">
+    <aside aria-label="總覽" style="position: absolute; top: 36px; right: 0; bottom: 0; width: 420px; max-width: 100%; box-sizing: border-box; background: #FFFFFF; border-left: 1px solid #E4E4E1; box-shadow: -12px 0 28px rgba(0,0,0,0.08); padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; z-index: 5;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-size: 13px; color: #5E5E5A;">{{ dr.type }}</span>
+          <h2 style="margin: 0; font-size: 22px;">{{ dr.name }}</h2>
+          <sc-if value="{{ dr.hasAlias }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size: 12px; color: #5E5E5A;">也叫：{{ dr.alias }}</span>
+          </sc-if>
+        </div>
+        <button type="button" onClick="{{ closeDrawer }}" aria-label="關閉總覽" style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 8px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E; display: flex; align-items: center; justify-content: center; padding: 0;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+        </button>
+      </div>
+      <p style="margin: 0; font-size: 15px; line-height: 1.6;">{{ dr.summary }}</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        <sc-for list="{{ dr.tags }}" as="g" hint-placeholder-count="2">
+          <span style="font-size: 13px; padding: 2px 10px; border-radius: 12px; background: #F5F5F4; color: #3A3A37;">{{ g }}</span>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+        <span style="font-size: 13px; color: #5E5E5A;">接下來</span>
+        <sc-for list="{{ dr.next }}" as="n" hint-placeholder-count="2">
+          <span style="font-size: 14px;">{{ n }}</span>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+        <span style="font-size: 13px; color: #5E5E5A;">檔案 {{ dr.fileCount }} 份</span>
+        <sc-for list="{{ dr.files }}" as="f" hint-placeholder-count="3">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button type="button" onClick="{{ f.openRaw }}" title="開原檔" style="font: inherit; flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px; min-height: 44px; border: none; border-radius: 8px; background: transparent; text-align: left; color: #1F1F1E;">
+              <span style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: {{ f.extBg }}; color: {{ f.extFg }};">{{ f.ext }}</span>
+              <span style="min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+                <span style="font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ f.title }}</span>
+                <span style="font-size: 12px; color: #5E5E5A;">{{ f.sub }}</span>
+              </span>
+            </button>
+            <button type="button" onClick="{{ f.openCard }}" aria-label="{{ f.cardLabel }}" title="看卡" style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 6px; border: 1px solid #E4E4E1; background: #FFFFFF; color: #5E5E5A; display: flex; align-items: center; justify-content: center; padding: 0;">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5"/><path d="M5 5.5h6M5 8h6M5 10.5h3.5"/></svg>
+            </button>
+          </div>
+        </sc-for>
+        <sc-if value="{{ dr.noFiles }}" hint-placeholder-val="{{ false }}">
+          <span style="font-size: 14px; color: #5E5E5A;">還沒有整理好的檔。</span>
+        </sc-if>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid #F0F0EE;">
+        <span style="font-size: 13px; color: #5E5E5A;">相關</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <sc-for list="{{ dr.related }}" as="y" hint-placeholder-count="2">
+            <button type="button" onClick="{{ y.open }}" style="font: inherit; font-size: 14px; padding: 4px 12px; min-height: 32px; border-radius: 16px; border: 1px solid #C9D5EE; background: #FFFFFF; color: #2457B8;">{{ y.name }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <a href="#" style="align-self: flex-start; font-size: 14px; font-weight: 500; padding: 10px 16px; min-height: 44px; box-sizing: border-box; border-radius: 8px; background: #2457B8; color: #FFFFFF; text-decoration: none; display: flex; align-items: center;">打開綜合卡</a>
+    </aside>
+  </sc-if>
+
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); background: #1F1F1E; color: #FFFFFF; border-radius: 10px; padding: 10px 12px 10px 18px; display: flex; align-items: center; gap: 14px; font-size: 14px; box-shadow: 0 10px 28px rgba(0,0,0,0.18); z-index: 6; max-width: 90%;">
+      <span>{{ toastText }}</span>
+      <sc-if value="{{ toastUndo }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ undo }}" style="font: inherit; font-size: 14px; font-weight: 700; padding: 0 12px; min-height: 34px; border-radius: 6px; border: none; background: #3A3A37; color: #FFFFFF;">復原</button>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"preset":{"editor":"enum","options":["renovation","insurance"],"default":"renovation"},"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  presets() {
+    const E = (type, summary, extra) => Object.assign({ type, summary, tags: [], related: [], alias: [] }, extra || {});
+    const F = (title, kind, date, ent, extra) => Object.assign({ title, kind, date, ent }, extra || {});
+    return {
+      renovation: {
+        types: [{ name: '案子', cat: '事' }, { name: '業主', cat: '對象' }, { name: '廠商', cat: '對象' }],
+        example: '去年的報價、王先生 報價、延到',
+        ents: {
+          '信義王宅': E('案子', '信義區三房全室翻修，業主王先生；目前報價第三版，總價 128 萬。', { alias: ['王先生家', '信義王'], tags: ['區域 信義', '類型 全室', '階段 施工'], related: ['王先生', '順發水電', '大明木作'] }),
+          '中和林宅廚房': E('案子', '中和林宅廚房改中島。', { alias: ['林宅'], tags: ['區域 中和', '類型 廚衛', '階段 施工'], related: ['林太太', '光華系統櫃'] }),
+          '大安陳宅': E('案子', '大安區老公寓全室翻新，還在報價。', { alias: ['陳宅'], tags: ['區域 大安', '階段 報價'], related: ['陳小姐'] }),
+          '松山張宅': E('案子', '松山區新案，下週丈量。', { alias: ['張宅'], related: ['張先生'] }),
+          '王先生': E('業主', '信義王宅業主，平日晚上方便電話聯絡。', { related: ['信義王宅'] }),
+          '林太太': E('業主', '中和林宅廚房業主，2023 年做過浴室。', { related: ['中和林宅廚房'] }),
+          '陳小姐': E('業主', '大安陳宅業主，在意建材的環保標章。', { related: ['大安陳宅'] }),
+          '張先生': E('業主', '松山張宅業主，新客戶。', { related: ['松山張宅'] }),
+          '吳先生': E('業主', '永和吳宅業主，保固到 2027 年 3 月。'),
+          '周小姐': E('業主', '大安周宅浴室業主，保固中。'),
+          '順發水電': E('廠商', '合作最久的水電，每月 25 日請款。', { alias: ['順發水電行'], tags: ['工種 水電'], related: ['信義王宅'] }),
+          '大明木作': E('廠商', '信義王宅的木作。', { tags: ['工種 木作'], related: ['信義王宅'] }),
+          '光華系統櫃': E('廠商', '中和林宅廚房的系統櫃。', { tags: ['工種 系統櫃'], related: ['中和林宅廚房'] }),
+          '永信油漆': E('廠商', '永和吳宅的油漆。', { tags: ['工種 油漆'] })
+        },
+        files: [
+          F('信義王宅會議紀錄第3次', '會議紀錄', '2026-10-15', '信義王宅', { added: '2026-10-28', opened: '2026-10-29T09:12', body: '完工延到 12 月中；木作收尾；油漆色票' }),
+          F('信義王報價第三版', '報價', '2026-10-01', '信義王宅', { opened: '2026-10-28T16:40', body: '總價 1,280,000；完工 11/30' }),
+          F('信義王宅工程合約', '合約', '2026-09-10', '信義王宅'),
+          F('信義王宅會議紀錄第1次', '會議紀錄', '2026-09-12', '信義王宅'),
+          F('信義王報價第一版', '報價', '2026-08-20', '信義王宅'),
+          F('林宅系統櫃圖面', '圖面', '2026-10-20', '中和林宅廚房', { added: '2026-10-28', opened: '2026-10-28T11:05', body: '中島 尺寸 吊櫃' }),
+          F('林宅廚房報價', '報價', '2026-09-25', '中和林宅廚房'),
+          F('陳宅報價第一版', '報價', '2026-10-24', '大安陳宅', { added: '2026-10-27', body: '環保標章建材；磁磚另計' }),
+          F('陳宅丈量圖', '圖面', '2026-10-21', '大安陳宅'),
+          F('張宅需求訪談', '訪談', '2026-10-25', '松山張宅', { added: '2026-10-25' }),
+          F('順發水電 10 月請款單', '請款單', '2026-10-25', '順發水電', { added: '2026-10-26', opened: '2026-10-27T14:30' }),
+          F('吳宅保固書', '保固書', '2025-03-15', '吳先生'),
+          F('周宅浴室報價', '報價', '2025-06-02', '周小姐'),
+          F('周宅浴室工程合約', '合約', '2024-11-20', '周小姐')
+        ],
+        items: [
+          { id: 'p1', kind: '期間', start: '2026-09-12', date: '2026-12-15', text: '施工', ent: '信義王宅' },
+          { id: 'p2', kind: '期間', start: '2026-10-01', date: '2026-11-20', text: '施工', ent: '中和林宅廚房' },
+          { id: 'p3', kind: '期間', start: '2026-10-20', date: '2026-11-15', text: '報價到簽約', ent: '大安陳宅' },
+          { id: 'p4', kind: '期間', start: '2026-10-25', date: '2026-11-30', text: '報價', ent: '松山張宅' },
+          { id: 'a1', kind: '承諾', date: '2026-10-27', text: '回覆陳小姐建材選樣', ent: '大安陳宅' },
+          { id: 'a9', kind: '提醒', date: '2026-10-28', text: '回電周小姐，問浴室排水的狀況', ent: '周小姐' },
+          { id: 'a12', kind: '會議', date: '2026-10-20', text: '水電配管完成', ent: '信義王宅', done: true },
+          { id: 'a2', kind: '會議', date: '2026-10-29', time: '14:00', text: '現場會議（木作收尾）', ent: '信義王宅' },
+          { id: 'a3', kind: '會議', date: '2026-10-30', text: '系統櫃進場', ent: '中和林宅廚房' },
+          { id: 'a4', kind: '承諾', date: '2026-10-31', text: '第二版報價給陳小姐', ent: '大安陳宅' },
+          { id: 'a7', kind: '到期', date: '2026-11-02', text: '順發水電請款', ent: '順發水電', repeat: '每月', inferred: true },
+          { id: 'a5', kind: '會議', date: '2026-11-03', text: '水電驗收', ent: '信義王宅' },
+          { id: 'a6', kind: '會議', date: '2026-11-05', text: '丈量', ent: '松山張宅' },
+          { id: 'a13', kind: '承諾', date: '2026-11-12', text: '油漆色票給王先生選', ent: '信義王宅' },
+          { id: 'a10', kind: '會議', date: '2026-11-15', text: '簽約', ent: '大安陳宅' },
+          { id: 'a8', kind: '到期', date: '2026-11-20', text: '完工', ent: '中和林宅廚房', inferred: true },
+          { id: 'a11', kind: '到期', date: '2026-12-15', text: '完工', ent: '信義王宅' }
+        ],
+        asks: [
+          { text: '信義王宅的完工日：報價寫 11/30，第 3 次會議紀錄寫 12 月中，要用哪個？', yes: '用 12 月中', no: '用 11/30' },
+          { text: '「順發水電」和「順發水電行」是同一家嗎？', yes: '是同一家', no: '不是' }
+        ],
+        pending: [
+          { id: 'x1', text: '收件匣有 2 份還沒歸位', hint: '最久的放了 5 天', goLabel: '去歸位' },
+          { id: 'x2', text: '「林宅追加估價（草稿）」還沒定稿', hint: 'AI 產出 · 10/27 寫的', goLabel: '打開' },
+          { id: 'x3', text: '「信義王宅水電配置圖.pdf」打不開', hint: '有密碼；給我密碼，或說不用讀', goLabel: '給密碼' },
+          { id: 'x4', text: '3 份新檔還沒整理成卡', hint: '大約 2 分鐘', goLabel: '開始整理' }
+        ]
+      },
+      insurance: {
+        types: [{ name: '客戶', cat: '對象' }, { name: '保單', cat: '物' }, { name: '理賠', cat: '事' }],
+        example: '張筱涵 保單、今年的建議書、住院',
+        ents: {
+          '林先生': E('客戶', '在意住院日額夠不夠，小孩明年上國中。', { alias: ['林大哥'], tags: ['來源 朋友介紹'], related: ['林先生的醫療險'] }),
+          '陳太太': E('客戶', '退休規劃為主，喜歡用 LINE 聯絡。', { related: ['陳太太的年金險'] }),
+          '張小姐': E('客戶', '常出國，每次單買旅平險。', { alias: ['張筱涵'], related: ['張小姐的車險'] }),
+          '黃先生': E('客戶', '10 月住院 4 天，理賠處理中。', { related: ['黃先生住院理賠'] }),
+          '王小姐': E('客戶', '9 月底車禍，對方保險公司在談和解。', { related: ['王小姐車禍理賠'] }),
+          '劉先生': E('客戶', '壽險 2016 年買的，說過想檢視保額。', { related: ['劉先生的壽險'] }),
+          '吳媽媽': E('客戶', '老客戶，女兒也是客戶。'),
+          '林先生的醫療險': E('保單', '終身醫療，住院日額 2,000。', { tags: ['險種 醫療'], related: ['林先生'] }),
+          '張小姐的車險': E('保單', '自用車險，含第三人責任。', { tags: ['險種 車險'], related: ['張小姐'] }),
+          '陳太太的年金險': E('保單', '年繳 12 萬。', { tags: ['險種 年金'], related: ['陳太太'] }),
+          '劉先生的壽險': E('保單', '定期壽險 500 萬。', { tags: ['險種 壽險'], related: ['劉先生'] }),
+          '黃先生住院理賠': E('理賠', '住院 4 天，實支實付加日額。', { alias: ['黃先生理賠'], related: ['黃先生'] }),
+          '王小姐車禍理賠': E('理賠', '對方全責，談和解金額中。', { alias: ['王小姐理賠'], related: ['王小姐'] })
+        },
+        files: [
+          F('林先生加保建議書（第二版）', '建議書', '2026-10-27', '林先生', { added: '2026-10-27', opened: '2026-10-29T08:50', body: '住院日額補到 3000' }),
+          F('林先生需求訪談', '訪談', '2026-09-30', '林先生', { opened: '2026-10-28T10:00', body: '小孩教育金；住院日額' }),
+          F('林先生醫療險保單', '保單', '2019-11-15', '林先生的醫療險'),
+          F('張小姐旅平險報價', '報價', '2026-10-22', '張小姐', { added: '2026-10-22' }),
+          F('張小姐車險保單', '保單', '2025-11-03', '張小姐的車險'),
+          F('陳太太年金險保單', '保單', '2015-11-10', '陳太太的年金險'),
+          F('黃先生診斷書', '理賠文件', '2026-10-25', '黃先生住院理賠', { added: '2026-10-28', opened: '2026-10-28T17:20', body: '住院 4 天；出院日 10/24' }),
+          F('黃先生收據', '理賠文件', '2026-10-25', '黃先生住院理賠', { added: '2026-10-28' }),
+          F('王小姐事故證明', '理賠文件', '2026-10-03', '王小姐車禍理賠'),
+          F('王小姐和解金額試算', '試算', '2026-10-24', '王小姐車禍理賠', { opened: '2026-10-26T15:10', body: '和解金額；醫療費；工作損失' }),
+          F('劉先生壽險保單', '保單', '2016-12-20', '劉先生的壽險'),
+          F('吳媽媽意外險保單', '保單', '2024-01-05', '吳媽媽')
+        ],
+        items: [
+          { id: 'q1', kind: '期間', start: '2026-10-20', date: '2026-11-10', text: '理賠處理', ent: '黃先生住院理賠' },
+          { id: 'q2', kind: '期間', start: '2026-10-05', date: '2026-11-25', text: '理賠處理', ent: '王小姐車禍理賠' },
+          { id: 'b1', kind: '承諾', date: '2026-10-27', text: '回覆張小姐旅平險報價（日本 5 天）', ent: '張小姐' },
+          { id: 'b2', kind: '提醒', date: '2026-10-28', text: '寄理賠申請書範本給黃先生', ent: '黃先生住院理賠' },
+          { id: 'b13', kind: '會議', date: '2026-10-08', text: '跟對方保險公司第一次談', ent: '王小姐車禍理賠', done: true },
+          { id: 'b3', kind: '會議', date: '2026-10-29', time: '14:30', text: '拜訪林先生，談醫療險加保', ent: '林先生' },
+          { id: 'b7', kind: '承諾', date: '2026-10-30', text: '診斷書送件', ent: '黃先生住院理賠' },
+          { id: 'b4', kind: '會議', date: '2026-10-30', time: '19:00', text: '通訊處週會', repeat: '每週' },
+          { id: 'b6', kind: '提醒', date: '2026-11-01', text: '陳太太生日，寄卡片', ent: '陳太太', repeat: '每年', inferred: true },
+          { id: 'b5', kind: '到期', date: '2026-11-03', text: '張小姐車險到期，約續保', ent: '張小姐的車險', inferred: true },
+          { id: 'b11', kind: '承諾', date: '2026-11-04', text: '給劉先生壽險的保額檢視', ent: '劉先生' },
+          { id: 'b8', kind: '到期', date: '2026-11-10', text: '陳太太年金險繳費日', ent: '陳太太的年金險', repeat: '每年' },
+          { id: 'b12', kind: '到期', date: '2026-11-10', text: '預計核賠', ent: '黃先生住院理賠' },
+          { id: 'b9', kind: '會議', date: '2026-11-12', text: '和解會議', ent: '王小姐車禍理賠' },
+          { id: 'b10', kind: '到期', date: '2026-11-15', text: '林先生醫療險續約', ent: '林先生的醫療險' }
+        ],
+        asks: [
+          { text: '「張小姐」和「張筱涵」是同一個人嗎？', yes: '是同一個人', no: '不是' },
+          { text: '陳太太年金險的繳費日：保單寫 11/10，你上次說 11/15，要用哪個？', yes: '用 11/10', no: '用 11/15' }
+        ],
+        pending: [
+          { id: 'y1', text: '收件匣有 1 份還沒歸位', hint: '今天收的：黃先生收據照片', goLabel: '去歸位' },
+          { id: 'y2', text: '「張小姐旅平險建議書（草稿）」還沒定稿', hint: 'AI 產出 · 10/28 寫的', goLabel: '打開' },
+          { id: 'y3', text: '「劉先生保單影本.pdf」原檔不見了', hint: '搬走了還是刪了？跟我說一聲', goLabel: '找找看' },
+          { id: 'y4', text: '5 份新檔還沒整理成卡', hint: '大約 3 分鐘', goLabel: '開始整理' }
+        ]
+      }
+    };
+  }
+  renderVals() {
+    const presetKey = this.props.preset === 'insurance' ? 'insurance' : 'renovation';
+    const P = this.presets()[presetKey];
+    const st = this.state || {};
+    const items = st.items || P.items.map((x) => Object.assign({ done: false }, x));
+    const asks = st.asks || P.asks;
+    const pend = st.pend || P.pending;
+    const view = st.view || 'gantt';
+    const moving = st.moving || '';
+    const drawer = st.drawer || '';
+    const newText = st.newText || '';
+    const newDate = st.newDate || '2026-10-30';
+    const toast = st.toast || null;
+    const closed = st.closed || { week: true };
+    const matterNames = Object.keys(P.ents).filter((n) => P.types.some((t) => t.cat === '事' && t.name === P.ents[n].type));
+    const gOpen = st.gOpen || (function () { const o = {}; if (matterNames[0]) o[matterNames[0]] = true; return o; })();
+    const q = st.q || '';
+    const searchOpen = !!st.searchOpen;
+    const recentOpened = st.recentOpened || P.files.filter((f) => f.opened).map((f) => ({ title: f.title, at: Date.parse(f.opened + ':00Z') }));
+    const base = { items, asks, pend, view, moving, drawer, newText, newDate, toast, closed, gOpen, q, searchOpen, recentOpened };
+    const put = (next) => this.setState(Object.assign({}, base, next));
+
+    const DAY = 86400000, TODAY = Date.UTC(2026, 9, 29);
+    const ms = (s) => { const a = s.split('-').map(Number); return Date.UTC(a[0], a[1] - 1, a[2]); };
+    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    const WK = ['日', '一', '二', '三', '四', '五', '六'];
+    const md = (t) => { const d = new Date(t); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
+    const label = (t) => md(t) + ' 週' + WK[new Date(t).getUTCDay()];
+    const kindFlags = (k) => ({ isMeet: k === '會議', isProm: k === '承諾', isDue: k === '到期', isRem: k === '提醒', isPer: k === '期間' });
+    const catOf = {}; P.types.forEach((t) => { catOf[t.name] = t.cat; });
+    const nextRepeat = (t, r) => { const d = new Date(t); if (r === '每週') return t + 7 * DAY; if (r === '每月') { d.setUTCMonth(d.getUTCMonth() + 1); return d.getTime(); } d.setUTCFullYear(d.getUTCFullYear() + 1); return d.getTime(); };
+    const snap = (text) => ({ text, undo: true, prev: items, prevAsks: asks, prevPend: pend });
+    const withToast = (text, nextItems, extra) => put(Object.assign({ items: nextItems, toast: snap(text), moving: '' }, extra || {}));
+    const toggleKey = (k) => () => { const c = Object.assign({}, closed); c[k] = !c[k]; put({ closed: c }); };
+    const openEnt = (n) => () => put({ drawer: n, toast: null, searchOpen: false });
+
+    // 檔案列：整列點下去開原檔，右邊小圖示看卡；兩種都記進「最近」
+    const NOW = Date.parse('2026-10-29T12:00:00Z');
+    const EXT = { '報價': 'X', '試算': 'X', '合約': 'P', '圖面': 'P', '請款單': 'P', '保固書': 'P', '保單': 'P', '會議紀錄': 'W', '訪談': 'W', '建議書': 'W', '理賠文件': '圖' };
+    const EXTC = { 'W': ['#E8EEFA', '#1A4290'], 'X': ['#E6F1E8', '#2F6B3A'], 'P': ['#FBEDE4', '#A4410E'], '圖': ['#F1ECF8', '#5B3F8F'] };
+    const ago = (at) => {
+      const d0 = Date.UTC(new Date(at).getUTCFullYear(), new Date(at).getUTCMonth(), new Date(at).getUTCDate());
+      const dd = Math.round((TODAY - d0) / DAY);
+      if (NOW - at < 60000 * 5) return '剛剛';
+      if (dd === 0) return '今天 ' + new Date(at).toISOString().slice(11, 16);
+      if (dd === 1) return '昨天';
+      return md(at);
+    };
+    const touch = (f, how) => {
+      const rest = recentOpened.filter((r) => r.title !== f.title);
+      put({ recentOpened: [{ title: f.title, at: NOW }].concat(rest).slice(0, 8), toast: { text: how === 'raw' ? '用它原本的程式開了「' + f.title + '」' : '打開了「' + f.title + '」的檔案卡', undo: false } });
+    };
+    const fileRow = (f, sub) => {
+      const ext = EXT[f.kind] || 'P', c = EXTC[ext];
+      return { title: f.title, sub, ext, extBg: c[0], extFg: c[1], cardLabel: '看卡：' + f.title, openRaw: () => touch(f, 'raw'), openCard: () => touch(f, 'card') };
+    };
+    const dateText = (f) => f.date.slice(0, 4) + '/' + Number(f.date.slice(5, 7)) + '/' + Number(f.date.slice(8));
+
+    // 搜尋：先認出名字（含別名）、種類、時間、標籤，剩下的字比對檔名與卡的內文
+    const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+    const parse = (text) => {
+      let rest = norm(text);
+      const out = { ents: [], kinds: [], year: '', month: '', tags: [], free: [], chips: [] };
+      const words = [];
+      Object.keys(P.ents).forEach((n) => { words.push([n, n]); P.ents[n].alias.forEach((a) => words.push([a, n])); });
+      words.sort((a, b) => b[0].length - a[0].length).forEach((w) => {
+        const k = norm(w[0]);
+        if (k && rest.indexOf(k) >= 0) { rest = rest.split(k).join(' '); if (out.ents.indexOf(w[1]) < 0) { out.ents.push(w[1]); out.chips.push(w[1] + (w[0] !== w[1] ? '（' + w[0] + '）' : '')); } }
+      });
+      const kinds = []; P.files.forEach((f) => { if (kinds.indexOf(f.kind) < 0) kinds.push(f.kind); });
+      kinds.sort((a, b) => b.length - a.length).forEach((k) => { if (rest.indexOf(k) >= 0) { rest = rest.split(k).join(' '); out.kinds.push(k); out.chips.push('種類 ' + k); } });
+      [['今年', '2026'], ['去年', '2025'], ['前年', '2024']].forEach((p2) => { if (rest.indexOf(p2[0]) >= 0) { rest = rest.split(p2[0]).join(' '); out.year = p2[1]; } });
+      [['這個月', '2026-10'], ['上個月', '2026-09']].forEach((p2) => { if (rest.indexOf(p2[0]) >= 0) { rest = rest.split(p2[0]).join(' '); out.month = p2[1]; } });
+      const ym = rest.match(/20\d\d/); if (ym) { out.year = ym[0]; rest = rest.replace(ym[0], ' '); }
+      if (out.year) out.chips.push(out.year + ' 年');
+      if (out.month) out.chips.push(Number(out.month.slice(5)) + ' 月');
+      const tagWords = []; Object.keys(P.ents).forEach((n) => P.ents[n].tags.forEach((g) => { const w = g.split(' ').pop(); if (tagWords.indexOf(w) < 0) tagWords.push(w); }));
+      tagWords.sort((a, b) => b.length - a.length).forEach((w) => { if (rest.indexOf(norm(w)) >= 0) { rest = rest.split(norm(w)).join(' '); out.tags.push(w); out.chips.push('標籤 ' + w); } });
+      rest = rest.replace(/的|那份|那張|所有|全部|檔案|資料|有關|關於|找/g, ' ');
+      out.free = rest.split(' ').filter((s) => s.length > 0);
+      out.free.forEach((w) => out.chips.push('含「' + w + '」'));
+      return out;
+    };
+    const sections = [];
+    let understood = [];
+    const qq = norm(q);
+    if (!qq) {
+      // 最近：一份檔只出現一次，照最後一次動作排；新進來的也算一次動作
+      const ev = {};
+      recentOpened.forEach((r) => { if (!ev[r.title] || ev[r.title].at < r.at) ev[r.title] = { at: r.at, how: 'open' }; });
+      P.files.forEach((f) => { if (f.added && ms(f.added) >= TODAY - 7 * DAY) { const at = ms(f.added) + 12 * 3600000; if (!ev[f.title] || ev[f.title].at < at) ev[f.title] = { at, how: 'add' }; } });
+      const byTitle = {}; P.files.forEach((f) => { byTitle[f.title] = f; });
+      const rec = Object.keys(ev).filter((t) => byTitle[t]).sort((a, b) => ev[b].at - ev[a].at).slice(0, 5)
+        .map((t) => fileRow(byTitle[t], byTitle[t].ent + ' · ' + ago(ev[t].at) + (ev[t].how === 'open' ? '開過' : '新進來')));
+      if (rec.length) sections.push({ title: '最近', ents: [], files: rec });
+    } else {
+      const c = parse(q);
+      understood = c.chips;
+      const scope = [];
+      c.ents.forEach((n) => { scope.push(n); (P.ents[n].related || []).forEach((r) => { if (scope.indexOf(r) < 0) scope.push(r); }); });
+      const tagEnts = Object.keys(P.ents).filter((n) => c.tags.length && c.tags.every((w) => P.ents[n].tags.some((g) => g.split(' ').pop() === w)));
+      const freeEnts = c.free.length && !c.ents.length ? Object.keys(P.ents).filter((n) => c.free.every((w) => norm(n).indexOf(w) >= 0 || P.ents[n].alias.some((a) => norm(a).indexOf(w) >= 0))) : [];
+      const onlyNames = !c.kinds.length && !c.year && !c.month && !c.free.length;
+      const showEnts = (onlyNames ? c.ents : []).concat(tagEnts).concat(freeEnts);
+      P.types.forEach((t) => {
+        const ents = showEnts.filter((n, i) => showEnts.indexOf(n) === i && P.ents[n].type === t.name).map((n) => {
+          const e = P.ents[n];
+          const al = e.alias.find((a) => qq.indexOf(norm(a)) >= 0 || c.free.some((w) => norm(a).indexOf(w) >= 0));
+          return { name: n, note: al ? '也叫「' + al + '」' : t.name, open: openEnt(n) };
+        });
+        if (ents.length) sections.push({ title: t.name, ents, files: [] });
+      });
+      const freeEntHit = freeEnts.length > 0;
+      const files = P.files.filter((f) => {
+        if (c.ents.length && scope.indexOf(f.ent) < 0) return false;
+        if (c.tags.length && tagEnts.indexOf(f.ent) < 0) return false;
+        if (c.kinds.length && c.kinds.indexOf(f.kind) < 0) return false;
+        if (c.year && f.date.slice(0, 4) !== c.year) return false;
+        if (c.month && f.date.slice(0, 7) !== c.month) return false;
+        if (c.free.length) {
+          const hay = norm(f.title + f.kind + (f.body || ''));
+          const okText = c.free.every((w) => hay.indexOf(w) >= 0);
+          if (!okText && !(freeEntHit && freeEnts.indexOf(f.ent) >= 0)) return false;
+        }
+        return true;
+      }).sort((a, b) => ms(b.date) - ms(a.date)).slice(0, 8).map((f) => {
+        const hit = c.free.length && f.body && c.free.some((w) => norm(f.body).indexOf(w) >= 0) ? ' · 內文有「' + c.free.join('、') + '」' : '';
+        return fileRow(f, f.ent + ' · ' + f.kind + ' · ' + dateText(f) + hit);
+      });
+      if (files.length) sections.push({ title: '檔案', ents: [], files });
+    }
+
+    // 待辦
+    const tasks = items.filter((x) => x.kind !== '期間');
+    const rowOf = (x) => {
+      const t = ms(x.date), diff = Math.round((t - TODAY) / DAY);
+      let when = label(t), chipBg = '#F5F5F4', chipFg = '#3A3A37';
+      if (x.done) { when = '完成了'; chipBg = '#E6F1E8'; chipFg = '#2F6B3A'; }
+      else if (diff < 0) { when = '過了 ' + (-diff) + ' 天'; chipBg = '#FBEDE4'; chipFg = '#A4410E'; }
+      else if (diff === 0) { when = x.time ? x.time : '今天'; chipBg = '#E8EEFA'; chipFg = '#1A4290'; }
+      else if (diff === 1) { when = '明天' + (x.time ? ' ' + x.time : ''); }
+      const from = Math.max(t, TODAY);
+      const monday = TODAY + ((8 - new Date(TODAY).getUTCDay()) % 7 || 7) * DAY;
+      const setDate = (nt) => withToast('「' + x.text + '」改到 ' + label(nt), items.map((y) => y.id === x.id ? Object.assign({}, y, { date: iso(nt) }) : y));
+      return Object.assign({
+        cid: presetKey + '-' + x.id, text: x.text, done: x.done, when, chipBg, chipFg,
+        chipBd: moving === x.id ? chipFg : chipBg,
+        dateLabel: '改日期或時間：' + x.text + '，目前 ' + label(t) + (x.time ? ' ' + x.time : ''),
+        dateVal: x.date, timeVal: x.time || '',
+        toTime: (e) => { const v = e && e.target ? e.target.value : ''; withToast('「' + x.text + '」' + (v ? '改到 ' + v : '拿掉時間'), items.map((y) => y.id === x.id ? Object.assign({}, y, { time: v || undefined }) : y)); },
+        checkLabel: '完成：' + x.text,
+        textFg: x.done ? '#8C8C87' : '#1F1F1E', deco: x.done ? 'line-through' : 'none',
+        kind: x.kind,
+        hasEnt: !!x.ent, ent: x.ent || '', openEnt: x.ent ? openEnt(x.ent) : null,
+        hasRepeat: !!x.repeat, repeat: x.repeat || '',
+        inferred: !!x.inferred && !x.done,
+        confirm: () => withToast('記成確認了：' + x.text, items.map((y) => y.id === x.id ? Object.assign({}, y, { inferred: false }) : y)),
+        moving: moving === x.id,
+        toggle: () => {
+          if (!x.done && x.repeat) {
+            const nt = nextRepeat(t, x.repeat);
+            withToast('這次做完了，下一次排在 ' + label(nt), items.map((y) => y.id === x.id ? Object.assign({}, y, { date: iso(nt) }) : y));
+          } else {
+            withToast((x.done ? '改回沒完成：' : '完成了：') + x.text, items.map((y) => y.id === x.id ? Object.assign({}, y, { done: !y.done }) : y));
+          }
+        },
+        openMove: () => put({ moving: moving === x.id ? '' : x.id }),
+        toTomorrow: () => setDate(from + DAY),
+        toMonday: () => setDate(monday),
+        toDate: (e) => { if (e && e.target && e.target.value) setDate(ms(e.target.value)); }
+      }, kindFlags(x.kind));
+    };
+    const byDate = (a, b) => (a.done - b.done) || (ms(a.date) - ms(b.date)) || String(a.time || '99').localeCompare(String(b.time || '99'));
+    const past = tasks.filter((x) => ms(x.date) < TODAY && !x.done).sort(byDate);
+    const today = tasks.filter((x) => ms(x.date) === TODAY).sort(byDate);
+    const week = tasks.filter((x) => ms(x.date) > TODAY && ms(x.date) <= TODAY + 7 * DAY).sort(byDate);
+    const groups = [
+      { key: 'past', title: '已經過了，完成了嗎？', list: past, color: '#A4410E', cntBg: '#FBEDE4', emptyText: '沒有過了還沒收尾的。' },
+      { key: 'today', title: '今天', list: today, color: '#1A4290', cntBg: '#E8EEFA', emptyText: '今天沒有排事情。' },
+      { key: 'week', title: '這週', list: week, color: '#3A3A37', cntBg: '#F5F5F4', emptyText: '這週後面沒有排事情。' }
+    ].map((g) => {
+      const open = !closed[g.key];
+      const first = g.list.find((x) => !x.done);
+      return {
+        title: g.title, color: g.color, cntBg: g.cntBg, emptyText: g.emptyText,
+        count: g.list.filter((x) => !x.done).length, rows: g.list.map(rowOf), empty: g.list.length === 0,
+        open, rot: open ? '90deg' : '0deg', toggleOpen: toggleKey(g.key),
+        peek: !open && first ? '最近一件：' + label(ms(first.date)) + ' ' + first.text : ''
+      };
+    });
+    const pendOpen = !closed.pend;
+    const pendG = {
+      open: pendOpen, rot: pendOpen ? '90deg' : '0deg', toggleOpen: toggleKey('pend'),
+      count: pend.length, empty: pend.length === 0,
+      peek: !pendOpen && pend.length ? pend.map((r) => r.text).join('、') : '',
+      peekShow: !pendOpen && pend.length > 0,
+      rows: pend.map((r) => ({
+        text: r.text, hint: r.hint, goLabel: r.goLabel,
+        go: () => put({ pend: pend.filter((y) => y.id !== r.id), toast: snap('處理好了：' + r.text) }),
+        dismiss: () => put({ pend: pend.filter((y) => y.id !== r.id), toast: snap('不用管了：' + r.text) })
+      }))
+    };
+    const nPast = past.length, nToday = today.filter((x) => !x.done).length, nWeek = week.filter((x) => !x.done).length;
+    const doneNow = items.filter((x) => x.done && !P.items.some((o) => o.id === x.id && o.done)).length + items.filter((x) => x.repeat && P.items.some((o) => o.id === x.id && o.date !== x.date)).length;
+    let cheer;
+    if (nToday === 0 && nPast === 0) cheer = '今天都收好了，辛苦了';
+    else if (doneNow >= 3) cheer = '節奏很好，繼續保持';
+    else if (doneNow > 0) cheer = '很好，一件一件來';
+    else if (nPast > 0) cheer = '先收個尾，你可以的';
+    else cheer = '早安，今天也加油';
+
+    const askRows = asks.map((qq2, i) => ({ text: qq2.text, yes: qq2.yes, no: qq2.no, answer: () => put({ asks: asks.filter((_, j) => j !== i), toast: snap('記下了') }) }));
+
+    // 時間軸：一個〈事〉一段，收起來是一條摘要，展開是每件細項一列
+    const start = Date.UTC(2026, 9, 12), span = 70;
+    const raw = (t) => (t - start) / (span * DAY) * 100;
+    const p = (t) => Math.max(0, Math.min(100, raw(t)));
+    const pc = (v) => v.toFixed(2) + '%';
+    const weeks = []; for (let i = 0; i < 10; i++) weeks.push({ left: pc(i * 7 / span * 100) });
+    const radiusOf = (a, b) => { const cl = raw(a) < 0, cr = raw(b) > 100; return (cl ? '0' : '5px') + ' ' + (cr ? '0 0' : '5px 5px') + ' ' + (cl ? '0' : '5px'); };
+    const matterSecs = P.types.filter((t) => t.cat === '事').map((mt) => {
+      const names = matterNames.filter((n) => P.ents[n].type === mt.name);
+      const allOpen = names.every((n) => gOpen[n]);
+      const blocks = names.map((n, bi) => {
+        const per = items.find((x) => x.kind === '期間' && x.ent === n);
+        const its = items.filter((x) => x.ent === n && x.kind !== '期間').sort((a, b) => ms(a.date) - ms(b.date));
+        const open = !!gOpen[n];
+        const a = per ? ms(per.start) : TODAY, b = per ? ms(per.date) : TODAY;
+        const rows = [];
+        if (per) rows.push(Object.assign({ text: per.text, when: md(a) + '～' + md(b), isBar: true, isMark: false, left: pc(p(a)), width: pc(p(b) - p(a)), radius: radiusOf(a, b), op: '1', deco: 'none', textFg: '#1F1F1E', iconBg: '#EEF2FA', iconFg: '#3A5A99' }, kindFlags('期間')));
+        its.forEach((x) => {
+          const t = ms(x.date), late = !x.done && t < TODAY;
+          rows.push(Object.assign({
+            text: x.text, when: label(t) + (x.done ? ' · 完成了' : late ? ' · 過了 ' + Math.round((TODAY - t) / DAY) + ' 天' : ''),
+            isBar: false, isMark: true, left: pc(p(t)), op: x.done ? '0.45' : '1',
+            deco: x.done ? 'line-through' : 'none', textFg: late ? '#A4410E' : '#1F1F1E',
+            iconBg: late ? '#FBEDE4' : '#F5F5F4', iconFg: late ? '#A4410E' : '#3A3A37',
+            markBd: late ? '#A4410E' : '#CFCFCA', markFg: late ? '#A4410E' : '#1F1F1E'
+          }, kindFlags(x.kind)));
+        });
+        const openCount = its.filter((x) => !x.done).length;
+        return {
+          name: n, count: openCount + ' 件', open, rot: open ? '90deg' : '0deg', collapsedView: !open,
+          bg: bi % 2 ? '#FAFAF9' : '#FFFFFF',
+          entLabel: '看「' + n + '」的總覽', openEnt: openEnt(n),
+          toggle: () => { const o = Object.assign({}, gOpen); o[n] = !open; put({ gOpen: o }); },
+          left: pc(p(a)), width: pc(p(b) - p(a)),
+          dots: its.map((x) => { const t = ms(x.date), late = !x.done && t < TODAY; return { left: pc(p(t)), color: late ? '#A4410E' : '#1F1F1E', op: x.done ? '0.3' : '1' }; }),
+          rows
+        };
+      });
+      return {
+        title: '手上的' + mt.name, blocks,
+        allLabel: allOpen ? '全部收起' : '全部展開',
+        toggleAll: () => { const o = {}; names.forEach((n) => { o[n] = !allOpen; }); put({ gOpen: o }); }
+      };
+    });
+    const calStart = Date.UTC(2026, 9, 25);
+    const cells = [];
+    for (let i = 0; i < 35; i++) {
+      const t = calStart + i * DAY, d = new Date(t), isT = t === TODAY;
+      const ev = tasks.filter((x) => ms(x.date) === t).map((x) => {
+        const late = !x.done && t < TODAY;
+        return { text: (x.ent ? x.ent + ' ' : '') + x.text, bg: x.done ? '#F5F5F4' : late ? '#FBEDE4' : '#E8EEFA', fg: x.done ? '#8C8C87' : late ? '#A4410E' : '#1A4290', deco: x.done ? 'line-through' : 'none' };
+      });
+      cells.push({ label: d.getUTCDate() === 1 ? (d.getUTCMonth() + 1) + ' 月 1 日' : String(d.getUTCDate()), bg: isT ? '#F2F6FD' : '#FFFFFF', fg: isT ? '#1A4290' : '#3A3A37', weight: isT ? '700' : '400', ev });
+    }
+
+    // 總覽抽屜：檔案列全部，自己的在前、相關的在後
+    let dr = { tags: [], files: [], related: [], next: [], fileCount: 0, noFiles: true, hasAlias: false, alias: '' };
+    if (drawer && P.ents[drawer]) {
+      const e = P.ents[drawer];
+      const rel = e.related || [];
+      const own = P.files.filter((f) => f.ent === drawer).sort((a, b) => ms(b.date) - ms(a.date));
+      const others = P.files.filter((f) => f.ent !== drawer && rel.indexOf(f.ent) >= 0).sort((a, b) => ms(b.date) - ms(a.date));
+      const fl = own.map((f) => fileRow(f, f.kind + ' · ' + dateText(f))).concat(others.map((f) => fileRow(f, f.ent + ' · ' + f.kind + ' · ' + dateText(f))));
+      const nextList = tasks.filter((x) => !x.done && (x.ent === drawer || rel.indexOf(x.ent) >= 0) && ms(x.date) >= TODAY).sort(byDate).slice(0, 3).map((x) => label(ms(x.date)) + '　' + x.text);
+      dr = {
+        name: drawer, type: e.type + '（' + catOf[e.type] + '）', summary: e.summary,
+        hasAlias: e.alias.length > 0, alias: e.alias.join('、'),
+        tags: e.tags.length ? e.tags : ['還沒照字典標過'],
+        files: fl, fileCount: fl.length, noFiles: fl.length === 0,
+        related: rel.map((n) => ({ name: n, open: openEnt(n) })),
+        next: nextList.length ? nextList : ['沒有排定的事']
+      };
+    }
+
+    return {
+      treeTypes: P.types.map((t, i) => String(i + 1).padStart(2, '0') + ' ' + t.name),
+      example: P.example,
+      cheer, nPast, nToday, nWeek, nAsk: asks.length,
+      q, searchOpen, sections,
+      noResults: !!qq && sections.length === 0,
+      understood, hasUnderstood: understood.length > 0,
+      showAsk: !!qq,
+      askLead: sections.length ? '不是你要的？' : '換個說法，或直接問：',
+      askClaude: () => put({ searchOpen: false, toast: { text: '帶到對話了：「' + q + '」', undo: false } }),
+      qBd: searchOpen ? '#2457B8' : '#CFCFCA',
+      setQ: (e) => put({ q: e.target.value, searchOpen: true }),
+      openSearch: () => { if (!searchOpen) put({ searchOpen: true }); },
+      closeSearch: () => put({ searchOpen: false }),
+      groups, pendG, asks: askRows, noAsks: asks.length === 0,
+      matterSecs,
+      isGantt: view === 'gantt', isMonth: view === 'month',
+      gBg: view === 'gantt' ? '#E8EEFA' : '#FFFFFF', gFg: view === 'gantt' ? '#1A4290' : '#3A3A37',
+      mBg: view === 'month' ? '#E8EEFA' : '#FFFFFF', mFg: view === 'month' ? '#1A4290' : '#3A3A37',
+      showGantt: () => put({ view: 'gantt' }), showMonth: () => put({ view: 'month' }),
+      todayLeft: pc(p(TODAY)),
+      months: [{ name: '10 月', left: pc(0) }, { name: '11 月', left: pc(p(Date.UTC(2026, 10, 1))) }, { name: '12 月', left: pc(p(Date.UTC(2026, 11, 1))) }],
+      weeks, dow: WK, cells,
+      hasDrawer: !!(drawer && P.ents[drawer]), dr, closeDrawer: () => put({ drawer: '' }),
+      hasToast: !!toast, toastText: toast ? toast.text : '', toastUndo: !!(toast && toast.undo),
+      undo: () => { if (toast && toast.undo) put({ items: toast.prev, asks: toast.prevAsks, pend: toast.prevPend || pend, toast: null }); },
+      newText, newDate,
+      setText: (e) => put({ newText: e.target.value }),
+      setDate: (e) => put({ newDate: e.target.value }),
+      addItem: () => {
+        if (!newText.trim() || !newDate) return;
+        withToast('加進日程了：' + newText.trim(), items.concat([{ id: 'n' + items.length, kind: '提醒', date: newDate, text: newText.trim(), done: false }]), { newText: '' });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
