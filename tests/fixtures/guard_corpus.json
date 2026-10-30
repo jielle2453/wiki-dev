@@ -11464,6 +11464,110 @@
    "expect": "pass",
    "來源": "開檔與Office一起改 測試第 1 輪裁定 11",
    "note": "完整路徑的 explorer.exe 開夾"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(a) foreach＋if FullName -eq 比對 AI 產出"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\x.docx' }; $d.Content.InsertAfter('x'); $d.Save()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(b) Where-Object FullName -eq"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.Workbooks | Where-Object { $_.FullName -ieq '<V>\\AI 產出\\x.xlsx' }; $b.Worksheets.Item(1).Range('A1').Value2 = '下週交'; $b.Save()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.xlsx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(c) Excel -ieq"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $q=$p.Presentations | Where-Object { $_.FullName -like '<V>\\AI 產出\\x.pptx' }; $q.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'; $q.Save()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.pptx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(c) PowerPoint -like"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName == r'<V>\\AI 產出\\x.docx'][0]; d.Content.InsertAfter('x'); d.Save()\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(d) python win32com =="
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save(); $x.SaveAs('<V>\\AI 產出\\y.docx') } }"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(e) 同 (a) 加 SaveAs"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }; $w.Documents.Open('<V>\\AI 產出\\x.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(f) 同 (a) 加 Documents.Open（驗收 13 不變）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "if ('<V>\\AI 產出\\x.docx' -eq $a) { Remove-Item '<V>\\AI 產出\\x.docx' }"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 裁定 29",
+   "note": "(g) 沒附著、路徑在 -eq 左邊加 Remove-Item"
   }
  ]
 }

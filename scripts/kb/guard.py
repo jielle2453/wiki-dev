@@ -28,7 +28,7 @@ produce（第 3 點、實作回報裁定 1、3）：Z2、Z9 擋寫的理由句�
 內部豁免不套這一區：第一道從彈性區根以下比段，讀取範圍是彈性區或含它的夾（含整個知識庫）時另走訪彈性區找密碼檔。
 開檔（D-514）：Start-Process、Invoke-Item、start、explorer 開的是文件、資料夾或網址（cmdparse.open_stage）→ 目標照讀判、不算碰 AI 產出，
 開一個夾不走第三道也不算 Z10b；-RedirectStandardOutput／Error 照寫判；開的是程式 → 程式檔在知識庫或來源裡擋 run_file，
-其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態。
+其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態；附著時 AI 產出的路徑只拿來比對（-eq、-like、==）照讀（裁定 29）。
 """
 import glob as globlib
 import os
@@ -61,6 +61,18 @@ SHELL_WRITE = ("deny", "shell_write", "用指令改的退不回來，請用檔�
 OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放進來；要轉 PDF 或看版面用 kb office")
 RUN_FILE = ("deny", "run_file", "知識庫與原檔夾裡的程式或巨集檔不直接執行；要打開給客戶看，請用 PDF、Word 這類文件")
 _RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk", ".wsf", ".wsh", ".vbe", ".jse", ".msc", ".cpl")  # 裸程式名在效用 cwd 底下找的副檔名
+# 裁定 29：附著到開著的 Office、拿 AI 產出的路徑比對要改的是哪份；同句另開、另存、新增、寫入、導向的不放。
+# 收尾 API code review：比對拿到的物件拿去刪、搬、跑（gci 的檔、[IO.File]、WordBasic、Run 巨集…）也不放；附著寫在註解或字串裡不算
+_COM_ATTACH = re.compile(r"GetActiveObject\s*\(\s*['\"](?:Word|Excel|PowerPoint)\.Application['\"]", re.IGNORECASE)
+_COM_CALL = re.compile(r"GetActiveObject\s*\(", re.IGNORECASE)
+_COM_WRITE = re.compile(
+    r"\.Open\w*\s*\(|SaveAs|SaveCopyAs|\.Export\w*\s*\(|\.Add\s*\(|\.(?:Delete|MoveTo|CopyTo|Kill|Run)\s*\(|WordBasic|InvokeMember|"
+    r"\[(?:System\.)?IO\.|::new\b|New-Object|\.Attributes\b|"
+    r"(?<![\w.-])(?:Get-ChildItem|gci|dir|ls|Get-Item|gi|Get-ItemProperty|gp|Resolve-Path|rvpa|Invoke-\w+|iex|ii|"
+    r"Start-Process|saps|start|cmd|powershell|pwsh|wscript|cscript|mshta|rundll32)\b",
+    re.IGNORECASE)
+_COMPARE_LIT = re.compile(r"\.FullName\s*(?:-[ic]?(?:eq|like)\b|==)\s*r?(['\"])(.*?)\1", re.IGNORECASE)
+_DOT_SOURCE = re.compile(r"(?:^|[;{(|\n])\s*\.\s+\S")
 SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
 # B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
 SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
@@ -1026,11 +1038,28 @@ def _expand_glob(token, hidden=False):
     return [normalize(h, None) for h in hits[:GLOB_HITS_MAX]]
 
 
-def _touches_output(info, bodies, vault_n, sources, tool):
+def _compare_only(command, powershell):
+    """裁定 29：整句（引號外、註解外）附著到開著的 Office，又沒有另開、另存、新增、刪搬跑、寫入動詞、導向、& 與 dot-source 時，
+    只出現在 `.FullName` 比對運算子右邊（PowerShell -eq -ieq -ceq -like -ilike -clike、python ==）、不含萬用字元的字串；
+    同一個字串在句子別處也出現就不算。其餘情況回空集合。"""
+    bare = cmdparse.outside_quotes(command, powershell)
+    if bare is None:
+        return frozenset()
+    bare = re.sub(r"(^|\s)#[^\n]*", r"\1", re.sub(r"<#.*?#>", " ", bare, flags=re.S))
+    if (not _COM_ATTACH.search(command) or not _COM_CALL.search(bare) or _COM_WRITE.search(command)
+            or cmdparse.WRITE_WORDS.search(command) or cmdparse.WRITE_CODE.search(command)
+            or cmdparse.REDIRECT.search(bare) or "&" in bare or _DOT_SOURCE.search(bare)):
+        return frozenset()
+    found = [m.group(2) for m in _COMPARE_LIT.finditer(command) if m.group(2) and not any(ch in m.group(2) for ch in "*?[")]
+    return frozenset(lit for lit in found if command.count(lit) == found.count(lit))
+
+
+def _touches_output(info, bodies, vault_n, sources, tool, compared=frozenset()):
     """produce 與 D-186 補：指令碰到 AI 產出（Z3）。只有真正會寫或看不出會不會寫的才算：
     (1) 寫入目標在 Z3；(2) 不是已知只讀的那一段（node、python 腳本、soffice、cp…）的參數或效用 cwd 在 Z3；
     (3) 餵給直譯器或殼的 heredoc 內文提到 AI 產出。已知只讀指令（cat、grep、Get-Content、Test-Path…）、echo 的字串、
     餵給 cat／tee 的 heredoc 內文裡提到的不算（讀）。開檔段開的是文件、夾或網址（D-514）也不算，導向進 Z3 照 (1) 擋。
+    附著 Office 時只拿來比對的字串（`compared`，裁定 29）不算。
     只多擋、不放行任何東西。"""
     for p in info["write_targets"]:
         if inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
@@ -1053,7 +1082,7 @@ def _touches_output(info, bodies, vault_n, sources, tool):
                     if p is not None and inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
                         return True
         for tok, _quoted, _glob, _after in _tokens_q(cmdparse.strip_marks(plan["text"]), globs_in_quotes=(tool == "PowerShell")):
-            if not tok:
+            if not tok or tok in compared:
                 continue
             value = [tok.split("=", 1)[1]] if "=" in tok else []
             if tok[:1] in "-/" and ":" in tok:  # PowerShell 的 -Path:值、Windows 程式的 /out:值
@@ -1126,8 +1155,10 @@ def _program_file(raw, base):
     return None
 
 
-def _shell_tool(tool, command, cwd, vault, sources, depth=0):
+def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
     powershell = tool == "PowerShell"
+    if compared is None:  # 整句才看得到附著（內層的 (…) 只剩比對那一截），算一次往下傳
+        compared = _compare_only(command, powershell)
     clean, bodies = cmdparse.split_bodies(command, powershell=powershell)
     flat = cmdparse.strip_marks(clean)
     vault_n = normalize(vault, None)
@@ -1151,7 +1182,7 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
         if depth >= SUBST_DEPTH_MAX:
             return unparsed()
         base = _analyze(clean[:pos], cwd, vault_n, tool, bodies)["final_base"]
-        d = _shell_tool(tool, text, base or cwd, vault, sources, depth + 1)
+        d = _shell_tool(tool, text, base or cwd, vault, sources, depth + 1, compared)
         if d.decision == "deny":
             return deny(d.zone, d.reason_code, d.reason)
         if base is None and _analyze(*cmdparse.split_bodies(text, powershell=powershell)[:1], cwd, vault_n, tool)["has_write"]:
@@ -1188,7 +1219,7 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
             continue
         if depth >= SUBST_DEPTH_MAX:
             return unparsed()
-        d = _shell_tool(tool, opened["program"], run_cwd or cwd, vault, sources, depth + 1)
+        d = _shell_tool(tool, opened["program"], run_cwd or cwd, vault, sources, depth + 1, compared)
         if d.decision == "deny":
             return deny(d.zone, d.reason_code, d.reason)
         if run_cwd is None and _analyze(*cmdparse.split_bodies(opened["program"], powershell=powershell)[:1], cwd, vault_n,
@@ -1269,7 +1300,7 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
 
     # produce：寫進 AI 產出、或非 kb 執行檔的參數碰到 AI 產出就擋（D-186 補；單一 kb 呼叫在 decide 最前面已放行）
     try:
-        touched = _touches_output(info, bodies, vault_n, sources, tool)
+        touched = _touches_output(info, bodies, vault_n, sources, tool, compared)
     except Exception:  # noqa: BLE001  hook 對指令出錯不表態（會變成放行），這裡寧可擋（收尾 security-review）
         touched = True
     if touched:

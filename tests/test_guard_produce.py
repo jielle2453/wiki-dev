@@ -355,6 +355,62 @@ class OpenFile(Base):
                 d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
                 self.assertEqual(d.decision, "pass")
 
+    def test_com_attach_fullname_compare(self):
+        """裁定 29：附著 Office、AI 產出的路徑只在比對右邊（-eq -like 系列、python ==）照讀；同句另開、另存、寫入、導向或路徑在比對外照擋。"""
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+        loop = word + "foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { $x.Content.InsertAfter('x'); $x.Save()"
+        cases = (
+            ("a", "PowerShell", loop + " } }", "pass"),
+            ("b", "PowerShell", word + "$d=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' }; "
+                                       "$d.Content.InsertAfter('x'); $d.Save()", "pass"),
+            ("c", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                "$b=$e.Workbooks | Where-Object { $_.FullName -ieq '<V>\\AI 產出\\a.xlsx' }; "
+                                "$b.Worksheets.Item(1).Range('A1').Value2 = '下週交'; $b.Save()", "pass"),
+            ("c", "PowerShell", "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); "
+                                "$q=$p.Presentations | Where-Object { $_.FullName -like '<V>\\AI 產出\\a.pptx' }; "
+                                "$q.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'; $q.Save()", "pass"),
+            ("d", "PowerShell", "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); "
+                                "d=[x for x in w.Documents if x.FullName == r'<V>\\AI 產出\\a.docx'][0]; d.Content.InsertAfter('x'); d.Save()\"",
+             "pass"),
+            ("e", "PowerShell", loop + "; $x.SaveAs('<V>\\AI 產出\\y.docx') } }", "deny"),
+            ("f", "PowerShell", loop + " } }; $w.Documents.Open('<V>\\AI 產出\\a.docx')", "deny"),
+            ("g", "PowerShell", "if ('<V>\\AI 產出\\a.docx' -eq $a) { Remove-Item '<V>\\AI 產出\\a.docx' }", "deny"),
+            ("沒附著", "PowerShell", "if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { $x.Save() }", "deny"),
+            ("左邊", "PowerShell", word + "foreach ($x in $w.Documents) { if ('<V>\\AI 產出\\a.docx' -eq $x.FullName) { $x.Save() } }", "deny"),
+            ("比對外", "PowerShell", word + "$f='<V>\\AI 產出\\a.docx'; $d=$w.Documents | Where-Object { $_.FullName -eq $f }; $d.Save()", "deny"),
+            ("SaveCopyAs", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                         "$b=$e.Workbooks | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.xlsx' }; $b.SaveCopyAs('C:\\x\\b.xlsx')", "deny"),
+            ("Export", "PowerShell", loop + "; $x.ExportAsFixedFormat('C:\\x\\a.pdf', 17) } }", "deny"),
+            ("Add", "PowerShell", loop + " } }; $w.Documents.Add()", "deny"),
+            ("寫入字", "PowerShell", loop + " } }; Copy-Item 'C:\\x\\b.docx' 'C:\\x\\c.docx'", "deny"),
+            ("導向", "PowerShell", loop + " } } > 'C:\\x\\log.txt'", "deny"),
+        )
+        gci = word + "Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | ForEach-Object { "
+        loop2 = word + "foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { "
+        cases += tuple(("review", "PowerShell", cmd, "deny") for cmd in (  # 收尾 API code review：比對拿到的物件拿去刪、搬、跑
+            gci + "$_.Delete() }",
+            gci + "$_.MoveTo('C:\\x\\a.docx') }",
+            gci + "& $_.FullName }",
+            gci + "$_.Attributes = 'Hidden' }",
+            word + "$f = Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.ps1' }; . $f.FullName",
+            loop2 + "$x.Close(); [System.IO.File]::Delete($x.FullName) } }",
+            loop2 + "$x.Close(); [IO.FileInfo]::new($x.FullName).Delete() } }",
+            loop2 + "$w.WordBasic.Kill($x.FullName) } }",
+            loop2 + "$w.Run('Evil') } }",
+            loop2 + "$w.Documents.OpenNoRepairDialog('<V>\\AI 產出\\b.docx') } }",
+            word + "$q=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' }; $q.Range().ExportFragment('C:\\x\\f.docx', 0)",
+            word + "Get-ChildItem '<V>' -Recurse | ? { $_.FullName -like '<V>\\AI 產出\\*' } | % { $_.Delete() }",
+            word + "foreach ($x in $w.Documents) { if ($x.FullName -like '<V>\\AI 產出\\*') { $x.Save() } }",
+            "# GetActiveObject('Word.Application')\nGet-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
+            "$null='GetActiveObject(\"Word.Application\")'; Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
+        ))
+        for name, tool, cmd, want in cases:
+            with self.subTest(case=name, cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual(d.decision, want, d)
+                if want == "deny" and name in "efg":
+                    self.assertEqual((d.zone, d.reason_code), ("Z3", "output_shell"))
+
 
 class OpenFileHook(unittest.TestCase):
     """驗收 15、16：hook 對附著改不印 deny、不備份；製卡助手開檔照 agent_scope 擋。"""
