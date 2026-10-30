@@ -40,8 +40,7 @@ class RulesCore(unittest.TestCase):
     def test_r04_trash_through_kb(self):
         """manage 第二版第 10 點（D-173、I-116）：R-04 刪除改成經 kb 丟資源回收筒，不再請客戶自己刪。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-04 "))
-        self.assertEqual(line, "- R-04 不改客戶原檔。改內容一律另存新檔；搬動、改名走 kb 程式；"
-                               "刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
+        self.assertEqual(line, "- R-04 搬動、改名走 kb 程式；刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
 
     def test_r01_free_area_read_only_when_asked(self):
         """彈性區（#21，D-511、裁定 12、19）：R-01 句尾補彈性區平常不讀、別處找不到也不翻、有檔才問、提到這一區或答應要看才讀、Word 走 kb convert 讀不到照實說；夾名照 areas.FREE_DIR。"""
