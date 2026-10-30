@@ -113,7 +113,7 @@ test('成功後重畫首頁（refresh）', async () => {
 });
 
 
-test('首頁只留五個動作（D-266＋D-267）：打勾、改日期時間、新增日程、回答要你確認的、隨手記存一則', () => {
-  assert.deepStrictEqual(Object.keys(A).sort(), ['add', 'done', 'edit', 'jot', 'result']);
+test('首頁只留四個動作（D-266）：打勾、改日期時間、新增日程、回答要你確認的（隨手記是便條，直接存那一頁，不叫 kb）', () => {
+  assert.deepStrictEqual(Object.keys(A).sort(), ['add', 'done', 'edit', 'result']);
   assert.strictEqual(lib.interpretCheck, undefined, '確認框拿掉，--check 的結果不再讀');
 });

@@ -66,7 +66,6 @@ COMMANDS = {
     "renders": ("kb.renders_cli", "程式產生的頁（日程、待處理、裁示）：apply 照你在頁面上直接改的做，drop 把「你加的」裡的一筆拿掉"),
     "obsidian": ("kb.obsidian_cli", "Obsidian：status 裝了沒、登記了沒、外掛放了沒，open 替她把知識庫加進 Obsidian 並打開"),
     "find": ("kb.find_cli", "找檔：把一串字拆成實體、卡型、標籤、時間詞和字，找卡與綜合卡；只讀，不讀原檔"),
-    "jot": ("kb.jot_cli", "隨手記：把一句話接在彈性區的隨手記.md 最下面（給 Obsidian 首頁用）；Claude 不讀、不整理"),
     "selftest": ("kb.selftest_cli", "自我檢查：這份外掛在這台電腦跑不跑得起來（模組、版本、每個 hook、背景升級），用暫存的小知識庫，不碰你的"),
 }
 

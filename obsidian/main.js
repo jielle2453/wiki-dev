@@ -1,6 +1,6 @@
 'use strict';
 /*
- * wiki-with-willy 的 Obsidian 外掛（D-252～D-267，裁定 35，issue #22）。
+ * wiki-with-willy 的 Obsidian 外掛（D-252～D-267，裁定 37，issue #22）。
  *
  * 純 CommonJS、不打包、不加依賴。要算的都在 kb（kb home / kb find / kb renders apply …），這裡只負責：
  * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
@@ -385,19 +385,38 @@ function layoutTimeline(timeline, opts) {
   return { fromN, toN, from: dayToIso(fromN), to: dayToIso(toN), spanDays: span, visibleDays: visible, slidePct: (span / visible) * 100, ticks, todayPct, rows };
 }
 
-// ---- 時間軸縮放與左右捲動（裁定 34）----
-const TIMELINE_ZOOMS = [
-  { days: 14, label: '兩週' },
-  { days: 30, label: '一個月' },
-  { days: 90, label: '三個月' },
-  { days: 180, label: '半年' },
-];
+// ---- 時間軸縮放與左右捲動（裁定 34、37）----
+const MIN_ZOOM = 14; // Ctrl＋滾輪連續縮放，一次看 14～365 天（兩週～一年）
+const MAX_ZOOM = 365;
 const DEFAULT_ZOOM = 90;
 const TIMELINE_LIMIT_DAYS = 730; // 往前往後最多載到今天的兩年
 
+/** 畫面一次看幾天：14～365 之間（縮放途中可以是小數）；不是數字就用預設的三個月。 */
 function zoomOf(v) {
   const n = Number(v);
-  return TIMELINE_ZOOMS.some((z) => z.days === n) ? n : DEFAULT_ZOOM;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_ZOOM;
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, n));
+}
+
+/** data.json 裡存的天數：14～365 的整數才算，壞的回 null（照預設）。 */
+function savedZoom(v) {
+  return Number.isInteger(v) && v >= MIN_ZOOM && v <= MAX_ZOOM ? v : null;
+}
+
+/** Ctrl＋滾輪一下要乘多少：往上滾（deltaY 負）= 拉近 = 天數變少；觸控板拉近拉遠一下的量小，乘得也小。 */
+function wheelZoomFactor(e) {
+  if (!e) return 1;
+  const unit = e.deltaMode === 1 ? 16 : 1;
+  const dy = Math.max(-400, Math.min(400, (Number(e.deltaY) || 0) * unit));
+  return Math.exp(dy * 0.002);
+}
+
+/** 以游標那天為中心縮放：frac 是游標在時間格裡的位置（0～1）；回新的 {start, visible}，游標底下還是同一天。 */
+function zoomAround(start, visible, frac, factor) {
+  const next = zoomOf(visible * factor);
+  const f = Math.max(0, Math.min(1, Number(frac)));
+  const day = start + f * visible;
+  return { start: day - f * next, visible: next };
 }
 
 /** 沒捲過的時候，畫面最左邊是哪一天：今天前面留一點點（約可見天數的一成）。 */
@@ -469,7 +488,7 @@ function pinnedMonth(startN, visible) {
 /**
  * 月曆：回 {year, month, weeks:[{days:[{date, day, inMonth, isToday, marks}]×7, bars:[…], lanes}]}。
  * 期間（不只一天的）畫成橫跨那一週的一條 bar（col 0~6 起、span 天）：每一週那段都寫名字（寫在開頭、太長截斷，裁定 31），
- * 跨週的下一週接著畫、同一件同一個淡色（color 0~7，裁定 32）；單天的與點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
+ * 跨週的下一週接著畫；顏色照 timelineColors（同一列、同一個實體同色，單天的事也有 color，0~7 或 null，裁定 37）；單天的點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
  */
 function layoutMonth(timeline, opts) {
   const options = opts || {};
@@ -482,8 +501,10 @@ function layoutMonth(timeline, opts) {
   const startN = first - weekdayOf(first); // 星期日起算
   const endN = first + lastDay - 1;
   const gridEnd = endN + (6 - weekdayOf(endN));
+  const open = openMarksOnly(timeline);
+  const colorOf = timelineColors(open).of;
   const flat = [];
-  for (const r of asArray(openMarksOnly(timeline).rows)) {
+  for (const r of asArray(open.rows)) {
     const stack = [];
     for (const m of asArray(r.marks)) {
       stack.push(m);
@@ -491,7 +512,7 @@ function layoutMonth(timeline, opts) {
     }
     for (const m of stack) {
       const sp = markSpan(m);
-      if (sp) flat.push({ m, sp, row: r.label || r.key || '' });
+      if (sp) flat.push({ m, sp, row: r.label || r.key || '', rowKey: r.key || r.label || '' });
     }
   }
   const info = (f) => ({
@@ -499,13 +520,15 @@ function layoutMonth(timeline, opts) {
     text: f.m.text || '',
     kind: f.m.kind || null,
     row: f.row,
+    color: colorOf(f.rowKey, f.m), // 0～7 或 null（淡灰），時間軸同一列同色（裁定 37）
+    time: f.m.time || null,
+    label: f.m.time ? `${f.m.time} ${f.m.text || ''}` : f.m.text || '', // 有時間的寫「14:00 丈量」
     late: f.m.late === true,
     inferred: f.m.inferred === true,
     status: f.m.status || 'open',
     raw: f.m,
   });
   const weeks = [];
-  const colors = new Map(); // 同一件事跨週同一個顏色：照月曆裡出現的順序輪流給
   for (let n = startN; n <= gridEnd; n += 7) {
     const days = [];
     for (let i = 0; i < 7; i++) {
@@ -523,10 +546,7 @@ function layoutMonth(timeline, opts) {
       .map((f) => {
         const col = Math.max(f.sp.first, n) - n;
         const end = Math.min(f.sp.last, n + 6) - n;
-        const key = f.m.id || `${f.row}|${f.m.text}|${f.sp.first}`;
-        if (!colors.has(key)) colors.set(key, colors.size % MONTH_COLORS);
         return Object.assign(info(f), {
-          color: colors.get(key),
           col,
           span: end - col + 1,
           continuesLeft: f.sp.first < n,
@@ -621,7 +641,8 @@ function sanitizeData(raw) {
     opened.push({ card: o.card, at: typeof o.at === 'string' ? o.at : '' });
   }
   const out = { opened: opened.slice(0, OPENED_MAX) };
-  if (isObject(raw) && TIMELINE_ZOOMS.some((z) => z.days === raw.timelineDays)) out.timelineDays = raw.timelineDays; // 上次選的縮放（裁定 34）
+  const zoom = isObject(raw) ? savedZoom(raw.timelineDays) : null; // 上次縮放到幾天（裁定 37）
+  if (zoom !== null) out.timelineDays = zoom;
   return out;
 }
 
@@ -786,72 +807,71 @@ function progressWord(p) {
   return PROGRESS_WORD[p] || null;
 }
 
-/** 「要你確認的」的一個答案點了會怎樣（裁定 34）：run = 照 argv 跑；fill = 先在卡上填空再跑；chat = 只能在對話裡做，複製一句話。 */
-function answerKind(r) {
-  if (!isObject(r) || !Array.isArray(r.argv)) return 'chat';
-  return isObject(r.fill) ? 'fill' : 'run';
+/**
+ * 「要你確認的」一張卡的答案怎麼分（裁定 37），照 argv 認、不照字：
+ * main = 點了就做的（argv 有值、不用填）；aside = 「先放著」（asks／pending set-aside）；dismiss = 「不處理」（pending dismiss）。
+ * 要填東西的與 argv 是 null 的（只能在對話裡做）不列。
+ */
+function splitAnswers(c) {
+  const out = { main: [], aside: null, dismiss: null };
+  for (const r of asArray(c && c.results).filter(isObject)) {
+    const a = r.argv;
+    if (!Array.isArray(a)) continue;
+    if ((a[0] === 'asks' || a[0] === 'pending') && a[1] === 'set-aside') {
+      if (!out.aside) out.aside = r;
+    } else if (a[0] === 'pending' && a[1] === 'dismiss') {
+      if (!out.dismiss) out.dismiss = r;
+    } else if (!isObject(r.fill)) {
+      out.main.push(r);
+    }
+  }
+  return out;
 }
 
-/** 填空用什麼輸入：日期（YYYY-MM-DD）用日期選擇，其他用文字框。 */
-function fillInputType(fill) {
-  if (!isObject(fill)) return 'text';
-  return fill.rule === 'YYYY-MM-DD' || /日期$/.test(String(fill.name || '')) ? 'date' : 'text';
-}
+const ASIDE_TEXT = '先放著';
+const DISMISS_TEXT = '不處理';
+const CHAT_TIP = '跟 Claude 說';
+const CHAT_COPIED_TEXT = '已複製，貼到對話跟 Claude 說';
+const CONFIRM_SHOWN = 3; // 「要你確認的」先顯示幾題
+const PENDING_REL = '系統/待處理.md';
 
-/** 填空框按鍵：Enter（注音選字中不算）且有填才跑；Escape 取消。 */
-function fillDecision(ev) {
-  if (!ev) return {};
-  if (ev.key === 'Escape') return { cancel: true };
-  if (ev.key !== 'Enter' || ev.composing || ev.isComposing || ev.keyCode === 229) return {};
-  const value = String(ev.value == null ? '' : ev.value).trim();
-  if (!value) return {};
-  if (ev.type === 'date' && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)) return {};
-  return { run: true, value };
-}
-
-/** 只能在對話裡做的答案：給她貼到對話的一句現成的話。 */
-function chatPhrase(c, r) {
+/** 每張卡的對話圖示：複製這一句，她貼到對話再接著說。 */
+function chatPhrase(c) {
   const q = String((c && c.text) || '').trim();
-  const label = String((r && r.label) || '').trim();
-  const tail = isObject(r && r.fill) ? `，${r.fill.name || '內容'}是：` : '';
-  return q ? `關於「${q}」，我選「${label}」${tail}` : `我選「${label}」${tail}`;
+  return q ? `關於「${q}」：` : '關於這題：';
 }
 
 /** 把那句話複製起來並提示；複製不了就把話顯示出來讓她自己複製。 */
 async function copyForChat(ctx, phrase) {
   try {
     await ctx.writeClipboard(phrase);
-    ctx.toast(`這題要跟 Claude 說，已複製「${phrase}」，貼到對話就好`);
+    ctx.toast(CHAT_COPIED_TEXT);
     return true;
   } catch (e) {
-    ctx.toast(`這題要跟 Claude 說，沒辦法複製，請自己複製：${phrase}`);
+    ctx.toast(`沒辦法複製，請自己複製：${phrase}`);
     return false;
   }
 }
 
-// ---- 隨手記（D-267、裁定 35）：一句一行接在彈性區的「隨手記.md」，Claude 不讀 ----
-const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_jot_cli.py 對齊）
-const JOT_REL = `${FREE_DIR}/隨手記.md`;
-const JOT_RECENT = 3;
-const JOT_LINE_RE = /^- ([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}) (.*)$/;
+// ---- 隨手記便條（D-267 修訂、裁定 37）：首頁最底下一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
+const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
+const NOTE_REL = `${FREE_DIR}/隨手記.md`;
+const NOTE_DELAY_MS = 1500; // 停手這麼久就存回那一頁
 
-/** 隨手記那一頁最後 n 則（新到舊）：只認「- 日期 時間 內容」那種行，其他（檔頭、她自己加的）略過。 */
-function jotRecent(text, n) {
-  const out = [];
-  const lines = String(text == null ? '' : text).split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0 && out.length < (n || JOT_RECENT); i--) {
-    const m = JOT_LINE_RE.exec(lines[i]);
-    if (m) out.push({ date: m[1], time: m[2], text: m[3] });
-  }
-  return out;
+function defaultNote() {
+  return {
+    text: '', // 便條現在的字
+    saved: null, // 那一頁在磁碟上的字；還沒有那一頁是 null
+    dirty: false, // 改了還沒存回去
+    focused: false, // 她正在框裡打字
+  };
 }
 
-/** 隨手記輸入框按鍵：Enter 存（注音選字中不存，空的不存）。 */
-function jotDecision(ev) {
-  if (!ev || ev.key !== 'Enter') return {};
-  if (ev.composing || ev.isComposing || ev.keyCode === 229) return {};
-  const text = String(ev.value == null ? '' : ev.value).trim();
-  return text ? { save: true, text } : {};
+/** 重讀到的那一頁要不要換進便條：回新的字，或 null = 不動。她正在打字（框有焦點、或還有沒存的字）就不蓋。 */
+function noteIncoming(note, disk) {
+  if (!note || note.dirty || note.focused) return null;
+  const incoming = disk == null ? '' : String(disk);
+  return incoming === note.text ? null : incoming;
 }
 
 function putFlag(args, flag, value) {
@@ -910,17 +930,6 @@ const actions = {
       json: true,
       toastText: (j) => (j && j.item ? `已加進日程：${j.item.text || form.text}` : '已加進日程'),
       undo: (j) => (j && j.created !== false && j.item && j.item.id ? { args: ['agenda', 'cancel', j.item.id] } : null),
-    };
-  },
-
-  /** 隨手記存一則：kb jot；復原 = 退回這一筆的回合（kb 回的 turn）。內容用 -- 隔開，免得「-」開頭的字被當旗標。 */
-  jot(text) {
-    return {
-      id: 'jot',
-      args: ['jot', '--json', '--', text],
-      json: true,
-      toastText: () => '記下了',
-      undo: (j) => (j && j.turn ? { args: ['versions', 'revert', j.turn] } : null),
     };
   },
 
@@ -1324,15 +1333,15 @@ function openForm(app, opts) {
 function defaultUi() {
   return {
     timelineMode: 'timeline', // timeline | month
-    timelineDays: DEFAULT_ZOOM, // 時間軸一次看幾天（14／30／90／180），記在 data.json
+    timelineDays: DEFAULT_ZOOM, // 時間軸一次看幾天（Ctrl＋滾輪連續縮放，14～365），記在 data.json
     tlStart: null, // 畫面最左邊是哪一天（天數）；沒捲過是 null，照今天算
     tlRange: null, // 已經跟 kb 要過的範圍 {from, to}；捲到外面才會變大
-    jotDraft: '', // 隨手記輸入框還沒存的字（重畫不洗掉）
-    confirmFill: null, // 「要你確認的」展開著填空的那個答案 {key, index, value, focus}
+    confirmCollapsed: false, // 「要你確認的」整區收起來
+    confirmAll: false, // 點了「還有 N 題」，全部展開
+    note: defaultNote(), // 隨手記便條
     month: null, // {year, month}
     rowCollapsed: {},
     todoCollapsed: {},
-    othersOpen: false,
     search: { q: '', active: false, focused: false, loading: false, result: null, error: null },
     drawer: { open: false, stack: [], data: null, loading: false, error: null },
   };
@@ -1345,7 +1354,48 @@ function defaultUi() {
 const HEAD_H = 48; // 時間軸每一塊（事類實體）標題列的高度
 const ROW_H = 40; // 展開後每件一列的高度
 const RECENT_MAX = 8;
-const MONTH_COLORS = 8; // 月曆期間的淡色，styles.css 的 --wwh-mc0～7
+const MONTH_COLORS = 8; // 淡色的個數，styles.css 的 --wwh-mc0～7（淡）與 --wwh-mt0～7（濃一點，給時間軸的條與點）
+const OTHER_ROW_KEY = '_other'; // kb home 裡「其他」那一列的 key
+
+/** 套用顏色的 class；沒有顏色（什麼都沒掛的）不加，畫淡灰。 */
+function toneCls(n) {
+  return n === null || n === undefined ? '' : `wwh-tone${n}`;
+}
+
+/**
+ * 時間軸每一列（案子）一個淡色，照列的順序從 MONTH_COLORS 個顏色輪流給（裁定 32、37）；
+ * 「其他」那列的事照它 entities 第一個（多半是客戶）給色，同一個實體同色，接在案子的顏色後面；什麼都沒掛的是 null（淡灰）。
+ * timeline 要先過 openMarksOnly（時間軸與月曆都是這樣）：兩邊列的順序才一樣，同一件事才同色。
+ * 回 {row(key), of(rowKey, mark)}。
+ */
+function timelineColors(timeline) {
+  const rows = asArray(timeline && timeline.rows).filter(isObject);
+  const byRow = new Map();
+  let n = 0;
+  for (const r of rows) {
+    const key = r.key || r.label || '';
+    if (key !== OTHER_ROW_KEY) byRow.set(key, n++ % MONTH_COLORS);
+  }
+  const firstEntity = (m) => asArray(m && m.entities).map((x) => String(x).trim()).find(Boolean) || null;
+  const byEntity = new Map();
+  for (const r of rows) {
+    if ((r.key || r.label || '') !== OTHER_ROW_KEY) continue;
+    for (const m of asArray(r.marks)) {
+      for (const x of [m, ...asArray(m && m.children)]) {
+        const name = firstEntity(x);
+        if (name && !byEntity.has(name.toLowerCase())) byEntity.set(name.toLowerCase(), (n + byEntity.size) % MONTH_COLORS);
+      }
+    }
+  }
+  return {
+    row: (key) => (byRow.has(key) ? byRow.get(key) : null),
+    of: (rowKey, m) => {
+      if (byRow.has(rowKey)) return byRow.get(rowKey);
+      const name = firstEntity(m);
+      return name && byEntity.has(name.toLowerCase()) ? byEntity.get(name.toLowerCase()) : null;
+    },
+  };
+}
 const ICON_SHAPES = {
   meeting: [
     ['circle', { cx: 6, cy: 5.5, r: 2.4 }],
@@ -1357,7 +1407,7 @@ const ICON_SHAPES = {
     ['path', { d: 'm5.3 8.2 2 2 3.5-4' }],
   ],
   deadline: [['path', { d: 'M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5' }]],
-  chat: [['path', { d: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' }]],
+  'message-circle': [['path', { d: 'M5.27 13.33A6 6 0 1 0 2.67 10.73L1.33 14.67Z' }]], // Obsidian（lucide）的 message-circle，縮到 16 格
   reminder: [
     ['path', { d: 'M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z' }],
     ['path', { d: 'M6.7 14.2a1.4 1.4 0 0 0 2.6 0' }],
@@ -1507,6 +1557,12 @@ class HomeView extends ItemView {
   }
 
   async onClose() {
+    if (this.zoomSaveTimer) {
+      clearTimeout(this.zoomSaveTimer);
+      this.zoomSaveTimer = null;
+      if (this.plugin.saveTimelineDays) this.plugin.saveTimelineDays(Math.round(this.plugin.ui.timelineDays));
+    }
+    if (this.plugin.flushNote) this.plugin.flushNote();
     clear(this.contentEl);
   }
 
@@ -1522,7 +1578,8 @@ class HomeView extends ItemView {
     this.rightEl = h('div', { cls: 'wwh-col wwh-col-right' });
     this.colsEl = h('div', { cls: 'wwh-cols' }, this.leftEl, this.rightEl);
     this.drawerEl = h('aside', { cls: 'wwh-drawer' });
-    this.buildJot();
+    this.buildNote();
+    this.othersEl = h('div', { cls: 'wwh-others' });
     this.inputEl = h('input', {
       cls: 'wwh-search-input',
       attrs: { type: 'search', placeholder: '找檔案、人、案子，打完按 Enter（例：王先生 報價 上個月）' },
@@ -1574,7 +1631,8 @@ class HomeView extends ItemView {
     this.root.appendChild(this.searchEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
-    this.root.appendChild(this.jotEl);
+    this.root.appendChild(this.othersEl);
+    this.root.appendChild(this.noteEl);
     this.contentEl.addEventListener('mousemove', (e) => this.onDragMove(e));
     this.contentEl.addEventListener('mouseup', () => this.onDragEnd());
     this.contentEl.addEventListener('mouseleave', () => this.onDragEnd());
@@ -1583,56 +1641,42 @@ class HomeView extends ItemView {
     this.contentEl.appendChild(this.drawerEl); // 抽屜蓋在首頁右邊，不跟著首頁捲動
   }
 
-  /** 首頁最底下的隨手記：輸入框只建一次（重畫不洗掉打到一半的字、也不掉游標），下面的最近幾則每次重畫。 */
-  buildJot() {
-    let composing = false;
-    this.jotInputEl = h('input', {
-      cls: 'wwh-jot-input',
-      attrs: { type: 'text', placeholder: '隨手記一下…' },
-      value: this.plugin.ui.jotDraft || '',
+  /** 首頁最底下的隨手記便條：文字框只建一次（重畫不洗掉她打到一半的字、也不掉游標）；改了就交給 plugin 排存檔。 */
+  buildNote() {
+    const p = this.plugin;
+    this.noteTextEl = h('textarea', {
+      cls: 'wwh-note-text',
+      attrs: { placeholder: '隨手記一下…', rows: '7', spellcheck: 'false' },
+      value: (p.ui.note && p.ui.note.text) || '',
       on: {
-        compositionstart: () => {
-          composing = true;
-        },
-        compositionend: () => {
-          composing = false;
-        },
         input: () => {
-          this.plugin.ui.jotDraft = this.jotInputEl.value;
+          if (p.noteEdited) p.noteEdited(this.noteTextEl.value);
         },
-        keydown: (e) => {
-          const d = jotDecision({ key: e.key, isComposing: e.isComposing, keyCode: e.keyCode, composing, value: this.jotInputEl.value });
-          if (d.save) {
-            if (e.preventDefault) e.preventDefault();
-            this.saveJot(d.text);
-          }
+        focus: () => {
+          if (p.noteFocus) p.noteFocus(true);
+        },
+        blur: () => {
+          if (p.noteFocus) p.noteFocus(false);
         },
       },
     });
-    this.jotListEl = h('div', { cls: 'wwh-jot-list' });
-    this.jotEl = h('section', { cls: 'wwh-jot wwh-paper' }, h('h2', { text: '隨手記' }), this.jotInputEl, this.jotListEl);
+    this.noteEl = h('section', { cls: 'wwh-note' }, h('h2', { text: '隨手記' }), this.noteTextEl);
   }
 
-  /** 存一則：成功才清空輸入框；沒成功（kb 擋了、沒找到 kb）字留著。 */
-  async saveJot(text) {
-    const p = this.plugin;
-    if (!p.saveJot) return null;
-    const r = await p.saveJot(text);
-    if (r && r.ok) {
-      p.ui.jotDraft = '';
-      this.jotInputEl.value = '';
-    }
-    return r;
+  /** 重畫時把便條的字對齊 plugin 讀到的那一頁（她正在打字就不動）。不用 safe：safe 會把文字框清掉。 */
+  syncNote() {
+    const n = this.plugin.ui.note;
+    if (!n || !this.noteTextEl || n.focused) return;
+    if (this.noteTextEl.value !== n.text) this.noteTextEl.value = n.text;
   }
 
-  /** 最近 3 則（新到舊）淡淡列、加「看全部」；讀不到那一頁就不列。 */
-  renderJotList(el) {
-    const lines = asArray(this.plugin.jotLines);
-    if (!lines.length) return;
-    for (const j of lines) {
-      el.appendChild(h('div', { cls: 'wwh-jot-row' }, h('span', { cls: 'wwh-jot-when', text: `${shortDate(j.date)} ${j.time}` }), h('span', { cls: 'wwh-jot-text', text: j.text })));
-    }
-    el.appendChild(h('span', { cls: 'wwh-text-btn wwh-jot-all', attrs: { role: 'button', tabindex: '0' }, text: '看全部', on: { click: () => this.plugin.openPathInVault(JOT_REL) } }));
+  /** 待辦與要你確認的下面一行淡字：另外有 N 件小事 →，點了開待處理那一頁；0 件不寫。 */
+  renderOthers(el) {
+    const n = this.plugin.home ? this.plugin.home.others.length : 0;
+    if (!n) return;
+    el.appendChild(
+      h('span', { cls: 'wwh-text-btn wwh-others-line', attrs: { role: 'button', tabindex: '0' }, text: `另外有 ${n} 件小事 →`, on: { click: () => this.plugin.openPathInVault(PENDING_REL) } }),
+    );
   }
 
   safe(name, el, fn) {
@@ -1649,7 +1693,7 @@ class HomeView extends ItemView {
     if (!this.root) return;
     const p = this.plugin;
     if (!p.runner) {
-      for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.jotEl, this.drawerEl, this.bannerEl]) {
+      for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.othersEl, this.noteEl, this.drawerEl, this.bannerEl]) {
         el.classList.add('wwh-hidden');
       }
       if (!this.noKbEl) this.noKbEl = h('div', { cls: 'wwh-nokb', text: NO_KB_TEXT });
@@ -1657,7 +1701,7 @@ class HomeView extends ItemView {
       return;
     }
     if (this.noKbEl && this.noKbEl.parentNode) this.root.removeChild(this.noKbEl);
-    for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.jotEl, this.drawerEl, this.bannerEl]) {
+    for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.othersEl, this.noteEl, this.drawerEl, this.bannerEl]) {
       el.classList.remove('wwh-hidden');
     }
     this.safe('提示', this.bannerEl, (el) => this.renderBanners(el));
@@ -1666,7 +1710,8 @@ class HomeView extends ItemView {
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     this.safe('待辦', this.leftEl, (el) => this.renderTodo(el));
     this.safe('要你確認的', this.rightEl, (el) => this.renderRight(el));
-    this.safe('隨手記', this.jotListEl, (el) => this.renderJotList(el));
+    this.safe('小事', this.othersEl, (el) => this.renderOthers(el));
+    this.syncNote();
     this.safe('總覽', this.drawerEl, (el) => this.renderDrawer(el));
   }
 
@@ -1934,18 +1979,38 @@ class HomeView extends ItemView {
     this.applyScroll();
   }
 
-  setZoom(days) {
+  /** Ctrl＋滾輪（觸控板兩指拉近拉遠在 Obsidian 也是帶 Ctrl 的 wheel）：以游標那天為中心連續縮放，14～365 天（裁定 37）。 */
+  zoomByWheel(e) {
+    if (!this.tlLayout) return;
+    const g = this.tlGeom();
+    const track = this.axisTrackEl;
+    const rect = track && track.getBoundingClientRect ? track.getBoundingClientRect() : null;
+    const frac = rect && rect.width > 0 ? (Number(e.clientX) - rect.left) / rect.width : 0.5;
+    const z = zoomAround(g.start, g.visible, Number.isFinite(frac) ? frac : 0.5, wheelZoomFactor(e));
+    if (z.visible === g.visible) return;
     const ui = this.plugin.ui;
-    const old = zoomOf(ui.timelineDays);
-    const next = zoomOf(days);
-    if (next === old) return;
-    if (typeof ui.tlStart === 'number') ui.tlStart = ui.tlStart + old / 2 - next / 2; // 捲過的，留在看著的那個中間
-    ui.timelineDays = next;
-    if (this.plugin.saveTimelineDays) this.plugin.saveTimelineDays(next);
+    ui.timelineDays = z.visible;
+    ui.tlStart = z.start;
+    this.queueZoomSave();
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
   }
 
+  /** 縮放停手 0.4 秒才存 data.json（連續滾不要每一下都寫檔）。 */
+  queueZoomSave() {
+    if (!this.plugin.saveTimelineDays) return;
+    if (this.zoomSaveTimer) clearTimeout(this.zoomSaveTimer);
+    this.zoomSaveTimer = softTimeout(() => {
+      this.zoomSaveTimer = null;
+      this.plugin.saveTimelineDays(Math.round(this.plugin.ui.timelineDays));
+    }, 400);
+  }
+
   onGanttWheel(e) {
+    if (e && e.ctrlKey) {
+      if (e.preventDefault) e.preventDefault(); // 不讓 Obsidian 整頁跟著放大
+      this.zoomByWheel(e);
+      return;
+    }
     const px = horizontalWheel(e);
     if (!px) return;
     if (e.preventDefault) e.preventDefault();
@@ -2003,15 +2068,7 @@ class HomeView extends ItemView {
     }
     if (home && ui.timelineMode === 'timeline') {
       tools.appendChild(h('span', { cls: 'wwh-text-btn wwh-today-btn', attrs: { role: 'button', tabindex: '0' }, text: '回到今天', on: { click: () => this.backToToday() } }));
-      tools.appendChild(
-        h(
-          'span',
-          { cls: 'wwh-toggle wwh-zoom' },
-          TIMELINE_ZOOMS.map((z) =>
-            h('span', { cls: ['wwh-seg', zoomOf(ui.timelineDays) === z.days ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, text: z.label, on: { click: () => this.setZoom(z.days) } }),
-          ),
-        ),
-      );
+      tools.appendChild(h('span', { cls: 'wwh-zoom-hint', text: 'Ctrl＋滾輪縮放' }));
     }
     tools.appendChild(
       h(
@@ -2035,6 +2092,7 @@ class HomeView extends ItemView {
     }
     const todayN = dayNumber(home.today);
     this.tlLayout = layout;
+    this.tlColors = timelineColors(openMarksOnly(home.timeline));
     const table = h('div', { cls: 'wwh-gantt', on: { wheel: (e) => this.onGanttWheel(e), mousedown: (e) => this.onGanttDown(e) } }, this.axis(layout));
     table.addEventListener('click', (e) => this.onGanttClickCapture(e), true);
     this.ganttEl = table;
@@ -2111,6 +2169,7 @@ class HomeView extends ItemView {
         'div',
         { cls: 'wwh-fold', title: collapsed ? '展開' : '收起', attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' }, on: { click: toggle } },
         h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+        this.tlColors.row(row.key) === null ? null : h('i', { cls: ['wwh-row-dot', toneCls(this.tlColors.row(row.key))] }),
         name,
         h('span', { cls: 'wwh-muted wwh-row-count', text: open ? `${open} 件` : '' }),
         row.progress && progressWord(row.progress) !== '進行中'
@@ -2122,7 +2181,7 @@ class HomeView extends ItemView {
     const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
     if (!collapsed) {
       const rows = h('div', { cls: 'wwh-rows' });
-      row.marks.forEach((m) => rows.appendChild(this.markLine(m, todayN)));
+      row.marks.forEach((m) => rows.appendChild(this.markLine(m, todayN, row)));
       block.appendChild(rows);
     }
     block.appendChild(this.overlay(layout, row, collapsed));
@@ -2135,13 +2194,13 @@ class HomeView extends ItemView {
     for (const m of row.marks) {
       if (m.depth) continue;
       if (m.shape === 'bar' && !m.inferred) {
-        box.appendChild(h('span', { cls: ['wwh-sum-bar', m.late ? 'is-late' : ''], style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) }));
+        box.appendChild(h('span', { cls: ['wwh-sum-bar', m.late ? 'is-late' : '', toneCls(this.tlColors.of(row.key, m))], style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) }));
         continue;
       }
       const at = m.shape === 'bar' ? Math.min(100, m.leftPct + m.widthPct) : m.leftPct;
       box.appendChild(
         h('span', {
-          cls: ['wwh-sum-dot', m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : ''],
+          cls: ['wwh-sum-dot', m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : '', toneCls(this.tlColors.of(row.key, m))],
           style: { left: `${at}%` },
           title: describeMark(m),
         }),
@@ -2182,7 +2241,7 @@ class HomeView extends ItemView {
   }
 
   /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號。只有過期、今天的記號上色，其他淺灰；點下去開日程.md 那一行。 */
-  markLine(m, todayN) {
+  markLine(m, todayN, row) {
     const state = [m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : '', m.critical ? 'is-critical' : ''];
     const onClick = () => this.plugin.openItem(m.raw);
     const kind = m.kind && ICON_SHAPES[m.kind] ? m.kind : m.shape === 'bar' ? 'period' : null;
@@ -2197,7 +2256,8 @@ class HomeView extends ItemView {
     if (m.baseline) {
       sl.appendChild(h('i', { cls: 'wwh-baseline', style: { left: `${m.baseline.leftPct}%`, width: `${m.baseline.widthPct}%` }, title: '原定' }));
     }
-    sl.appendChild(this.markEl(m, state, kind, onClick));
+    const tone = row ? toneCls(this.tlColors.of(row.key, m)) : '';
+    sl.appendChild(this.markEl(m, tone ? state.concat(tone) : state, kind, onClick));
     return h('div', { cls: ['wwh-line', 'wwh-mark-line', ...state] }, left, track);
   }
 
@@ -2250,8 +2310,8 @@ class HomeView extends ItemView {
         for (const mk of d.marks.slice(0, 3)) {
           cell.appendChild(
             h('div', {
-              cls: ['wwh-day-mark', mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', d.isToday ? 'is-today' : '', mk.inferred ? 'is-inferred' : ''],
-              text: mk.text,
+              cls: ['wwh-day-mark', toneCls(mk.color), mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', d.isToday ? 'is-today' : '', mk.inferred ? 'is-inferred' : ''],
+              text: mk.label,
               title: `${mk.row ? mk.row + '：' : ''}${mk.text}`,
               on: { click: onClick(mk.raw) },
             }),
@@ -2263,10 +2323,10 @@ class HomeView extends ItemView {
       for (const b of week.bars) {
         wk.appendChild(
           h('div', {
-            cls: ['wwh-mbar', `wwh-mc${b.color}`, b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
+            cls: ['wwh-mbar', toneCls(b.color), b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
             style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
             title: `${b.row ? b.row + '：' : ''}${b.text}`,
-            text: b.text,
+            text: b.label,
             on: { click: onClick(b.raw) },
           }),
         );
@@ -2367,123 +2427,71 @@ class HomeView extends ItemView {
     return row;
   }
 
-  // ---- 要你確認的、其他要處理的 ----
+  // ---- 要你確認的（裁定 37）----
+  /** 整區可收合（標題前小箭頭，收起時標題旁淡淡寫題數）；先顯示 3 題，其餘收在「還有 N 題」。 */
   renderRight(el) {
     const p = this.plugin;
-    const sure = h('section', { cls: 'wwh-block wwh-block-confirm' }, h('h2', { text: '要你確認的' }));
+    const ui = p.ui;
+    const list = p.home ? p.home.confirm : [];
+    const collapsed = !!ui.confirmCollapsed;
+    const rerender = () => this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+    const sure = h('section', { cls: 'wwh-block wwh-block-confirm' });
     el.appendChild(sure);
-    if (!p.home) return;
-    if (!p.home.confirm.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
-    let toFocus = null;
-    for (const c of p.home.confirm) {
-      const card = h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
-      const answers = h('div', { cls: 'wwh-confirm-buttons' });
-      const results = asArray(c.results).filter(isObject);
-      const fillState = p.ui.confirmFill && p.ui.confirmFill.key === c.key ? p.ui.confirmFill : null;
-      results.forEach((r, i) => {
-        const kind = answerKind(r);
-        const on = !!fillState && fillState.index === i && kind === 'fill';
-        const click = () => {
-          if (kind !== 'fill') {
-            p.ui.confirmFill = null;
-            p.chooseResult(c, r);
-            return;
-          }
-          p.ui.confirmFill = on ? null : { key: c.key, index: i, value: '', focus: true };
-          this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
-        };
-        answers.appendChild(
-          h(
-            'span',
-            { cls: ['wwh-answer', kind === 'chat' ? 'is-chat' : '', on ? 'is-on' : ''], attrs: { role: 'button', tabindex: '0' }, title: kind === 'chat' ? '這題要在對話裡說，點了會複製一句話' : null, on: { click } },
-            r.label || '',
-            kind === 'chat' ? h('span', { cls: 'wwh-answer-chat' }, icon('chat', 13, 1.5)) : null,
-          ),
-        );
-      });
-      card.appendChild(answers);
-      if (fillState && results[fillState.index] && answerKind(results[fillState.index]) === 'fill') {
-        const r = results[fillState.index];
-        const input = this.fillInput(c, r, fillState);
-        card.appendChild(
-          h(
-            'div',
-            { cls: 'wwh-fill' },
-            h('span', { cls: 'wwh-fill-label', text: r.fill.name ? `${r.fill.name}：` : '' }),
-            input,
-            h('span', { cls: 'wwh-fill-hint', text: '按 Enter' }),
-            h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text: '取消', on: { click: () => this.closeFill() } }),
-          ),
-        );
-        if (fillState.focus) {
-          fillState.focus = false;
-          toFocus = input;
-        }
-      }
-      sure.appendChild(card);
-    }
-    if (toFocus && toFocus.focus) toFocus.focus();
-    const open = p.ui.othersOpen;
-    const others = h('section', { cls: 'wwh-block wwh-block-others' });
-    others.appendChild(
+    sure.appendChild(
       h(
         'div',
         {
-          cls: 'wwh-group-head is-others',
-          attrs: { role: 'button', tabindex: '0', 'aria-expanded': open ? 'true' : 'false' },
+          cls: 'wwh-group-head is-confirm',
+          attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' },
           on: {
             click: () => {
-              p.ui.othersOpen = !open;
-              this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+              ui.confirmCollapsed = !collapsed;
+              rerender();
             },
           },
         },
-        h('span', { cls: ['wwh-chev', open ? 'is-open' : ''] }, icon('chevron', 14, 2)),
-        h('span', { text: '其他要處理的' }),
-        h('span', { cls: 'wwh-group-count', text: String(p.home.others.length) }),
+        h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+        h('h2', { text: '要你確認的' }),
+        collapsed && list.length ? h('span', { cls: 'wwh-group-count', text: String(list.length) }) : null,
       ),
     );
-    el.appendChild(others);
-    if (!open) return;
-    if (!p.home.others.length) others.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
-    for (const o of p.home.others) others.appendChild(h('div', { cls: 'wwh-other' }, h('span', { cls: 'wwh-other-text', text: o.text || '' })));
+    if (!p.home || collapsed) return;
+    if (!list.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
+    const shown = ui.confirmAll ? list : list.slice(0, CONFIRM_SHOWN);
+    for (const c of shown) sure.appendChild(this.confirmCard(c));
+    if (shown.length < list.length) {
+      sure.appendChild(
+        h('span', {
+          cls: 'wwh-text-btn wwh-confirm-more',
+          attrs: { role: 'button', tabindex: '0' },
+          text: `還有 ${list.length - shown.length} 題`,
+          on: {
+            click: () => {
+              ui.confirmAll = true;
+              rerender();
+            },
+          },
+        }),
+      );
+    }
   }
 
-  /** 卡上展開的小輸入：日期用日期選擇、其他用文字框；Enter 才跑（注音選字中不算），Esc 取消。 */
-  fillInput(c, r, state) {
-    const type = fillInputType(r.fill);
-    let composing = false;
-    return h('input', {
-      cls: 'wwh-fill-input',
-      attrs: { type, placeholder: type === 'date' ? '' : r.fill.name || '' },
-      value: state.value || '',
-      on: {
-        compositionstart: () => {
-          composing = true;
-        },
-        compositionend: () => {
-          composing = false;
-        },
-        input: (e) => {
-          state.value = e && e.target ? e.target.value : state.value;
-        },
-        keydown: (e) => {
-          const d = fillDecision({ key: e.key, isComposing: e.isComposing, keyCode: e.keyCode, composing, value: e.target ? e.target.value : state.value, type });
-          if (d.cancel) this.closeFill();
-          else if (d.run) {
-            if (e.preventDefault) e.preventDefault();
-            this.plugin.ui.confirmFill = null;
-            this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
-            this.plugin.chooseResult(c, r, d.value);
-          }
-        },
-      },
-    });
-  }
-
-  closeFill() {
-    this.plugin.ui.confirmFill = null;
-    this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+  /** 一題一張卡：題目在上；左邊只放點了就做的答案，右邊淡淡的「先放著」「不處理」和一個對話圖示（點了複製「關於「題目」：」）。 */
+  confirmCard(c) {
+    const p = this.plugin;
+    const parts = splitAnswers(c);
+    const answers = h('div', { cls: 'wwh-confirm-buttons' });
+    for (const r of parts.main) {
+      answers.appendChild(h('span', { cls: 'wwh-answer', attrs: { role: 'button', tabindex: '0' }, text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
+    }
+    const quiet = h('div', { cls: 'wwh-confirm-quiet' });
+    for (const [r, text, cls] of [[parts.aside, ASIDE_TEXT, 'is-aside'], [parts.dismiss, DISMISS_TEXT, 'is-dismiss']]) {
+      if (r) quiet.appendChild(h('span', { cls: ['wwh-quiet', cls], attrs: { role: 'button', tabindex: '0' }, text, on: { click: () => p.chooseResult(c, r) } }));
+    }
+    quiet.appendChild(
+      h('span', { cls: 'wwh-quiet wwh-chat-btn', title: CHAT_TIP, attrs: { role: 'button', tabindex: '0', 'aria-label': CHAT_TIP }, on: { click: () => p.copyAsk(c) } }, icon('message-circle', 15, 1.5)),
+    );
+    return h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }), h('div', { cls: 'wwh-confirm-foot' }, answers, quiet));
   }
 
   // ---- 實體總覽（右側抽屜）----
@@ -2578,7 +2586,6 @@ class WikiWithWillyPlugin extends Plugin {
     this.ui = defaultUi();
     this.home = null;
     this.homeError = null;
-    this.jotLines = [];
     this.needsReload = false;
     this.refreshing = false;
     this.refreshAgain = false;
@@ -2640,6 +2647,7 @@ class WikiWithWillyPlugin extends Plugin {
       }
     }
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.flushNote();
   }
 
   basePath() {
@@ -2753,7 +2761,7 @@ class WikiWithWillyPlugin extends Plugin {
           if (c.kind === 'failed') console.error('[wiki-with-willy] kb home 失敗', res.stderr || res.stdout);
         }
         this.checkSelfUpdate();
-        this.readJot();
+        await this.readNote();
         this.renderAll();
         if (this.ui.drawer.open && this.ui.drawer.stack.length) this.loadDrawer(false);
       } while (this.refreshAgain);
@@ -2818,28 +2826,62 @@ class WikiWithWillyPlugin extends Plugin {
     };
   }
 
-  /** 隨手記那一頁最後 3 則：直接讀檔（Claude 不經手）；讀不到就空，不列。 */
-  readJot() {
+  /** 隨手記那一頁：打開首頁、每次重新整理都讀一次（沒有就是空白）；她正在打字就不蓋掉。 */
+  async readNote() {
+    const note = this.ui.note;
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (!note || !adapter || !adapter.exists) return;
     try {
-      this.jotLines = jotRecent(fs.readFileSync(path.join(this.vaultPath, JOT_REL), 'utf8'), JOT_RECENT);
+      const disk = (await adapter.exists(NOTE_REL)) ? await adapter.read(NOTE_REL) : null;
+      note.saved = disk;
+      const next = noteIncoming(note, disk);
+      if (next !== null) note.text = next;
     } catch (e) {
-      this.jotLines = [];
+      console.error('[wiki-with-willy] 讀不到隨手記那一頁', e);
     }
   }
 
-  /** 存一則隨手記：kb jot（Obsidian 的回合，退得回來）；成功就重讀最近幾則、重畫。 */
-  async saveJot(text) {
-    const r = await this.runAction(actions.jot(text));
-    if (r && r.ok) {
-      this.readJot();
-      this.renderAll();
+  /** 便條的字改了：記下來，停手約 1.5 秒就存回那一頁。 */
+  noteEdited(text) {
+    const note = this.ui.note;
+    note.text = String(text == null ? '' : text);
+    note.dirty = note.text !== (note.saved == null ? '' : note.saved);
+    if (this.noteTimer) clearTimeout(this.noteTimer);
+    this.noteTimer = note.dirty ? softTimeout(() => this.flushNote(), NOTE_DELAY_MS) : null;
+  }
+
+  /** 游標進、出便條：進去時重畫不蓋她的字；離開框就立刻存。 */
+  noteFocus(on) {
+    this.ui.note.focused = !!on;
+    if (!on) this.flushNote();
+  }
+
+  /** 把便條存回那一頁（用 Obsidian 的 vault；沒有就建，空的也照存、不刪檔）。回有沒有存成。 */
+  async flushNote() {
+    if (this.noteTimer) {
+      clearTimeout(this.noteTimer);
+      this.noteTimer = null;
     }
-    return r;
+    const note = this.ui.note;
+    if (!note.dirty) return true;
+    const text = note.text;
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    try {
+      if (!(await adapter.exists(FREE_DIR))) await adapter.mkdir(FREE_DIR);
+      await adapter.write(NOTE_REL, text);
+      note.saved = text;
+      note.dirty = note.text !== text; // 存的時候她又打了字就還沒完
+      return true;
+    } catch (e) {
+      console.error('[wiki-with-willy] 隨手記沒存成', e);
+      this.toast('隨手記沒存成');
+      return false;
+    }
   }
 
   /** 記住時間軸上次選的縮放（data.json）。 */
   async saveTimelineDays(days) {
-    this.data = Object.assign({}, this.data, { timelineDays: zoomOf(days) });
+    this.data = Object.assign({}, this.data, { timelineDays: Math.round(zoomOf(days)) });
     try {
       await this.saveData(this.data);
     } catch (e) {
@@ -3046,12 +3088,14 @@ class WikiWithWillyPlugin extends Plugin {
     return this.runAction(a);
   }
 
+  /** 每張確認卡的對話圖示：複製「關於「題目」：」。 */
+  copyAsk(item) {
+    return copyForChat(this.clipCtx(), chatPhrase(item));
+  }
+
   async chooseResult(item, result, fillValue) {
-    if (answerKind(result) === 'chat') {
-      await copyForChat(this.clipCtx(), chatPhrase(item, result)); // 只能在對話裡做：複製一句現成的話（裁定 34）
-      return null;
-    }
     const argv = result.argv;
+    if (!Array.isArray(argv)) return null; // 只能在對話裡做的，首頁不列（裁定 37）
     // 「加成日程」這類只給了原文的：開新增表單，原文填進「要做什麼」，存了再接著做 result.after
     if (argv[0] === 'agenda' && argv[1] === 'add' && !argv.includes('--date')) {
       const at = argv.indexOf('--text');
@@ -3317,13 +3361,21 @@ module.exports.lib = {
   icon,
   RECENT_MAX,
   MONTH_COLORS,
-  TIMELINE_ZOOMS,
   FREE_DIR,
-  JOT_REL,
-  jotRecent,
-  jotDecision,
+  NOTE_REL,
+  NOTE_DELAY_MS,
+  PENDING_REL,
+  defaultNote,
+  noteIncoming,
   DEFAULT_ZOOM,
+  MIN_ZOOM,
+  MAX_ZOOM,
   zoomOf,
+  savedZoom,
+  wheelZoomFactor,
+  zoomAround,
+  timelineColors,
+  toneCls,
   defaultTimelineStart,
   clampTimelineStart,
   wantedTimelineRange,
@@ -3331,9 +3383,7 @@ module.exports.lib = {
   horizontalWheel,
   dragStartsHere,
   pinnedMonth,
-  answerKind,
-  fillInputType,
-  fillDecision,
+  splitAnswers,
   chatPhrase,
   copyForChat,
   localIso,

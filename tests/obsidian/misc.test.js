@@ -188,18 +188,6 @@ test('首頁按鈕接到動作：打勾的 checkbox 叫 kb agenda done', async (
   assert.ok(byClass(view.root, 'wwh-todo')[0].classList.contains('is-done'));
 });
 
-test('其他要處理的：只列出來，沒有按鈕（D-266 拿掉「不用管」）', () => {
-  const { plugin } = makeActionPlugin();
-  plugin.home = lib.normalizeHome({ others: [{ id: 'p-3', kind: 'missing_file', text: '有一份檔不見了', dismiss: true }, { id: 'p-4', text: '不能不管', dismiss: false }] });
-  plugin.ui.othersOpen = true;
-  const view = new lib.HomeView({}, plugin);
-  view.build();
-  view.render();
-  const rows = byClass(view.root, 'wwh-other');
-  assert.strictEqual(rows.length, 2);
-  for (const r of rows) assert.strictEqual(byTag(r, 'button').length, 0);
-});
-
 test('日程.md 的哪一行：先找文字加日期都有的，再找文字，找不到回頁頂', () => {
   const page = ['# 日程', '## 逾期', '- 2026-10-28（週三）提醒 看工地', '## 今天', '- 2026-10-30（週五）提醒 看工地', '- 2026-10-30（週五）到期 訂窗簾'].join('\n');
   assert.strictEqual(lib.findAgendaLine(page, { text: '訂窗簾', end: '2026-10-30' }), 5);
@@ -281,18 +269,16 @@ test('日期顯示：11/5（週四）10:00', () => {
   assert.strictEqual(lib.formatWhen({}), '');
 });
 
-test('要你確認的（裁定 34）：只能在對話做的答案，點了把一句現成的話複製起來並提示，不叫 kb', async () => {
+test('要你確認的（裁定 37）：對話圖示複製「關於「題目」：」並提示，不叫 kb；argv 是 null 的答案首頁不列，真的被叫到也不跑', async () => {
   const { plugin, calls, toasts } = makeActionPlugin();
   const clip = [];
   plugin.clipCtx = () => ({ toast: (t) => plugin.toast(t), writeClipboard: async (t) => clip.push(t) });
-  await plugin.chooseResult({ text: '「王先生」是新的名字嗎？' }, { label: '照你改的做', argv: null, fill: null });
-  assert.deepStrictEqual(clip, ['關於「「王先生」是新的名字嗎？」，我選「照你改的做」']);
-  assert.strictEqual(toasts[0].t, '這題要跟 Claude 說，已複製「關於「「王先生」是新的名字嗎？」，我選「照你改的做」」，貼到對話就好');
+  await plugin.copyAsk({ text: '「王先生」是新的名字嗎？' });
+  assert.deepStrictEqual(clip, ['關於「「王先生」是新的名字嗎？」：']);
+  assert.strictEqual(toasts[0].t, '已複製，貼到對話跟 Claude 說');
   assert.strictEqual(calls.length, 0);
-  // 兩條指令的（有 fill、argv 是 null）也一樣
-  await plugin.chooseResult({ text: '名字？' }, { label: '名字改成別的', argv: null, fill: { name: '新名字', rule: 'x' } });
-  assert.strictEqual(clip[1], '關於「名字？」，我選「名字改成別的」，新名字是：');
-  assert.strictEqual(calls.length, 0);
+  assert.strictEqual(await plugin.chooseResult({ text: '名字？' }, { label: '照你改的做', argv: null, fill: null }), null);
+  assert.strictEqual(calls.length, 0, 'argv 是 null 不叫 kb');
 });
 
 test('要你確認的（裁定 34）：複製不了就把那句話顯示出來讓她自己複製', async () => {

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from tests import _cards
 from tests import _entities as E
+from tests._guard_fixture import ROOT
+from kb._lib.areas import FREE_DIR  # noqa: E402
 from tests.test_scripts_inventory_cli import run_kb
 
 
@@ -74,6 +76,13 @@ class HomeCli(unittest.TestCase):
     def test_help_lists_home(self):
         r = run_kb("--help", cwd=self.V)
         self.assertIn("home", r.stdout)
+
+
+class NoteFolder(unittest.TestCase):
+    def test_plugin_knows_the_same_free_dir_name(self):
+        """隨手記便條（obsidian/main.js）讀寫的夾名要跟 areas.FREE_DIR 一樣（改名時兩邊一起改）。"""
+        main = (ROOT / "obsidian" / "main.js").read_text(encoding="utf-8")
+        self.assertIn(f"const FREE_DIR = '{FREE_DIR}';", main)
 
 
 if __name__ == "__main__":

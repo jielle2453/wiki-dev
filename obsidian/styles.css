@@ -57,6 +57,16 @@
   --wwh-mc5: #d4eeec;
   --wwh-mc6: #e1e4ee;
   --wwh-mc7: #e6efcf;
+  /* 時間軸的條、點、列標題的色點：同一個色相，濃一點 */
+  --wwh-mt0: #8fb4de;
+  --wwh-mt1: #86c586;
+  --wwh-mt2: #b39ddb;
+  --wwh-mt3: #e0c45c;
+  --wwh-mt4: #e598b5;
+  --wwh-mt5: #72c4be;
+  --wwh-mt6: #96a3cf;
+  --wwh-mt7: #aecb62;
+  --wwh-note-bg: #fff6c9;
   background: var(--background-secondary);
   box-sizing: border-box;
   display: flex;
@@ -81,6 +91,15 @@
   --wwh-mc5: rgba(45, 212, 191, 0.24);
   --wwh-mc6: rgba(129, 140, 248, 0.32);
   --wwh-mc7: rgba(163, 230, 53, 0.22);
+  --wwh-mt0: rgba(96, 165, 250, 0.62);
+  --wwh-mt1: rgba(74, 222, 128, 0.5);
+  --wwh-mt2: rgba(167, 139, 250, 0.62);
+  --wwh-mt3: rgba(250, 204, 21, 0.5);
+  --wwh-mt4: rgba(244, 114, 182, 0.55);
+  --wwh-mt5: rgba(45, 212, 191, 0.5);
+  --wwh-mt6: rgba(129, 140, 248, 0.62);
+  --wwh-mt7: rgba(163, 230, 53, 0.5);
+  --wwh-note-bg: #3f3b24;
   --wwh-bar: color-mix(in srgb, var(--text-muted) 38%, var(--background-primary));
 }
 
@@ -91,6 +110,29 @@
 
 .wwh-hidden {
   display: none !important;
+}
+
+/* 套色：時間軸每一列一個顏色，月曆同一個（沒有 class = 淡灰） */
+.wwh-tone0 { --wwh-mark-c: var(--wwh-mt0); --wwh-mark-bg: var(--wwh-mc0); }
+.wwh-tone1 { --wwh-mark-c: var(--wwh-mt1); --wwh-mark-bg: var(--wwh-mc1); }
+.wwh-tone2 { --wwh-mark-c: var(--wwh-mt2); --wwh-mark-bg: var(--wwh-mc2); }
+.wwh-tone3 { --wwh-mark-c: var(--wwh-mt3); --wwh-mark-bg: var(--wwh-mc3); }
+.wwh-tone4 { --wwh-mark-c: var(--wwh-mt4); --wwh-mark-bg: var(--wwh-mc4); }
+.wwh-tone5 { --wwh-mark-c: var(--wwh-mt5); --wwh-mark-bg: var(--wwh-mc5); }
+.wwh-tone6 { --wwh-mark-c: var(--wwh-mt6); --wwh-mark-bg: var(--wwh-mc6); }
+.wwh-tone7 { --wwh-mark-c: var(--wwh-mt7); --wwh-mark-bg: var(--wwh-mc7); }
+
+.wwh-row-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wwh-mark-c, var(--text-faint));
+}
+
+.wwh-zoom-hint {
+  color: var(--text-faint);
+  font-size: 12px;
 }
 
 .wwh-paper {
@@ -799,7 +841,7 @@
   top: 21px;
   height: 6px;
   border-radius: 3px;
-  background: var(--wwh-bar);
+  background: var(--wwh-mark-c, var(--wwh-bar));
 }
 
 .wwh-sum-bar.is-late {
@@ -816,7 +858,7 @@
   border: 2px solid var(--background-primary);
   border-radius: 50%;
   transform: translateX(-50%);
-  background: var(--text-faint);
+  background: var(--wwh-mark-c, var(--text-faint));
 }
 
 
@@ -922,7 +964,7 @@
   top: 15px;
   height: 10px;
   border-radius: 5px;
-  background: var(--wwh-bar);
+  background: var(--wwh-mark-c, var(--wwh-bar));
 }
 
 .wwh-mark.is-bar.is-child {
@@ -950,7 +992,7 @@
 .wwh-mark.is-bar.is-inferred {
   box-sizing: border-box;
   border: 1.5px dashed var(--text-muted);
-  background: color-mix(in srgb, var(--wwh-bar) 35%, transparent);
+  background: color-mix(in srgb, var(--wwh-mark-c, var(--wwh-bar)) 35%, transparent);
 }
 
 .wwh-mark.is-bar.is-critical {
@@ -965,10 +1007,10 @@
   box-sizing: border-box;
   width: 24px;
   height: 24px;
-  border: 1.5px solid var(--background-modifier-border-hover);
+  border: 1.5px solid var(--wwh-mark-c, var(--background-modifier-border-hover));
   border-radius: 50%;
   transform: translateX(-50%);
-  background: var(--background-primary);
+  background: var(--wwh-mark-bg, var(--background-primary));
   color: var(--text-muted);
 }
 
@@ -1126,7 +1168,7 @@
   padding: 0 8px;
   overflow: hidden;
   border-radius: 11px;
-  background: var(--wwh-bar);
+  background: var(--wwh-mark-bg, var(--wwh-bar));
   color: var(--text-normal);
   font-size: 12px;
   line-height: 22px;
@@ -1135,14 +1177,6 @@
   cursor: pointer;
 }
 
-.wwh-mbar.wwh-mc0 { background: var(--wwh-mc0); }
-.wwh-mbar.wwh-mc1 { background: var(--wwh-mc1); }
-.wwh-mbar.wwh-mc2 { background: var(--wwh-mc2); }
-.wwh-mbar.wwh-mc3 { background: var(--wwh-mc3); }
-.wwh-mbar.wwh-mc4 { background: var(--wwh-mc4); }
-.wwh-mbar.wwh-mc5 { background: var(--wwh-mc5); }
-.wwh-mbar.wwh-mc6 { background: var(--wwh-mc6); }
-.wwh-mbar.wwh-mc7 { background: var(--wwh-mc7); }
 
 .wwh-mbar.clip-left {
   margin-left: 0;
@@ -1161,8 +1195,9 @@
   color: var(--text-muted);
 }
 
+/* 過期的：自己的顏色不變，加橘色字和橘色外框 */
 .wwh-mbar.is-late {
-  background: var(--wwh-orange-soft);
+  box-shadow: inset 0 0 0 1.5px var(--wwh-orange);
   color: var(--wwh-orange);
   font-weight: 600;
 }
@@ -1173,10 +1208,12 @@
 }
 
 .wwh-day-mark {
-  padding: 1px 4px;
+  margin-bottom: 2px;
+  padding: 1px 6px;
   overflow: hidden;
-  border-radius: 3px;
-  color: var(--text-muted);
+  border-radius: 4px;
+  background: var(--wwh-mark-bg, var(--wwh-bar));
+  color: var(--text-normal);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1184,10 +1221,11 @@
 }
 
 .wwh-day-mark:hover {
-  background: var(--background-modifier-hover);
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover);
 }
 
 .wwh-day-mark.is-late {
+  box-shadow: inset 0 0 0 1.5px var(--wwh-orange);
   color: var(--wwh-orange);
   font-weight: 600;
 }
@@ -1198,7 +1236,8 @@
 }
 
 .wwh-day-mark.is-inferred {
-  color: var(--text-faint);
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .wwh-day-more {
@@ -1245,6 +1284,15 @@
   color: var(--text-accent);
 }
 
+.wwh-group-head.is-confirm {
+  padding: 0;
+}
+
+.wwh-confirm-more {
+  align-self: flex-start;
+  color: var(--text-faint);
+}
+
 .wwh-group {
   display: flex;
   flex-direction: column;
@@ -1266,8 +1314,7 @@
   color: var(--wwh-orange);
 }
 
-.wwh-group-head.is-week,
-.wwh-group-head.is-others {
+.wwh-group-head.is-week {
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -1365,68 +1412,58 @@
   line-height: 1.5;
 }
 
+.wwh-confirm-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
 .wwh-confirm-buttons {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 8px 20px;
 }
 
+/* 點了就做的答案：主文字色、比之前大一點 */
 .wwh-answer {
-  color: var(--text-accent);
-  font-size: 13px;
+  color: var(--text-normal);
+  font-size: 15px;
   cursor: pointer;
 }
 
-.wwh-answer:hover {
-  color: var(--text-accent-hover);
-  text-decoration: underline;
-}
-
-.wwh-answer.is-on {
-  color: var(--text-normal);
-  font-weight: 600;
-}
-
-.wwh-answer-chat {
-  display: inline-flex;
-  margin-left: 4px;
-  vertical-align: -2px;
-  color: var(--text-faint);
-}
-
-.wwh-answer-chat svg {
-  width: 13px;
-  height: 13px;
-}
-
-.wwh-fill {
+/* 右邊淡淡的收尾：先放著、不處理、對話圖示 */
+.wwh-confirm-quiet {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 14px;
+  margin-left: auto;
 }
 
-.wwh-fill-label,
-.wwh-fill-hint {
-  color: var(--text-muted);
+.wwh-quiet {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
   font-size: 12px;
+  cursor: pointer;
 }
 
-.wwh-fill-input {
-  min-width: 160px;
-  max-width: 100%;
-  font-size: 13px;
-}
-
-.wwh-other {
-  padding: 6px 0;
-  border-top: 1px solid var(--wwh-line-soft);
-}
-
-.wwh-other-text {
+.wwh-quiet:hover {
   color: var(--text-muted);
-  font-size: 14px;
+}
+
+.wwh-chat-btn svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.wwh-answer:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
 }
 
 /* 實體總覽（右側抽屜） */
@@ -1521,53 +1558,50 @@
   cursor: pointer;
 }
 
-/* ---- 隨手記（首頁最底下，D-267）---- */
-.wwh-jot {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-sizing: border-box;
-  padding: 16px 18px 14px;
+/* ---- 待辦與要你確認的下面一行淡字 ---- */
+.wwh-others:empty {
+  display: none;
 }
 
-.wwh-jot h2 {
+.wwh-others-line {
+  padding-left: 4px;
+  color: var(--text-faint);
+}
+
+/* ---- 隨手記便條（首頁最底下，D-267 修訂）：淡黃底，整個框就是彈性區的隨手記.md ---- */
+.wwh-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 14px 18px 12px;
+  border-radius: 12px;
+  background: var(--wwh-note-bg);
+  box-shadow: var(--wwh-shadow);
+}
+
+.wwh-note h2 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.wwh-jot-input {
-  width: 100%;
-  box-sizing: border-box;
-  font-size: 14px;
-}
-
-.wwh-jot-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.wwh-jot-row {
-  display: flex;
-  gap: 10px;
   color: var(--text-muted);
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 600;
 }
 
-.wwh-jot-when {
-  flex: 0 0 auto;
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
+.wwh-note-text {
+  width: 100%;
+  min-height: 140px;
+  box-sizing: border-box;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: vertical;
 }
 
-.wwh-jot-text {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.wwh-jot-all {
-  align-self: flex-start;
-  padding-left: 0;
+.wwh-note-text:focus {
+  box-shadow: none;
 }
