@@ -1240,9 +1240,121 @@ function defaultUi() {
     rowCollapsed: {},
     todoCollapsed: {},
     othersOpen: false,
-    search: { q: '', active: false, loading: false, result: null, error: null },
+    search: { q: '', active: false, focused: false, loading: false, result: null, error: null },
     drawer: { open: false, stack: [], data: null, loading: false, error: null },
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// 首頁的圖示、欄寬（設計稿 design/mockups/Obsidian首頁-設計稿.dc.html，裁定 28）
+// ---------------------------------------------------------------------------------------------------------------
+
+const HEAD_H = 48; // 時間軸每一塊（事類實體）標題列的高度
+const ROW_H = 40; // 展開後每件一列的高度
+const RECENT_MAX = 8;
+const ICON_SHAPES = {
+  meeting: [
+    ['circle', { cx: 6, cy: 5.5, r: 2.4 }],
+    ['circle', { cx: 11.6, cy: 6.2, r: 1.9 }],
+    ['path', { d: 'M1.6 13.5c.4-2.4 2.2-4 4.4-4s4 1.6 4.4 4M10.6 9.4c1.9-.3 3.5.9 3.9 3.4' }],
+  ],
+  promise: [
+    ['circle', { cx: 8, cy: 8, r: 6 }],
+    ['path', { d: 'm5.3 8.2 2 2 3.5-4' }],
+  ],
+  deadline: [['path', { d: 'M3.5 14.5V2M3.5 2.5h8.5l-2.2 3 2.2 3H3.5' }]],
+  reminder: [
+    ['path', { d: 'M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z' }],
+    ['path', { d: 'M6.7 14.2a1.4 1.4 0 0 0 2.6 0' }],
+  ],
+  period: [['path', { d: 'M4.5 1.8h7M4.5 14.2h7M5 1.8c0 3.6 6 3.6 6 6.2s-6 2.6-6 6.2M11 1.8c0 3.6-6 3.6-6 6.2s6 2.6 6 6.2' }]],
+  card: [
+    ['rect', { x: 2.5, y: 2, width: 11, height: 12, rx: 1.5 }],
+    ['path', { d: 'M5 5.5h6M5 8h6M5 10.5h3.5' }],
+  ],
+  info: [
+    ['circle', { cx: 8, cy: 8, r: 6 }],
+    ['path', { d: 'M8 7.2V11M8 5v.1' }],
+  ],
+  chevron: [['path', { d: 'M6 3.5 10.5 8 6 12.5' }]],
+  dots: [
+    ['circle', { cx: 3.5, cy: 8, r: 1 }],
+    ['circle', { cx: 8, cy: 8, r: 1 }],
+    ['circle', { cx: 12.5, cy: 8, r: 1 }],
+  ],
+};
+
+/** 小圖示（SVG，顏色跟著文字）；不認得的名字回 null。 */
+function icon(name, size, width) {
+  const shapes = ICON_SHAPES[name];
+  if (!shapes) return null;
+  const px = size || 14;
+  return hs(
+    'svg',
+    {
+      class: 'wwh-ico',
+      width: px,
+      height: px,
+      viewBox: '0 0 16 16',
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': width || 1.6,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      'aria-hidden': 'true',
+    },
+    ...shapes.map(([tag, attrs]) => hs(tag, attrs)),
+  );
+}
+
+/** 搜尋結果與「最近」那一列前面的小方塊：看原檔的副檔名（連結條目是 ↗）。 */
+function fileExt(f) {
+  const open = isObject(f) && isObject(f.open) ? f.open : {};
+  if (open.url) return { label: '↗', cls: 'ext-link' };
+  const m = /\.([A-Za-z0-9]{1,5})$/.exec(String(open.path || ''));
+  const ext = m ? m[1].toLowerCase() : '';
+  let cls = 'ext-other';
+  if (['xls', 'xlsx', 'xlsm', 'csv'].includes(ext)) cls = 'ext-xls';
+  else if (['doc', 'docx', 'txt', 'md'].includes(ext)) cls = 'ext-doc';
+  else if (['ppt', 'pptx'].includes(ext)) cls = 'ext-ppt';
+  else if (ext === 'pdf') cls = 'ext-pdf';
+  else if (['png', 'jpg', 'jpeg', 'gif', 'heic', 'webp'].includes(ext)) cls = 'ext-img';
+  return { label: (ext.length > 3 ? ext.slice(0, 3) : ext || '檔').toUpperCase(), cls }; // xlsx → XLS、docx → DOC：小方塊裡放得下
+}
+
+/** 「10 月 30 日 星期五」。 */
+function longDate(iso) {
+  const n = dayNumber(iso);
+  if (n === null) return '';
+  const d = new Date(n * 86400000);
+  return `${d.getUTCMonth() + 1} 月 ${d.getUTCDate()} 日 星期${WEEKDAY[d.getUTCDay()]}`;
+}
+
+/** 這一塊預設收起；有逾期或今天那件還沒做的才預設展開（裁定 28）。 */
+function rowDefaultCollapsed(row, todayN) {
+  const marks = asArray(row && row.marks);
+  return !marks.some((m) => m.status === 'open' && (m.late || (todayN !== null && m.shape === 'point' && dayNumber(m.end) === todayN)));
+}
+
+function rowIsCollapsed(ui, row, todayN) {
+  const set = ui.rowCollapsed[row.key];
+  return set !== undefined ? !!set : rowDefaultCollapsed(row, todayN);
+}
+
+/** 展開後左欄第二行：點是「10/30（週五）· 過了 2 天」，期間是「9/1～11/30」。 */
+function markWhen(m, todayN) {
+  if (m.shape === 'bar') {
+    const a = shortDate(m.start);
+    const b = shortDate(m.end);
+    return a && b ? `${a}～${b}` : a || b;
+  }
+  const n = dayNumber(m.end);
+  if (n === null) return '';
+  let text = `${shortDate(m.end)}（週${WEEKDAY[weekdayOf(n)]}）`;
+  if (m.time) text += ` ${m.time}`;
+  if (m.status === 'done') text += ' · 完成了';
+  else if (m.status === 'open' && todayN !== null && n < todayN) text += ` · 過了 ${todayN - n} 天`;
+  return text;
 }
 
 class HomeView extends ItemView {
@@ -1281,7 +1393,7 @@ class HomeView extends ItemView {
     this.topEl = h('div', { cls: 'wwh-top' });
     this.searchEl = h('div', { cls: 'wwh-search' });
     this.dropdownEl = h('div', { cls: 'wwh-dropdown' });
-    this.recentEl = h('div', { cls: 'wwh-recent' });
+    this.recentEl = h('div', { cls: 'wwh-dropdown wwh-recent' });
     this.timelineEl = h('section', { cls: 'wwh-section wwh-timeline-section' });
     this.leftEl = h('div', { cls: 'wwh-col wwh-col-left' });
     this.rightEl = h('div', { cls: 'wwh-col wwh-col-right' });
@@ -1315,14 +1427,27 @@ class HomeView extends ItemView {
         input: () => {
           if (!String(this.inputEl.value || '').trim() && this.plugin.ui.search.active) this.clearSearch();
         },
+        focus: () => {
+          this.plugin.ui.search.focused = true;
+          this.renderSearchPanels();
+        },
+        blur: () => {
+          this.plugin.ui.search.focused = false;
+          this.renderSearchPanels();
+        },
       },
     });
     this.searchEl.appendChild(this.inputEl);
     this.searchEl.appendChild(this.dropdownEl);
+    this.searchEl.appendChild(this.recentEl);
+    for (const box of [this.dropdownEl, this.recentEl]) {
+      box.addEventListener('mousedown', (e) => {
+        if (e && e.preventDefault) e.preventDefault(); // 點下拉裡的列，不讓搜尋框先失去游標（失去了「最近」就收起來）
+      });
+    }
     this.root.appendChild(this.bannerEl);
     this.root.appendChild(this.topEl);
     this.root.appendChild(this.searchEl);
-    this.root.appendChild(this.recentEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
     clear(this.contentEl);
@@ -1385,7 +1510,9 @@ class HomeView extends ItemView {
       el.appendChild(h('div', { cls: 'wwh-cheer', text: '載入中……' }));
       return;
     }
-    el.appendChild(h('div', { cls: 'wwh-cheer', text: home.cheer || '' }));
+    el.appendChild(
+      h('div', { cls: 'wwh-greet' }, h('p', { cls: 'wwh-date', text: longDate(home.today) }), h('h1', { cls: 'wwh-cheer', text: home.cheer || '' })),
+    );
     const c = home.counts;
     const chip = (label, n, cls) => h('span', { cls: ['wwh-count', cls, n ? 'has' : ''], text: `${label} ${n}` });
     el.appendChild(
@@ -1397,10 +1524,8 @@ class HomeView extends ItemView {
         chip('這週', c.week, 'week'),
         chip('要你確認', c.confirm, 'confirm'),
         chip('其他要處理', c.other, 'other'),
+        h('button', { cls: 'wwh-small-btn wwh-add-btn', text: '＋ 新增日程', on: { click: () => this.plugin.addAgendaForm() } }),
       ),
-    );
-    el.appendChild(
-      h('button', { cls: 'wwh-small-btn wwh-add-btn', text: '＋ 新增日程', on: { click: () => this.plugin.addAgendaForm() } }),
     );
   }
 
@@ -1517,42 +1642,56 @@ class HomeView extends ItemView {
 
   fileRow(f) {
     const meta = [f.type, f.date, asArray(f.entities).join('、')].filter(Boolean).join('　');
+    const ext = fileExt(f);
     const main = h(
       'div',
       { cls: 'wwh-file-main', on: { click: () => this.plugin.openFile(f) } },
-      h('span', { cls: 'wwh-dd-title', text: f.title || f.card || '' }),
-      h('span', { cls: 'wwh-muted wwh-file-meta', text: meta }),
+      h('span', { cls: ['wwh-ext', ext.cls], text: ext.label }),
+      h('span', { cls: 'wwh-file-text' }, h('span', { cls: 'wwh-dd-title', text: f.title || f.card || '' }), h('span', { cls: 'wwh-muted wwh-file-meta', text: meta })),
     );
-    const icon = h('button', {
-      cls: 'wwh-icon-btn',
-      title: '開檔案卡',
-      text: '📄',
-      on: {
-        click: (e) => {
-          if (e && e.stopPropagation) e.stopPropagation();
-          this.plugin.openCard(f);
-        },
-      },
-    });
-    return h('div', { cls: 'wwh-dd-row wwh-file' }, main, f.card_path ? icon : null);
+    return h('div', { cls: 'wwh-dd-row wwh-file' }, main, f.card_path ? this.cardButton(f) : null);
   }
 
+  cardButton(f) {
+    return h(
+      'button',
+      {
+        cls: 'wwh-icon-btn wwh-card-btn',
+        title: '開檔案卡',
+        on: {
+          click: (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            this.plugin.openCard(f);
+          },
+        },
+      },
+      icon('card', 15, 1.5),
+    );
+  }
+
+  /** 「最近」：游標在搜尋框裡、還沒打字時從框下面掉下來，一列一份，最多 8 列（裁定 28）。 */
   renderRecent(el) {
     const ui = this.plugin.ui.search;
     const home = this.plugin.home;
-    el.classList.toggle('wwh-hidden', !!ui.active);
-    if (ui.active || !home || !home.recent.length) return;
-    el.appendChild(h('span', { cls: 'wwh-muted', text: '最近　' }));
-    for (const f of home.recent) {
-      const label = f.title || f.card || '';
+    const show = !!(ui.focused && !ui.active && home && home.recent.length);
+    el.classList.toggle('wwh-hidden', !show);
+    el.classList.toggle('is-open', show);
+    if (!show) return;
+    el.appendChild(h('div', { cls: 'wwh-dd-head', text: '最近' }));
+    for (const f of home.recent.slice(0, RECENT_MAX)) {
+      const meta = [f.type, f.date, f.why === 'added' ? '剛放進來' : '你開過'].filter(Boolean).join('　');
+      const ext = fileExt(f);
       el.appendChild(
         h(
-          'span',
-          { cls: ['wwh-recent-item', f.why === 'added' ? 'is-added' : 'is-opened'] },
-          h('a', { cls: 'wwh-recent-link', title: [f.type, f.date, f.why === 'added' ? '剛放進來' : '你開過'].filter(Boolean).join('　'), text: label, on: { click: () => this.plugin.openFile(f) } }),
-          f.card_path
-            ? h('button', { cls: 'wwh-icon-btn', title: '開檔案卡', text: '📄', on: { click: () => this.plugin.openCard(f) } })
-            : null,
+          'div',
+          { cls: ['wwh-dd-row', 'wwh-file', 'wwh-recent-item', f.why === 'added' ? 'is-added' : 'is-opened'] },
+          h(
+            'div',
+            { cls: 'wwh-file-main', on: { click: () => this.plugin.openFile(f) } },
+            h('span', { cls: ['wwh-ext', ext.cls], text: ext.label }),
+            h('span', { cls: 'wwh-file-text' }, h('span', { cls: 'wwh-dd-title', text: f.title || f.card || '' }), h('span', { cls: 'wwh-muted wwh-file-meta', text: meta })),
+          ),
+          f.card_path ? this.cardButton(f) : null,
         ),
       );
     }
@@ -1563,21 +1702,27 @@ class HomeView extends ItemView {
     const p = this.plugin;
     const home = p.home;
     const ui = p.ui;
-    const head = h('div', { cls: 'wwh-section-head' }, h('h3', { text: '手上的事' }));
-    const toggle = h(
-      'span',
-      { cls: 'wwh-toggle' },
-      h('button', { cls: ['wwh-small-btn', ui.timelineMode === 'timeline' ? 'is-on' : ''], text: '時間軸', on: { click: () => this.setMode('timeline') } }),
-      h('button', { cls: ['wwh-small-btn', ui.timelineMode === 'month' ? 'is-on' : ''], text: '月曆', on: { click: () => this.setMode('month') } }),
-    );
-    head.appendChild(toggle);
+    const head = h('div', { cls: 'wwh-section-head' }, h('h2', { text: '手上的事' }));
+    const tools = h('div', { cls: 'wwh-tools' });
     if (home && ui.timelineMode === 'timeline') { // kb home 還沒回來時不畫，按了也沒東西可展開
-      head.appendChild(h('button', { cls: 'wwh-small-btn', text: '全部展開', on: { click: () => this.setAllRows(false) } }));
-      head.appendChild(h('button', { cls: 'wwh-small-btn', text: '全部收起', on: { click: () => this.setAllRows(true) } }));
+      const layout = layoutTimeline(home.timeline, { today: home.today });
+      const todayN = dayNumber(home.today);
+      const allOpen = layout.rows.length > 0 && layout.rows.every((r) => !rowIsCollapsed(ui, r, todayN));
+      tools.appendChild(
+        h('button', { cls: 'wwh-text-btn', text: allOpen ? '全部收起' : '全部展開', on: { click: () => this.setAllRows(allOpen) } }),
+      );
     }
+    tools.appendChild(
+      h(
+        'span',
+        { cls: 'wwh-toggle' },
+        h('button', { cls: ['wwh-seg', ui.timelineMode === 'timeline' ? 'is-on' : ''], text: '時間軸', on: { click: () => this.setMode('timeline') } }),
+        h('button', { cls: ['wwh-seg', ui.timelineMode === 'month' ? 'is-on' : ''], text: '月曆', on: { click: () => this.setMode('month') } }),
+      ),
+    );
+    head.appendChild(tools);
     el.appendChild(head);
     if (!home) return;
-    el.appendChild(this.legend());
     if (ui.timelineMode === 'month') {
       this.renderMonth(el, home);
       return;
@@ -1587,8 +1732,11 @@ class HomeView extends ItemView {
       el.appendChild(h('div', { cls: 'wwh-empty', text: '手上沒有排日期的事' }));
       return;
     }
-    el.appendChild(this.axis(layout));
-    for (const row of layout.rows) el.appendChild(this.timelineBlock(layout, row));
+    const todayN = dayNumber(home.today);
+    const table = h('div', { cls: 'wwh-gantt' }, this.axis(layout));
+    layout.rows.forEach((row, i) => table.appendChild(this.timelineBlock(layout, row, i, todayN)));
+    el.appendChild(table);
+    el.appendChild(this.legend());
   }
 
   setMode(mode) {
@@ -1604,95 +1752,132 @@ class HomeView extends ItemView {
   }
 
   legend() {
-    const item = (cls, text) => h('span', { cls: 'wwh-legend-item' }, h('i', { cls: ['wwh-legend-swatch', cls] }), text);
+    const kind = (name, text) => h('span', { cls: 'wwh-legend-item' }, icon(name, 13), text);
+    const swatch = (cls, text) => h('span', { cls: 'wwh-legend-item' }, h('i', { cls: ['wwh-legend-swatch', cls] }), text);
     return h(
       'div',
       { cls: 'wwh-legend' },
-      item('is-bar', '一段時間'),
-      item('is-point', '某一天（到期、會議…）'),
-      item('is-late', '晚了'),
-      item('is-inferred', '推測的'),
-      item('is-pause', '暫停'),
-      item('is-today', '今天'),
+      kind('meeting', '會議'),
+      kind('promise', '承諾'),
+      kind('deadline', '到期'),
+      kind('reminder', '提醒'),
+      swatch('is-bar', '期間'),
+      swatch('is-inferred', '推測的'),
+      swatch('is-late', '過了還沒收尾'),
+      swatch('is-pause', '暫停'),
+      swatch('is-today', '今天'),
     );
   }
 
+  /** 軸頭：只標月份、畫週線；今天的旗子放在月份下面一行，不壓到月份的字。 */
   axis(layout) {
     const track = h('div', { cls: 'wwh-axis-track' });
+    const months = layout.ticks.filter((t) => t.kind === 'month');
+    if (!months.length || months[0].pct > 8) {
+      const d = new Date(layout.fromN * 86400000);
+      track.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: '0%' }, text: `${d.getUTCMonth() + 1}月` }));
+    }
     for (const t of layout.ticks) {
-      track.appendChild(h('span', { cls: ['wwh-tick', `is-${t.kind}`], style: { left: `${t.pct}%` }, text: t.label }));
+      if (t.kind === 'month') track.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: `${t.pct}%` }, text: t.label }));
+      else track.appendChild(h('i', { cls: 'wwh-grid is-week', style: { left: `${t.pct}%` } }));
     }
     if (layout.todayPct !== null) track.appendChild(h('span', { cls: 'wwh-today-flag', style: { left: `${layout.todayPct}%` }, text: '今天' }));
-    return h('div', { cls: 'wwh-axis' }, track);
+    return h('div', { cls: 'wwh-axis' }, h('div', { cls: 'wwh-cell-left' }), track);
   }
 
-  timelineBlock(layout, row) {
+  timelineBlock(layout, row, index, todayN) {
     const ui = this.plugin.ui;
-    const collapsed = !!ui.rowCollapsed[row.key];
+    const collapsed = rowIsCollapsed(ui, row, todayN);
     const isOther = row.key === '_other';
     const open = row.marks.filter((m) => m.status === 'open').length;
-    const head = h(
+    const toggle = () => {
+      ui.rowCollapsed[row.key] = !collapsed;
+      this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
+    };
+    const left = h(
       'div',
-      { cls: 'wwh-row-head' },
-      h('button', {
-        cls: 'wwh-fold',
-        text: collapsed ? '▸' : '▾',
-        title: collapsed ? '展開' : '收起',
-        on: {
-          click: () => {
-            ui.rowCollapsed[row.key] = !collapsed;
-            this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
-          },
-        },
-      }),
-      isOther
-        ? h('span', { cls: 'wwh-row-name', text: row.label })
-        : h('a', { cls: 'wwh-row-name wwh-link', text: row.label, on: { click: () => this.plugin.openEntity(row.label) } }),
-      row.type ? h('span', { cls: 'wwh-muted', text: row.type }) : null,
-      row.progress && progressWord(row.progress) !== '進行中'
-        ? h('span', { cls: ['wwh-badge', `is-${row.progress}`], text: progressWord(row.progress) || row.progress })
-        : null,
-      h('span', { cls: 'wwh-muted', text: open ? `${open} 件` : '' }),
+      { cls: 'wwh-cell-left wwh-row-head' },
+      h(
+        'button',
+        { cls: 'wwh-fold', title: collapsed ? '展開' : '收起', attrs: { 'aria-expanded': collapsed ? 'false' : 'true' }, on: { click: toggle } },
+        h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+        h('span', { cls: 'wwh-row-name', text: row.label }),
+        h('span', { cls: 'wwh-muted wwh-row-count', text: open ? `${open} 件` : '' }),
+        row.progress && progressWord(row.progress) !== '進行中'
+          ? h('span', { cls: ['wwh-badge', `is-${row.progress}`], text: progressWord(row.progress) || row.progress })
+          : null,
+      ),
       isOther
         ? null
-        : h('button', {
-            cls: 'wwh-icon-btn',
-            text: '⋯',
-            title: '這件事可以做的',
-            on: { click: (e) => this.plugin.entityMenu(e, row.label, row.progress) },
-          }),
+        : h(
+            'button',
+            { cls: 'wwh-sq-btn wwh-info-btn', title: `看「${row.label}」的總覽`, on: { click: () => this.plugin.openEntity(row.label) } },
+            icon('info', 14, 1.7),
+          ),
+      isOther
+        ? null
+        : h(
+            'button',
+            { cls: 'wwh-sq-btn', title: '這件事可以做的', on: { click: (e) => this.plugin.entityMenu(e, row.label, row.progress) } },
+            icon('dots', 14, 1.7),
+          ),
     );
-    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : ''] }, head);
-    if (!collapsed) block.appendChild(this.trackFor(layout, row));
+    const headLine = h('div', { cls: 'wwh-line wwh-head-line' }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.summary(row) : null));
+    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
+    if (!collapsed) {
+      const rows = h('div', { cls: 'wwh-rows' });
+      row.marks.forEach((m) => rows.appendChild(this.markLine(m, todayN)));
+      block.appendChild(rows);
+    }
+    block.appendChild(this.overlay(layout, row, collapsed));
     return block;
   }
 
-  trackFor(layout, row) {
-    const track = h('div', { cls: 'wwh-track', style: { height: `${row.lanes * LANE_HEIGHT + 6}px` } });
-    for (const t of layout.ticks) track.appendChild(h('span', { cls: ['wwh-grid', `is-${t.kind}`], style: { left: `${t.pct}%` } }));
-    for (const p of row.pauses) track.appendChild(h('span', { cls: 'wwh-pause', style: { left: `${p.leftPct}%`, width: `${p.widthPct}%` } }));
-    if (layout.todayPct !== null) track.appendChild(h('span', { cls: 'wwh-today-line', style: { left: `${layout.todayPct}%` } }));
-    if (row.links.length) track.appendChild(this.linksSvg(row));
+  /** 收起來的摘要：期間（實心）的色條加每件一個點。 */
+  summary(row) {
+    const box = h('div', { cls: 'wwh-summary' });
     for (const m of row.marks) {
-      if (m.baseline) {
-        track.appendChild(
-          h('span', {
-            cls: 'wwh-baseline',
-            style: { left: `${m.baseline.leftPct}%`, width: `${m.baseline.widthPct}%`, top: `${m.lane * LANE_HEIGHT + LANE_HEIGHT - 5}px` },
-            title: '原定',
-          }),
+      if (m.depth) continue;
+      if (m.shape === 'bar' && !m.inferred) {
+        box.appendChild(
+          h('span', { cls: ['wwh-sum-bar', m.late ? 'is-late' : '', m.status === 'done' ? 'is-done' : ''], style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) }),
         );
+        continue;
       }
-      track.appendChild(this.markEl(m));
+      const at = m.shape === 'bar' ? Math.min(100, m.leftPct + m.widthPct) : m.leftPct;
+      box.appendChild(
+        h('span', {
+          cls: ['wwh-sum-dot', m.late ? 'is-late' : '', m.inferred ? 'is-inferred' : '', m.status === 'done' ? 'is-done' : ''],
+          style: { left: `${at}%` },
+          title: describeMark(m),
+        }),
+      );
     }
-    return track;
+    return box;
   }
 
-  linksSvg(row) {
-    const svg = hs('svg', { class: 'wwh-links', viewBox: `0 0 100 ${row.lanes * LANE_HEIGHT + 6}`, preserveAspectRatio: 'none' });
+  /** 每塊的背景層：週線、暫停、連線、今天線；蓋在右邊那欄上、不吃點擊。 */
+  overlay(layout, row, collapsed) {
+    const lay = h('div', { cls: 'wwh-overlay' });
+    const rows = collapsed ? 0 : row.marks.length;
+    const height = HEAD_H + rows * ROW_H;
+    for (const t of layout.ticks) lay.appendChild(h('i', { cls: ['wwh-grid', `is-${t.kind}`], style: { left: `${t.pct}%` } }));
+    for (const p of row.pauses) lay.appendChild(h('i', { cls: 'wwh-pause', style: { left: `${p.leftPct}%`, width: `${p.widthPct}%` } }));
+    if (!collapsed && row.links.length) lay.appendChild(this.linksSvg(row, height));
+    if (layout.todayPct !== null) lay.appendChild(h('i', { cls: 'wwh-today-line', style: { left: `${layout.todayPct}%` } }));
+    return lay;
+  }
+
+  linksSvg(row, height) {
+    const index = {};
+    row.marks.forEach((m, i) => {
+      if (m.id) index[m.id] = i;
+    });
+    const svg = hs('svg', { class: 'wwh-links', viewBox: `0 0 100 ${height}`, preserveAspectRatio: 'none' });
     for (const l of row.links) {
-      const y1 = l.y1 * LANE_HEIGHT + LANE_HEIGHT / 2;
-      const y2 = l.y2 * LANE_HEIGHT + LANE_HEIGHT / 2;
+      if (index[l.from] === undefined || index[l.to] === undefined) continue;
+      const y1 = HEAD_H + index[l.from] * ROW_H + ROW_H / 2;
+      const y2 = HEAD_H + index[l.to] * ROW_H + ROW_H / 2;
       const mid = Math.min(Math.max(l.x1 + 0.6, (l.x1 + l.x2) / 2), Math.max(l.x2 - 0.4, l.x1 + 0.6));
       const d = `M ${l.x1} ${y1} H ${mid} V ${y2} H ${l.x2}`;
       svg.appendChild(hs('path', { d, class: l.critical ? 'wwh-link-path is-critical' : 'wwh-link-path', fill: 'none' }));
@@ -1700,31 +1885,37 @@ class HomeView extends ItemView {
     return svg;
   }
 
-  markEl(m) {
-    const cls = [
-      'wwh-mark',
-      `is-${m.shape}`,
-      m.kind ? `kind-${m.kind}` : '',
+  /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號（期間是色條、點是帶種類圖示的小圓）。 */
+  markLine(m, todayN) {
+    const state = [
       m.late ? 'is-late' : '',
       m.inferred ? 'is-inferred' : '',
       m.critical ? 'is-critical' : '',
       m.status === 'done' ? 'is-done' : '',
       m.status === 'cancelled' ? 'is-cancelled' : '',
-      m.depth ? 'is-child' : '',
-      m.clippedLeft ? 'clip-left' : '',
-      m.clippedRight ? 'clip-right' : '',
     ];
-    const top = `${m.lane * LANE_HEIGHT + 3}px`;
     const onClick = (e) => this.plugin.itemMenu(e, m.raw);
-    if (m.shape === 'point') {
-      return h(
-        'span',
-        { cls: cls, style: { left: `${m.leftPct}%`, top }, title: describeMark(m), on: { click: onClick } },
-        h('i', { cls: 'wwh-dot' }),
-        h('span', { cls: 'wwh-mark-text', text: m.text }),
-      );
+    const kind = m.kind && ICON_SHAPES[m.kind] ? m.kind : m.shape === 'bar' ? 'period' : null;
+    const left = h(
+      'div',
+      { cls: ['wwh-cell-left', 'wwh-mark-label', m.depth ? 'is-child' : '', ...state], title: describeMark(m), on: { click: onClick } },
+      h('span', { cls: ['wwh-kind-ico', m.kind ? `kind-${m.kind}` : ''] }, kind ? icon(kind, 15, 1.5) : null),
+      h('span', { cls: 'wwh-mark-lines' }, h('span', { cls: 'wwh-mark-text', text: m.text }), h('span', { cls: 'wwh-mark-when', text: markWhen(m, todayN) })),
+    );
+    const track = h('div', { cls: 'wwh-cell-track' });
+    if (m.baseline) {
+      track.appendChild(h('i', { cls: 'wwh-baseline', style: { left: `${m.baseline.leftPct}%`, width: `${m.baseline.widthPct}%` }, title: '原定' }));
     }
-    return h('span', { cls: cls, style: { left: `${m.leftPct}%`, width: `${m.widthPct}%`, top }, title: describeMark(m), on: { click: onClick } }, h('span', { cls: 'wwh-mark-text', text: m.text }));
+    track.appendChild(this.markEl(m, state, kind, onClick));
+    return h('div', { cls: ['wwh-line', 'wwh-mark-line', ...state] }, left, track);
+  }
+
+  markEl(m, state, kind, onClick) {
+    const cls = ['wwh-mark', `is-${m.shape}`, m.kind ? `kind-${m.kind}` : '', ...state, m.depth ? 'is-child' : '', m.clippedLeft ? 'clip-left' : '', m.clippedRight ? 'clip-right' : ''];
+    if (m.shape === 'point') {
+      return h('span', { cls, style: { left: `${m.leftPct}%` }, title: describeMark(m), on: { click: onClick } }, kind ? icon(kind, 13, 1.7) : null);
+    }
+    return h('span', { cls, style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m), on: { click: onClick } });
   }
 
   renderMonth(el, home) {
@@ -1782,33 +1973,35 @@ class HomeView extends ItemView {
   // ---- 待辦 ----
   renderTodo(el) {
     const p = this.plugin;
-    el.appendChild(h('h3', { text: '待辦' }));
+    el.appendChild(h('h2', { text: '待辦' }));
     if (!p.home) return;
     const ui = p.ui;
     for (const g of todoGroups(p.home)) {
       const collapsed = ui.todoCollapsed[g.key] !== undefined ? ui.todoCollapsed[g.key] : g.defaultCollapsed;
       const head = h(
-        'div',
-        { cls: ['wwh-group-head', `is-${g.key}`] },
-        h('button', {
-          cls: 'wwh-fold',
-          text: collapsed ? '▸' : '▾',
+        'button',
+        {
+          cls: ['wwh-group-head', `is-${g.key}`],
+          attrs: { 'aria-expanded': collapsed ? 'false' : 'true' },
           on: {
             click: () => {
               ui.todoCollapsed[g.key] = !collapsed;
               this.safe('待辦', this.leftEl, (e2) => this.renderTodo(e2));
             },
           },
-        }),
-        h('span', { text: `${g.label}　${g.items.length}` }),
+        },
+        h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+        h('span', { text: g.label }),
+        h('span', { cls: 'wwh-pill', text: String(g.items.length) }),
       );
-      el.appendChild(head);
+      const box = h('div', { cls: 'wwh-group' }, head);
+      el.appendChild(box);
       if (collapsed) continue;
       if (!g.items.length) {
-        el.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
+        box.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
         continue;
       }
-      for (const it of g.items) el.appendChild(this.todoRow(it, g.key));
+      for (const it of g.items) box.appendChild(this.todoRow(it, g.key));
     }
   }
 
@@ -1826,58 +2019,63 @@ class HomeView extends ItemView {
       },
     });
     const names = asArray(it.entities);
-    row.appendChild(box);
-    row.appendChild(
-      h('a', { cls: 'wwh-todo-when wwh-link', title: '改日期、時間', text: formatWhen(it) || '（沒日期）', on: { click: () => this.plugin.editDateForm(it) } }),
-    );
-    row.appendChild(h('span', { cls: 'wwh-todo-text', text: `${kindLabel(it.kind) ? kindLabel(it.kind) + ' ' : ''}${it.text || ''}` }));
-    if (names.length) {
-      row.appendChild(h('a', { cls: 'wwh-todo-entity wwh-link', text: names[0], on: { click: () => this.plugin.openEntity(names[0]) } }));
-    }
+    const kind = it.kind && ICON_SHAPES[KIND_BY_LABEL[it.kind] || it.kind] ? KIND_BY_LABEL[it.kind] || it.kind : null;
+    const meta = h('div', { cls: 'wwh-todo-meta' }, h('span', { cls: 'wwh-todo-kind' }, kind ? icon(kind, 13) : null, kindLabel(it.kind) || ''));
+    if (names.length) meta.appendChild(h('a', { cls: 'wwh-todo-entity wwh-link', text: names[0], on: { click: () => this.plugin.openEntity(names[0]) } }));
     if (it.inferred) {
-      row.appendChild(h('button', { cls: 'wwh-small-btn', text: '推測的，記成確認', on: { click: () => this.plugin.runAction(actions.confirmInferred(it)) } }));
+      meta.appendChild(h('span', { cls: 'wwh-tag-inferred', text: '推測' }));
+      meta.appendChild(h('button', { cls: 'wwh-small-btn wwh-soft-btn', text: '推測的，記成確認', on: { click: () => this.plugin.runAction(actions.confirmInferred(it)) } }));
     }
-    row.appendChild(h('button', { cls: 'wwh-icon-btn', text: '⋯', title: '更多', on: { click: (e) => this.plugin.itemMenu(e, it) } }));
+    row.appendChild(box);
+    row.appendChild(h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', text: it.text || '' }), meta));
+    row.appendChild(h('button', { cls: 'wwh-todo-when', title: '改日期、時間', text: formatWhen(it) || '（沒日期）', on: { click: () => this.plugin.editDateForm(it) } }));
+    row.appendChild(h('button', { cls: 'wwh-sq-btn', title: '更多', on: { click: (e) => this.plugin.itemMenu(e, it) } }, icon('dots', 14, 1.7)));
     return row;
   }
 
   // ---- 要你確認的、其他要處理的 ----
   renderRight(el) {
     const p = this.plugin;
-    el.appendChild(h('h3', { text: '要你確認的' }));
+    const sure = h('section', { cls: 'wwh-card wwh-card-confirm' }, h('h2', { text: '要你確認的' }));
+    el.appendChild(sure);
     if (!p.home) return;
-    if (!p.home.confirm.length) el.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
+    if (!p.home.confirm.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     for (const c of p.home.confirm) {
       const card = h('div', { cls: 'wwh-confirm' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
       const btns = h('div', { cls: 'wwh-confirm-buttons' });
-      for (const r of asArray(c.results).filter(isObject)) {
-        btns.appendChild(h('button', { cls: 'wwh-small-btn', text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
-      }
+      asArray(c.results)
+        .filter(isObject)
+        .forEach((r, i) => {
+          btns.appendChild(h('button', { cls: ['wwh-small-btn', i === 0 ? 'is-primary' : ''], text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
+        });
       card.appendChild(btns);
-      el.appendChild(card);
+      sure.appendChild(card);
     }
     const open = p.ui.othersOpen;
-    el.appendChild(
+    const others = h('section', { cls: 'wwh-card wwh-card-others' });
+    others.appendChild(
       h(
-        'div',
-        { cls: 'wwh-group-head is-others' },
-        h('button', {
-          cls: 'wwh-fold',
-          text: open ? '▾' : '▸',
+        'button',
+        {
+          cls: 'wwh-group-head is-others',
+          attrs: { 'aria-expanded': open ? 'true' : 'false' },
           on: {
             click: () => {
               p.ui.othersOpen = !open;
               this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
             },
           },
-        }),
-        h('span', { text: `其他要處理的　${p.home.others.length}` }),
+        },
+        h('span', { cls: ['wwh-chev', open ? 'is-open' : ''] }, icon('chevron', 14, 2)),
+        h('span', { text: '其他要處理的' }),
+        h('span', { cls: 'wwh-pill', text: String(p.home.others.length) }),
       ),
     );
+    el.appendChild(others);
     if (!open) return;
-    if (!p.home.others.length) el.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
+    if (!p.home.others.length) others.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     for (const o of p.home.others) {
-      el.appendChild(
+      others.appendChild(
         h(
           'div',
           { cls: 'wwh-other' },
@@ -2727,6 +2925,13 @@ module.exports.lib = {
   summarizeApply,
   hasCarriedSection,
   splitCardRefs,
+  rowDefaultCollapsed,
+  rowIsCollapsed,
+  markWhen,
+  fileExt,
+  longDate,
+  icon,
+  RECENT_MAX,
   HomeView,
   FormModal,
   defaultUi,

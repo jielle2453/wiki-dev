@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { loadMain } = require('./helpers/env');
-const { byClass } = require('./helpers/fakedom');
+const { byClass, byTag } = require('./helpers/fakedom');
 
 const env = loadMain();
 const lib = env.lib;
@@ -203,8 +203,11 @@ test('首頁畫出來：鼓勵句、件數、時間軸列與 bar、待辦三組�
   view.render();
   const root = view.root;
   assert.match(byClass(root, 'wwh-cheer')[0].textContent, /今天也辛苦了/);
-  // 三個事類實體（含「其他」）各一塊
+  // 三個事類實體（含「其他」）各一塊；預設收起，有逾期或今天那件的那塊（信義王）展開（裁定 28）
   assert.strictEqual(byClass(root, 'wwh-row').length, 3);
+  assert.deepStrictEqual(byClass(root, 'wwh-row').map((b) => b.classList.contains('is-open')), [true, false, false]);
+  assert.strictEqual(byClass(root, 'wwh-summary').length, 2, '收起來的兩塊各一列摘要');
+  view.setAllRows(false); // 全部展開才看得到每件的記號
   // bar 與點
   const bars = byClass(root, 'is-bar').filter((e) => e.classList.contains('wwh-mark'));
   const points = byClass(root, 'is-point').filter((e) => e.classList.contains('wwh-mark'));
@@ -218,7 +221,7 @@ test('首頁畫出來：鼓勵句、件數、時間軸列與 bar、待辦三組�
   assert.ok(byClass(root, 'is-critical').length >= 2);
   assert.ok(byClass(root, 'wwh-links').length === 1, '連線畫在有 links 的那一列');
   // bar 的位置真的寫進 style
-  const first = bars.find((b) => b.textContent === '施工');
+  const first = bars[0];
   assert.ok(first.styleMap.left.endsWith('%'));
   assert.ok(first.styleMap.width.endsWith('%'));
   // 待辦：三組，這週預設收起
@@ -232,7 +235,10 @@ test('首頁畫出來：鼓勵句、件數、時間軸列與 bar、待辦三組�
   assert.strictEqual(byClass(root, 'wwh-confirm-buttons')[0].children.length, 2);
   // 其他要處理的預設收起
   assert.strictEqual(byClass(root, 'wwh-other').length, 0);
-  // 最近
+  // 最近：不整片列在頁面上，游標在搜尋框裡才出現（裁定 28）
+  assert.strictEqual(byClass(root, 'wwh-recent-item').length, 0);
+  plugin.ui.search.focused = true;
+  view.render();
   assert.strictEqual(byClass(root, 'wwh-recent-item').length, 1);
 });
 
@@ -242,9 +248,9 @@ test('首頁：時間軸切月曆、全部收起、這週展開', () => {
   view.build();
   view.render();
   view.setAllRows(true);
-  assert.strictEqual(byClass(view.root, 'wwh-track').length, 0);
+  assert.strictEqual(byClass(view.root, 'wwh-rows').length, 0);
   view.setAllRows(false);
-  assert.strictEqual(byClass(view.root, 'wwh-track').length, 3);
+  assert.strictEqual(byClass(view.root, 'wwh-rows').length, 3);
   view.setMode('month');
   assert.ok(byClass(view.root, 'wwh-month').length === 1);
   assert.ok(byClass(view.root, 'wwh-day').length >= 28);
@@ -297,4 +303,87 @@ test('首頁：某一區出錯只有那一區顯示畫不出來，別區照畫',
   assert.match(byClass(view.root, 'wwh-top')[0].textContent, /畫不出來/);
   assert.strictEqual(byClass(view.root, 'wwh-todo').length, 2);
   assert.strictEqual(byClass(view.root, 'wwh-row').length, 3);
+});
+
+function viewOf(raw, extra) {
+  const plugin = Object.assign({ runner: {}, home: lib.normalizeHome(raw || sample()), ui: lib.defaultUi(), loadedVersion: '0.28.0', openEntity() {}, itemMenu() {}, entityMenu() {} }, extra);
+  const view = new lib.HomeView({}, plugin);
+  view.build();
+  view.render();
+  return { view, plugin };
+}
+
+test('時間軸（裁定 28）：預設收起，只有有逾期或今天那件還沒做的那塊展開；使用者按過的照他按的', () => {
+  const home = sample();
+  const lay = lib.layoutTimeline(home.timeline, { today: home.today });
+  assert.deepStrictEqual(lay.rows.map((r) => lib.rowDefaultCollapsed(r, lib.dayNumber(home.today))), [false, true, true]);
+  // 今天到期、還沒做的那件也讓那塊展開
+  home.timeline.rows[1].marks.push(mark({ id: 'a-today', shape: 'point', kind: 'deadline', start: null, end: '2026-10-30', text: '今天要交', children: [] }));
+  const { view, plugin } = viewOf(home);
+  assert.deepStrictEqual(byClass(view.root, 'wwh-row').map((b) => b.classList.contains('is-open')), [true, true, false]);
+  plugin.ui.rowCollapsed['e-1a2b3c4d'] = true; // 她收起來的就收著
+  view.render();
+  assert.deepStrictEqual(byClass(view.root, 'wwh-row').map((b) => b.classList.contains('is-open')), [false, true, false]);
+});
+
+test('時間軸（裁定 28）：左欄一件一列（圖示、文字、日期），右邊同列只放記號；字不畫在圖上', () => {
+  const { view } = viewOf();
+  const row = byClass(view.root, 'wwh-row')[0];
+  const lines = byClass(row, 'wwh-mark-line');
+  assert.strictEqual(lines.length, 4, '信義王四件各一列');
+  for (const line of lines) {
+    const track = byClass(line, 'wwh-cell-track')[0];
+    assert.strictEqual(track.textContent, '', '右邊只有記號、沒有字');
+    assert.ok(byClass(line, 'wwh-mark-text')[0].textContent.length > 0);
+  }
+  const late = lines.find((l) => byClass(l, 'wwh-mark-text')[0].textContent === '回覆報價');
+  assert.match(byClass(late, 'wwh-mark-when')[0].textContent, /^10\/28（週三） · 過了 2 天$/);
+  const bar = lines.find((l) => byClass(l, 'wwh-mark-text')[0].textContent === '施工');
+  assert.strictEqual(byClass(bar, 'wwh-mark-when')[0].textContent, '10/25～11/20');
+  assert.ok(byClass(late, 'wwh-mark')[0].classList.contains('is-point'));
+  assert.strictEqual(byTag(byClass(late, 'wwh-mark')[0], 'svg').length, 1, '點是帶種類圖示的小圓');
+});
+
+test('時間軸（裁定 28）：收起來是摘要列，期間一條色條、每件一個點；推測的條不畫在摘要的色條裡', () => {
+  const { view } = viewOf();
+  const sums = byClass(view.root, 'wwh-summary');
+  assert.strictEqual(sums.length, 2);
+  const twoCollapsed = sums[0]; // 中山林：裝修（實心條）、油漆（實心條）
+  assert.strictEqual(byClass(twoCollapsed, 'wwh-sum-bar').length, 2);
+  const other = sums[1]; // 其他：只有繳費提醒一個點
+  assert.strictEqual(byClass(other, 'wwh-sum-dot').length, 1);
+  assert.ok(byClass(other, 'wwh-sum-dot')[0].styleMap.left.endsWith('%'));
+});
+
+test('時間軸（裁定 28）：軸頭只標月份、畫週線；今天的旗子與月份各在自己那一行', () => {
+  const { view } = viewOf();
+  const axis = byClass(view.root, 'wwh-axis')[0];
+  const labels = byClass(axis, 'wwh-tick').map((t) => t.textContent);
+  assert.ok(labels.length >= 2 && labels.every((t) => /月$/.test(t)), labels.join());
+  assert.strictEqual(labels[0], '10月', '起點那個月也標');
+  assert.ok(byClass(axis, 'is-week').length >= 8, '每週一一條線');
+  assert.strictEqual(byClass(axis, 'wwh-today-flag').length, 1);
+  assert.ok(byClass(view.root, 'wwh-today-line').length >= 3, '每塊一條今天線');
+});
+
+test('時間軸（裁定 28）：「全部展開／全部收起」是同一顆，照現在的狀態換字', () => {
+  const { view } = viewOf();
+  const btn = () => byClass(view.timelineEl, 'wwh-text-btn')[0];
+  assert.strictEqual(btn().textContent, '全部展開');
+  btn().fire('click');
+  assert.strictEqual(btn().textContent, '全部收起');
+  assert.deepStrictEqual(byClass(view.root, 'wwh-row').map((b) => b.classList.contains('is-open')), [true, true, true]);
+  btn().fire('click');
+  assert.deepStrictEqual(byClass(view.root, 'wwh-row').map((b) => b.classList.contains('is-open')), [false, false, false]);
+});
+
+test('時間軸：子項縮排、連線與基準線在展開的那一塊裡畫（一件一列的座標）', () => {
+  const { view } = viewOf();
+  view.setAllRows(false);
+  const row = byClass(view.root, 'wwh-row')[1];
+  assert.strictEqual(byClass(row, 'wwh-mark-line').length, 4, '裝修、水電、木工、油漆');
+  assert.strictEqual(byClass(row, 'is-child').length >= 2, true);
+  assert.strictEqual(byClass(row, 'wwh-links').length, 1);
+  assert.strictEqual(byClass(row, 'wwh-link-path').length, 2, '找不到一端的那條不畫');
+  assert.strictEqual(byClass(row, 'wwh-baseline').length, 1);
 });

@@ -242,13 +242,30 @@ test('叫 kb home 帶 --opened 的卡編號', () => {
   assert.deepStrictEqual(lib.openedIds({ opened: [{ card: 'f-aa', at: 't' }, { card: 'f-bb', at: 't' }] }), ['f-aa', 'f-bb']);
 });
 
-test('最近那一列：沒打字時顯示，來自 kb home 的 recent', () => {
+test('最近（裁定 28）：放在搜尋框的下拉，游標在框裡、還沒打字時出現；最多 8 列；不整片列在頁面上', () => {
   const home = lib.normalizeHome({ recent: [{ card: 'f-1a2b3c4d', title: '報價', why: 'opened', open: { path: 'C:/a.xlsx' }, card_path: '檔案索引/a.md' }, { card: 'f-5e', title: '新來的', why: 'added', open: { path: 'C:/b.docx' } }] });
   const { view } = makeView({ home });
   view.render();
+  assert.ok(view.recentEl.classList.contains('wwh-hidden'), '游標不在框裡就不出現');
+  assert.strictEqual(byClass(view.recentEl, 'wwh-recent-item').length, 0);
+  view.inputEl.fire('focus');
   assert.strictEqual(byClass(view.recentEl, 'wwh-recent-item').length, 2);
   assert.strictEqual(byTag(view.recentEl, 'button').length, 1, '只有有卡路徑的有開卡小圖示');
   assert.ok(!view.recentEl.classList.contains('wwh-hidden'));
+  assert.ok(view.searchEl.children.includes(view.recentEl) || byClass(view.searchEl, 'wwh-recent').length === 1, '在搜尋框那一塊裡面');
+  assert.strictEqual(byClass(view.recentEl, 'wwh-ext').length, 2, '每列前面一個種類小方塊');
+  view.inputEl.fire('blur');
+  assert.ok(view.recentEl.classList.contains('wwh-hidden'));
+});
+
+test('最近：最多 8 列；打字搜尋時下拉換成搜尋結果、最近不出現', async () => {
+  const recent = [];
+  for (let i = 0; i < 12; i += 1) recent.push({ card: 'f-0000000' + (i % 10), title: '檔' + i, why: 'opened', open: { path: 'C:/a/b' + i + '.pdf' } });
+  const { view } = makeView({ home: lib.normalizeHome({ recent }) });
+  view.inputEl.fire('focus');
+  assert.strictEqual(byClass(view.recentEl, 'wwh-recent-item').length, 8);
+  await view.doSearch('x');
+  assert.ok(view.recentEl.classList.contains('wwh-hidden'));
 });
 
 test('搜尋：先送的慢查詢比後送的晚回來，不會蓋掉後面的結果（請求編號，裁定 14）', async () => {
@@ -288,16 +305,16 @@ test('搜尋：清掉之後才回來的舊結果丟掉', async () => {
 
 test('時間軸：kb home 還沒回來（home 是空的）時不畫「全部展開／收起」，按不到就不會出錯', () => {
   const { view } = makeView({ home: null });
-  const labels = byClass(view.timelineEl, 'wwh-small-btn').map((b) => b.textContent);
+  const labels = byClass(view.timelineEl, 'wwh-text-btn').map((b) => b.textContent);
   assert.ok(!labels.includes('全部展開'), labels.join());
   assert.ok(!labels.includes('全部收起'), labels.join());
   assert.doesNotThrow(() => view.setAllRows(false));
 });
 
-test('時間軸：有資料時照常有「全部展開／收起」', () => {
+test('時間軸：有資料時有「全部展開」那一顆', () => {
   const { view } = makeView();
-  const labels = byClass(view.timelineEl, 'wwh-small-btn').map((b) => b.textContent);
-  assert.ok(labels.includes('全部展開') && labels.includes('全部收起'), labels.join());
+  const labels = byClass(view.timelineEl, 'wwh-text-btn').map((b) => b.textContent);
+  assert.deepStrictEqual(labels, ['全部展開'], labels.join()); // 一顆，照現在的狀態換字（裁定 28）
 });
 
 test('搜尋：關掉首頁分頁重開（新的 view），舊 view 還在路上的查詢回來也不蓋新的結果（請求編號放在 plugin 上，裁定 25）', async () => {
@@ -318,4 +335,13 @@ test('搜尋：關掉首頁分頁重開（新的 view），舊 view 還在路上
   await slow;
   assert.strictEqual(plugin.ui.search.q, '新的');
   assert.strictEqual(plugin.ui.search.result.q, '新的');
+});
+
+test('檔案列前面的種類小方塊：看原檔副檔名，放得下的三個字；連結是箭頭', () => {
+  assert.deepStrictEqual(lib.fileExt({ open: { path: 'C:/a/報價.xlsx' } }), { label: 'XLS', cls: 'ext-xls' });
+  assert.deepStrictEqual(lib.fileExt({ open: { path: 'C:/a/合約.docx' } }), { label: 'DOC', cls: 'ext-doc' });
+  assert.deepStrictEqual(lib.fileExt({ open: { path: 'C:/a/x.pdf' } }), { label: 'PDF', cls: 'ext-pdf' });
+  assert.deepStrictEqual(lib.fileExt({ open: { url: 'https://claude.ai/x' } }), { label: '↗', cls: 'ext-link' });
+  assert.deepStrictEqual(lib.fileExt({ open: { path: 'C:/a/沒副檔名' } }), { label: '檔', cls: 'ext-other' });
+  assert.deepStrictEqual(lib.fileExt(null), { label: '檔', cls: 'ext-other' });
 });
