@@ -89,12 +89,12 @@ class Skeleton(unittest.TestCase):
         self.assertTrue((ROOT / "skeleton" / FREE_DIR / ".gitkeep").is_file())
         core = (ROOT / "rules" / "core.md").read_text(encoding="utf-8")
         r01 = next(line for line in core.splitlines() if line.startswith("- R-01 "))
-        self.assertIn(f"{FREE_DIR}是客戶自己的：平常不讀不搜，別處找不到也不去翻、說沒有並問要不要看{FREE_DIR}；"
-                      f"她說到{FREE_DIR}或指名那份才讀，Word、Excel 這類用 kb convert 讀，寫用檔案工具；"
+        self.assertIn(f"{FREE_DIR}是客戶自己的：平常不讀不搜，別處找不到也不去翻，說沒有，{FREE_DIR}有檔才問要不要看；"
+                      "她提到這一區或答應要看才讀，Word、Excel 這類用 kb convert 讀、讀不到就照實說，寫用檔案工具；"
                       "卡、成品、客戶原檔的副本不放這裡。", r01)
         sk = (ROOT / "skeleton" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("第一層有六區：", sk)
-        self.assertIn(f"- {FREE_DIR}：客戶自己的空間；平常不讀，別處找不到也不去翻，客戶說到或指名才讀。", sk)
+        self.assertIn(f"- {FREE_DIR}：客戶自己的空間；平常不讀，別處找不到也不去翻（有檔才問要不要看），客戶提到這一區或答應要看才讀。", sk)
 
     def test_2_name_written_only_in_areas(self):
         hits = []
