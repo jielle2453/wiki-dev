@@ -11,7 +11,7 @@ import datetime as dt
 import os
 from pathlib import Path
 
-from kb._lib import agenda, cards, config, entities, inventory, ledger, pending, plan, turn
+from kb._lib import agenda, cards, config, entities, inventory, ledger, pending, plan, profile, turn
 from kb._lib import sources as sources_lib
 from kb._lib.paths import read_manifest
 
@@ -169,26 +169,174 @@ def _argv(do):
     return parts[1:] if parts[:1] == ["kb"] and len(parts) > 1 else None
 
 
-SET_ASIDE_LABELS = ("先放著", "還沒，下次再問", "之後再說")  # 這幾個答案的意思都是「這題先不管」（裁定 34）
+SET_ASIDE_LABELS = ("先放著", "還沒，下次再問", "之後再說")  # 這幾個答案的意思都是「這題先不管」（裁定 34），首頁一律換成統一的「先放著」（裁定 39）
+ASIDE_LABEL = "先放著"
+KNOWN_LABEL = "知道了"
+INFO_KINDS = ("pending_unreadable", "pending_script_touched")  # 只是告訴她的：一張卡只有「知道了」（pending dismiss）
+RENAME_KINDS = ("drift_folder_renamed", "drift_both_renamed", "drift_card_renamed", "drift_moved_type")
+NO_LIST_KINDS = ("overdue",)  # 在待辦處理，這區不列也不算進「跟 Claude 一起看」
+NEW_DATE_LABEL = "改到某天…"
+MERGE_LABEL = "跟…同一個"
+RENAME_LABEL = "改名…"
+PLACE_LABEL = "放到…"
+KEEP_CARD_LABEL = "卡留著"
+KEEP_CARD_WORDS = "客戶說卡留著"
+GROUP_OFTEN = "常放"
+GROUP_ALL = "全部"
+
+
+def _result(label, argv, fill=None, strict=False, note=None, after=None):
+    out = {"label": label, "argv": argv, "fill": fill, "strict": strict, "note": note}
+    if after:
+        out["after"] = after  # 這個結果做完要接著跑的指令
+    return out
+
+
+def _convert(r):
+    """kb asks 的一個結果 → 首頁的結果。fill 多一個 input：date｜text（select 的由各題自己換成帶 options 的）。"""
+    fills = r.get("fill") or []
+    fill = None
+    if fills and isinstance(fills[0], dict):
+        fill = {"name": fills[0].get("name"), "rule": fills[0].get("rule"),
+                "input": "date" if fills[0].get("rule") == plan.DATE_RULE else "text"}
+    argv = r["argv"] if "argv" in r else _argv(r.get("do"))
+    return _result(r.get("label"), argv, fill, bool(r.get("strict")), r.get("note"), r.get("after"))
+
+
+def _fill(name, rule, kind, options=None):
+    out = {"name": name, "rule": rule, "input": kind}
+    if options is not None:
+        out["options"] = options
+    return out
+
+
+def _id_of(a):
+    return str(a.get("id") or "").partition(":")[2]
+
+
+def _doable(results):
+    """答案裡指令自己就做得完的：argv 有值（要填的也算，填了就跑）。"""
+    return [r for r in results if r["argv"] is not None]
+
+
+def _conflict_answers(a, results):
+    got = _doable(results)
+    aid = _id_of(a)
+    if len(got) < 2 or not aid:
+        return None
+    return got + [_result(NEW_DATE_LABEL, ["agenda", "edit", aid, "--date", "{新日期}"], _fill("新日期", plan.DATE_RULE, "date"))]
+
+
+def _name_answers(vault, a, results):
+    """名字對；改名…（rename 再 confirm）；跟…同一個（同型別、active 的其他實體選單）。"""
+    try:
+        data = entities.load(vault)
+    except ValueError:
+        return None
+    e = next((x for x in data["entities"] if x.get("id") == _id_of(a)), None)
+    if e is None or not results or results[0]["argv"] is None:
+        return None
+    name = e["name"]
+    same = [x["name"] for x in data["entities"] if x.get("status") == "active" and x.get("type") == e.get("type")
+            and x.get("id") != e["id"] and not entities.is_self(x)]
+    out = [results[0],
+           _result(RENAME_LABEL, ["entity", "rename", name, "--to", "{新名字}"], _fill("新名字", plan.NAME_RULE, "text"),
+                   after=["entity", "confirm", "{新名字}"])]
+    if same:
+        out.append(_result(MERGE_LABEL, ["entity", "merge", name, "--into", "{同一個}"],
+                           _fill("同一個", plan.NAME_RULE, "select", [{"label": n, "value": n} for n in same])))
+    return out
+
+
+def _rename_answers(results):
+    """實體夾改名、搬走：照現在的；沒有指令的（先把 X 加進設定檔）不列，剩的不足兩個整題移下面。"""
+    got = _doable(results)
+    return got if len(got) >= 2 else None
+
+
+def _inbox_answers(vault, results):
+    """一個選單「放到…」：候選的夾在前（照現在的排法），分隔線下是全部實體夾。"""
+    moves = [r["argv"] for r in results if r["argv"] and r["argv"][:2] == ["source-edit", "move"] and len(r["argv"]) >= 5]
+    src = moves[0][2] if moves else None
+    if src is None:
+        return None
+    options = [{"label": m[4], "value": m[4], "group": GROUP_OFTEN} for m in moves]
+    seen = {o["value"] for o in options}
+    try:
+        for e in entities.load(vault)["entities"]:
+            if e.get("status") != "active" or not e.get("type") or entities.is_self(e):
+                continue
+            folder = f"{profile.folder_of(vault, e['type'])}/{e['name']}"
+            if folder not in seen:
+                seen.add(folder)
+                options.append({"label": folder, "value": folder, "group": GROUP_ALL})
+    except ValueError:
+        pass
+    return [_result(PLACE_LABEL, ["source-edit", "move", src, "--to", "{放到}"], _fill("放到", "夾的相對路徑", "select", options))]
+
+
+def _missing_answers(a, results):
+    pid = _id_of(a)
+    drop = next((r for r in results if r["argv"] and r["argv"][:2] == ["cards", "drop"]), None)
+    if drop is None or not pid:
+        return None
+    return [drop, _result(KEEP_CARD_LABEL, ["pending", "resolve", pid, "--how", KEEP_CARD_WORDS])]
+
+
+def _info_answers(a):
+    pid = _id_of(a)
+    return [_result(KNOWN_LABEL, ["pending", "dismiss", pid])] if pid else None
+
+
+def _answers(vault, a, results):
+    """這題在首頁的答案（卡上做完）；None = 要 Claude 接手，整題移到最下面那行。表外的種類一律 None。"""
+    kind = a.get("kind")
+    if kind == "agenda_conflict":
+        return _conflict_answers(a, results)
+    if kind in ("close", "ruling_recheck"):
+        got = _doable(results)
+        return got if len(got) == len(results) else None
+    if kind == "name":
+        return _name_answers(vault, a, results)
+    if kind in RENAME_KINDS:
+        return _rename_answers(results)
+    if kind == "inbox_place":
+        return _inbox_answers(vault, results)
+    if kind == "missing":
+        return _missing_answers(a, results)
+    if kind in INFO_KINDS:
+        return _info_answers(a)
+    return None  # drift_missing（重寫綜合卡要 Claude）、批次、草稿、密碼檔、手改、標籤、健檢、報告、兩份寫法不同、carried…
+
+
+def _inferred_agenda_ids(vault):
+    """健檢「推測的日程放太久」那件的編號：改在日程確認，這區不列也不算。"""
+    try:
+        return {i["id"] for i in pending.load(vault)["items"]
+                if i.get("status") == "open" and i.get("kind") == "lint" and i.get("key") == "inferred:agenda"}
+    except (ValueError, OSError):
+        return set()
 
 
 def _confirm(vault, asks):
-    out = []
+    """(要你確認的, 要跟 Claude 一起看的)：前者每題的答案都是首頁照 argv 跑就做完的；後者是 [{key, kind, text}]（裁定 39，D-268）。
+    先放著（asks set-aside）是首頁加的、非急的才有，告知的（知道了）沒有。"""
+    out, claude = [], []
+    inferred = _inferred_agenda_ids(vault)
     for a in asks:
-        results = []
-        for r in a.get("results") or []:
-            fills = r.get("fill") or []
-            fill = {"name": fills[0].get("name"), "rule": fills[0].get("rule")} if fills and isinstance(fills[0], dict) else None
-            argv = r["argv"] if "argv" in r else _argv(r.get("do"))
-            if argv is None and not r.get("do") and not fills and r.get("label") in SET_ASIDE_LABELS and not a.get("urgent") and a.get("key"):
-                argv = ["asks", "set-aside", a["key"]]  # 有時間性的不收（D-226），argv 留 null：外掛當成只能在對話說的
-            results.append({"label": r.get("label"), "argv": argv, "fill": fill,
-                            "strict": bool(r.get("strict")), "note": r.get("note")})
-            if r.get("after"):
-                results[-1]["after"] = r["after"]  # 這個結果做完要接著跑的指令（renders drop）
-        out.append({"key": a.get("key"), "kind": a.get("kind"), "text": a.get("question"), "urgent": bool(a.get("urgent")),
+        if a.get("kind") in NO_LIST_KINDS or (a.get("kind") == "pending_lint" and _id_of(a) in inferred):
+            continue
+        results = _answers(vault, a, [_convert(r) for r in a.get("results") or []])
+        key = a.get("key")
+        if results is None:
+            claude.append({"key": key, "kind": a.get("kind"), "text": a.get("question")})
+            continue
+        results = [r for r in results if r["label"] not in SET_ASIDE_LABELS]
+        if a.get("kind") not in INFO_KINDS and not a.get("urgent") and key:
+            results.append(_result(ASIDE_LABEL, ["asks", "set-aside", key]))
+        out.append({"key": key, "kind": a.get("kind"), "text": a.get("question"), "urgent": bool(a.get("urgent")),
                     "results": results})
-    return out
+    return out, claude
 
 
 def _others(vault, asked_keys):
@@ -267,14 +415,14 @@ def _build(vault, opened, today, hour, lo=None, hi=None):
     asks = safe("要問你的事", lambda: _asks(vault), [])
     asked = {a.get("key") for a in asks}
     others = safe("待處理", lambda: _others(vault, asked), [])
-    confirm = _confirm(vault, asks)
+    confirm, claude = _confirm(vault, asks)
     out = {
         "schema": SCHEMA, "version": read_manifest()["version"], "today": today,
         "cheer": cheer(today, hour),
         "counts": {"overdue": got["overdue"], "today": got["today"], "week": got["upcoming"], "confirm": len(confirm),
-                   "other": len(others)},
+                   "other": len(others), "claude": len(claude) + len(others)},
         "timeline": _timeline(vault, items, ent_data, today, card_of, lo, hi),
-        "todo": todo, "confirm": confirm, "others": others,
+        "todo": todo, "confirm": confirm, "claude": claude, "others": others,
         "recent": [] if sources is None else safe("最近", lambda: _recent(vault, list(opened or []), sources), []),
     }
     if warnings:

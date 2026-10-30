@@ -402,13 +402,14 @@ class Drop(Base):
         self.assertEqual([r["label"] for r in mine[0]["results"]], ["不用了", "跟 Claude 說"])
         self.assertIsNone(mine[0]["results"][1]["argv"])
 
-    def test_home_confirm_passes_argv_and_after(self):
+    def test_home_puts_carried_on_the_claude_side(self):
+        """裁定 39（D-268）：carried 不在「要你確認的」那張表裡（種類與日期要問、要 Claude 接手），整題算進最下面那行。"""
         from kb._lib import home
         out = home.build(self.V)
-        (ask,) = [a for a in out["confirm"] if a["kind"] == "carried"]
-        add = ask["results"][0]
-        self.assertEqual((add["argv"], add["after"]), (["agenda", "add", "--text", "測試"], ["renders", "drop", self.cid]))
-        self.assertEqual(ask["results"][1]["argv"], ["renders", "drop", self.cid])
+        self.assertEqual([a for a in out["confirm"] if a["kind"] == "carried"], [])
+        (ask,) = [a for a in out["claude"] if a["kind"] == "carried"]
+        self.assertIn("測試", ask["text"])
+        self.assertEqual(set(ask), {"key", "kind", "text"})
 
 
 class Misc(Base):

@@ -235,8 +235,8 @@ test('首頁畫出來：鼓勵句、時間軸列與 bar、待辦三組、要你�
   assert.strictEqual(byClass(root, 'wwh-todo').length, 2, '已經過了 1 件 + 今天 1 件；這週收起來不畫');
   // 要你確認的
   assert.strictEqual(byClass(root, 'wwh-confirm').length, 1);
-  assert.strictEqual(byClass(root, 'wwh-confirm-buttons')[0].children.length, 1, '左邊只有點了就做的答案（裁定 37）');
-  assert.strictEqual(byClass(root, 'wwh-others-line')[0].textContent, '另外有 1 件小事 →');
+  assert.strictEqual(byClass(root, 'wwh-confirm-buttons')[0].children.length, 1, '左邊只有點了就做的答案（裁定 39）');
+  assert.strictEqual(byClass(root, 'wwh-others-line')[0].textContent, '還有 1 件要跟 Claude 一起看');
   // 最近：不整片列在頁面上，游標在搜尋框裡才出現（裁定 28）
   assert.strictEqual(byClass(root, 'wwh-recent-item').length, 0);
   plugin.ui.search.focused = true;
@@ -398,7 +398,7 @@ test('時間軸：子項縮排、連線與基準線在展開的那一塊裡畫�
 test('版面（裁定 32）：日期與問候 → 搜尋 → 日程 → 待辦｜要你確認的；最上面沒有數字', () => {
   const { view } = viewOf();
   const kids = Array.from(view.root.children);
-  const order = [view.topEl, view.searchEl, view.timelineEl, view.colsEl].map((e) => kids.indexOf(e));
+  const order = [view.topRowEl, view.searchEl, view.timelineEl, view.colsEl].map((e) => kids.indexOf(e));
   assert.ok(order.every((n) => n >= 0) && order.every((n, i) => i === 0 || n > order[i - 1]), order.join());
   assert.strictEqual(byClass(view.topEl, 'wwh-count').length, 0, '數字全拿掉');
   assert.strictEqual(byClass(view.topEl, 'wwh-counts').length, 0);
@@ -582,47 +582,153 @@ function confirmHome(results) {
   return raw;
 }
 
-test('要你確認的（裁定 37）：每張卡左邊只放點了就做的答案；先放著、不處理收在右邊；要填的與只能在對話做的不列', () => {
+test('要你確認的（裁定 39）：左邊是答案（點了就做；要填的字後面有「…」）；右邊淡淡的「先放著」；首頁沒有「不處理」；argv 是 null 的不列', () => {
   const chosen = [];
   const raw = confirmHome([
-    { label: '是，完成了', argv: ['agenda', 'done', 'a-1'], fill: null },
-    { label: '還沒，改到某天', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD' } },
+    { label: '用新版', argv: ['agenda', 'edit', 'a-1', '--date', '2026-12-01'], fill: null },
+    { label: '改到某天…', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD', input: 'date' } },
+    { label: '改成別的名字', argv: ['entity', 'rename', 'X', '--to', '{新名字}'], fill: { name: '新名字', rule: 'x', input: 'text' } },
     { label: '照你改的做', argv: null, fill: null },
-    { label: '名字改成別的', argv: null, fill: { name: '新名字', rule: 'x' } },
-    { label: '之後再說', argv: ['asks', 'set-aside', 'q1'], fill: null },
-    { label: '不用管了', argv: ['pending', 'dismiss', 'p-1'], fill: null },
+    { label: '先放著', argv: ['asks', 'set-aside', 'q1'], fill: null },
   ]);
   const { view } = viewOf(raw, { chooseResult: (c, r) => chosen.push(r.label) });
   const card = byClass(view.rightEl, 'wwh-confirm')[0];
-  assert.deepStrictEqual(byClass(card, 'wwh-answer').map((a) => a.textContent), ['是，完成了'], '左邊只有 argv 有值、不用填、不是收尾的');
-  assert.strictEqual(byClass(card, 'wwh-fill').length + byClass(card, 'wwh-fill-input').length, 0, '卡上不再展開輸入框');
+  assert.deepStrictEqual(byClass(card, 'wwh-answer').map((a) => a.textContent), ['用新版', '改到某天…', '改成別的名字…'], '要填的字後面有「…」（kb 的字已經有就不再加），argv 是 null 的不列');
   assert.strictEqual(byClass(card, 'wwh-answer-chat').length, 0, '一個個答案旁沒有對話圖示');
   const quiet = byClass(card, 'wwh-confirm-quiet')[0];
-  assert.strictEqual(byClass(quiet, 'is-aside')[0].textContent, '先放著', 'asks set-aside 一律寫「先放著」，不照 kb 的字');
-  assert.strictEqual(byClass(quiet, 'is-dismiss')[0].textContent, '不處理', 'pending dismiss 一律寫「不處理」');
+  assert.strictEqual(byClass(quiet, 'is-aside')[0].textContent, '先放著');
+  assert.strictEqual(byClass(quiet, 'is-dismiss').length, 0, '首頁沒有「不處理」');
   assert.ok(Array.from(quiet.children).indexOf(byClass(quiet, 'wwh-chat-btn')[0]) === quiet.children.length - 1, '對話圖示放最後');
   byClass(card, 'wwh-answer')[0].fire('click');
   byClass(quiet, 'is-aside')[0].fire('click');
-  byClass(quiet, 'is-dismiss')[0].fire('click');
-  assert.deepStrictEqual(chosen, ['是，完成了', '之後再說', '不用管了'], '點了照各自的 argv 跑');
-  // pending set-aside 也寫「先放著」；那題沒有先放著、不處理就不放
-  const two = confirmHome([{ label: '好', argv: ['x'], fill: null }, { label: '下次', argv: ['pending', 'set-aside', 'p-2'], fill: null }]);
-  const q2 = byClass(viewOf(two).view.rightEl, 'wwh-confirm-quiet')[0];
-  assert.strictEqual(byClass(q2, 'is-aside')[0].textContent, '先放著');
-  assert.strictEqual(byClass(q2, 'is-dismiss').length, 0);
+  assert.deepStrictEqual(chosen, ['用新版', '先放著'], '不用填的點了照 argv 跑；要填的點了先展開，不直接跑');
+  // 告知的：kb 給「知道了」（pending dismiss），算一般答案、沒有先放著
+  const info = confirmHome([{ label: '知道了', argv: ['pending', 'dismiss', 'p-9'], fill: null }]);
+  const c2 = byClass(viewOf(info).view.rightEl, 'wwh-confirm')[0];
+  assert.deepStrictEqual(byClass(c2, 'wwh-answer').map((a) => a.textContent), ['知道了']);
+  assert.strictEqual(byClass(c2, 'is-aside').length + byClass(c2, 'is-dismiss').length, 0);
+  // 沒有先放著的題：圖示每張卡都有
   const none = confirmHome([{ label: '好', argv: ['x'], fill: null }]);
   const q3 = byClass(viewOf(none).view.rightEl, 'wwh-confirm-quiet')[0];
-  assert.deepStrictEqual(Array.from(q3.children).map((e) => e.classList.contains('wwh-chat-btn')), [true], '沒有的收尾不放，圖示每張卡都有');
+  assert.deepStrictEqual(Array.from(q3.children).map((e) => e.classList.contains('wwh-chat-btn')), [true]);
 });
 
-test('要你確認的（裁定 37）：splitAnswers 照 argv 認、不照字；同一種收尾只取第一個', () => {
+test('要你確認的（裁定 39）：splitAnswers 照 argv 認、不照字；pending dismiss 是一般答案；只取第一個先放著', () => {
   const r = (label, argv, fill) => ({ label, argv, fill: fill || null });
-  const out = lib.splitAnswers({ results: [r('A', ['agenda', 'done', 'x']), r('先放著', ['asks', 'set-aside', 'k']), r('先放著', ['pending', 'set-aside', 'p']), r('B', ['agenda', 'edit', 'x', '--date', '{d}'], { name: 'd' }), r('C', null), r('D', ['pending', 'dismiss', 'p'])] });
-  assert.deepStrictEqual(out.main.map((x) => x.label), ['A']);
+  const out = lib.splitAnswers({ results: [r('A', ['agenda', 'done', 'x']), r('先放著', ['asks', 'set-aside', 'k']), r('先放著', ['pending', 'set-aside', 'p']), r('B', ['agenda', 'edit', 'x', '--date', '{d}'], { name: 'd' }), r('C', null), r('知道了', ['pending', 'dismiss', 'p'])] });
+  assert.deepStrictEqual(out.main.map((x) => x.label), ['A', 'B', '知道了']);
   assert.deepStrictEqual(out.aside.argv, ['asks', 'set-aside', 'k']);
-  assert.deepStrictEqual(out.dismiss.argv, ['pending', 'dismiss', 'p']);
-  assert.deepStrictEqual(lib.splitAnswers(null), { main: [], aside: null, dismiss: null });
+  assert.deepStrictEqual(lib.splitAnswers(null), { main: [], aside: null });
   assert.deepStrictEqual(lib.splitAnswers({ results: [r('先放著', null)] }).aside, null, '字叫先放著、argv 是 null 的不算');
+});
+
+function fillHome() {
+  return confirmHome([
+    { label: '改到某天…', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD', input: 'date' } },
+    { label: '改名…', argv: ['entity', 'rename', '王先生', '--to', '{新名字}'], fill: { name: '新名字', rule: 'x', input: 'text' }, after: ['entity', 'confirm', '{新名字}'] },
+    {
+      label: '放到…', argv: ['source-edit', 'move', '收件匣/a.pdf', '--to', '{放到}'],
+      fill: { name: '放到', rule: 'x', input: 'select', options: [{ label: '客戶案件/王', value: '客戶案件/王', group: '常放' }, { label: '案子/李', value: '案子/李', group: '全部' }, { label: '案子/陳', value: '案子/陳', group: '全部' }] },
+    },
+  ]);
+}
+
+test('要你確認的（裁定 39）：要填的在卡上展開——日期用日期選擇、名字用文字框、選單用下拉；Enter 或選好就跑；一次只開一格', () => {
+  const chosen = [];
+  const { view, plugin } = viewOf(fillHome(), { chooseResult: (c, r, v) => chosen.push([r.label, v]) });
+  const answers = () => byClass(view.rightEl, 'wwh-answer');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0, '沒點之前不展開');
+  // 日期
+  answers()[0].fire('click');
+  assert.deepStrictEqual(plugin.ui.confirmFill, { key: 'q1', n: 0 });
+  assert.ok(answers()[0].classList.contains('is-on'));
+  let input = byClass(view.rightEl, 'wwh-fill-input')[0];
+  assert.strictEqual(input.attrs.type, 'date');
+  input.value = '明天';
+  input.fire('change');
+  input.fire('keydown', { key: 'Enter' });
+  assert.deepStrictEqual(chosen, [], '不是 YYYY-MM-DD 不送');
+  input.value = '2026-12-05';
+  input.fire('change');
+  input.fire('change'); // 同一格不送兩次
+  assert.deepStrictEqual(chosen, [['改到某天…', '2026-12-05']]);
+  assert.strictEqual(plugin.ui.confirmFill, null, '送出就收起');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0);
+  // 名字：Enter 才送；注音選字中、空的不送；Esc 收起
+  answers()[1].fire('click');
+  input = byClass(view.rightEl, 'wwh-fill-input')[0];
+  assert.strictEqual(input.attrs.type, 'text');
+  assert.strictEqual(input.attrs.placeholder, '新名字');
+  input.value = '王大明';
+  input.fire('keydown', { key: 'a' });
+  input.fire('keydown', { key: 'Enter', isComposing: true });
+  input.fire('compositionstart');
+  input.fire('keydown', { key: 'Enter' });
+  input.fire('compositionend');
+  input.value = '   ';
+  input.fire('keydown', { key: 'Enter' });
+  assert.strictEqual(chosen.length, 1, '打字中、選字中、空的都不送');
+  input.value = '王大明';
+  input.fire('keydown', { key: 'Enter' });
+  assert.deepStrictEqual(chosen[1], ['改名…', '王大明']);
+  answers()[1].fire('click');
+  byClass(view.rightEl, 'wwh-fill-input')[0].fire('keydown', { key: 'Escape' });
+  assert.strictEqual(plugin.ui.confirmFill, null, 'Esc 收起');
+  // 點同一個答案再點一次收起；點別的換成別的格
+  answers()[1].fire('click');
+  answers()[1].fire('click');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 0);
+  answers()[0].fire('click');
+  answers()[2].fire('click');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill').length, 1, '一次只開一格');
+  assert.strictEqual(byClass(view.rightEl, 'wwh-fill-select').length, 1);
+});
+
+test('要你確認的（裁定 39）：下拉的內容——「選一個…」、候選的在前、分隔線、全部的在後；選好就跑，選「選一個…」不跑', () => {
+  const chosen = [];
+  const { view } = viewOf(fillHome(), { chooseResult: (c, r, v) => chosen.push([r.label, v]) });
+  byClass(view.rightEl, 'wwh-answer')[2].fire('click');
+  const sel = byClass(view.rightEl, 'wwh-fill-select')[0];
+  assert.strictEqual(sel.tagName, 'SELECT');
+  assert.ok(sel.classList.contains('dropdown'), 'Obsidian 的下拉樣子');
+  const opts = byTag(sel, 'option');
+  assert.deepStrictEqual(opts.map((o) => o.textContent), ['選一個…', '客戶案件/王', '──────', '案子/李', '案子/陳']);
+  assert.strictEqual(opts[2].attrs.disabled, 'disabled', '分隔線不能選');
+  assert.strictEqual(opts[1].attrs.value, '客戶案件/王');
+  sel.value = '';
+  sel.fire('change');
+  assert.deepStrictEqual(chosen, []);
+  sel.value = '案子/李';
+  sel.fire('change');
+  assert.deepStrictEqual(chosen, [['放到…', '案子/李']]);
+  // kb 沒給 input 時看選項與規則
+  assert.strictEqual(lib.fillKind({ options: [{ value: 'a' }] }), 'select');
+  assert.strictEqual(lib.fillKind({ rule: 'YYYY-MM-DD' }), 'date');
+  assert.strictEqual(lib.fillKind({ rule: '一句話' }), 'text');
+  assert.strictEqual(lib.fillKind(null), null);
+});
+
+test('要你確認的（裁定 39）：填的值換進 argv 與接著要跑的 after；after 在第一個指令成功後才跑，失敗不跑', async () => {
+  const a = lib.actions.result({ label: '改名…', argv: ['entity', 'rename', 'X', '--to', '{新名字}'], fill: { name: '新名字' }, after: ['entity', 'confirm', '{新名字}'] }, '王大明');
+  assert.deepStrictEqual(a.args, ['entity', 'rename', 'X', '--to', '王大明']);
+  assert.deepStrictEqual(a.then, ['entity', 'confirm', '王大明']);
+  const calls = [];
+  const toasts = [];
+  const ctx = { kb: async (args) => { calls.push(args); return { code: 0, stdout: '好了\n', stderr: '' }; }, toast: (t) => toasts.push(t), refresh() {} };
+  assert.deepStrictEqual((await lib.performAction(ctx, a)).ok, true);
+  assert.deepStrictEqual(calls, [a.args, a.then]);
+  const fail = { kb: async (args) => (args[1] === 'rename' ? { code: 3, stdout: '改不了\n', stderr: '' } : { code: 0, stdout: '', stderr: '' }), toast: (t) => toasts.push(t) };
+  const seen = [];
+  const ctx2 = { kb: async (args) => { seen.push(args[1]); return fail.kb(args); }, toast: (t) => toasts.push(t) };
+  assert.strictEqual((await lib.performAction(ctx2, a)).ok, false);
+  assert.deepStrictEqual(seen, ['rename'], '第一個沒成功就不跑 after');
+  assert.strictEqual(lib.actions.result({ label: '好', argv: null }), null);
+  assert.strictEqual(lib.answerLabel({ label: '改名…', fill: { name: 'x' } }), '改名…');
+  assert.strictEqual(lib.answerLabel({ label: '改名', fill: { name: 'x' } }), '改名…');
+  assert.strictEqual(lib.answerLabel({ label: '對', fill: null }), '對');
+  assert.strictEqual(lib.cleanFill({ input: 'text' }, '  王 '), '王');
+  assert.strictEqual(lib.cleanFill({ input: 'text' }, ''), null);
+  assert.strictEqual(lib.cleanFill({ input: 'date' }, '2026-1-5'), null);
 });
 
 test('要你確認的（裁定 37）：對話圖示——message-circle、滑過提示「跟 Claude 說」，點了複製「關於「題目」：」', () => {
@@ -636,6 +742,29 @@ test('要你確認的（裁定 37）：對話圖示——message-circle、滑過
   assert.deepStrictEqual(copied, ['12/3 王先生簽約過了，完成了嗎？']);
   assert.strictEqual(lib.chatPhrase({ text: ' 這題？ ' }), '關於「這題？」：');
   assert.strictEqual(lib.chatPhrase({}), '關於這題：');
+});
+
+test('最下面一行（裁定 39）：待辦與要你確認的下面「還有 N 件要跟 Claude 一起看」加對話圖示，點了複製「幫我看一下待處理」；N = 移到這邊的題數加小事；0 不寫', () => {
+  const copied = [];
+  const raw = sample();
+  raw.claude = [{ key: 'x1', kind: 'draft', text: '草稿還在等' }, { key: 'x2', kind: 'batch', text: '要整理 30 份' }];
+  raw.others = [{ id: 'p-1', text: '有一份檔不見了' }];
+  const { view } = viewOf(raw, { copyReview: () => copied.push('x') });
+  assert.strictEqual(byClass(view.root, 'wwh-block-others').length + byClass(view.root, 'wwh-other').length, 0, '舊的區塊沒了');
+  const kids = Array.from(view.root.children);
+  assert.ok(kids.indexOf(view.colsEl) < kids.indexOf(view.claudeEl), '兩欄下面');
+  assert.ok(kids.indexOf(view.noteEl) < 0, '便條不在最底下了');
+  const line = byClass(view.claudeEl, 'wwh-others-line')[0];
+  assert.strictEqual(line.textContent, '還有 3 件要跟 Claude 一起看');
+  assert.ok(!line.textContent.includes('小事'), '「另外有 N 件小事」拿掉');
+  const btn = byClass(line, 'wwh-chat-btn')[0];
+  assert.strictEqual(btn.attrs.title, '跟 Claude 說');
+  btn.fire('click');
+  assert.deepStrictEqual(copied, ['x']);
+  raw.claude = [];
+  raw.others = [];
+  assert.strictEqual(byClass(viewOf(raw).view.claudeEl, 'wwh-others-line').length, 0, '0 件不寫');
+  assert.strictEqual(lib.REVIEW_PHRASE, '幫我看一下待處理');
 });
 
 test('要你確認的（裁定 37）：整區可以收合（標題前小箭頭，收起時標題旁寫題數）；先顯示 3 題，其餘「還有 N 題」點了展開', () => {
@@ -664,25 +793,6 @@ test('要你確認的（裁定 37）：整區可以收合（標題前小箭頭�
   // 沒有要確認的：標題還在，寫「沒有」
   const empty = viewOf(Object.assign(sample(), { confirm: [] })).view;
   assert.strictEqual(byClass(empty.rightEl, 'wwh-empty')[0].textContent, '沒有');
-});
-
-test('小事（裁定 37）：「其他要處理的」那區拿掉，換成待辦與要你確認的下面一行淡字「另外有 N 件小事 →」，點了開 系統/待處理.md；0 件不寫', () => {
-  const opened = [];
-  const raw = sample();
-  raw.others = [{ id: 'p-1', text: '有一份檔不見了' }, { id: 'p-2', text: '另一件' }, { id: 'p-3', text: '第三件' }];
-  const { view } = viewOf(raw, { openPathInVault: (r) => opened.push(r) });
-  assert.strictEqual(byClass(view.root, 'wwh-block-others').length + byClass(view.root, 'wwh-other').length, 0, '舊的區塊沒了');
-  assert.ok(!byClass(view.root, 'wwh-group-head').some((e) => e.textContent.includes('其他要處理的')));
-  const kids = Array.from(view.root.children);
-  assert.ok(kids.indexOf(view.colsEl) < kids.indexOf(view.othersEl) && kids.indexOf(view.othersEl) < kids.indexOf(view.noteEl), '兩欄下面、便條上面');
-  const line = byClass(view.othersEl, 'wwh-others-line')[0];
-  assert.strictEqual(line.textContent, '另外有 3 件小事 →');
-  line.fire('click');
-  assert.deepStrictEqual(opened, ['系統/待處理.md']);
-  assert.strictEqual(lib.PENDING_REL, '系統/待處理.md');
-  raw.others = [];
-  const none = viewOf(raw).view;
-  assert.strictEqual(byClass(none.othersEl, 'wwh-others-line').length, 0, '0 件不寫');
 });
 
 test('版面（裁定 34）：待辦整區也是白卡；版面放寬到 1600px；答案間距約 20px；兩欄空隙縮小', () => {
@@ -883,21 +993,6 @@ test('時間軸（裁定 37）：游標在時間軸上 Ctrl＋滾輪連續縮放
   } finally {
     mock.timers.reset();
   }
-});
-
-test('時間軸（裁定 37）：縮放的四段按鈕拿掉，「回到今天」旁一行淡字提示 Ctrl＋滾輪縮放；回到今天把捲動歸零', () => {
-  const { view, plugin } = viewOf();
-  assert.strictEqual(byClass(view.timelineEl, 'wwh-zoom').length, 0);
-  assert.ok(!byClass(view.timelineEl, 'wwh-seg').some((s) => /兩週|一個月|三個月|半年/.test(s.textContent)));
-  assert.strictEqual(byClass(view.timelineEl, 'wwh-zoom-hint')[0].textContent, 'Ctrl＋滾輪縮放');
-  const tools = byClass(view.timelineEl, 'wwh-tools')[0];
-  const kids = Array.from(tools.children);
-  assert.ok(kids.indexOf(byClass(tools, 'wwh-today-btn')[0]) + 1 === kids.indexOf(byClass(tools, 'wwh-zoom-hint')[0]), '提示在「回到今天」旁邊');
-  plugin.ui.tlStart = lib.dayNumber('2026-11-10');
-  byClass(view.timelineEl, 'wwh-today-btn')[0].fire('click');
-  assert.strictEqual(plugin.ui.tlStart, null);
-  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
-  assert.ok(parseFloat(gantt.styleMap['--wwh-tx']) <= 0);
 });
 
 test('時間軸（裁定 34）：兩週的軸每天一格；釘在左邊的月份跟著捲動換', () => {
@@ -1143,25 +1238,6 @@ test('便條（裁定 37）：重讀到的那一頁要不要換進便條——�
   assert.strictEqual(lib.NOTE_DELAY_MS, 1500);
 });
 
-test('便條（裁定 37）：首頁最底下一張淡黃底的便條，一個多行文字框，內容就是 隨手記.md 整頁；舊的輸入框與最近幾則都沒了', () => {
-  const { view, plugin } = viewOf(null, {});
-  plugin.ui.note.text = '# 隨手記\n\n- 11 月談保固\n';
-  view.render();
-  const kids = Array.from(view.root.children);
-  assert.strictEqual(kids[kids.length - 1], view.noteEl, '最底下');
-  const box = byClass(view.noteEl, 'wwh-note-text')[0];
-  assert.strictEqual(box.tagName, 'TEXTAREA', '多行文字框');
-  assert.strictEqual(box.attrs.placeholder, '隨手記一下…');
-  assert.strictEqual(box.value, '# 隨手記\n\n- 11 月談保固\n', '整頁原樣');
-  assert.strictEqual(byClass(view.root, 'wwh-jot').length + byClass(view.root, 'wwh-jot-input').length + byClass(view.root, 'wwh-jot-all').length, 0);
-  assert.match(CSS, /\.wwh-note \{[^}]*background: var\(--wwh-note-bg\)/);
-  assert.match(CSS, /--wwh-note-bg: #fff6c9/);
-  assert.match(CSS, /\.theme-dark \.wwh-root \{[^}]*--wwh-note-bg: #3f3b24/, '深色主題調暗');
-  assert.ok(!/wwh-jot/.test(CSS), '舊的樣式拿掉了');
-  const hidden = viewOf(null, { runner: null }).view;
-  assert.ok(hidden.noteEl.classList.contains('wwh-hidden'), '沒找到 kb 時跟其他區一起藏起來');
-});
-
 test('便條（裁定 37）：重畫不洗掉她打到一半的字、框還是同一個；沒在打字時換成讀到的新內容', () => {
   const { view, plugin } = viewOf();
   const box = byClass(view.noteEl, 'wwh-note-text')[0];
@@ -1313,4 +1389,302 @@ test('便條（裁定 37）：離開首頁（view 關掉）與外掛卸載都先
 test('便條（裁定 37）：kb jot 拿掉了——外掛沒有 jot 動作，也不叫 kb 存便條', () => {
   assert.strictEqual(lib.actions.jot, undefined);
   assert.ok(!/'jot'/.test(fs.readFileSync(path.join(__dirname, '..', '..', 'obsidian', 'main.js'), 'utf8')));
+});
+
+test('便條（裁定 39）：移到右上角、跟日期問候同一排；標題「隨手記」可點，開那一頁；滑鼠移入、打字時照樣淡黃', () => {
+  const opened = [];
+  const flushed = [];
+  const { view } = viewOf(null, { openPathInVault: (r) => opened.push(r), flushNote: () => flushed.push(1) });
+  assert.deepStrictEqual(Array.from(view.topRowEl.children), [view.topEl, view.noteEl], '日期問候在左、便條在右');
+  const kids = Array.from(view.root.children);
+  assert.ok(kids.indexOf(view.topRowEl) >= 0 && kids.indexOf(view.noteEl) < 0, '便條不再單獨放在最底下');
+  assert.ok(kids.indexOf(view.topRowEl) < kids.indexOf(view.searchEl));
+  const box = byClass(view.noteEl, 'wwh-note-text')[0];
+  assert.strictEqual(box.tagName, 'TEXTAREA');
+  assert.strictEqual(box.attrs.rows, '5', '四五行高');
+  const title = byClass(view.noteEl, 'wwh-note-title')[0];
+  assert.strictEqual(title.textContent, '隨手記');
+  title.fire('click');
+  assert.deepStrictEqual(opened, ['_extras/隨手記.md']);
+  assert.strictEqual(flushed.length, 1, '開頁前先把打到一半的存下來');
+  assert.match(CSS, /\.wwh-note \{[^}]*width: 240px/, '約 240px 寬');
+  assert.match(CSS, /\.wwh-note \.wwh-note-text:hover,[^{]*\.wwh-note-text:focus,[^{]*\{[^}]*background: transparent/, 'hover、focus 不變白（蓋掉 Obsidian 的底色）');
+  assert.match(CSS, /\.wwh-note \.wwh-note-text[^{]*\{[^}]*overflow-y: auto/, '內容多就在框裡捲');
+  assert.match(CSS, /--wwh-note-bg: #fff6c9/);
+  assert.match(CSS, /\.theme-dark \.wwh-root \{[^}]*--wwh-note-bg: #3f3b24/, '深色主題調暗');
+  const hidden = viewOf(null, { runner: null }).view;
+  assert.ok(hidden.topRowEl.classList.contains('wwh-hidden'), '沒找到 kb 時跟其他區一起藏起來');
+});
+
+test('時間軸（裁定 39）：「Ctrl＋滾輪縮放」那行字拿掉（功能照留）；縮放的四段按鈕也沒有；回到今天把捲動歸零', () => {
+  const { view, plugin } = viewOf();
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-zoom-hint').length, 0);
+  assert.ok(!view.timelineEl.textContent.includes('Ctrl＋滾輪縮放'));
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-zoom').length, 0);
+  assert.ok(!/wwh-zoom-hint/.test(CSS), '樣式也拿掉了');
+  plugin.ui.tlStart = lib.dayNumber('2026-11-10');
+  byClass(view.timelineEl, 'wwh-today-btn')[0].fire('click');
+  assert.strictEqual(plugin.ui.tlStart, null);
+  const gantt = byClass(view.timelineEl, 'wwh-gantt')[0];
+  assert.ok(parseFloat(gantt.styleMap['--wwh-tx']) <= 0);
+  // Ctrl＋滾輪照樣縮放
+  view.axisTrackEl.getBoundingClientRect = () => ({ left: 100, width: 800 });
+  let prevented = 0;
+  gantt.fire('wheel', { ctrlKey: true, deltaY: -100, clientX: 500, preventDefault: () => prevented++ });
+  assert.strictEqual(prevented, 1);
+  assert.ok(plugin.ui.timelineDays < 90);
+});
+
+test('時間軸（裁定 39）：收起的列裡的記號用那一列的顏色——推測的空心圈也是（圈的顏色照那一列）', () => {
+  const { view } = viewOf();
+  view.setAllRows(true);
+  const dots = byClass(view.timelineEl, 'wwh-sum-dot');
+  assert.ok(dots.length > 0);
+  const inferred = dots.filter((d) => d.classList.contains('is-inferred'));
+  assert.ok(inferred.length > 0 && inferred.every((d) => /wwh-tone\d/.test(d.className)), '空心圈也帶那一列的色');
+  assert.ok(dots.filter((d) => !d.classList.contains('is-late')).every((d) => /wwh-tone\d/.test(d.className)));
+  assert.match(CSS, /\.wwh-sum-dot\.is-inferred \{[^}]*border: 1\.5px solid var\(--wwh-mark-c/, '圈不再是灰的');
+});
+
+// ---- 裁定 39：月曆 ----
+
+function monthRaw() {
+  const raw = sample();
+  raw.timeline.rows = [
+    {
+      key: 'e-1', label: '信義王', type: '案子', progress: 'active', pauses: [], links: [],
+      marks: [
+        mark({ id: 'q2', shape: 'point', kind: 'deadline', start: null, end: '2026-10-20', text: '交圖', children: [] }),
+        mark({ id: 'q1', shape: 'point', kind: 'meeting', start: null, end: '2026-10-20', time: '14:00', text: '丈量', children: [] }),
+        mark({ id: 'p1', start: '2026-10-19', end: '2026-10-22', time: '09:30', text: '放樣', children: [] }),
+        mark({ id: 'q-inf', shape: 'point', kind: 'meeting', start: null, end: '2026-10-21', text: '驗收', inferred: true, children: [] }),
+        mark({ id: 'q-late', shape: 'point', kind: 'promise', start: null, end: '2026-10-15', text: '回覆', late: true, children: [] }),
+      ],
+    },
+  ];
+  return raw;
+}
+
+test('月曆（裁定 39）：「回到今天」跟時間軸同一個位置（右上那排）、月份標題旁不另放；新增「全部收起／全部展開」同位置同字', () => {
+  const { view, plugin } = viewOf(monthRaw());
+  view.setMode('month');
+  const tools = byClass(view.timelineEl, 'wwh-tools')[0];
+  assert.deepStrictEqual(Array.from(tools.children).map((e) => e.textContent), ['全部收起', '回到今天', '時間軸月曆'], '順序跟時間軸那排一樣');
+  assert.ok(!byClass(view.timelineEl, 'wwh-month-head')[0].textContent.includes('回到今天'), '月份標題旁不放');
+  plugin.ui.month = { year: 2026, month: 5 };
+  view.render();
+  byClass(view.timelineEl, 'wwh-today-btn')[0].fire('click');
+  assert.strictEqual(plugin.ui.month, null);
+  assert.match(byClass(view.timelineEl, 'wwh-month-title')[0].textContent, /2026 年 10 月/);
+});
+
+test('月曆（裁定 39）：全部收起——期間變約 4px 細色線不寫字、單天的變色點；再按全部展開；記在 data.json', () => {
+  const saved = [];
+  const { view, plugin } = viewOf(monthRaw(), { saveMonthCollapsed: (on) => saved.push(on) });
+  view.setMode('month');
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-mbar')[0].textContent, '09:30 放樣');
+  assert.ok(byClass(view.timelineEl, 'wwh-day-mark').length >= 3);
+  byClass(view.timelineEl, 'wwh-month-fold')[0].fire('click');
+  assert.deepStrictEqual(saved, [true]);
+  assert.strictEqual(plugin.ui.monthCollapsed, true);
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-month-fold')[0].textContent, '全部展開');
+  assert.ok(byClass(view.timelineEl, 'wwh-month')[0].classList.contains('is-collapsed'));
+  const bars = byClass(view.timelineEl, 'wwh-mbar');
+  assert.ok(bars.length > 0 && bars.every((b) => b.classList.contains('is-thin') && b.textContent === ''), '細線不寫字');
+  assert.ok(bars.every((b) => /wwh-tone\d/.test(b.className)), '照那一列的顏色');
+  assert.ok(bars[0].attrs.title.includes('放樣'), '滑過去還看得到是什麼');
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-day-mark').length, 0);
+  const dots = byClass(view.timelineEl, 'wwh-day-dot');
+  assert.strictEqual(dots.length, 4, '單天的四件各一個色點');
+  assert.ok(dots.every((d) => d.textContent === '' && /wwh-tone\d/.test(d.className)));
+  assert.ok(dots.some((d) => d.classList.contains('is-late')) && dots.some((d) => d.classList.contains('is-inferred')), '過期、推測的點得出來');
+  assert.match(CSS, /\.wwh-mbar\.is-thin \{[^}]*height: 4px/);
+  assert.match(CSS, /\.wwh-day-dot \{[^}]*border-radius: 50%/);
+  byClass(view.timelineEl, 'wwh-month-fold')[0].fire('click');
+  assert.deepStrictEqual(saved, [true, false]);
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-day-dot').length, 0);
+  assert.ok(byClass(view.timelineEl, 'wwh-day-mark').length >= 3, '展開回原樣');
+});
+
+test('月曆（裁定 39）：收起的狀態存在 data.json——sanitizeData 只收 true；plugin.saveMonthCollapsed 寫進去', async () => {
+  assert.strictEqual(lib.sanitizeData({ monthCollapsed: true }).monthCollapsed, true);
+  for (const bad of [false, 'yes', 1, null]) assert.ok(!('monthCollapsed' in lib.sanitizeData({ monthCollapsed: bad })), String(bad));
+  assert.strictEqual(lib.defaultUi().monthCollapsed, false);
+  const { plugin } = makeNotePlugin({});
+  const written = [];
+  plugin.saveData = async (d) => written.push(d);
+  await plugin.saveMonthCollapsed(true);
+  assert.strictEqual(written[0].monthCollapsed, true);
+  await plugin.saveMonthCollapsed(false);
+  assert.strictEqual(written[1].monthCollapsed, false);
+  assert.ok(!('monthCollapsed' in lib.sanitizeData(written[1])));
+});
+
+test('月曆（裁定 39）：每天之間有淡的直線（跟橫線同色）——每週 7 個日期欄的底，第一欄不畫左線', () => {
+  const { view } = viewOf(monthRaw());
+  view.setMode('month');
+  const weeks = byClass(view.timelineEl, 'wwh-week');
+  assert.ok(weeks.length >= 4);
+  for (const w of weeks) {
+    const bgs = byClass(w, 'wwh-day-bg');
+    assert.strictEqual(bgs.length, 7);
+    assert.deepStrictEqual(bgs.map((b) => b.classList.contains('is-first')), [true, false, false, false, false, false, false]);
+    assert.deepStrictEqual(bgs.map((b) => b.styleMap['grid-column']), ['1', '2', '3', '4', '5', '6', '7']);
+  }
+  assert.match(CSS, /\.wwh-day-bg \{[^}]*border-left: 1px solid var\(--wwh-line-soft\)/);
+  assert.match(CSS, /\.wwh-week \{[^}]*border-top: 1px solid var\(--wwh-line-soft\)/, '橫線同一個顏色');
+});
+
+test('月曆（裁定 39）：點某天的日期數字或空白處跳出小框，列那天所有的事（時間、事情、案子名，有時間的在前）；點一件開相關的卡；「＋這天加一件」帶日期', () => {
+  const opened = [];
+  const added = [];
+  const { view } = viewOf(monthRaw(), { openItem: (it) => opened.push(it.id), addAgendaForm: (p) => added.push(p) });
+  view.setMode('month');
+  const dayEl = (n) => byClass(view.timelineEl, 'wwh-day').find((d) => !d.classList.contains('is-out') && byClass(d, 'wwh-day-num')[0].textContent === String(n));
+  assert.strictEqual(view.pop, null);
+  dayEl(20).fire('click');
+  const pop = view.pop;
+  assert.ok(pop && pop.classList.contains('wwh-day-pop'));
+  assert.strictEqual(byClass(pop, 'wwh-pop-title')[0].textContent, '10/20（週二）');
+  const rows = byClass(pop, 'wwh-pop-row');
+  assert.deepStrictEqual(rows.map((r) => [byClass(r, 'wwh-pop-time')[0].textContent, byClass(r, 'wwh-pop-text')[0].textContent, byClass(r, 'wwh-pop-row-name')[0].textContent]),
+    [['09:30', '放樣', '信義王'], ['14:00', '丈量', '信義王'], ['', '交圖', '信義王']], '含跨天的期間；有時間的照時間在前');
+  assert.ok(rows.every((r) => /wwh-tone\d/.test(byClass(r, 'wwh-pop-dot')[0].className)));
+  rows[1].fire('click');
+  assert.deepStrictEqual(opened, ['q1'], '點一件開它相關的卡');
+  assert.strictEqual(view.pop, null, '點完關掉');
+  // 空白處：整欄的底、有事的格子空白處、「還有 N 件」
+  const wk = byClass(view.timelineEl, 'wwh-week').find((w) => byClass(w, 'wwh-day-num').some((n) => n.textContent === '20'));
+  byClass(wk, 'wwh-day-bg')[2].fire('click');
+  assert.ok(view.pop && byClass(view.pop, 'wwh-pop-row').length >= 1, '點格子的空白處也開');
+  const marks = byClass(wk, 'wwh-day-marks')[0];
+  marks.fire('click', { target: marks });
+  assert.ok(view.pop);
+  // 加一件
+  byClass(view.pop, 'wwh-pop-add')[0].fire('click');
+  assert.strictEqual(view.pop, null);
+  assert.deepStrictEqual(added, [{ date: '2026-10-20' }], '日期填好那天');
+});
+
+test('月曆（裁定 39）：小框——這天沒有事寫「這天沒有事」仍有「＋這天加一件」（日期填好那天）；點框外、Esc、重畫都關', () => {
+  const added = [];
+  const { view } = viewOf(monthRaw(), { addAgendaForm: (p) => added.push(p) });
+  view.setMode('month');
+  const empty = byClass(view.timelineEl, 'wwh-day').find((d) => !d.classList.contains('is-out') && byClass(d, 'wwh-day-num')[0].textContent === '3');
+  empty.fire('click');
+  assert.strictEqual(byClass(view.pop, 'wwh-empty')[0].textContent, '這天沒有事');
+  assert.strictEqual(byClass(view.pop, 'wwh-pop-title')[0].textContent, '10/3（週六）');
+  byClass(view.pop, 'wwh-pop-add')[0].fire('click');
+  assert.deepStrictEqual(added, [{ date: '2026-10-03' }]);
+  // 點框外關
+  empty.fire('click');
+  assert.ok(view.pop);
+  view.contentEl.fire('mousedown', { target: byClass(view.pop, 'wwh-pop-title')[0] });
+  assert.ok(view.pop, '點框裡不關');
+  view.contentEl.fire('mousedown', { target: view.searchEl });
+  assert.strictEqual(view.pop, null, '點框外關');
+  // Esc
+  empty.fire('click');
+  view.contentEl.fire('keydown', { key: 'a' });
+  assert.ok(view.pop);
+  view.contentEl.fire('keydown', { key: 'Escape' });
+  assert.strictEqual(view.pop, null);
+  // 重畫
+  empty.fire('click');
+  view.render();
+  assert.strictEqual(view.pop, null);
+  assert.strictEqual(byClass(view.root, 'wwh-pop').length, 0);
+  assert.match(CSS, /\.wwh-pop \{[^}]*position: absolute/);
+  assert.match(CSS, /\.wwh-root \{[^}]*position: relative/, '小框以首頁為底定位');
+});
+
+// ---- 裁定 39：推測的日程在日程確認 ----
+
+function inferredTodo() {
+  const raw = sample();
+  raw.todo.today = [{ id: 'a-t', kind: 'reminder', end: '2026-10-30', time: '10:00', text: '確認窗簾款式', entities: ['信義王'], inferred: true }];
+  return raw;
+}
+
+test('推測的日程（裁定 39）：待辦裡的「推測」小字可以點，跳小框「這條是我從檔案推測的，對嗎？」；答案對／改到某天…／不用了', () => {
+  const ran = [];
+  const opened = [];
+  const { view } = viewOf(inferredTodo(), { runAction: (a) => ran.push(a), openItem: (it) => opened.push(it.id) });
+  const tag = byClass(view.leftEl, 'wwh-tag-inferred')[0];
+  assert.ok(tag.classList.contains('is-link'));
+  tag.fire('click');
+  const pop = view.pop;
+  assert.ok(pop.classList.contains('wwh-infer-pop'));
+  assert.strictEqual(byClass(pop, 'wwh-pop-title')[0].textContent, '確認窗簾款式');
+  assert.strictEqual(byClass(pop, 'wwh-pop-ask')[0].textContent, '這條是我從檔案推測的，對嗎？');
+  assert.deepStrictEqual(byClass(pop, 'wwh-answer').map((a) => a.textContent), ['對', '改到某天…', '不用了']);
+  // 對 = agenda edit <id> 不帶欄位
+  byClass(pop, 'wwh-answer')[0].fire('click');
+  assert.deepStrictEqual(ran.map((a) => a.args), [['agenda', 'edit', 'a-t']]);
+  assert.strictEqual(view.pop, null, '答完關小框');
+  // 改到某天…：先展開日期，選好就跑
+  tag.fire('click');
+  const date = byClass(view.pop, 'wwh-fill-input')[0];
+  assert.ok(date.classList.contains('wwh-hidden'), '點「改到某天…」才出現');
+  byClass(view.pop, 'wwh-answer')[1].fire('click');
+  assert.ok(!date.classList.contains('wwh-hidden'));
+  date.value = '不是日期';
+  date.fire('change');
+  assert.strictEqual(ran.length, 1);
+  date.value = '2026-12-05';
+  date.fire('change');
+  assert.deepStrictEqual(ran[1].args, ['agenda', 'edit', 'a-t', '--date', '2026-12-05']);
+  assert.deepStrictEqual(ran[1].undo().args, ['agenda', 'edit', 'a-t', '--date', '2026-10-30'], '可以復原成原來的日期');
+  // 不用了 = agenda cancel
+  tag.fire('click');
+  byClass(view.pop, 'wwh-answer')[2].fire('click');
+  assert.deepStrictEqual(ran[2].args, ['agenda', 'cancel', 'a-t']);
+  assert.deepStrictEqual(ran[2].undo().args, ['agenda', 'reopen', 'a-t']);
+  // 開相關的卡
+  tag.fire('click');
+  byClass(view.pop, 'wwh-pop-open')[0].fire('click');
+  assert.deepStrictEqual(opened, ['a-t']);
+  assert.strictEqual(view.pop, null);
+});
+
+test('推測的日程（裁定 39）：時間軸與月曆點推測的那件跳同一個小框；不是推測的照舊直接開相關的卡', () => {
+  const opened = [];
+  const { view } = viewOf(null, { openItem: (it) => opened.push(it.id) });
+  view.setAllRows(false);
+  const inferred = byClass(view.timelineEl, 'wwh-mark').find((e) => e.classList.contains('is-inferred'));
+  inferred.fire('click');
+  assert.ok(view.pop && view.pop.classList.contains('wwh-infer-pop'), '時間軸的記號');
+  assert.strictEqual(byClass(view.pop, 'wwh-pop-title')[0].textContent, '驗收會議');
+  assert.deepStrictEqual(opened, []);
+  view.closePop();
+  const label = byClass(view.timelineEl, 'wwh-mark-label').find((e) => e.classList.contains('is-inferred'));
+  label.fire('click');
+  assert.ok(view.pop, '左欄那一列也是');
+  view.closePop();
+  const plain = byClass(view.timelineEl, 'wwh-mark').find((e) => e.classList.contains('is-point') && !e.classList.contains('is-inferred'));
+  plain.fire('click');
+  assert.strictEqual(view.pop, null);
+  assert.strictEqual(opened.length, 1, '不是推測的直接開卡');
+  // 月曆
+  const m = viewOf(monthRaw(), { openItem: (it) => opened.push(it.id) }).view;
+  m.setMode('month');
+  byClass(m.timelineEl, 'wwh-day-mark').find((e) => e.classList.contains('is-inferred')).fire('click');
+  assert.ok(m.pop && m.pop.classList.contains('wwh-infer-pop'), '月曆的單天');
+  m.closePop();
+  byClass(m.timelineEl, 'wwh-day-mark').find((e) => !e.classList.contains('is-inferred')).fire('click');
+  assert.strictEqual(m.pop, null);
+  assert.strictEqual(opened.length, 2);
+  // 答完重畫（kb 把來源改成確認）：「推測」小字消失、虛線變實線
+  const done = inferredTodo();
+  done.todo.today[0].inferred = false;
+  assert.strictEqual(byClass(viewOf(done).view.leftEl, 'wwh-tag-inferred').length, 0);
+});
+
+test('推測的日程（裁定 39）：actions.infer——對、改到某天、不用了的指令與復原', () => {
+  const it = { id: 'a-7', end: '2026-11-05', text: '驗收' };
+  assert.deepStrictEqual(lib.actions.infer(it, 'confirm').args, ['agenda', 'edit', 'a-7']);
+  assert.strictEqual(lib.actions.infer(it, 'confirm').undo, null);
+  assert.deepStrictEqual(lib.actions.infer(it, 'date', '2026-12-01').args, ['agenda', 'edit', 'a-7', '--date', '2026-12-01']);
+  assert.deepStrictEqual(lib.actions.infer(it, 'cancel').args, ['agenda', 'cancel', 'a-7']);
+  assert.strictEqual(typeof lib.actions.infer(it, 'cancel').undo, 'function');
 });

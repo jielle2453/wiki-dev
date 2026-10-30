@@ -43,8 +43,8 @@ class Shape(Base):
         out = self.build()
         self.assertEqual(out["schema"], "willy-home/1")
         self.assertEqual(out["today"], TODAY)
-        self.assertEqual(set(out), {"schema", "version", "today", "cheer", "counts", "timeline", "todo", "confirm", "others", "recent"})
-        self.assertEqual(set(out["counts"]), {"overdue", "today", "week", "confirm", "other"})
+        self.assertEqual(set(out), {"schema", "version", "today", "cheer", "counts", "timeline", "todo", "confirm", "claude", "others", "recent"})
+        self.assertEqual(set(out["counts"]), {"overdue", "today", "week", "confirm", "other", "claude"})
         self.assertEqual(set(out["todo"]), {"overdue", "today", "week"})
         self.assertEqual(set(out["timeline"]), {"from", "to", "rows"})
 
@@ -275,14 +275,15 @@ class Sections(Base):
         self.assertEqual(out["counts"]["other"], len(out["others"]))
         self.assertEqual(out["counts"]["confirm"], len(out["confirm"]))
 
-    def test_confirm_matches_kb_asks(self):
+    def test_confirm_and_claude_split_kb_asks(self):
         from kb import asks_cli
-        want = asks_cli._collect(self.V)[0]
-        got = self.build()["confirm"]
-        self.assertEqual([a["key"] for a in got], [a["key"] for a in want])
-        for g, w in zip(got, want):
-            self.assertEqual(g["text"], w["question"])
-            self.assertEqual(len(g["results"]), len(w["results"]))
+        want = [a for a in asks_cli._collect(self.V)[0] if a["kind"] != "overdue"]
+        out = self.build()
+        got = {a["key"]: a for a in out["confirm"] + out["claude"]}
+        self.assertEqual(sorted(got), sorted(a["key"] for a in want))
+        for w in want:
+            self.assertEqual(got[w["key"]]["text"], w["question"])
+        self.assertEqual(out["counts"]["claude"], len(out["claude"]) + len(out["others"]))
 
     def test_argv_from_do(self):
         self.assertEqual(home._argv(["kb pending dismiss p-1"]), ["pending", "dismiss", "p-1"])
@@ -297,38 +298,16 @@ class Sections(Base):
             for r in a["results"]:
                 self.assertIn("argv", r)
                 self.assertTrue(r["argv"] is None or (isinstance(r["argv"], list) and all(isinstance(x, str) for x in r["argv"])))
-                self.assertTrue(r["fill"] is None or set(r["fill"]) == {"name", "rule"})
+                self.assertTrue(r["fill"] is None or {"name", "rule", "input"} <= set(r["fill"]) <= {"name", "rule", "input", "options"})
 
 
 class SetAside(Base):
-    """裁定 34：「下次再問」「先放著」這類答案，非急的給 asks set-aside 的 argv；有時間性的照舊不收（D-226），argv 留 null。"""
+    """裁定 39：首頁自己補「先放著」（逐種驗在 test_home_confirm_kinds）；過期的在待辦處理，確認區與最下面那行都不列。"""
 
-    def ask(self, urgent, labels=("還沒，下次再問",), **kw):
-        return {"key": "inbox:x@1", "kind": "inbox", "question": "放哪裡？", "urgent": urgent,
-                "results": [dict({"n": 0, "label": lab, "do": [], "strict": False, "fill": []}, **kw) for lab in labels]}
-
-    def test_not_urgent_gets_set_aside_argv(self):
-        got = home._confirm(self.V, [self.ask(False, ("先放著", "還沒，下次再問", "之後再說"))])[0]["results"]
-        for r in got:
-            self.assertEqual(r["argv"], ["asks", "set-aside", "inbox:x@1"])
-
-    def test_urgent_keeps_null_argv(self):
-        got = home._confirm(self.V, [self.ask(True)])[0]["results"]
-        self.assertIsNone(got[0]["argv"])
-
-    def test_other_labels_and_given_argv_untouched(self):
-        a = self.ask(False, ("名字對",))
-        a["results"].append({"n": 0, "label": "先放著", "do": [], "strict": False, "fill": [], "argv": ["pending", "x"]})
-        got = home._confirm(self.V, [a])[0]["results"]
-        self.assertIsNone(got[0]["argv"])
-        self.assertEqual(got[1]["argv"], ["pending", "x"])
-
-    def test_real_overdue_ask_is_urgent_and_not_set_aside(self):
+    def test_real_overdue_ask_listed_nowhere(self):
         self.add("到期", day(-2), "過了的事")
-        asks = [a for a in self.build()["confirm"] if a["kind"] == "overdue"]
-        self.assertTrue(asks and asks[0]["urgent"])
-        later = next(r for r in asks[0]["results"] if r["label"] == "還沒，下次再問")
-        self.assertIsNone(later["argv"])
+        out = self.build()
+        self.assertEqual([a for a in out["confirm"] + out["claude"] if a["kind"] == "overdue"], [])
 
 
 class Range(Base):

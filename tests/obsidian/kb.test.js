@@ -233,7 +233,7 @@ test('Plugin 載入：找不到 kb，首頁只印一句、其他區不畫', asyn
     view.render();
     const { byClass } = require('./helpers/fakedom');
     assert.strictEqual(byClass(view.root, 'wwh-nokb')[0].textContent, lib.NO_KB_TEXT);
-    for (const cls of ['wwh-top', 'wwh-search', 'wwh-timeline-section', 'wwh-cols']) {
+    for (const cls of ['wwh-toprow', 'wwh-search', 'wwh-timeline-section', 'wwh-cols']) {
       assert.ok(byClass(view.root, cls)[0].classList.contains('wwh-hidden'), `${cls} 要藏起來`);
     }
   } finally {

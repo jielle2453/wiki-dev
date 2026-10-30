@@ -539,6 +539,11 @@ function layoutMonth(timeline, opts) {
         inMonth: day >= first && day <= endN,
         isToday: todayN === day,
         marks: flat.filter((f) => f.sp.first === day && f.sp.last === day).map(info),
+        // 這天所有的事（含跨天的期間），有時間的照時間排在前；點日期跳出來的小框列這個
+        all: flat
+          .filter((f) => f.sp.first <= day && f.sp.last >= day)
+          .map(info)
+          .sort((a, b) => (a.time || '99:99') < (b.time || '99:99') ? -1 : (a.time || '99:99') > (b.time || '99:99') ? 1 : 0),
       });
     }
     const bars = flat
@@ -604,10 +609,12 @@ function normalizeHome(raw) {
       week: Number(counts.week) || 0,
       confirm: Number(counts.confirm) || 0,
       other: Number(counts.other) || 0,
+      claude: Number(counts.claude) || 0,
     },
     timeline: isObject(r.timeline) ? r.timeline : { rows: [] },
     todo: { overdue: asArray(todo.overdue), today: asArray(todo.today), week: asArray(todo.week) },
     confirm: asArray(r.confirm).filter(isObject),
+    claude: asArray(r.claude).filter(isObject), // 要跟 Claude 一起看的題（裁定 39）：{key, kind, text}
     others: asArray(r.others).filter(isObject),
     recent: asArray(r.recent).filter(isObject),
   };
@@ -643,6 +650,7 @@ function sanitizeData(raw) {
   const out = { opened: opened.slice(0, OPENED_MAX) };
   const zoom = isObject(raw) ? savedZoom(raw.timelineDays) : null; // 上次縮放到幾天（裁定 37）
   if (zoom !== null) out.timelineDays = zoom;
+  if (isObject(raw) && raw.monthCollapsed === true) out.monthCollapsed = true; // 月曆收起來（裁定 39）
   return out;
 }
 
@@ -808,20 +816,18 @@ function progressWord(p) {
 }
 
 /**
- * 「要你確認的」一張卡的答案怎麼分（裁定 37），照 argv 認、不照字：
- * main = 點了就做的（argv 有值、不用填）；aside = 「先放著」（asks／pending set-aside）；dismiss = 「不處理」（pending dismiss）。
- * 要填東西的與 argv 是 null 的（只能在對話裡做）不列。
+ * 「要你確認的」一張卡的答案怎麼分（裁定 39，D-268），照 argv 認、不照字：
+ * main = 左邊的答案（點了就做；要填的 fill 也在裡面，點了在卡上展開）；aside = 右邊淡淡的「先放著」（asks／pending set-aside）。
+ * argv 是 null 的（只能在對話裡做）不列；首頁不出現「不處理」，告知的題 kb 給的是「知道了」（pending dismiss），算一般答案。
  */
 function splitAnswers(c) {
-  const out = { main: [], aside: null, dismiss: null };
+  const out = { main: [], aside: null };
   for (const r of asArray(c && c.results).filter(isObject)) {
     const a = r.argv;
     if (!Array.isArray(a)) continue;
     if ((a[0] === 'asks' || a[0] === 'pending') && a[1] === 'set-aside') {
       if (!out.aside) out.aside = r;
-    } else if (a[0] === 'pending' && a[1] === 'dismiss') {
-      if (!out.dismiss) out.dismiss = r;
-    } else if (!isObject(r.fill)) {
+    } else {
       out.main.push(r);
     }
   }
@@ -829,11 +835,10 @@ function splitAnswers(c) {
 }
 
 const ASIDE_TEXT = '先放著';
-const DISMISS_TEXT = '不處理';
 const CHAT_TIP = '跟 Claude 說';
 const CHAT_COPIED_TEXT = '已複製，貼到對話跟 Claude 說';
 const CONFIRM_SHOWN = 3; // 「要你確認的」先顯示幾題
-const PENDING_REL = '系統/待處理.md';
+const REVIEW_PHRASE = '幫我看一下待處理'; // 最下面那行的對話圖示複製這一句
 
 /** 每張卡的對話圖示：複製這一句，她貼到對話再接著說。 */
 function chatPhrase(c) {
@@ -853,7 +858,36 @@ async function copyForChat(ctx, phrase) {
   }
 }
 
-// ---- 隨手記便條（D-267 修訂、裁定 37）：首頁最底下一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
+/** 要填的答案怎麼填：date 日期選擇、select 下拉、text 文字框；kb 沒給 input 時看選項與規則。 */
+function fillKind(fill) {
+  if (!isObject(fill)) return null;
+  if (fill.input === 'date' || fill.input === 'select' || fill.input === 'text') return fill.input;
+  if (asArray(fill.options).length) return 'select';
+  return fill.rule === 'YYYY-MM-DD' ? 'date' : 'text';
+}
+
+/** 下拉的選項：[{label, value, group}]，label 沒給用 value。 */
+function fillOptions(fill) {
+  return asArray(fill && fill.options)
+    .filter((o) => isObject(o) && o.value !== undefined && o.value !== null)
+    .map((o) => ({ label: String(o.label !== undefined ? o.label : o.value), value: String(o.value), group: o.group === undefined ? null : String(o.group) }));
+}
+
+/** 左邊答案上寫的字：要填的後面加「…」（kb 的字已經有「…」就不再加）。 */
+function answerLabel(r) {
+  const label = String((r && r.label) || '');
+  return isObject(r && r.fill) && !label.includes('…') ? `${label}…` : label;
+}
+
+/** 填的值能不能送：不收空的；日期要是 YYYY-MM-DD。 */
+function cleanFill(fill, raw) {
+  const v = String(raw === undefined || raw === null ? '' : raw).trim();
+  if (!v) return null;
+  if (fillKind(fill) === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  return v;
+}
+
+// ---- 隨手記便條（D-267 修訂、裁定 37、39）：首頁右上角一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
 const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
 const NOTE_REL = `${FREE_DIR}/隨手記.md`;
 const NOTE_DELAY_MS = 1500; // 停手這麼久就存回那一頁
@@ -933,18 +967,29 @@ const actions = {
     };
   },
 
-  /** 「要你確認的」選一個結果：照 argv；`{name}` 換成她填的；不給復原。argv 是 null 的不是指令（回 null）。 */
+  /** 「要你確認的」選一個結果：照 argv；`{名字}` 換成她填的（接著要跑的 after 也換）；不給復原。argv 是 null 的不是指令（回 null）。 */
   result(result, fillValue) {
     if (!isObject(result) || !Array.isArray(result.argv)) return null;
     const fill = result.fill;
     const tokens = ['{name}'];
     if (isObject(fill) && fill.name) tokens.push(`{${fill.name}}`);
-    const args = result.argv.map((a) => {
+    const put = (a) => {
       let s = String(a);
       if (fillValue !== undefined && fillValue !== null) for (const t of tokens) s = s.split(t).join(fillValue);
       return s;
-    });
-    return { id: 'result', args, undo: null };
+    };
+    const out = { id: 'result', args: result.argv.map(put), undo: null };
+    if (Array.isArray(result.after)) out.then = result.after.map(put); // 這個結果做完要接著跑的指令（例：改名後確認名字）
+    return out;
+  },
+
+  /** 推測的日程：對（不帶欄位 = 記成確認）、改到某天、不用了；後兩個可以復原。 */
+  infer(item, how, date) {
+    const id = item.id;
+    if (how === 'confirm') return { id: 'infer', args: ['agenda', 'edit', id], undo: null };
+    if (how === 'cancel') return { id: 'infer', args: ['agenda', 'cancel', id], undo: () => ({ args: ['agenda', 'reopen', id] }) };
+    const back = itemDate(item);
+    return { id: 'infer', args: ['agenda', 'edit', id, '--date', date], undo: back ? () => ({ args: ['agenda', 'edit', id, '--date', back] }) : null };
   },
 
 };
@@ -974,6 +1019,15 @@ async function performAction(ctx, action) {
     ctx.toast(c.message);
     if (c.kind === 'failed' && ctx.log) ctx.log(res.stderr || res.stdout);
     return { ok: false, refused: c.kind === 'refused' };
+  }
+  let tail = null;
+  if (Array.isArray(action.then)) {
+    tail = classify(await ctx.kb(action.then));
+    if (tail.kind !== 'ok') {
+      ctx.toast(tail.message);
+      if (ctx.refresh) ctx.refresh();
+      return { ok: false, refused: tail.kind === 'refused' };
+    }
   }
   const json = action.json ? parseJson(res.stdout) : null;
   const text = (action.toastText ? action.toastText(json) : '') || firstLine(res.stdout) || '好了';
@@ -1338,6 +1392,8 @@ function defaultUi() {
     tlRange: null, // 已經跟 kb 要過的範圍 {from, to}；捲到外面才會變大
     confirmCollapsed: false, // 「要你確認的」整區收起來
     confirmAll: false, // 點了「還有 N 題」，全部展開
+    confirmFill: null, // 卡上展開要填的那一格 {key, n}（第 n 個答案）；一次只開一格
+    monthCollapsed: false, // 月曆收起：期間變細色線、單天的變色點，記在 data.json
     note: defaultNote(), // 隨手記便條
     month: null, // {year, month}
     rowCollapsed: {},
@@ -1579,7 +1635,8 @@ class HomeView extends ItemView {
     this.colsEl = h('div', { cls: 'wwh-cols' }, this.leftEl, this.rightEl);
     this.drawerEl = h('aside', { cls: 'wwh-drawer' });
     this.buildNote();
-    this.othersEl = h('div', { cls: 'wwh-others' });
+    this.topRowEl = h('div', { cls: 'wwh-toprow' }, this.topEl, this.noteEl); // 日期、問候在左，便條在右上（裁定 39）
+    this.claudeEl = h('div', { cls: 'wwh-others' });
     this.inputEl = h('input', {
       cls: 'wwh-search-input',
       attrs: { type: 'search', placeholder: '找檔案、人、案子，打完按 Enter（例：王先生 報價 上個月）' },
@@ -1627,12 +1684,15 @@ class HomeView extends ItemView {
       });
     }
     this.root.appendChild(this.bannerEl);
-    this.root.appendChild(this.topEl);
+    this.root.appendChild(this.topRowEl);
     this.root.appendChild(this.searchEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
-    this.root.appendChild(this.othersEl);
-    this.root.appendChild(this.noteEl);
+    this.root.appendChild(this.claudeEl);
+    this.contentEl.addEventListener('mousedown', (e) => this.onPopOutside(e)); // 點框外關掉小框
+    this.contentEl.addEventListener('keydown', (e) => {
+      if (e && e.key === 'Escape') this.closePop();
+    });
     this.contentEl.addEventListener('mousemove', (e) => this.onDragMove(e));
     this.contentEl.addEventListener('mouseup', () => this.onDragEnd());
     this.contentEl.addEventListener('mouseleave', () => this.onDragEnd());
@@ -1646,7 +1706,7 @@ class HomeView extends ItemView {
     const p = this.plugin;
     this.noteTextEl = h('textarea', {
       cls: 'wwh-note-text',
-      attrs: { placeholder: '隨手記一下…', rows: '7', spellcheck: 'false' },
+      attrs: { placeholder: '隨手記一下…', rows: '5', spellcheck: 'false' },
       value: (p.ui.note && p.ui.note.text) || '',
       on: {
         input: () => {
@@ -1660,7 +1720,19 @@ class HomeView extends ItemView {
         },
       },
     });
-    this.noteEl = h('section', { cls: 'wwh-note' }, h('h2', { text: '隨手記' }), this.noteTextEl);
+    const title = h('h2', {
+      cls: 'wwh-note-title',
+      title: '開隨手記那一頁',
+      attrs: { role: 'button', tabindex: '0' },
+      text: '隨手記',
+      on: {
+        click: () => {
+          if (p.flushNote) p.flushNote();
+          p.openPathInVault(NOTE_REL);
+        },
+      },
+    });
+    this.noteEl = h('section', { cls: 'wwh-note' }, title, this.noteTextEl);
   }
 
   /** 重畫時把便條的字對齊 plugin 讀到的那一頁（她正在打字就不動）。不用 safe：safe 會把文字框清掉。 */
@@ -1670,12 +1742,19 @@ class HomeView extends ItemView {
     if (this.noteTextEl.value !== n.text) this.noteTextEl.value = n.text;
   }
 
-  /** 待辦與要你確認的下面一行淡字：另外有 N 件小事 →，點了開待處理那一頁；0 件不寫。 */
-  renderOthers(el) {
-    const n = this.plugin.home ? this.plugin.home.others.length : 0;
+  /** 待辦與要你確認的下面一行淡字：還有 N 件要跟 Claude 一起看＋對話圖示（點了複製「幫我看一下待處理」）；N = 移到這邊的題數加原本的小事，0 不寫。 */
+  renderClaude(el) {
+    const home = this.plugin.home;
+    const n = home ? asArray(home.claude).length + asArray(home.others).length : 0;
     if (!n) return;
+    const copy = () => this.plugin.copyReview();
     el.appendChild(
-      h('span', { cls: 'wwh-text-btn wwh-others-line', attrs: { role: 'button', tabindex: '0' }, text: `另外有 ${n} 件小事 →`, on: { click: () => this.plugin.openPathInVault(PENDING_REL) } }),
+      h(
+        'div',
+        { cls: 'wwh-others-line' },
+        h('span', { cls: 'wwh-others-text', text: `還有 ${n} 件要跟 Claude 一起看` }),
+        h('span', { cls: 'wwh-quiet wwh-chat-btn', title: CHAT_TIP, attrs: { role: 'button', tabindex: '0', 'aria-label': CHAT_TIP }, on: { click: copy } }, icon('message-circle', 15, 1.5)),
+      ),
     );
   }
 
@@ -1692,8 +1771,9 @@ class HomeView extends ItemView {
   render() {
     if (!this.root) return;
     const p = this.plugin;
+    this.closePop();
     if (!p.runner) {
-      for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.othersEl, this.noteEl, this.drawerEl, this.bannerEl]) {
+      for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.claudeEl, this.drawerEl, this.bannerEl]) {
         el.classList.add('wwh-hidden');
       }
       if (!this.noKbEl) this.noKbEl = h('div', { cls: 'wwh-nokb', text: NO_KB_TEXT });
@@ -1701,7 +1781,7 @@ class HomeView extends ItemView {
       return;
     }
     if (this.noKbEl && this.noKbEl.parentNode) this.root.removeChild(this.noKbEl);
-    for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.othersEl, this.noteEl, this.drawerEl, this.bannerEl]) {
+    for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.claudeEl, this.drawerEl, this.bannerEl]) {
       el.classList.remove('wwh-hidden');
     }
     this.safe('提示', this.bannerEl, (el) => this.renderBanners(el));
@@ -1710,7 +1790,7 @@ class HomeView extends ItemView {
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     this.safe('待辦', this.leftEl, (el) => this.renderTodo(el));
     this.safe('要你確認的', this.rightEl, (el) => this.renderRight(el));
-    this.safe('小事', this.othersEl, (el) => this.renderOthers(el));
+    this.safe('跟 Claude 一起看', this.claudeEl, (el) => this.renderClaude(el));
     this.syncNote();
     this.safe('總覽', this.drawerEl, (el) => this.renderDrawer(el));
   }
@@ -2068,7 +2148,14 @@ class HomeView extends ItemView {
     }
     if (home && ui.timelineMode === 'timeline') {
       tools.appendChild(h('span', { cls: 'wwh-text-btn wwh-today-btn', attrs: { role: 'button', tabindex: '0' }, text: '回到今天', on: { click: () => this.backToToday() } }));
-      tools.appendChild(h('span', { cls: 'wwh-zoom-hint', text: 'Ctrl＋滾輪縮放' }));
+    }
+    if (home && ui.timelineMode === 'month') { // 月曆跟時間軸同一個位置、同樣的字（裁定 39）
+      tools.appendChild(
+        h('span', { cls: 'wwh-text-btn wwh-month-fold', attrs: { role: 'button', tabindex: '0' }, text: ui.monthCollapsed ? '全部展開' : '全部收起', on: { click: () => this.setMonthCollapsed(!ui.monthCollapsed) } }),
+      );
+      tools.appendChild(
+        h('span', { cls: 'wwh-text-btn wwh-today-btn', attrs: { role: 'button', tabindex: '0' }, text: '回到今天', on: { click: () => this.monthToToday() } }),
+      );
     }
     tools.appendChild(
       h(
@@ -2104,6 +2191,17 @@ class HomeView extends ItemView {
 
   setMode(mode) {
     this.plugin.ui.timelineMode = mode;
+    this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
+  }
+
+  setMonthCollapsed(on) {
+    this.plugin.ui.monthCollapsed = on;
+    if (this.plugin.saveMonthCollapsed) this.plugin.saveMonthCollapsed(on);
+    this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
+  }
+
+  monthToToday() {
+    this.plugin.ui.month = null;
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
   }
 
@@ -2243,14 +2341,16 @@ class HomeView extends ItemView {
   /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號。只有過期、今天的記號上色，其他淺灰；點下去開日程.md 那一行。 */
   markLine(m, todayN, row) {
     const state = [m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : '', m.critical ? 'is-critical' : ''];
-    const onClick = () => this.plugin.openItem(m.raw);
+    const onClick = (anchor) => this.markClick(m.raw, anchor);
     const kind = m.kind && ICON_SHAPES[m.kind] ? m.kind : m.shape === 'bar' ? 'period' : null;
+    const leftCls = ['wwh-cell-left', 'wwh-mark-label', m.depth ? 'is-child' : '', ...state];
     const left = h(
       'div',
-      { cls: ['wwh-cell-left', 'wwh-mark-label', m.depth ? 'is-child' : '', ...state], title: describeMark(m), on: { click: onClick } },
+      { cls: leftCls, title: describeMark(m), on: {} },
       h('span', { cls: ['wwh-kind-ico', m.kind ? `kind-${m.kind}` : ''] }, kind ? icon(kind, 15, 1.5) : null),
       h('span', { cls: 'wwh-mark-lines' }, h('span', { cls: 'wwh-mark-text', text: m.text }), h('span', { cls: 'wwh-mark-when', text: markWhen(m, todayN) })),
     );
+    left.addEventListener('click', () => onClick(left));
     const sl = this.slide();
     const track = h('div', { cls: 'wwh-cell-track' }, sl);
     if (m.baseline) {
@@ -2263,10 +2363,18 @@ class HomeView extends ItemView {
 
   markEl(m, state, kind, onClick) {
     const cls = ['wwh-mark', `is-${m.shape}`, m.kind ? `kind-${m.kind}` : '', ...state, m.depth ? 'is-child' : '', m.clippedLeft ? 'clip-left' : '', m.clippedRight ? 'clip-right' : ''];
-    if (m.shape === 'point') {
-      return h('span', { cls, style: { left: `${m.leftPct}%` }, title: describeMark(m), on: { click: onClick } }, kind ? icon(kind, 13, 1.7) : null);
-    }
-    return h('span', { cls, style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m), on: { click: onClick } });
+    const el =
+      m.shape === 'point'
+        ? h('span', { cls, style: { left: `${m.leftPct}%` }, title: describeMark(m) }, kind ? icon(kind, 13, 1.7) : null)
+        : h('span', { cls, style: { left: `${m.leftPct}%`, width: `${m.widthPct}%` }, title: describeMark(m) });
+    el.addEventListener('click', () => onClick(el));
+    return el;
+  }
+
+  /** 點日程那件：推測的先跳小框問她對不對（裁定 39）；其他照舊開相關的卡。 */
+  markClick(raw, anchor) {
+    if (raw && raw.inferred && raw.id) this.openInferPop(anchor, raw);
+    else this.plugin.openItem(raw);
   }
 
   renderMonth(el, home) {
@@ -2275,65 +2383,191 @@ class HomeView extends ItemView {
     const base = today !== null ? new Date(today * 86400000) : new Date();
     const cur = ui.month || { year: base.getUTCFullYear(), month: base.getUTCMonth() };
     const m = layoutMonth(home.timeline, { today: home.today, year: cur.year, month: cur.month });
+    const collapsed = ui.monthCollapsed === true;
     const rerender = () => this.safe('時間軸', this.timelineEl, (e2) => this.renderTimeline(e2));
     const go = (delta) => {
       ui.month = shiftMonth(cur.year, cur.month, delta);
       rerender();
     };
     const textBtn = (text, fn) => h('span', { cls: 'wwh-text-btn', attrs: { role: 'button', tabindex: '0' }, text, on: { click: fn } });
-    el.appendChild(
-      h(
-        'div',
-        { cls: 'wwh-month-head' },
-        textBtn('‹', () => go(-1)),
-        h('span', { cls: 'wwh-month-title', text: `${m.year} 年 ${m.month + 1} 月` }),
-        textBtn('›', () => go(1)),
-        textBtn('回到今天', () => {
-          ui.month = null;
-          rerender();
-        }),
-      ),
-    );
-    const grid = h('div', { cls: 'wwh-month' });
+    el.appendChild(h('div', { cls: 'wwh-month-head' }, textBtn('‹', () => go(-1)), h('span', { cls: 'wwh-month-title', text: `${m.year} 年 ${m.month + 1} 月` }), textBtn('›', () => go(1))));
+    const grid = h('div', { cls: ['wwh-month', collapsed ? 'is-collapsed' : ''] });
     const dows = h('div', { cls: 'wwh-month-dows' });
     for (const w of WEEKDAY) dows.appendChild(h('div', { cls: 'wwh-month-dow', text: w }));
     grid.appendChild(dows);
-    const onClick = (raw) => () => this.plugin.openItem(raw);
+    const onClick = (raw, anchor) => () => this.markClick(raw, anchor());
     for (const week of m.weeks) {
       const wk = h('div', { cls: 'wwh-week' });
       const marksRow = String(week.lanes + 2);
+      const allRows = `1 / ${week.lanes + 3}`;
       week.days.forEach((d, i) => {
         const col = String(i + 1);
-        wk.appendChild(h('div', { cls: ['wwh-day', d.inMonth ? '' : 'is-out', d.isToday ? 'is-today' : ''], style: { gridColumn: col, gridRow: '1' } }, h('span', { cls: 'wwh-day-num', text: String(d.day) })));
+        // 整個日期欄的底：每天之間一條淡直線；點日期數字或空白處跳出那天的所有事
+        const bg = h('div', { cls: ['wwh-day-bg', i === 0 ? 'is-first' : '', d.isToday ? 'is-today' : ''], style: { gridColumn: col, gridRow: allRows } });
+        bg.addEventListener('click', () => this.openDayPop(bg, d));
+        wk.appendChild(bg);
+        const dayEl = h('div', { cls: ['wwh-day', d.inMonth ? '' : 'is-out', d.isToday ? 'is-today' : ''], style: { gridColumn: col, gridRow: '1' } }, h('span', { cls: 'wwh-day-num', text: String(d.day) }));
+        dayEl.addEventListener('click', () => this.openDayPop(dayEl, d));
+        wk.appendChild(dayEl);
         if (!d.marks.length) return;
-        const cell = h('div', { cls: 'wwh-day-marks', style: { gridColumn: col, gridRow: marksRow } });
-        for (const mk of d.marks.slice(0, 3)) {
-          cell.appendChild(
-            h('div', {
-              cls: ['wwh-day-mark', toneCls(mk.color), mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', d.isToday ? 'is-today' : '', mk.inferred ? 'is-inferred' : ''],
-              text: mk.label,
-              title: `${mk.row ? mk.row + '：' : ''}${mk.text}`,
-              on: { click: onClick(mk.raw) },
-            }),
-          );
+        const cell = h('div', { cls: ['wwh-day-marks', collapsed ? 'is-dots' : ''], style: { gridColumn: col, gridRow: marksRow } });
+        cell.addEventListener('click', (e) => {
+          if (!e || !e.target || e.target === cell) this.openDayPop(cell, d); // 點到格子的空白處
+        });
+        for (const mk of collapsed ? d.marks : d.marks.slice(0, 3)) {
+          const item = h('div', {
+            cls: [collapsed ? 'wwh-day-dot' : 'wwh-day-mark', toneCls(mk.color), mk.kind ? `kind-${mk.kind}` : '', mk.late ? 'is-late' : '', d.isToday ? 'is-today' : '', mk.inferred ? 'is-inferred' : ''],
+            text: collapsed ? '' : mk.label,
+            title: `${mk.row ? mk.row + '：' : ''}${mk.text}`,
+          });
+          item.addEventListener('click', onClick(mk.raw, () => item));
+          cell.appendChild(item);
         }
-        if (d.marks.length > 3) cell.appendChild(h('div', { cls: 'wwh-muted wwh-day-more', text: `還有 ${d.marks.length - 3} 件` }));
+        if (!collapsed && d.marks.length > 3) {
+          const more = h('div', { cls: 'wwh-muted wwh-day-more', text: `還有 ${d.marks.length - 3} 件` });
+          more.addEventListener('click', () => this.openDayPop(more, d));
+          cell.appendChild(more);
+        }
         wk.appendChild(cell);
       });
       for (const b of week.bars) {
-        wk.appendChild(
-          h('div', {
-            cls: ['wwh-mbar', toneCls(b.color), b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
-            style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
-            title: `${b.row ? b.row + '：' : ''}${b.text}`,
-            text: b.label,
-            on: { click: onClick(b.raw) },
-          }),
-        );
+        const bar = h('div', {
+          cls: ['wwh-mbar', collapsed ? 'is-thin' : '', toneCls(b.color), b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
+          style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
+          title: `${b.row ? b.row + '：' : ''}${b.text}`,
+          text: collapsed ? '' : b.label,
+        });
+        bar.addEventListener('click', onClick(b.raw, () => bar));
+        wk.appendChild(bar);
       }
       grid.appendChild(wk);
     }
     el.appendChild(grid);
+  }
+
+  // ---- 小框（點推測的日程、點月曆的日期；點框外或 Esc 關，裁定 39）----
+  /** 在 anchor 旁邊放一個小框（一次只有一個）。 */
+  showPop(anchor, cls, ...kids) {
+    this.closePop();
+    const pop = h('div', { cls: ['wwh-pop', cls], attrs: { role: 'dialog' } }, ...kids);
+    this.root.appendChild(pop);
+    const rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+    const base = this.root.getBoundingClientRect ? this.root.getBoundingClientRect() : null;
+    if (rect && base) {
+      const maxLeft = Math.max(8, (base.width || 0) - 308);
+      pop.style.setProperty('left', `${Math.max(8, Math.min((rect.left || 0) - (base.left || 0), maxLeft))}px`);
+      pop.style.setProperty('top', `${(rect.bottom || 0) - (base.top || 0) + 6}px`);
+    }
+    this.pop = pop;
+    this.popAnchor = anchor;
+    return pop;
+  }
+
+  closePop() {
+    if (this.pop && this.pop.parentNode) this.pop.parentNode.removeChild(this.pop);
+    this.pop = null;
+    this.popAnchor = null;
+  }
+
+  onPopOutside(e) {
+    if (!this.pop) return;
+    const inside = (root, node) => {
+      for (let n = node; n; n = n.parentNode) if (n === root) return true;
+      return false;
+    };
+    const target = e && e.target;
+    if (target && (inside(this.pop, target) || inside(this.popAnchor, target))) return;
+    this.closePop();
+  }
+
+  /** 推測的日程：問她對不對。對（記成確認）、改到某天…（日期）、不用了；答完重畫，虛線變實線、「推測」小字消失。 */
+  openInferPop(anchor, item) {
+    if (!item || !item.id) return null;
+    const p = this.plugin;
+    const run = (how, date) => {
+      this.closePop();
+      return p.runAction(actions.infer(item, how, date));
+    };
+    const date = h('input', {
+      cls: 'wwh-fill-input is-date wwh-hidden',
+      attrs: { type: 'date' },
+      on: {
+        change: () => {
+          const v = cleanFill({ input: 'date' }, date.value);
+          if (v !== null) run('date', v);
+        },
+        keydown: (e) => {
+          const v = cleanFill({ input: 'date' }, date.value);
+          if (e.key === 'Enter' && v !== null) run('date', v);
+        },
+      },
+    });
+    const btn = (text, fn, cls) => h('span', { cls: ['wwh-answer', cls || ''], attrs: { role: 'button', tabindex: '0' }, text, on: { click: fn } });
+    const toDate = btn('改到某天…', () => {
+      date.classList.toggle('wwh-hidden');
+      if (date.focus) date.focus();
+    }, 'has-fill');
+    const when = formatWhen(item);
+    return this.showPop(
+      anchor,
+      'wwh-infer-pop',
+      h('div', { cls: 'wwh-pop-title', text: item.text || '' }),
+      when ? h('div', { cls: 'wwh-pop-meta', text: when }) : null,
+      h('div', { cls: 'wwh-pop-ask', text: '這條是我從檔案推測的，對嗎？' }),
+      h('div', { cls: 'wwh-confirm-buttons' }, btn('對', () => run('confirm')), toDate, btn('不用了', () => run('cancel'))),
+      date,
+      h('span', {
+        cls: 'wwh-text-btn wwh-pop-open',
+        attrs: { role: 'button', tabindex: '0' },
+        text: '開相關的卡',
+        on: {
+          click: () => {
+            this.closePop();
+            p.openItem(item);
+          },
+        },
+      }),
+    );
+  }
+
+  /** 點月曆某天的日期或空白處：旁邊跳一個小框列那天所有的事（時間、事情、案子名，點一件開相關的卡），最下面「＋這天加一件」。 */
+  openDayPop(anchor, day) {
+    const p = this.plugin;
+    const list = h('div', { cls: 'wwh-pop-list' });
+    const all = asArray(day && day.all);
+    if (!all.length) list.appendChild(h('div', { cls: 'wwh-empty', text: '這天沒有事' }));
+    for (const mk of all) {
+      const row = h(
+        'div',
+        { cls: ['wwh-pop-row', mk.late ? 'is-late' : '', mk.inferred ? 'is-inferred' : ''], attrs: { role: 'button', tabindex: '0' } },
+        h('span', { cls: 'wwh-pop-time', text: mk.time || '' }),
+        h('span', { cls: ['wwh-pop-dot', toneCls(mk.color)] }),
+        h('span', { cls: 'wwh-pop-text', text: mk.text || '' }),
+        mk.row ? h('span', { cls: 'wwh-muted wwh-pop-row-name', text: mk.row }) : null,
+      );
+      row.addEventListener('click', () => {
+        this.closePop();
+        p.openItem(mk.raw);
+      });
+      list.appendChild(row);
+    }
+    return this.showPop(
+      anchor,
+      'wwh-day-pop',
+      h('div', { cls: 'wwh-pop-title', text: formatWhen({ date: day.date }) || shortDate(day.date) }),
+      list,
+      h('span', {
+        cls: 'wwh-text-btn wwh-pop-add',
+        attrs: { role: 'button', tabindex: '0' },
+        text: '＋這天加一件',
+        on: {
+          click: () => {
+            this.closePop();
+            p.addAgendaForm({ date: day.date });
+          },
+        },
+      }),
+    );
   }
 
   // ---- 待辦 ----
@@ -2411,7 +2645,11 @@ class HomeView extends ItemView {
       );
     }
     if (kindLabel(it.kind)) bits.push(h('span', { text: kindLabel(it.kind) }));
-    if (it.inferred) bits.push(h('span', { cls: 'wwh-tag-inferred', text: '推測' }));
+    if (it.inferred) {
+      const tag = h('span', { cls: 'wwh-tag-inferred is-link', title: '這條是我推測的，對嗎？', attrs: { role: 'button', tabindex: '0' }, text: '推測' });
+      tag.addEventListener('click', () => this.openInferPop(tag, it));
+      bits.push(tag);
+    }
     const meta = h('div', { cls: 'wwh-todo-meta' });
     bits.forEach((b, i) => {
       if (i) meta.appendChild(h('span', { cls: 'wwh-dot-sep', text: '·' }));
@@ -2476,22 +2714,108 @@ class HomeView extends ItemView {
     }
   }
 
-  /** 一題一張卡：題目在上；左邊只放點了就做的答案，右邊淡淡的「先放著」「不處理」和一個對話圖示（點了複製「關於「題目」：」）。 */
+  /** 一題一張卡：題目在上；左邊是答案（要填的字後面有「…」，點了在卡上展開），右邊淡淡的「先放著」和一個對話圖示（點了複製「關於「題目」：」）。 */
   confirmCard(c) {
     const p = this.plugin;
+    const ui = p.ui;
     const parts = splitAnswers(c);
+    const openN = ui.confirmFill && ui.confirmFill.key === c.key ? ui.confirmFill.n : -1;
     const answers = h('div', { cls: 'wwh-confirm-buttons' });
-    for (const r of parts.main) {
-      answers.appendChild(h('span', { cls: 'wwh-answer', attrs: { role: 'button', tabindex: '0' }, text: r.label || '', on: { click: () => p.chooseResult(c, r) } }));
-    }
+    parts.main.forEach((r, n) => {
+      const fills = isObject(r.fill);
+      answers.appendChild(
+        h('span', {
+          cls: ['wwh-answer', fills ? 'has-fill' : '', openN === n ? 'is-on' : ''],
+          attrs: { role: 'button', tabindex: '0' },
+          text: answerLabel(r),
+          on: {
+            click: () => {
+              if (!fills) {
+                p.chooseResult(c, r);
+                return;
+              }
+              ui.confirmFill = openN === n ? null : { key: c.key, n };
+              this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+            },
+          },
+        }),
+      );
+    });
     const quiet = h('div', { cls: 'wwh-confirm-quiet' });
-    for (const [r, text, cls] of [[parts.aside, ASIDE_TEXT, 'is-aside'], [parts.dismiss, DISMISS_TEXT, 'is-dismiss']]) {
-      if (r) quiet.appendChild(h('span', { cls: ['wwh-quiet', cls], attrs: { role: 'button', tabindex: '0' }, text, on: { click: () => p.chooseResult(c, r) } }));
+    if (parts.aside) {
+      quiet.appendChild(h('span', { cls: 'wwh-quiet is-aside', attrs: { role: 'button', tabindex: '0' }, text: ASIDE_TEXT, on: { click: () => p.chooseResult(c, parts.aside) } }));
     }
     quiet.appendChild(
       h('span', { cls: 'wwh-quiet wwh-chat-btn', title: CHAT_TIP, attrs: { role: 'button', tabindex: '0', 'aria-label': CHAT_TIP }, on: { click: () => p.copyAsk(c) } }, icon('message-circle', 15, 1.5)),
     );
-    return h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }), h('div', { cls: 'wwh-confirm-foot' }, answers, quiet));
+    const card = h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }), h('div', { cls: 'wwh-confirm-foot' }, answers, quiet));
+    if (openN >= 0 && parts.main[openN]) card.appendChild(this.fillRow(c, parts.main[openN]));
+    return card;
+  }
+
+  /** 卡上展開的那一格：日期用日期選擇、名字用文字框、選單用下拉；Enter 或選好就跑，Esc 收起。 */
+  fillRow(c, r) {
+    const p = this.plugin;
+    const ui = p.ui;
+    const fill = r.fill;
+    const kind = fillKind(fill);
+    let sent = false;
+    const close = () => {
+      ui.confirmFill = null;
+      this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+    };
+    const submit = (raw) => {
+      const v = cleanFill(fill, raw);
+      if (v === null || sent) return;
+      sent = true;
+      ui.confirmFill = null;
+      p.chooseResult(c, r, v);
+      this.safe('要你確認的', this.rightEl, (e2) => this.renderRight(e2));
+    };
+    let control;
+    if (kind === 'select') {
+      control = h('select', { cls: 'dropdown wwh-fill-select', on: { change: () => submit(control.value) } });
+      control.appendChild(h('option', { attrs: { value: '' }, text: '選一個…' }));
+      let prev;
+      for (const o of fillOptions(fill)) {
+        if (prev !== undefined && o.group !== prev) control.appendChild(h('option', { cls: 'wwh-fill-sep', attrs: { disabled: 'disabled' }, text: '──────' }));
+        prev = o.group;
+        control.appendChild(h('option', { attrs: { value: o.value }, text: o.label }));
+      }
+    } else {
+      let composing = false;
+      control = h('input', {
+        cls: ['wwh-fill-input', kind === 'date' ? 'is-date' : 'is-text'],
+        attrs: { type: kind === 'date' ? 'date' : 'text', placeholder: kind === 'date' ? '' : (fill && fill.name) || '' },
+        on: {
+          compositionstart: () => {
+            composing = true;
+          },
+          compositionend: () => {
+            composing = false;
+          },
+          keydown: (e) => {
+            if (e.key === 'Escape') {
+              close();
+              return;
+            }
+            const d = searchDecision({ key: e.key, isComposing: e.isComposing, keyCode: e.keyCode, composing, value: control.value });
+            if (d.search) {
+              if (e.preventDefault) e.preventDefault();
+              submit(d.query);
+            }
+          },
+          change: () => {
+            if (kind === 'date') submit(control.value);
+          },
+        },
+      });
+    }
+    this.fillControl = control;
+    softTimeout(() => {
+      if (control.focus) control.focus();
+    }, 0);
+    return h('div', { cls: 'wwh-fill' }, control);
   }
 
   // ---- 實體總覽（右側抽屜）----
@@ -2599,6 +2923,7 @@ class WikiWithWillyPlugin extends Plugin {
     this.vaultPath = this.basePath();
     this.data = sanitizeData(await this.loadData());
     this.ui.timelineDays = zoomOf(this.data.timelineDays);
+    this.ui.monthCollapsed = this.data.monthCollapsed === true;
     this.kbInfo = findKb({ vaultPath: this.vaultPath });
     this.runner = null;
     if (this.kbInfo.ok) {
@@ -2889,6 +3214,16 @@ class WikiWithWillyPlugin extends Plugin {
     }
   }
 
+  /** 記住月曆收起或展開（data.json）。 */
+  async saveMonthCollapsed(on) {
+    this.data = Object.assign({}, this.data, { monthCollapsed: on === true });
+    try {
+      await this.saveData(this.data);
+    } catch (e) {
+      console.error('[wiki-with-willy] 存不了月曆的收起', e);
+    }
+  }
+
   /** 時間軸捲到快出已載入的範圍：多跟 kb 要一段（記下範圍，之後每次重新整理都帶著）。回有沒有去要。 */
   ensureTimelineRange(start, visible, explicit) {
     const tl = this.home && this.home.timeline;
@@ -3086,6 +3421,11 @@ class WikiWithWillyPlugin extends Plugin {
       return null;
     }
     return this.runAction(a);
+  }
+
+  /** 最下面那行的對話圖示：複製「幫我看一下待處理」。 */
+  copyReview() {
+    return copyForChat(this.clipCtx(), REVIEW_PHRASE);
   }
 
   /** 每張確認卡的對話圖示：複製「關於「題目」：」。 */
@@ -3364,7 +3704,11 @@ module.exports.lib = {
   FREE_DIR,
   NOTE_REL,
   NOTE_DELAY_MS,
-  PENDING_REL,
+  REVIEW_PHRASE,
+  fillKind,
+  fillOptions,
+  answerLabel,
+  cleanFill,
   defaultNote,
   noteIncoming,
   DEFAULT_ZOOM,

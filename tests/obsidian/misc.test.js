@@ -281,6 +281,16 @@ test('要你確認的（裁定 37）：對話圖示複製「關於「題目」�
   assert.strictEqual(calls.length, 0, 'argv 是 null 不叫 kb');
 });
 
+test('最下面一行（裁定 39）：copyReview 複製「幫我看一下待處理」並提示，不叫 kb', async () => {
+  const { plugin, calls, toasts } = makeActionPlugin();
+  const clip = [];
+  plugin.clipCtx = () => ({ toast: (t) => plugin.toast(t), writeClipboard: async (t) => clip.push(t) });
+  await plugin.copyReview();
+  assert.deepStrictEqual(clip, ['幫我看一下待處理']);
+  assert.strictEqual(toasts[0].t, '已複製，貼到對話跟 Claude 說');
+  assert.strictEqual(calls.length, 0);
+});
+
 test('要你確認的（裁定 34）：複製不了就把那句話顯示出來讓她自己複製', async () => {
   const toasts = [];
   const ok = await lib.copyForChat({ toast: (t) => toasts.push(t), writeClipboard: async () => { throw new Error('no'); } }, '那句話');

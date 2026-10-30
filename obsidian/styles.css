@@ -37,6 +37,7 @@
 }
 
 .wwh-root {
+  position: relative; /* 小框（推測的日程、月曆點日期）定位用 */
   /* 設計稿（design/mockups/Obsidian首頁-設計稿.dc.html）的顏色換成 Obsidian 的變數；橘是設計稿那個橘（逾期、今天線同色），深色主題換亮一點 */
   --wwh-orange: #a4410e;
   --wwh-orange-soft: #fbede4;
@@ -128,11 +129,6 @@
   height: 8px;
   border-radius: 50%;
   background: var(--wwh-mark-c, var(--text-faint));
-}
-
-.wwh-zoom-hint {
-  color: var(--text-faint);
-  font-size: 12px;
 }
 
 .wwh-paper {
@@ -871,7 +867,7 @@
 }
 
 .wwh-sum-dot.is-inferred {
-  border: 1.5px solid var(--text-faint);
+  border: 1.5px solid var(--wwh-mark-c, var(--text-faint));
   background: transparent;
 }
 
@@ -1110,10 +1106,6 @@
 
 .wwh-month-head .wwh-text-btn {
   font-size: 16px;
-}
-
-.wwh-month-head .wwh-text-btn:last-child {
-  font-size: 13px;
 }
 
 .wwh-month {
@@ -1568,14 +1560,29 @@
   color: var(--text-faint);
 }
 
-/* ---- 隨手記便條（首頁最底下，D-267 修訂）：淡黃底，整個框就是彈性區的隨手記.md ---- */
+/* ---- 隨手記便條（首頁右上角，D-267 修訂、裁定 39）：小小一張淡黃底，整個框就是彈性區的隨手記.md ---- */
+.wwh-toprow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+
+.wwh-toprow .wwh-top {
+  flex: 1 1 260px;
+  align-self: flex-end;
+}
+
 .wwh-note {
   display: flex;
+  flex: 0 0 240px;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   box-sizing: border-box;
-  padding: 14px 18px 12px;
-  border-radius: 12px;
+  width: 240px;
+  padding: 10px 12px 8px;
+  border-radius: 8px;
   background: var(--wwh-note-bg);
   box-shadow: var(--wwh-shadow);
 }
@@ -1583,25 +1590,240 @@
 .wwh-note h2 {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
 }
 
-.wwh-note-text {
+.wwh-note-title {
+  cursor: pointer;
+}
+
+.wwh-note-title:hover {
+  color: var(--text-normal);
+  text-decoration: underline;
+}
+
+/* 滑鼠移入、打字時照樣淡黃，不變白：蓋掉 Obsidian 對 textarea 的 hover／focus 底色 */
+.wwh-note .wwh-note-text,
+.wwh-note .wwh-note-text:hover,
+.wwh-note .wwh-note-text:focus,
+.wwh-note .wwh-note-text:focus-visible,
+.wwh-note .wwh-note-text:active {
   width: 100%;
-  min-height: 140px;
+  height: 7.2em;
+  min-height: 5.4em;
+  max-height: 14em;
   box-sizing: border-box;
   padding: 0;
   border: none;
   background: transparent;
   box-shadow: none;
+  outline: none;
   color: var(--text-normal);
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-y: auto;
+  resize: none;
 }
 
-.wwh-note-text:focus {
+@media (max-width: 640px) {
+  .wwh-note {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+/* ---- 待辦與要你確認的下面一行淡字：還有 N 件要跟 Claude 一起看 ---- */
+.wwh-others:empty {
+  display: none;
+}
+
+.wwh-others-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 4px;
+  color: var(--text-faint);
+}
+
+/* ---- 要你確認的：卡上展開要填的那一格 ---- */
+.wwh-answer.has-fill.is-on {
+  text-decoration: underline;
+}
+
+.wwh-fill {
+  margin-top: 8px;
+}
+
+.wwh-fill-input,
+.wwh-fill-select {
+  width: 100%;
+  max-width: 280px;
+}
+
+.wwh-tag-inferred.is-link {
+  cursor: pointer;
+}
+
+.wwh-tag-inferred.is-link:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+/* ---- 小框：推測的日程問她對不對、月曆點日期列那天所有的事 ---- */
+.wwh-pop {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100% - 16px);
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+
+.wwh-pop-title {
+  font-weight: 600;
+}
+
+.wwh-pop-meta {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.wwh-pop-ask {
+  color: var(--text-muted);
+}
+
+.wwh-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.wwh-pop-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.wwh-pop-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wwh-pop-row.is-late .wwh-pop-text {
+  color: var(--wwh-orange);
+  font-weight: 600;
+}
+
+.wwh-pop-time {
+  flex: 0 0 40px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wwh-pop-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wwh-mark-c, var(--text-faint));
+}
+
+.wwh-pop-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wwh-pop-row-name {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.wwh-pop-add,
+.wwh-pop-open {
+  align-self: flex-start;
+}
+
+/* ---- 月曆：每天之間淡直線、點日期的底、收起（細色線與色點）---- */
+.wwh-day-bg {
+  z-index: 0;
+  border-left: 1px solid var(--wwh-line-soft);
+  cursor: pointer;
+}
+
+.wwh-day-bg.is-first {
+  border-left: none;
+}
+
+.wwh-day-bg:hover {
+  background: var(--background-modifier-hover);
+}
+
+.wwh-day,
+.wwh-day-marks,
+.wwh-mbar {
+  position: relative;
+  z-index: 1;
+}
+
+.wwh-day {
+  cursor: pointer;
+}
+
+.wwh-month.is-collapsed .wwh-week {
+  min-height: 52px;
+}
+
+.wwh-mbar.is-thin {
+  align-self: center;
+  height: 4px;
+  margin-top: 3px;
+  margin-bottom: 3px;
+  padding: 0;
+  border-radius: 2px;
+  background: var(--wwh-mark-c, var(--wwh-bar));
+  line-height: 0;
+}
+
+.wwh-mbar.is-thin.is-late {
+  background: var(--wwh-orange);
   box-shadow: none;
+}
+
+.wwh-day-marks.is-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 6px;
+}
+
+.wwh-day-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wwh-mark-c, var(--text-faint));
+  cursor: pointer;
+}
+
+.wwh-day-dot.is-late {
+  background: var(--wwh-orange);
+}
+
+.wwh-day-dot.is-inferred {
+  box-sizing: border-box;
+  border: 1.5px solid var(--wwh-mark-c, var(--text-faint));
+  background: transparent;
 }
