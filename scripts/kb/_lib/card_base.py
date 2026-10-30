@@ -61,13 +61,12 @@ def _entry(body):
 
 
 def _locked(vault, fn):
-    """讀、改、寫整份基準，鎖住免得兩個程序互蓋。"""
+    """讀、改、寫整份基準，鎖住免得兩個程序互蓋；fn 回 False 就不寫。"""
     _path(vault).parent.mkdir(parents=True, exist_ok=True)
     with FileLock(_path(vault)):
         recs = load(vault)
-        out = fn(recs)
-        _save(vault, recs)
-        return out
+        if fn(recs) is not False:  # fn 回 False = 什麼都沒改，不碰狀態檔
+            _save(vault, recs)
 
 
 # ---------- 哪些是卡 ----------
@@ -160,7 +159,7 @@ def rekey(vault, old, new, synced=True):
         def fn(recs):
             got = recs.pop(old, None)
             if got is None:
-                return
+                return False
             if synced and card_kind(vault, new):
                 got = _entry(_read_body(vault, new))
             recs[new] = got
@@ -171,7 +170,7 @@ def rekey(vault, old, new, synced=True):
 
 def forget(vault, *rels):
     try:
-        _locked(vault, lambda recs: [recs.pop(r, None) for r in rels])
+        _locked(vault, lambda recs: any([recs.pop(r, None) is not None for r in rels]))
     except BaseException as e:  # noqa: BLE001
         _log(vault, e)
 
@@ -181,7 +180,7 @@ def after_revert(vault, restored, removed):
     try:
         have = load(vault)
         removed = [r for r in removed if r in have]
-        restored = [r for r in restored if card_kind(vault, r)]
+        restored = [r for r in restored if r in have and card_kind(vault, r)]  # 沒紀錄的卡以後補基準，退回不新建狀態檔
         if not removed and not restored:  # 退回的不是卡：不碰狀態檔
             return
 
