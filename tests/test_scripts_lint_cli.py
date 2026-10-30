@@ -59,11 +59,15 @@ class LintCli(unittest.TestCase):
         t = turn.start(self.V, None, "")["turn"]
         a = pending.add(self.V, "unreadable", ["f-11111111"], "「甲.pdf」讀不到", "檔案壞了", t)
         b = pending.add(self.V, "unreadable", ["f-22222222"], "「乙.pdf」讀不到", "檔案壞了", t)
+        # #22（D-263）：手改不再開 handedit 件；升級前留下的 handedit 件 kb lint handedit 照樣列、--done 照樣收，所以直接造一件
+        from kb._lib import renders
         md = self.V / "系統" / "待處理.md"
-        lines = [ln.replace("- ", "- [x] ", 1) if "甲.pdf" in ln else ln
-                 for ln in md.read_text(encoding="utf-8").splitlines() if "乙.pdf" not in ln]
-        md.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        pending.add(self.V, "unreadable", ["f-33333333"], "「丙.pdf」讀不到", "檔案壞了", t)
+        text = md.read_text(encoding="utf-8")
+        la = next(ln for ln in text.splitlines() if "甲.pdf" in ln)
+        lb = next(ln for ln in text.splitlines() if "乙.pdf" in ln)
+        saved = renders.keep(self.V, "系統/待處理.md", text)
+        pending.add_handedit(self.V, "系統/待處理.md", saved, {"checked": [{"id": a, "line": la}], "removed": [{"id": b, "line": lb}],
+                                                                "changed_date": [], "other": []}, t)
         got = json.loads(self.kb("handedit", "--json"))
         (item,) = got["items"]
         self.assertEqual(item["file"], "系統/待處理.md")

@@ -144,8 +144,10 @@ def _confirm(vault, asks):
         for r in a.get("results") or []:
             fills = r.get("fill") or []
             fill = {"name": fills[0].get("name"), "rule": fills[0].get("rule")} if fills and isinstance(fills[0], dict) else None
-            results.append({"label": r.get("label"), "argv": r.get("argv", _argv(r.get("do"))), "fill": fill,
+            results.append({"label": r.get("label"), "argv": r["argv"] if "argv" in r else _argv(r.get("do")), "fill": fill,
                             "strict": bool(r.get("strict")), "note": r.get("note")})
+            if r.get("after"):
+                results[-1]["after"] = r["after"]  # 這個結果做完要接著跑的指令（renders drop）
         out.append({"key": a.get("key"), "kind": a.get("kind"), "text": a.get("question"), "urgent": bool(a.get("urgent")),
                     "results": results})
     return out

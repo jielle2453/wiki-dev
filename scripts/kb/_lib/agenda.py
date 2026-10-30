@@ -46,6 +46,7 @@ PAST_OPEN = "已過去"
 WEEKDAYS = "一二三四五六日"
 INFERRED_MARK = "〔推測〕"
 NO_ITEMS = "（沒有）"
+HAND_BY = "hand"  # 她直接改日程.md、程式照做的歷程（D-263）
 HEADER = ("# 日程\n"
           "這是什麼：要做的事與日期，程式從 .system/agenda.json 整理出來；〔推測〕是我從檔案讀到的，不對就跟我說。\n"
           "怎麼用：跟我說「9/25 下午有個會」「交屋改 12/10」「第二期款付了」就會改這裡。\n"
@@ -149,28 +150,39 @@ def get(vault, aid):
 
 # ---------- 寫 ----------
 
-def _mutate(vault, turn_id, fn):
-    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、渲染。回結果。"""
+def _mutate(vault, turn_id, fn, hand_out=None):
+    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、渲染。回結果。
+    fn 之前先處理她對 日程.md 的手改（Obsidian 首頁，#22，D-263）：認得出的照做、認不出的留在頁面上；hand_out 是清單時把處理報告放進去。"""
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = _load_raw(vault)
         before = copy.deepcopy(data)
         rolled = _roll_all(data, turn_id)
+        hand = _consume_hand(vault, data, turn_id)
+        if hand_out is not None:
+            hand_out.append(hand)
         result, changed = fn(data)
-        changed = changed or rolled
+        changed = changed or rolled or isinstance(hand, dict)
         if changed:
             from kb._lib import turn
             turn.backup(vault, AGENDA_POSIX, turn_id)
             write_json_atomic(p, data)
             try:  # 資料已存好；md 重畫不了只記 log，不讓 AI 以為沒記到又加一次（B-470）
-                render(vault, turn_id, data, base=before)
+                render(vault, turn_id, data, base=before, hand=hand or {})
             except Exception as e:  # noqa: BLE001
                 from kb._lib import ledger
                 ledger.log_error(vault, f"日程.md 重畫失敗：{type(e).__name__}: {e}", source="agenda_render")
     if changed:
         safe_export(vault)  # 放開 agenda.json 的鎖之後（T-1）
     return result
+
+
+def apply_hand(vault, turn_id):
+    """kb renders apply 系統/日程.md：照她手改的做。回報告 dict、None（沒有要做的）或 hand.KEEP_FAILED。"""
+    out = []
+    _mutate(vault, turn_id, lambda data: (None, False), hand_out=out)
+    return out[0] if out else None
 
 
 def _new_id(data):
@@ -348,31 +360,8 @@ def show(value, key=None):
     return "" if value is None else str(value)
 
 
-def edit(vault, aid, turn_id, by="ai", card=None, **fields):
-    """改 date、start、time、text、entities、lead_days、repeat（None 當沒給；repeat「不重複」是拿掉；改日期錨點跟著換）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
-    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。
-    來源是 inferred、沒有改任何欄（她說推測的那條是對的）→ 記成 confirmed、歷程記一筆（lint 桌面版確認後）。"""
-    unknown = set(fields) - set(EDITABLE)
-    if unknown:
-        raise ValueError(f"edit 不收這些欄位：{sorted(unknown)}")
-    new = {k: v for k, v in fields.items() if v is not None}
-    if "date" in new:
-        new["date"] = parse_date(new["date"]).isoformat()
-    if "start" in new:
-        new["start"] = parse_date(new["start"]).isoformat()
-    if "time" in new:
-        new["time"] = parse_time(new["time"])
-    if "text" in new:
-        new["text"] = _text(new["text"])
-    if "lead_days" in new:
-        new["lead_days"] = _lead(new["lead_days"])
-    if "repeat" in new:
-        new["repeat"] = _every(new["repeat"])
-    if "entities" in new:
-        new["entities"] = _names(vault, new["entities"])
-        if not new["entities"]:
-            del new["entities"]
-
+def _edit_fn(vault, aid, turn_id, by, card, new):
+    """edit 在鎖裡改資料的那一段（new 已經驗過、轉好）；手改套用（_apply_hand）也用它。"""
     def fn(data):
         it = _find(data, aid)
         if it.get("kind") == "period" and "entities" in new and len(new["entities"]) != 1:
@@ -413,13 +402,39 @@ def edit(vault, aid, turn_id, by="ai", card=None, **fields):
             dirty = True
         it.pop("proposal", None)
         return it, dirty
-    return _mutate(vault, turn_id, fn)
+    return fn
 
 
-def set_status(vault, aid, status, turn_id, by="ai"):
-    if status not in STATUSES:
-        raise ValueError(f"狀態要是 {'、'.join(STATUSES)} 之一：{status!r}")
+def edit(vault, aid, turn_id, by="ai", card=None, **fields):
+    """改 date、start、time、text、entities、lead_days、repeat（None 當沒給；repeat「不重複」是拿掉；改日期錨點跟著換）。來源是 inferred 而這次不是帶 card 的重對 → corrected；
+    card 給了（只能是出處那張卡）= 照新版重對：來源不變、origin.fp 更新。有 proposal 一律清掉。回條目。
+    來源是 inferred、沒有改任何欄（她說推測的那條是對的）→ 記成 confirmed、歷程記一筆（lint 桌面版確認後）。"""
+    unknown = set(fields) - set(EDITABLE)
+    if unknown:
+        raise ValueError(f"edit 不收這些欄位：{sorted(unknown)}")
+    new = {k: v for k, v in fields.items() if v is not None}
+    if "date" in new:
+        new["date"] = parse_date(new["date"]).isoformat()
+    if "start" in new:
+        new["start"] = parse_date(new["start"]).isoformat()
+    if "time" in new:
+        new["time"] = parse_time(new["time"])
+    if "text" in new:
+        new["text"] = _text(new["text"])
+    if "lead_days" in new:
+        new["lead_days"] = _lead(new["lead_days"])
+    if "repeat" in new:
+        new["repeat"] = _every(new["repeat"])
+    if "entities" in new:
+        new["entities"] = _names(vault, new["entities"])
+        if not new["entities"]:
+            del new["entities"]
 
+    return _mutate(vault, turn_id, _edit_fn(vault, aid, turn_id, by, card, new))
+
+
+def _status_fn(aid, status, turn_id, by):
+    """set_status 在鎖裡改資料的那一段；手改套用（_apply_hand）也用它。"""
     def fn(data):
         it = _find(data, aid)
         old = it.get("status")
@@ -440,7 +455,13 @@ def set_status(vault, aid, status, turn_id, by="ai"):
                 change = f"ended {it['ended']}；{change}"
         _log(it, change, by, turn_id)
         return it, True
-    return _mutate(vault, turn_id, fn)
+    return fn
+
+
+def set_status(vault, aid, status, turn_id, by="ai"):
+    if status not in STATUSES:
+        raise ValueError(f"狀態要是 {'、'.join(STATUSES)} 之一：{status!r}")
+    return _mutate(vault, turn_id, _status_fn(aid, status, turn_id, by))
 
 
 def recheck(vault, aid, turn_id, propose_date=None, propose_text=None, by="ai"):
@@ -851,7 +872,8 @@ def render_text(vault, data, today=None):
     if chart:
         blocks.append("## 時程圖\n" + "\n".join(chart))
     blocks.append(block(f"過去 {past_days} 天", [line for _d, line in past]))
-    return HEADER + "\n" + "\n\n".join(blocks) + "\n"
+    from kb._lib import renders
+    return HEADER + "\n" + "\n\n".join(blocks) + "\n" + renders.carried_section(vault, MD_POSIX)
 
 
 def item_lines(vault, data, today=None):
@@ -868,32 +890,75 @@ def item_lines(vault, data, today=None):
     return out
 
 
-def _hand_edited(vault, turn_id, base, now=None):
-    """日程.md 跟程式上次寫的不一樣：用改之前的資料、上次寫的那天重算她看到的那份，比出她改了哪些條目（D-223）。"""
-    from kb._lib import renders
+def _hand_date(to, it):
+    """她寫的新日期（YYYY-MM-DD，或沒寫年的 M/D、M-D：用那條原本的年）→ ISO；看不懂丟 AgendaRefused。"""
+    text = str(to).strip()
+    m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})", text)
+    if m:
+        text = f"{str(it.get('date'))[:4]}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+    return parse_date(text).isoformat()
+
+
+def _apply_hand(vault, data, got, turn_id):
+    """她在日程.md 打勾（完成）、刪掉一行（取消）、改日期：直接改 data（歷程 by hand）。回 (做了什麼的句子, 做不了而改記成認不出的)。
+    已經不是 open 的、日期看不懂或不合規矩的不硬做，記成「你改成…」留在頁面上。"""
+    by_id = {i.get("id"): i for i in data["items"]}
+    applied, extra = [], []
+    for c in got["checked"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") == "open":
+            _status_fn(it["id"], "done", turn_id, HAND_BY)(data)
+            applied.append(f"記成完成『{it['text']}』")
+    for c in got["removed"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") == "open":
+            _status_fn(it["id"], "cancelled", turn_id, HAND_BY)(data)
+            applied.append(f"取消『{it['text']}』")
+    for c in got["changed_date"]:
+        it = by_id.get(c["id"])
+        if it is None or it.get("status") != "open":
+            continue
+        try:
+            day = _hand_date(c["to"], it)
+            was = it["date"]
+            _edit_fn(vault, it["id"], turn_id, HAND_BY, None, {"date": day})(data)
+            applied.append(f"『{it['text']}』改到 {md_of(day)}（原本 {md_of(was)}）")
+        except (AgendaRefused, ValueError):
+            extra.append({"kind": "changed", "text": f"{c['line'][2:]}（你改的日期：{c['to']}）", "orig": c["line"][2:]})
+    return applied, extra
+
+
+def _consume_hand(vault, data, turn_id):
+    """日程.md 跟程式上次寫的不一樣：用上次真的寫進去的那份（沒記過就用改之前的資料、上次寫的那天重算）比出她改了什麼，
+    認得出的做在 data 上（D-263）。回報告 dict、None（沒被手改、或看不出改了條目）或 KEEP_FAILED（她那份沒存成，這次不重寫 md）。"""
+    from kb._lib import hand, renders
     hers = renders.check(vault, MD_POSIX)
     if hers is None:
         return None
     known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
     try:
         day = renders.recorded_day(vault, MD_POSIX) or _today()
-        base_text, lines = known if known else (render_text(vault, base, day), item_lines(vault, base, day))
+        base_text, lines = known if known else (render_text(vault, data, day), item_lines(vault, data, day))
     except Exception:  # noqa: BLE001  算不出她看到的那份：只比得出「其他」
         base_text, lines = "", []
-    return renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id,
-                               known_ids={i.get("id") for i in (now or base)["items"]})  # 現在還有的編號；退回拿掉的不算（T-36）
+    return hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
+                        lambda got: _apply_hand(vault, data, got, turn_id))
 
 
-def render(vault, turn_id=None, data=None, today=None, base=None):
+def render(vault, turn_id=None, data=None, today=None, base=None, hand=None):
     """寫 系統/日程.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
-    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。
-    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-500、T-1）。"""
-    from kb._lib import renders
+    手改已經由呼叫端處理過就帶 hand（_mutate 在鎖裡處理，D-263）；沒帶（沒拿著鎖的呼叫端）先照 apply_hand 處理一遍。
+    她那份沒存成（KEEP_FAILED）就不蓋掉（測試 T-10）。寫完記指紋。
+    不匯出：寫日程的路徑放開鎖之後自己 safe_export（D-500、T-1）。base 留著給舊呼叫端，不用了。"""
+    from kb._lib import hand as hand_lib, renders
+    if hand is None:
+        hand = apply_hand(vault, turn_id)
+        data = None  # 手改套用可能改了資料：重讀
     data = data if data is not None else load(vault)
+    if hand == hand_lib.KEEP_FAILED:
+        return False
     text = render_text(vault, data, today)
     target = Path(vault) / MD_POSIX
-    if _hand_edited(vault, turn_id, base if base is not None else data, data) == renders.KEEP_FAILED:
-        return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
             renders.record(vault, MD_POSIX, text, day=today or _today(), lines=item_lines(vault, data, today))

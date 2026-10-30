@@ -43,6 +43,7 @@ CREDENTIAL_LIST_MAX = 10
 KIND_TEXT = {"hidden": "不想讓 AI 看到", "unused": "用不到"}
 PURGE_TAIL = ("之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；"
               "以前的回答若沒提到檔名或卡名、只是轉述，認不出來")
+OBSIDIAN_LINE = "Obsidian 自己的快取在知識庫外面，下次打開 Obsidian 會自己丟掉"  # Obsidian 首頁 D-262：我碰不到的那一處
 SNAPSHOT_LINE = "還原用的快照也清掉了；你自己存在外面的備份我碰不到"  # 備份還原與換電腦第 8 點：快照整包刪、客戶自己的備份程式不碰
 NOTHING_TO_PURGE = "「{name}」沒有要清的"
 PURGE_BLOCKED = "還有綜合卡寫著那夾的內容：{names}（先重寫再清）"
@@ -342,7 +343,7 @@ def _purge_sentence(got):
             f"工作日誌 {got['journal']} 段；{PURGE_TAIL}")
     if got.get("undecodable"):  # 讀不懂編碼的備份跳過、不算沒清完（第六輪）
         line += f"\n有 {got['undecodable']} 份備份讀不懂編碼，沒動"
-    return line + "\n" + SNAPSHOT_LINE
+    return line + "\n" + OBSIDIAN_LINE + "\n" + SNAPSHOT_LINE
 
 
 def _new_locations(report):

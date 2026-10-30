@@ -147,11 +147,12 @@ class T29BaseIsWhatWasWritten(Base):
         with mock.patch.object(renders, "keep", side_effect=OSError("磁碟滿了")):
             b = self.add("乙.pdf")
         self.add("丙.pdf")
-        (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "handedit"]
-        diff = item["data"]["diff"]
-        self.assertEqual([c["id"] for c in diff["checked"]], [a])
-        self.assertNotIn(b, [c["id"] for c in diff["removed"]])
-        self.assertEqual(diff["other"], [], "標題的件數行不比")
+        # #22（D-263 修訂 D-223）：存不下她那份就不套用也不重寫；之後存得下才照做（打勾 = 處理好了），中間新加的乙不當成她刪的
+        items = {i["id"]: i for i in pending.load(self.V)["items"]}
+        self.assertEqual(items[a]["status"], "done")
+        self.assertEqual(items[b]["status"], "open")
+        self.assertEqual([i for i in items.values() if i["kind"] == "handedit"], [])
+        self.assertEqual(renders.carried(self.V, pending.MD_POSIX), [], "標題的件數行不比")
 
 
 class T30Unc(unittest.TestCase):

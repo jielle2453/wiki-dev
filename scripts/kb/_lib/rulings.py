@@ -111,20 +111,61 @@ def for_entity(data, name, mounts):
 
 # ---------- 寫 ----------
 
-def _mutate(vault, turn_id, fn):
-    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、渲染。回結果。"""
+def _mutate(vault, turn_id, fn, hand_out=None):
+    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、渲染。回結果。
+    fn 之前先處理她對 裁示.md 的手改（Obsidian 首頁，#22，D-263）；hand_out 是清單時把處理報告放進去。"""
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
         before = copy.deepcopy(data)
+        hand = _consume_hand(vault, data, turn_id)
+        if hand_out is not None:
+            hand_out.append(hand)
         result, changed = fn(data)
+        changed = changed or isinstance(hand, dict)
         if changed:
             from kb._lib import turn
             turn.backup(vault, RULINGS_POSIX, turn_id)
             write_json_atomic(p, data)
-            render(vault, turn_id, data, base=before)
+            render(vault, turn_id, data, base=before, hand=hand or {})
     return result
+
+
+def apply_hand(vault, turn_id):
+    """kb renders apply 系統/裁示.md：照她手改的做。回報告 dict、None 或 hand.KEEP_FAILED。"""
+    out = []
+    _mutate(vault, turn_id, lambda data: (None, False), hand_out=out)
+    return out[0] if out else None
+
+
+def _apply_hand(data, got, turn_id):
+    """她在裁示.md 刪掉一行 = 收回。打勾、改日期在這頁沒有意思，記成認不出的。回 (句子, 改記成認不出的)。"""
+    by_id = {r.get("id"): r for r in data["rulings"]}
+    applied, extra = [], []
+    for c in got["removed"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") == "active":
+            it["status"], it["revoked"] = "revoked", _today()
+            applied.append(f"收回裁示『{it.get('text')}』")
+    for c in got["checked"]:
+        extra.append({"kind": "changed", "text": f"{c['line'][2:]}（你打了勾）", "orig": c["line"][2:]})
+    for c in got["changed_date"]:
+        extra.append({"kind": "changed", "text": f"{c['line'][2:]}（你改的日期：{c['to']}）", "orig": c["line"][2:]})
+    return applied, extra
+
+
+def _consume_hand(vault, data, turn_id):
+    """裁示.md 跟程式上次寫的不一樣：比出她改了什麼，認得出的做在 data 上。回報告、None 或 KEEP_FAILED。"""
+    from kb._lib import agenda, hand, renders
+    hers = renders.check(vault, MD_POSIX)
+    if hers is None:
+        return None
+    titles, names = agenda.card_titles(vault), file_names(vault)
+    known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
+    base_text, lines = known if known else (render_text(data, titles, names), item_lines(data, titles, names))
+    return hand.consume(vault, MD_POSIX, hers, base_text, lines, {r.get("id") for r in data["rulings"]},
+                        lambda got: _apply_hand(data, got, turn_id))
 
 
 def _new_id(data):
@@ -378,7 +419,7 @@ def targets(r, titles, names=None):
     return "、".join(parts)
 
 
-def render_text(data, titles, names=None):
+def render_text(data, titles, names=None, carried=""):
     """依種類分段（口述為準、不採用、可以讀），每行「- <掛的對象>：<原話>（<日期>）」，可以讀有 label 的接在對象後面加括號；
     只列有效的，沒有的種類整段不印，全空一句。"""
     blocks = []
@@ -386,7 +427,7 @@ def render_text(data, titles, names=None):
         rows = [r for r in data["rulings"] if r.get("status") == "active" and r.get("kind") == kind]
         if rows:
             blocks.append(f"## {KIND_TEXT[kind]}\n" + "\n".join(_row(r, titles, names) for r in rows))
-    return HEADER + "\n" + ("\n\n".join(blocks) if blocks else EMPTY_SENTENCE) + "\n"
+    return HEADER + "\n" + ("\n\n".join(blocks) if blocks else EMPTY_SENTENCE) + "\n" + carried
 
 
 def _row(r, titles, names):
@@ -400,22 +441,20 @@ def item_lines(data, titles, names=None):
             if r.get("status") == "active" and r.get("kind") in ACTIVE_KINDS]
 
 
-def render(vault, turn_id=None, data=None, base=None):
+def render(vault, turn_id=None, data=None, base=None, hand=None):
     """寫 系統/裁示.md；內容沒變不寫；有 turn_id 先備進回合。回有沒有寫。
-    寫之前比對手改（base 是改之前的資料，沒給用 data）；寫完記指紋。"""
-    from kb._lib import agenda, renders
+    手改已經由呼叫端處理過就帶 hand（_mutate 在鎖裡處理）；沒帶（沒拿著鎖的呼叫端）先照 apply_hand 處理一遍。
+    她那份沒存成（KEEP_FAILED）就不蓋掉（測試 T-10）；寫完記指紋。base 留著給舊呼叫端，不用了。"""
+    from kb._lib import agenda, hand as hand_lib, renders
+    if hand is None:
+        hand = apply_hand(vault, turn_id)
+        data = None
     data = data if data is not None else load(vault)
+    if hand == hand_lib.KEEP_FAILED:
+        return False
     titles, names = agenda.card_titles(vault), file_names(vault)
-    text = render_text(data, titles, names)
+    text = render_text(data, titles, names, renders.carried_section(vault, MD_POSIX))
     target = Path(vault) / MD_POSIX
-    hers = renders.check(vault, MD_POSIX)
-    if hers is not None:
-        base = base if base is not None else data
-        known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
-        base_text, lines = known if known else (render_text(base, titles, names), item_lines(base, titles, names))
-        if renders.handle_list(vault, MD_POSIX, hers, base_text, lines, turn_id,
-                               known_ids={r.get("id") for r in data["rulings"]}) == renders.KEEP_FAILED:  # T-36
-            return False  # 她那份沒存成就不蓋掉（測試 T-10）
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == text:
             renders.record(vault, MD_POSIX, text, lines=item_lines(data, titles, names))

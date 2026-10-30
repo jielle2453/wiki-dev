@@ -417,7 +417,7 @@ def _mask_pending(items, mask, derived=(), gone=()):
     return changed
 
 
-def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone=()):
+def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone=(), folder=None):
     """lint 題（測試 T-8）：健檢與問法的新檔。推算封存檔拿掉掛那些卡的；口述封存檔、lint.json 的「替你做了」、set_aside.json 的問句、
     renders.json 的整理問題照字詞遮（編號、卡標題、那夾的路徑）；lint.json 的 synthesis_fix 拿掉那些卡的編號；她手改留下的那份
     （.system/handedits/）與健檢報告（系統/健檢報告/）整份照字詞遮。照字詞遮的不備進回合（清掉的本來就退不回，備了反而留下原文）；
@@ -474,6 +474,8 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
             if new != keys:
                 write_json_atomic(p, {"schema_version": 1, "keys": new})
 
+    dropped_pages = set()
+
     def renders_json():
         p = Path(vault) / renders.RENDERS_POSIX
         if not p.exists():
@@ -486,7 +488,14 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
                 if masked == v or k == pending.MD_POSIX:
                     bases[k] = masked  # 待處理.md 下一步會照遮過的重寫、重記
                 # 日程、裁示的 bases 被遮過就拿掉：磁碟上的 md 沒重寫，下次手改比對照現在的資料重算（T-37）
-            new = dict(data, asks=[words(q) for q in data["asks"]], bases=bases)
+            # 「你加的（還沒處理）」（Obsidian 首頁，#22，D-262）：文字或原句含那些字詞的整筆拿掉，那頁下面重寫
+            carried = {}
+            for rel, items in data.get("carried", {}).items():
+                keep_items = [c for c in items if words(c.get("text")) == c.get("text") and words(c.get("orig") or "") == (c.get("orig") or "")]
+                carried[rel] = keep_items
+                if len(keep_items) != len(items):
+                    dropped_pages.add(rel)
+            new = dict(data, asks=[words(q) for q in data["asks"]], bases=bases, carried=carried)
             if new != data:
                 write_json_atomic(p, new)
 
@@ -496,15 +505,97 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
         # 沒改到也重寫一次：待處理.md 的「整理時要問你的」照遮過的寫
         pending._edit(vault, turn_id, lambda items: _mask_pending(items, words, derived, gone) or True)
 
+    def carried_pages():
+        # 拿掉了「你加的」的日程與裁示頁（待處理.md 上面 pending_texts 已經重寫）照新的重寫，不當成手改
+        for rel in sorted(dropped_pages - {pending.MD_POSIX}):
+            with renders.suppressed(rel):
+                if rel == agenda.MD_POSIX:
+                    agenda.render(vault, turn_id, hand={})
+                elif rel == rulings.MD_POSIX:
+                    rulings.render(vault, turn_id, hand={})
+
+    def obsidian():
+        _obsidian_traces(vault, ids, folder, counts)
+
     def texts():
         for folder in (Path(vault) / renders.HANDEDITS_POSIX, Path(vault) / "系統" / "健檢報告"):
             for f in sorted(folder.glob("*")) if folder.is_dir() else []:
                 if f.is_file() and not _is_link(f):
                     _mask_file(f, words, counts)
-    for step in (f_archive, s_archive, lint_json, set_aside, renders_json, pending_texts, texts):
+    for step in (f_archive, s_archive, lint_json, set_aside, renders_json, pending_texts, carried_pages, obsidian, texts):
         try:
             step()
         except (OSError, ValueError):
+            counts["left"]["state"] += 1
+
+
+OBSIDIAN_WORKSPACE = ".obsidian/workspace.json"
+OBSIDIAN_DATA = ".obsidian/plugins/wiki-with-willy/data.json"
+
+
+def _obsidian_match(path, ids, folder):
+    """workspace.json 裡記的檔案路徑是不是那些卡或那夾（檔案索引/<別名>/<夾>/ 底下）。"""
+    p = str(path or "").replace("\\", "/").casefold()
+    if folder is not None:
+        base = f"檔案索引/{folder[0]}/{folder[1]}".replace("\\", "/").strip("/").casefold()
+        if p == base or p.startswith(base + "/"):
+            return True
+    return any(p.endswith(f"-{str(i)[2:]}.md".casefold()) for i in ids if str(i).startswith("f-"))
+
+
+def _prune_workspace(node, ids, folder):
+    """分頁樹裡指到那些卡或那夾的葉子拿掉（state.file 或 state.state.file）；回 (新的節點或 None, 拿掉幾個)。"""
+    if isinstance(node, list):
+        out, n = [], 0
+        for x in node:
+            got, k = _prune_workspace(x, ids, folder)
+            n += k
+            if got is not None:
+                out.append(got)
+        return out, n
+    if not isinstance(node, dict):
+        return node, 0
+    state = node.get("state") if isinstance(node.get("state"), dict) else {}
+    inner = state.get("state") if isinstance(state.get("state"), dict) else {}
+    if node.get("type") == "leaf" and any(_obsidian_match(f, ids, folder) for f in (state.get("file"), inner.get("file"))):
+        return None, 1
+    n, out = 0, dict(node)
+    if isinstance(node.get("children"), list):
+        out["children"], n = _prune_workspace(node["children"], ids, folder)
+    return out, n
+
+
+def _obsidian_traces(vault, ids, folder, counts):
+    """Obsidian 的痕跡（Obsidian 首頁，#22，D-262）：.obsidian/workspace.json 的 lastOpenFiles 與 main／left／right 樹裡指到那些卡或那夾的
+    項目拿掉；外掛 data.json 的「最近」拿掉那些卡編號。讀不懂的整份不動、算沒清完（state）。沒有這些檔就略過。"""
+    ids = set(ids)
+    ws = Path(vault) / OBSIDIAN_WORKSPACE
+    if ws.is_file():
+        try:
+            data = json.loads(ws.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("workspace.json 不是物件")
+            new = dict(data)
+            if isinstance(data.get("lastOpenFiles"), list):
+                new["lastOpenFiles"] = [f for f in data["lastOpenFiles"] if not _obsidian_match(f, ids, folder)]
+            for part in ("main", "left", "right"):
+                if part in data:
+                    new[part], _n = _prune_workspace(data[part], ids, folder)
+            if new != data:
+                write_text_atomic(ws, json.dumps(new, ensure_ascii=False, indent=2) + "\n")
+        except (ValueError, OSError, UnicodeDecodeError):
+            counts["left"]["state"] += 1
+    dj = Path(vault) / OBSIDIAN_DATA
+    if dj.is_file():
+        try:
+            data = json.loads(dj.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("data.json 不是物件")
+            if isinstance(data.get("opened"), list):
+                kept = [o for o in data["opened"] if not (isinstance(o, dict) and o.get("card") in ids)]
+                if len(kept) != len(data["opened"]):
+                    write_text_atomic(dj, json.dumps(dict(data, opened=kept), ensure_ascii=False, indent=2) + "\n")
+        except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
 
 
@@ -1213,7 +1304,7 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     gone = set(gone) | recorded(vault, alias, spec, "gone")
     _current_state(vault, ids, turn_id, counts)
     _lint_files(vault, ids, derived_masker(words, derived), turn_id, counts, plain=word_masker(mask, ids, ()), derived=derived,
-                gone=gone)
+                gone=gone, folder=(alias, spec))
     record(vault, alias, spec, "findings", counts["finding_ids"], turn_id)
     _drop_synced(vault, set(ids) | recorded(vault, alias, spec, "findings"), turn_id, counts)
     for vdir in _version_dirs(vault):

@@ -296,9 +296,14 @@ class OtherUncAndMask(Base):
         md = self.V / pending.MD_POSIX
         md.write_text(md.read_text(encoding="utf-8") + "網銀密碼：Hunter2xyz\n", encoding="utf-8")
         pending.add(self.V, "unreadable", ["f-22222222"], "「乙.pdf」讀不到", "檔案壞了", self.t)
-        (item,) = [i for i in pending.load(self.V)["items"] if i["kind"] == "handedit"]
-        self.assertNotIn("Hunter2xyz", json.dumps(item["data"]["diff"], ensure_ascii=False))
-        self.assertNotIn("Hunter2xyz", (self.V / item["data"]["saved"]).read_text(encoding="utf-8"))
+        # #22（D-263 修訂 D-223）：認不出的字進「你加的」、不再開 handedit；那段字與她那份存的複本都先遮值
+        from kb._lib import renders
+        self.assertEqual([i for i in pending.load(self.V)["items"] if i["kind"] == "handedit"], [])
+        self.assertNotIn("Hunter2xyz", json.dumps(renders.carried(self.V, pending.MD_POSIX), ensure_ascii=False))
+        self.assertNotIn("Hunter2xyz", md.read_text(encoding="utf-8"))
+        saved = sorted((self.V / ".system" / "handedits").iterdir())
+        self.assertEqual(len(saved), 1)
+        self.assertNotIn("Hunter2xyz", saved[0].read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

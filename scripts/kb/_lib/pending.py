@@ -23,7 +23,7 @@ import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from kb._lib import ledger, renders
+from kb._lib import hand, ledger, renders
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PENDING_POSIX = ".system/pending.json"
@@ -56,6 +56,7 @@ UNREADABLE_ASKS = (("還沒裝 PDF 元件", "請服務人員在這台電腦跑 p
 UNREADABLE_OTHER = "跟我說先跳過，或換一份檔。"
 FOUND_AGAIN = "找回來了"
 DISMISSED_HOW = "客戶說不用管"
+HAND_RESOLVE_HOW = "在待處理.md 打勾"  # 她直接在頁面上打勾（D-263）
 
 
 def _now_default():
@@ -112,14 +113,16 @@ def open_for(vault, file_id, kind):
     return _find_open(load(vault)["items"], file_id, kind)
 
 
-def _edit(vault, turn_id, change):
+def _edit(vault, turn_id, change, hand_out=None):
     """鎖住讀改寫：change(items) 回真才備份、寫、渲染。回 change 的結果。
-    改之前先看 待處理.md 有沒有被她手改（D-223）：有就存她那份、開一條 handedit，這次一定重寫。"""
+    改之前先看 待處理.md 有沒有被她手改（D-223、D-263）：認得出的照做、認不出的留在頁面上，這次一定重寫；hand_out 是清單時把報告放進去。"""
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
         handed = _hand_edit(vault, data, turn_id)
+        if hand_out is not None:
+            hand_out.append(handed)
         result = change(data["items"])
         if result or handed:
             from kb._lib import turn
@@ -131,30 +134,46 @@ def _edit(vault, turn_id, change):
     return result
 
 
+def _apply_hand(data, got, turn_id):
+    """她在待處理.md 打勾 = 處理好了、刪掉一行 = 不用管；改日期在這頁沒有意思，記成認不出的。回 (句子, 改記成認不出的)。"""
+    by_id = {i.get("id"): i for i in data["items"]}
+    applied, extra = [], []
+    for c in got["checked"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") == "open":
+            _close(it, "done", HAND_RESOLVE_HOW)
+            applied.append(f"處理好了『{line_of(it)[:30]}』")
+    for c in got["removed"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") == "open":
+            _close(it, "dismissed", DISMISSED_HOW)
+            applied.append(f"不用管『{line_of(it)[:30]}』")
+    for c in got["changed_date"]:
+        extra.append({"kind": "changed", "text": f"{c['line'][2:]}（你改的日期：{c['to']}）", "orig": c["line"][2:]})
+    return applied, extra
+
+
 def _hand_edit(vault, data, turn_id):
-    """待處理.md 跟程式上次寫的不一樣、而且看得出改了條目（打勾、刪行、改日期、多了字）：她那份存到 .system/handedits/、
-    data 多一條 handedit。整理時要問你的那段不算（每次都會變）。比對出錯只記 log；她那份存不了回 KEEP_FAILED（這次不重寫）。
-    回有沒有開。"""
+    """待處理.md 跟程式上次寫的不一樣：認得出的照做（打勾、刪行），認不出的（新打的字、改了字）留在頁面最底下「你加的」（D-263）。
+    整理時要問你的那段不算（每次都會變）。她那份存不了回 KEEP_FAILED（這次不重寫）。回報告、None 或 KEEP_FAILED。"""
     try:
         hers = renders.check(vault, MD_POSIX)
         if hers is None:
-            return False
+            return None
         known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
         base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
-        got = renders.diff(base_text, hers, lines, ignore_sections=(ASKS_TITLE,))
-        got = renders.keep_known(got, {i.get("id") for i in data["items"]})  # 退回拿掉的件不算（T-36）
-        if renders.is_empty(got):
-            return False
+        return hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
+                            lambda got: _apply_hand(data, got, turn_id), ignore_sections=(ASKS_TITLE,))
     except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理
         ledger.log_error(vault, f"待處理.md 手改比對失敗：{type(e).__name__}: {e}", source="renders")
-        return False
-    try:
-        saved = renders.keep(vault, MD_POSIX, hers)
-    except Exception as e:  # noqa: BLE001
-        ledger.log_error(vault, f"待處理.md 她那份沒存成，這次不重寫：{type(e).__name__}: {e}", source="renders")
-        return renders.KEEP_FAILED
-    data["items"].append(_handedit_item(data["items"], MD_POSIX, saved, renders.mask_diff(vault, got), turn_id))
-    return True
+        return None
+
+
+def apply_hand(vault, turn_id):
+    """kb renders apply 系統/待處理.md：照她手改的做。回報告 dict、None 或 hand.KEEP_FAILED。"""
+    out = []
+    _edit(vault, turn_id, lambda items: False, hand_out=out)
+    return out[0] if out else None
 
 
 def _new_item(items, kind, file_ids, text, reason, turn_id, entity_ids=None):
@@ -401,6 +420,7 @@ def render_text(vault, data, asks=None):
         parts.extend(_row(i) + "\n" for i in _newest_first(aside))
     if not opened and not asks:
         parts.append(f"\n{NOTHING}\n")
+    parts.append(renders.carried_section(vault, MD_POSIX))
     return "".join(parts)
 
 
