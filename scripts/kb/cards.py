@@ -23,7 +23,7 @@ from datetime import date
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import agenda, batches, cards, config, credentials, inventory, pending, statements, turn
+from kb._lib import agenda, batches, card_base, cards, config, credentials, inventory, pending, statements, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault, name_of
@@ -69,6 +69,8 @@ def add_arguments(sub):
     mt = subs.add_parser("mount", help="卡掛錯實體，改掛", description="重設這張卡掛的實體；原本與新掛的實體的綜合卡下次整理會更新。")
     mt.add_argument("id", help="清冊編號（f-…）")
     mt.add_argument("--entity", action="append", required=True, help="改掛的實體名稱，可以重複")
+    ed = subs.add_parser("edits", help="列她手改過的卡（只讀）", description="比每張卡現在的內文跟程式與 Claude 最後寫的那一版，不一樣的列出來；--done 把處理完的換成現在的內容。")
+    ed.add_argument("--done", nargs="+", metavar="路徑", help="處理完了：這幾張卡（知識庫相對路徑）的基準換成現在的內容")
     ls = subs.add_parser("list", help="列卡（只讀）", description="按卡型、年、實體、來源列卡，窮舉不挑；另列庫裡實際有的卡型與份數。")
     ls.add_argument("--type", action="append", default=[], help="卡型（照字面），可以重複")
     ls.add_argument("--year", type=_year, help="文件日期的年 YYYY；沒寫日期的另外講份數")
@@ -85,7 +87,7 @@ def add_arguments(sub):
     ur = subs.add_parser("unreadable", help="線上文件讀不到，記進待處理", description="只收線上文件（link 條目）。")
     ur.add_argument("id", help="清冊編號（out-… 或 f-…）")
     ur.add_argument("--reason", required=True, help="讀不到的原因，例：線上文件打不開")
-    for p in (td, sy, dr, ix, sk, rd, mt, ls, dp, bt, st, sp, ur):
+    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, ur):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -393,6 +395,36 @@ def _redo_jobs(vault, jobs, check, as_json, conversation):
     return 0
 
 
+def _edits(vault, args, as_json):
+    """她手改過的卡（D-270）：只讀狀態檔與卡；--done 只換基準。"""
+    if args.done:
+        try:
+            rels = card_base.done(vault, args.done)
+        except card_base.DoneRefused as e:
+            print(str(e))
+            return 3
+        print(json.dumps({"done": rels}, ensure_ascii=False) if as_json else f"記下了（{len(rels)} 張）")
+        return 0
+    got = card_base.edits(vault)
+    if as_json:
+        print(json.dumps(got, ensure_ascii=False))
+        return 0
+    if not got["edits"]:
+        print("沒有你改過的卡" + ("（時間不夠，可能還有沒比完的）" if got["more"] else ""))
+        return 0
+    for item in got["edits"]:
+        label = item.get("title") or item.get("entity") or ""
+        print(f"{item['path']}" + (f"（{label}）" if label else ""))
+        for h in item["hunks"]:
+            for line in (h["before"].split(chr(10)) if h["before"] else []):
+                print(f"  - {line}")
+            for line in (h["after"].split(chr(10)) if h["after"] else []):
+                print(f"  + {line}")
+    if got["more"]:
+        print("（時間不夠，可能還有沒比完的）")
+    return 0
+
+
 def _redo(vault, fid, as_json, conversation):
     got = cards.mark_redo(vault, fid, turn.current(vault)["turn"])
     if got["changed"] or got["synthesis_paths"]:
@@ -618,6 +650,8 @@ def run(args):
             return _todo(vault, args, as_json)
         if command == "list":
             return _list(vault, args, as_json)
+        if command == "edits":
+            return _edits(vault, args, as_json)
         if command == "dispatch":
             return _dispatch(vault, args, as_json)
         if command == "batch":

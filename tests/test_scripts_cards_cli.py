@@ -165,6 +165,38 @@ class Sync(Base):
         self.assertEqual(self.todo()["moved"], [])
         self.assertIn(new.name, (self.V / "總目錄.md").read_text(encoding="utf-8").replace("%20", " "))
 
+    def test_move_rekeys_card_base_not_listed(self):
+        """手改卡 D-270 驗收 3、9：卡跟著原檔搬，基準換鍵，不算她改。"""
+        from kb._lib import card_base
+        card_base.edits(self.V)
+        old = self.card.relative_to(self.V).as_posix()
+        self.assertIn(old, card_base.load(self.V))
+        (self.raw / _cards.MEETING).rename(self.raw / "客戶案件" / "信義王" / "會議紀錄_1.docx")
+        self.scan()
+        self.assertEqual(self.kb("cards", "sync").returncode, 0)
+        new = "檔案索引/客戶案件/信義王/" + self.card.name
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        self.assertNotIn(old, card_base.load(self.V))
+        self.assertIn(new, card_base.load(self.V))
+
+    def test_same_dir_rename_front_only_not_listed(self):
+        from kb._lib import card_base
+        card_base.edits(self.V)
+        (self.raw / _cards.MEETING).rename(self.raw / "客戶案件" / "大安陳" / "會議紀錄_一.docx")
+        self.scan()
+        self.assertEqual(self.kb("cards", "sync").returncode, 0)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_move_keeps_her_pending_edit(self):
+        from kb._lib import card_base
+        card_base.edits(self.V)
+        self.card.write_text(self.before + "- 她加的一行\n", encoding="utf-8", newline="\n")
+        (self.raw / _cards.MEETING).rename(self.raw / "客戶案件" / "信義王" / "會議紀錄_1.docx")
+        self.scan()
+        self.assertEqual(self.kb("cards", "sync").returncode, 0)
+        (item,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(item["hunks"], [{"before": "", "after": "- 她加的一行"}])
+
     def test_same_dir_rename(self):
         dst = self.raw / "客戶案件" / "大安陳" / "會議紀錄_一.docx"
         (self.raw / _cards.MEETING).rename(dst)
@@ -200,6 +232,35 @@ class Drop(Base):
         r = self.kb("cards", "drop", e["id"])
         self.assertEqual(r.returncode, 3)
         self.assertTrue(r.stdout.splitlines()[0].startswith("原檔還在："), r.stdout)
+
+    def test_drop_forgets_card_base_and_revert_not_listed(self):
+        """手改卡 D-270 驗收 3、5：cards drop 拿掉卡，紀錄跟著刪、不列；退回把卡救回來，基準是救回來那一版。"""
+        from kb._lib import card_base
+        item = self.item()
+        card = _cards.write_card(self.V, item, "大安陳會議一")
+        rel = card.relative_to(self.V).as_posix()
+        card_base.edits(self.V)
+        self.assertIn(rel, card_base.load(self.V))
+        (self.raw / _cards.MEETING).unlink()
+        self.scan()
+        turn.start(self.V, None, "")
+        self.assertEqual(self.kb("cards", "drop", item["id"]).returncode, 0)
+        self.assertNotIn(rel, card_base.load(self.V))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        turn.start(self.V, None, "")
+        self.assertEqual(self.kb("versions", "revert").returncode, 0)
+        self.assertTrue(card.is_file())
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        self.assertIn(rel, card_base.load(self.V))
+
+    def test_skip_forgets_card_base(self):
+        from kb._lib import card_base
+        item = self.item()
+        card = _cards.write_card(self.V, item, "大安陳會議一")
+        rel = card.relative_to(self.V).as_posix()
+        card_base.edits(self.V)
+        cards.remove_card(self.V, rel, turn.start(self.V, None, "")["turn"])  # skip、drop 都走這個刪卡
+        self.assertNotIn(rel, card_base.load(self.V))
 
     def test_drop_then_revert(self):
         item = self.item()

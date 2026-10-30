@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 
 from kb import guard, journal_cli
-from kb._lib import credentials, inventory, ledger, turn
+from kb._lib import card_base, credentials, inventory, ledger, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib.areas import FREE_DIR
@@ -984,6 +984,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     gone_intakes = [o["id"] for o in intakes if not (Path(vault) / back(_rel_of(o))).is_file()]
     if gone_intakes:
         inventory.set_status(vault, gone_intakes, "turn_reverted")
+    card_base.after_revert(vault, restored, removed)  # 退回的卡基準換成那一版，不算她改的（D-270）
     if inv_error is None:
         _reconcile(vault, touched_z3, rt["turn"])
         _rescan(vault, target["moves"], rt["turn"])

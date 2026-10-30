@@ -6,6 +6,7 @@
 Z5：cards.validate 不過就印一行 {"decision": "block", "reason": "檔頭有錯：<原因>。改好再寫一次。"}；
 過了不印，接著重渲染 總目錄.md（備進目前回合，實作疑義裁定 4）與這張卡新舊 實體 聯集的綜合卡快取（舊的從回合備份讀）。
 實體清單讀不到時兩種卡都 block「實體清單讀不到（.system/entities.json），先停下來說「檢查」」（測試後修正裁定 11）。
+驗過之後兩種卡都把內文記進 .system/card_base.json 當基準（她手改了卡系統跟著更新，D-270）。
 Z1：synthesis.validate 不過印 {"decision": "block", "reason": "綜合卡有錯：<原因>。改好再寫一次。"}；
 過了不印，接著 entities.set_card(True) 與重渲染它的快取（檔案卡、相關實體兩欄），再把檔頭的標籤行抄進實體清單的標籤正本
 （synthesis.copy_tags，D-505）：她說過的欄不抄、卡上那一行照正本寫回（備份 by program）。
@@ -118,6 +119,7 @@ def _check_card(vault, rel, sources, turn_id, payload):
     if not ok:
         _block(BLOCK_REASON.format(reason))
         return
+    _record_base(vault, rel)
     try:
         cards.render_index(vault, turn_id)
     except BaseException as e:  # noqa: BLE001  總目錄沒更新不影響卡
@@ -129,6 +131,12 @@ def _check_card(vault, rel, sources, turn_id, payload):
             synthesis.render_cache(vault, list(dict.fromkeys(names)), turn_id)
     except BaseException as e:  # noqa: BLE001  綜合卡快取沒更新不影響卡
         _log(e, payload)
+
+
+def _record_base(vault, rel):
+    """驗過的卡把內文記成基準（D-270）：Claude 寫的不算她改。記不了只記 log（card_base 自己吞）。"""
+    from kb._lib import card_base
+    card_base.record_safe(vault, rel)
 
 
 def _backup_of(vault, rel, turn_id):
@@ -160,6 +168,7 @@ def _check_synthesis(vault, rel, turn_id, payload):
         shown = "；".join(l[:60] for l in lost[:JISHI_SHOWN]) + ("…" if len(lost) > JISHI_SHOWN else "")
         _block(JISHI_BLOCK.format(n=len(lost), lines=shown))
         return
+    _record_base(vault, rel)
     try:
         eid = cards.parse_front((vault / rel).read_text(encoding="utf-8"))["編號"]
         entities.set_card(vault, eid, True, turn_id)

@@ -207,6 +207,24 @@ class CardCheck(unittest.TestCase):
         self.blocked(r, "檔頭「編號」的格式不對")
         self.assertFalse((self.V / ".system" / "hook-errors.log").exists())
 
+    def test_z5_write_recorded_not_listed(self):
+        """D-270 驗收 2：Z5 寫的檔案卡記進基準、不算她改；她改了之後 Claude 再寫也不列。"""
+        from kb._lib import card_base
+        r = self.write(self.text)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.assertIn(rel, card_base.load(self.V))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        self.assertEqual([e["path"] for e in card_base.edits(self.V)["edits"]], [rel])
+        self.write(self.text.replace("紀錄", "Claude 照她改的紀錄"))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_blocked_card_not_recorded(self):
+        from kb._lib import card_base
+        self.write(self.text.replace("標題: 大安陳會議一", "標題: "))
+        self.assertEqual(card_base.load(self.V), {})
+
     def test_edit_tool_checked_too(self):
         self.write(self.text)
         self.path.write_text(self.text.replace("出處: 客戶原檔", "出處: 對話收件"), encoding="utf-8")
@@ -279,6 +297,29 @@ class SynthesisCheck(unittest.TestCase):
         front = cards.parse_front((self.V / item["path"]).read_text(encoding="utf-8"))
         self.assertEqual(len(front["檔案卡"]), 2)
         self.assertEqual(front["相關實體"], ["信義王"])
+
+    def test_z1_write_recorded_not_listed(self):
+        """D-270 驗收 2：Z1 寫的綜合卡記進基準；她在「現況」加一句才列；Claude 再寫不列。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text =self.E.synthesis_text(empty, "王宅")
+        r = self.write(item["path"], text)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertIn(item["path"], card_base.load(self.V))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        (self.V / item["path"]).write_text(
+            (self.V / item["path"]).read_text(encoding="utf-8") + "- 交屋延到 12 月\n", encoding="utf-8", newline="\n")
+        (got,) = card_base.edits(self.V)["edits"]
+        self.assertEqual((got["path"], got["kind"]), (item["path"], "synthesis"))
+        r = self.write(item["path"], text + "- 交屋延到 12 月（Claude 照她改的記進來）\n")
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_block_sentences(self):
         self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
