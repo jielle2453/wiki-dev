@@ -22,7 +22,7 @@
 
 ## 二、改完要做的事
 
-1. 跑全套 `python -m pytest -n auto -q tests`（沒裝 pytest 用 `python -m unittest discover tests`），全綠才算改完；開發中只跑相關的測試檔，全套在 commit 之後跑（design/conventions.md 技術基線「測試」）。
+1. 只跑跟這次改動有關的測試檔，不跑全套：spec「相關測試」列的檔，加上 `grep -l` 找到引用改動檔、版號、CHANGELOG 的測試與 `test_repo_hygiene`；全綠才算改完（design/conventions.md 技術基線「測試」）（jacky 2026-10-30 定、jielle2453 同意）。
 2. 動過 `.claude-plugin/plugin.json` 或 `hooks/` 要跑 plugin 驗證（agent `plugin-dev:plugin-validator`）。
 3. bump 版號的那個 commit 要同時寫 `CHANGELOG.md`，不事後補。
 

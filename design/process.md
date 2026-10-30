@@ -30,12 +30,12 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 
 1. **討論與決策**（設計）。每個抉擇當場寫進 `decisions.md`。你說「可以」才算定；只在對話裡講過的不算。
 2. **寫 spec**（設計）。一題的大小以實作 session 一次對話做得完為準。**驗收準則沒寫完，spec 不算完。** 你看過說可以，狀態改「定稿」才交出去。從 issue 來的題，先看 `backlog.md` 索引同一區，相關的列進 spec 一起做、做完一起關。每一步換階段時，spec 的狀態與 issue 的狀態 label 一起改（開發中、測試中、確認中、發行中；issue 沒有「定稿」，spec 定稿時 issue 還是設計中）；發行後關 issue。
-3. **實作**（新 session，在 repo）。只給 spec。只改「可以動」列的檔。有疑義停下來回報，不自己決定。寫的時候只跑 spec「相關測試」列的檔（`python -m pytest -q <檔>…`）；做完 commit，**commit 之後**才跑全套一次看 exit code（全套的跑法見 conventions 技術基線「測試」；`test_repo_hygiene` 只查已追蹤的檔，commit 前的綠不算，I-112），紅了修完再 commit。回報之前對自己的 diff 跑一次 `/code-review high`，修掉正確性的問題（風格的不用）再 commit。不 push。回報改了哪些檔、commit hash、測試結果、疑義，以及 spec 以外發現的問題（不寫進 backlog）。
+3. **實作**（新 session，在 repo）。只給 spec。只改「可以動」列的檔。有疑義停下來回報，不自己決定。寫的時候只跑 spec「相關測試」列的檔（`python -m pytest -q <檔>…`）；做完 commit，**commit 之後**再跑一次相關測試加 `test_repo_hygiene` 看 exit code（`test_repo_hygiene` 只查已追蹤的檔，commit 前的綠不算，I-112），紅了修完再 commit。不跑全套（conventions 技術基線「測試」）。回報之前對自己的 diff 跑一次 `/code-review high`，修掉正確性的問題（風格的不用）再 commit。不 push。回報改了哪些檔、commit hash、測試結果、疑義，以及 spec 以外發現的問題（不寫進 backlog）。
 4. **測試**（新 session，在實作的 worktree）。只給 spec。逐條驗，每條寫過或不過附證據。不改程式。報告存 worktree 的 `design/reports/<題目>-測試.md`，只 commit 這份報告。
 5. **確認**（新 session，在測試 vault；也可以你親自做）。先還原來源。照「確認情境」操作，記實際輸出與落差。不改程式。報告存實作 worktree 的 `design/reports/<題目>-確認.md`，只 commit 這份報告。確認情境分兩種，spec 裡各自標：
    - **自動**：客戶的話與預期結果。在 `<測試環境>` 的知識庫複本用 `claude -p --plugin-dir <worktree>`，一句一個新對話跑，判過或不過，附回答原文。權限模式用預設，不准 auto 或 `--dangerously-skip-permissions`（auto 會替守門擋掉，守門有洞也測不出）。守門的情境看 `.system/ledger.tsv` 有沒有那筆 deny、理由對不對，只看原檔沒變不算過。
    - **人眼**：開場訊息、桌面版畫面、甘特圖這類只有人看得到的；要客戶按「允許」的動作（`-p` 沒人按）；只有市集安裝才有的（升級換版、按停止、關對話，`--plugin-dir` 跟市集安裝不同，B-093）。只有這些請人看。
-6. **發行**（設計）。測試與確認都過，**你說「發行」才做**：先照第八節第 4 條佔鎖，併回 main、bump、同 commit 寫 CHANGELOG（這段開頭要有「給客戶的一句話」，沒寫不准發行；這時才填該段的 commit 欄，寫實作 commit 的 hash；實作時寫「發行時填」）、`python tools/release.py build --prepare` 把這版骨架指紋加進同一個 commit、**bump 後重跑全套且以 exit code 為準**（v0.2.0 發行時 bump 讓寫死版號的測試紅了，指令鏈用 grep 看結果沒擋住，tag 已推出去才補修，I-105）、tag、push。
+6. **發行**（設計）。測試與確認都過，**你說「發行」才做**：先照第八節第 4 條佔鎖，併回 main、bump、同 commit 寫 CHANGELOG（這段開頭要有「給客戶的一句話」，沒寫不准發行；這時才填該段的 commit 欄，寫實作 commit 的 hash；實作時寫「發行時填」）、`python tools/release.py build --prepare` 把這版骨架指紋加進同一個 commit、**bump 後重跑相關測試（`grep -l` 找引用版號、CHANGELOG 的測試，加 `test_repo_hygiene`）且以 exit code 為準**（v0.2.0 發行時 bump 讓寫死版號的測試紅了，指令鏈用 grep 看結果沒擋住，tag 已推出去才補修，I-105）、tag、push。
 7. **結案**（設計）。把實作回報的 commit hash、測試與確認報告路徑填進 spec 紀錄節。回報與報告裡沒處理的發現記進 backlog（來自寫「報告檔名 #N」）；只有設計 session 給 B 編號，先 pull 再編。對 `incidents.md` 與舊程式碼查類似問題，有就進 backlog，沒有就在 spec 寫「已查，無」。spec 改「做完」附版號。
 
 設計 session 在 main 上改了 spec（回疑義、加裁定）之後，實作、測試 session 開工前先 `git merge main`，讀到的 spec 才是新的。
@@ -46,7 +46,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 
 1. spec 只寫三節：要做的事（一條一列：哪個檔、哪一句或函式、改成怎樣）、可以動／不可以動（含相關測試）、驗收準則（一條一個指令或預期輸出）。
 2. 照樣開 worktree 與分支 `spec/<題目>` 改，不直接改 main 的程式。
-3. 跑相關測試；commit 之後跑全套，再對 diff 跑 `/code-review high`，修掉正確性的問題。
+3. 跑相關測試；commit 之後再跑一次相關測試加 `test_repo_hygiene`，再對 diff 跑 `/code-review high`，修掉正確性的問題。
 4. 驗收準則逐條實跑，結果寫進 spec 紀錄節。
 5. 只有客戶看得到的幾條要確認，優先自動。
 6. 發行照步驟 6，你說「發行」才做。
@@ -59,7 +59,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 |---|---|
 | 討論與決策 | 一次一題、候選加推薦（設計 session 的做法）；定目錄時 `plugin-dev:plugin-structure`；寫或改 skill 前 `plugin-dev:skill-development` 與 `skill-creator:skill-creator` |
 | 寫 spec | 本流程的範本。不用 `superpowers:writing-plans`，兩份會漂 |
-| 實作 | 先寫測試、看它紅了再實作；寫的時候只跑相關測試，收尾 commit 之後實跑全套看 exit code 才回報（這兩條寫在開場訊息裡，不靠 superpowers）；碰到什麼用對應的 `plugin-dev:hook-development`／`skill-development`／`command-development`／`agent-development`；寫或改 skill 描述時再用 `anthropic-skills:skill-creator`（內建，不用裝）寫描述、建 `tests/evals/<skill>.json` 的 20 句（D-091），描述要守 D-070 的 150 字；測試紅了先找出原因再改，不猜著改 |
+| 實作 | 先寫測試、看它紅了再實作；寫的時候只跑相關測試，收尾 commit 之後再跑相關測試看 exit code 才回報（不跑全套）（這兩條寫在開場訊息裡，不靠 superpowers）；碰到什麼用對應的 `plugin-dev:hook-development`／`skill-development`／`command-development`／`agent-development`；寫或改 skill 描述時再用 `anthropic-skills:skill-creator`（內建，不用裝）寫描述、建 `tests/evals/<skill>.json` 的 20 句（D-091），描述要守 D-070 的 150 字；測試紅了先找出原因再改，不猜著改 |
 | 改寫既有 skill | 照 D-132：`skill-creator` 的新舊版對照（同幾個真實情境，舊版快照與新版各跑一次）；本文照 D-132 五條自查，再跑 agent `plugin-dev:skill-reviewer` |
 | 實作收尾 | 回報前對自己的 diff 跑 `/code-review high`，修掉正確性的問題；動過 manifest、目錄、hooks.json 跑 agent `plugin-dev:plugin-validator`；動過 SKILL.md 跑 agent `plugin-dev:skill-reviewer` |
 | 測試 | `code-review` 等級 high；碰守門、權限、路徑時加 `security-review`；改了 skill 描述時用 `anthropic-skills:skill-creator` 的 `run_eval` 跑 `tests/evals/<skill>.json`（門檻見 D-091），在同時裝著舊 `llm-wiki` 的機器上跑 |
@@ -140,7 +140,7 @@ superpowers 選用、預設停用（2026-10-20）：它在每個對話開頭注�
 - 只改 spec「可以動」列的檔。
 - 怎麼做照 design/process.md 第三節「各步驟用哪個 skill」：先寫測試、看它紅了再實作；碰 hook／skill／command／agent 先讀對應的 plugin-dev 指引（改 skill 另讀 skill-creator 的寫法，照 D-132）；開工先確認這些 skill 載得到，載不到就讀磁碟上的 SKILL.md 並在回報寫明；收尾實跑全部測試看 exit code，動過 hooks.json 或 manifest 跑 claude plugin validate。
 - spec 有疑義或做不到時停下來回報，不要自己決定。
-- 寫的時候只跑 spec「相關測試」列的檔：python -m pytest -q <檔>…；commit 之後跑全套一次：python -m pytest -n auto -q tests（這台沒裝 pytest 就用 python -m unittest discover tests）。
+- 寫的時候只跑 spec「相關測試」列的檔：python -m pytest -q <檔>…；commit 之後再跑一次這些檔加 tests/test_repo_hygiene.py 看 exit code；不跑全套。
 - commit 訊息開頭寫 spec 題目。不要 push。
 - 設計 session 說 spec 改過了，就先 git merge main 再繼續。
 - spec 以外發現的問題寫進回報，不要改 backlog。
@@ -154,7 +154,7 @@ superpowers 選用、預設停用（2026-10-20）：它在每個對話開頭注�
 - 怎麼做照 design/process.md 第三節「各步驟用哪個 skill」：code-review 等級 high，碰守門、權限、路徑時加 security-review。
 - plugin-dev 審查：這題動到 hook／skill／command／agent 的話，先讀對應的 plugin-dev 指引當依據審那些檔；收尾跑 plugin-dev:plugin-validator 對整個 repo。結果寫報告一節「plugin-dev 審查」，沒問題也寫一句。
 - 對「驗收準則」逐條執行，每條寫 過／不過 與證據。
-- 跑全套：python -m pytest -n auto -q tests（這台沒裝 pytest 就用 python -m unittest discover tests）。
+- 只跑 spec「相關測試」列的檔，加 grep -l 找到引用改動檔的測試；不跑全套。紅的先在 main 跑一次，分清新壞的與本來就壞的。
 - 不改任何程式。不看 git log 以外的實作過程。
 - 報告照 design/conventions.md「報告的寫法」：發現照順序編 #1、#2、#3，嚴重另一欄（高、中、低），不用字母代號；第二輪起在同一份檔往下加「第 N 輪」，編號接著上一輪。spec 以外的問題也寫在發現裡，不要改 backlog。
 報告存成 design/reports/<題目>-測試.md，只 commit 這份：git -c user.name="<題目>測試" commit -- design/reports/<題目>-測試.md。最後給我一段結論。
@@ -192,4 +192,4 @@ superpowers 選用、預設停用（2026-10-20）：它在每個對話開頭注�
 5. **pull 與 push。** 開工先 pull，做完就 push，不准 force push；`design/` 改完當下就 push。實作 session 照舊不 push。
 6. **編號只由設計 session 給，而且分段。** jielle2453：決策 D-229～D-499、待辦 B-432～B-599；jacky：決策從 D-500、待辦從 B-600 起。事故 I-nnn 不分段，寫之前先 pull。實作、測試、確認 session 不給編號，發現寫在回報或報告（步驟 7 由設計 session 記進 backlog）。`decisions.md`、`backlog.md` 用 `merge=union`（`.gitattributes`），兩邊同時加條目會都留下；同一條被兩邊改過會留新舊兩版，`tests/test_design_numbering.py` 看到重複編號就紅，合併後跑一次、留對的那版，索引也看一眼。
 7. **意見不合就維持現狀。** 從 issue 來的題留言在 issue，其他記進 backlog「待決」，之後再談。
-8. **改到同一塊時。** 認領時看兩題 issue 的區域，重疊就在 issue 留言講；spec 定稿前再比「可以動」，重疊時後認領的排在後面。發行前先 merge main；改版號後跑的那次全套就包含這次合併。
+8. **改到同一塊時。** 認領時看兩題 issue 的區域，重疊就在 issue 留言講；spec 定稿前再比「可以動」，重疊時後認領的排在後面。發行前先 merge main；改版號後跑的那次相關測試就包含這次合併。

@@ -135,7 +135,7 @@ llm-wiki-j/
 | 門檻 | 全在 `config/defaults.json`；客戶端 `.system/config.json` 覆寫 |
 | 狀態檔 | `.system/*.json` 每個帶 `schema_version`；升級含遷移 |
 | 真相模式 | JSON 為真，`系統/*.md` 是渲染視圖，頂端三行：這是什麼、怎麼用、由程式產生改了會被覆蓋（D-067）；格式住程式，範例在 `tests/fixtures/` |
-| 測試 | 用 `unittest` 寫，`tests/test_<模組>.py`。全套用 `python -m pytest -n auto -q tests` 平行跑（2026-10-26 實測 32 核心約 100 秒，原本 11～13 分鐘；issue #11），沒裝 pytest 的照舊 `python -m unittest discover tests`，結果一樣。開發中只跑 spec「相關測試」列的檔；全套在三個點跑：實作 commit 之後、測試、發行改版號後。全綠才算改完 |
+| 測試 | 用 `unittest` 寫，`tests/test_<模組>.py`。全套用 `python -m pytest -n auto -q tests` 平行跑（2026-10-26 實測 32 核心約 100 秒，原本 11～13 分鐘；issue #11），沒裝 pytest 的照舊 `python -m unittest discover tests`，結果一樣。一律只跑跟改動有關的測試檔，不跑全套（jacky 2026-10-30 定、jielle2453 同意）：開發中、實作 commit 之後、測試、發行改版號後都一樣；挑法是 spec「相關測試」列的檔，加 `grep -l` 找引用改動檔、版號、CHANGELOG 的測試，加 `test_repo_hygiene`。全綠才算改完 |
 | 預算 | 常駐字數、`rules/core.md` 行數、每個 `SKILL.md` 行數各有上限，`tests/test_budget.py` 守。初始值見 D-070 |
 | 權限 | repo `.claude/settings.json` 放行測試與 `kb.py`；客戶端 settings 不放行任何路徑，讀取與 `kb.py` 由守門 hook allow（D-073），高風險子命令放 `permissions.ask` |
 
