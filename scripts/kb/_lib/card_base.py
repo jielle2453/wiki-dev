@@ -56,8 +56,14 @@ def _save(vault, recs):
     write_json_atomic(_path(vault), {"schema_version": SCHEMA, "cards": recs})
 
 
-def _entry(body):
-    return {"sha256": sha(body), "body": body, "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+def _entry(body, turn_id=None, pending=None):
+    """pending：她改了還沒處理、Claude 又寫了這張卡時留下的 {"before": 基準, "after": 寫之前那一版}（Z5、Z1，D-270 裁定 2）。"""
+    got = {"sha256": sha(body), "body": body, "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+    if turn_id:
+        got["turn"] = turn_id
+    if pending:
+        got["pending"] = pending
+    return got
 
 
 def _locked(vault, fn):
@@ -129,7 +135,36 @@ def _read_body(vault, rel):
 def record(vault, rel):
     """把這張卡現在的內文記成基準（卡要在）。"""
     body = _read_body(vault, rel)
-    _locked(vault, lambda recs: recs.__setitem__(rel, _entry(body)))
+    _locked(vault, lambda recs: recs.__setitem__(rel, _entry(body, pending=(recs.get(rel) or {}).get("pending"))))
+
+
+def record_write(vault, rel, turn_id, backup):
+    """Z5、Z1 驗過之後記基準（Claude 寫的不算她改）。寫之前那一版（回合備份 backup）的內文跟基準不同＝她改了還沒處理：
+    把「基準 → 寫之前那一版」留成 pending，kb cards edits 照列到 --done。同一回合 Claude 已經寫過（紀錄的 turn 就是這回合）時，
+    備份是更早的版本，不比。回這次新發現的手改 hunks（沒有回 []）；記不了只記 log。"""
+    try:
+        if card_kind(vault, rel) is None:
+            return []
+        body = _read_body(vault, rel)
+        found = []
+
+        def fn(recs):
+            got = recs.get(rel)
+            pending = (got or {}).get("pending")
+            if got and got.get("turn") != turn_id and backup is not None and Path(backup).is_file():
+                try:
+                    pre = body_of(Path(backup).read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError):
+                    pre = None
+                if pre is not None and pre != got["body"]:
+                    pending = {"before": pending["before"] if pending else got["body"], "after": pre}
+                    found.extend(hunks(got["body"], pre))
+            recs[rel] = _entry(body, turn_id, pending)
+        _locked(vault, fn)
+        return found
+    except BaseException as e:  # noqa: BLE001
+        _log(vault, e)
+        return []
 
 
 def record_safe(vault, rel):
@@ -161,7 +196,7 @@ def rekey(vault, old, new, synced=True):
             if got is None:
                 return False
             if synced and card_kind(vault, new):
-                got = _entry(_read_body(vault, new))
+                got = _entry(_read_body(vault, new), pending=got.get("pending"))
             recs[new] = got
         _locked(vault, fn)
     except BaseException as e:  # noqa: BLE001
@@ -189,7 +224,7 @@ def after_revert(vault, restored, removed):
                 recs.pop(rel, None)
             for rel in restored:
                 if card_kind(vault, rel):
-                    recs[rel] = _entry(_read_body(vault, rel))
+                    recs[rel] = _entry(_read_body(vault, rel), pending=(recs.get(rel) or {}).get("pending"))
         _locked(vault, fn)
     except BaseException as e:  # noqa: BLE001
         _log(vault, e)
@@ -207,7 +242,7 @@ def hunks(before, after):
     return out
 
 
-def _item(vault, rel, kind, old_body, new_body):
+def _item(vault, rel, kind, hunk_list):
     try:
         front = cards.parse_front((Path(vault) / rel).read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
@@ -218,7 +253,7 @@ def _item(vault, rel, kind, old_body, new_body):
                 "entities": [x for x in ents if isinstance(x, str)] if isinstance(ents, list) else []}
     else:
         item = {"path": rel, "kind": "synthesis", "entity": front.get("名稱") or rel.split("/")[1]}
-    item["hunks"] = hunks(old_body, new_body)
+    item["hunks"] = hunk_list
     return item
 
 
@@ -249,8 +284,13 @@ def edits(vault, deadline=None, persist=True):
             if old is not None:
                 drop.append(old)
             added[rel] = _entry(body)
-        elif got["sha256"] != sha(body):
-            out.append(_item(vault, rel, kind, got["body"], body))
+        else:
+            pend = got.get("pending")
+            hs = hunks(pend["before"], pend["after"]) if isinstance(pend, dict) else []
+            if got["sha256"] != sha(body):
+                hs = hs + hunks(got["body"], body)
+            if hs:
+                out.append(_item(vault, rel, kind, hs))
     if persist and (added or drop):
         try:
             def fn(cur):

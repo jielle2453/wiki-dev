@@ -217,7 +217,33 @@ class CardCheck(unittest.TestCase):
         self.assertEqual(card_base.edits(self.V)["edits"], [])
         self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
         self.assertEqual([e["path"] for e in card_base.edits(self.V)["edits"]], [rel])
-        self.write(self.text.replace("紀錄", "Claude 照她改的紀錄"))
+        card_base.done(self.V, [rel])
+        turn.start(self.V, SID, "再更新")
+        r = self.write(self.text.replace("紀錄", "Claude 改的紀錄"))  # 沒有她沒處理的手改：不出聲
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_write_over_unprocessed_hand_edit_notices_and_keeps_pending(self):
+        """裁定 2：她改了還沒處理、Claude 又寫這張卡：回一句（不擋）、她那段留成待處理，--done 才消。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("第一次", "第二次"))  # Claude 的版本把她改的蓋掉了
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (line,) = r.stdout.splitlines()
+        out = json.loads(line)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("這張卡她在 Obsidian 改過還沒處理：", out["reason"])
+        self.assertIn("她改的紀錄", out["reason"])
+        self.assertIn(f"kb cards edits --done {rel}", out["reason"])
+        self.assertTrue(self.path.read_text(encoding="utf-8").count("第二次"))  # 寫入已發生
+        (item,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(item["path"], rel)
+        self.assertTrue(any("她改的紀錄" in h["after"] for h in item["hunks"]), item["hunks"])
+        self.assertEqual(card_base.load(self.V)[rel]["pending"]["after"].count("她改的紀錄"), 1)
+        card_base.done(self.V, [rel])
         self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_blocked_card_not_recorded(self):
@@ -317,8 +343,39 @@ class SynthesisCheck(unittest.TestCase):
             (self.V / item["path"]).read_text(encoding="utf-8") + "- 交屋延到 12 月\n", encoding="utf-8", newline="\n")
         (got,) = card_base.edits(self.V)["edits"]
         self.assertEqual((got["path"], got["kind"]), (item["path"], "synthesis"))
-        r = self.write(item["path"], text + "- 交屋延到 12 月（Claude 照她改的記進來）\n")
+        card_base.done(self.V, [item["path"]])
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(item["path"], text + "- Claude 加的\n")  # 沒有沒處理的手改：不出聲
         self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z1_write_over_unprocessed_hand_edit_notices_and_keeps_pending(self):
+        """裁定 2：她在綜合卡「現況」加了一句還沒處理、Claude 又寫這張卡：回一句（不擋）、她那段留成待處理。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text = self.E.synthesis_text(empty, "王宅")
+        self.write(item["path"], text)
+        rel = item["path"]
+        (self.V / rel).write_text((self.V / rel).read_text(encoding="utf-8") + "- 交屋延到 12 月\n",
+                                  encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(rel, text + "- Claude 加的\n")  # 蓋掉了她加的那句
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (line,) = r.stdout.splitlines()
+        out = json.loads(line)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("交屋延到 12 月", out["reason"])
+        self.assertIn(f"kb cards edits --done {rel}", out["reason"])
+        (got,) = card_base.edits(self.V)["edits"]
+        self.assertEqual((got["path"], got["kind"]), (rel, "synthesis"))
+        self.assertIn({"before": "", "after": "- 交屋延到 12 月"}, got["hunks"])
+        card_base.done(self.V, [rel])
         self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_block_sentences(self):

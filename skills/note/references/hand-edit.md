@@ -13,6 +13,7 @@ kb cards edits --json
 - `edits` 每一項是一張卡：`kind` 是 `file`（檔案卡，帶 `id`、`title`、`entities`）或 `synthesis`（綜合卡，帶 `entity`）。
 - `hunks` 是改動塊：`before` 是原來的、`after` 是她改成的；新加的 `before` 是空的，整段刪掉的 `after` 是空的。
 - `more` 是 true：開場時間不夠，沒比完；處理完再跑一次。
+- 你自己寫卡時她剛好改過還沒處理，寫完會收到一句「這張卡她在 Obsidian 改過還沒處理：…」：她那段留在 `edits` 裡，照本檔處理、確認你寫的有保留她改的，再 `--done`。
 - 只比卡的內文。標籤行她改了走 `kb entity tag --from-card`（D-505），不在這裡。
 
 ## 二、每一塊先判斷，再動手
