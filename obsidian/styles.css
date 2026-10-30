@@ -44,7 +44,20 @@
   --wwh-bar: color-mix(in srgb, var(--text-muted) 26%, var(--background-primary));
   --wwh-accent-soft: color-mix(in srgb, var(--interactive-accent) 13%, var(--background-primary));
   --wwh-line-soft: color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
-  --wwh-left: 250px;
+  --wwh-left: 38%;
+  --wwh-pad: 14px;
+  --wwh-paper: var(--background-primary);
+  --wwh-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  /* 月曆期間的淡色（每件事一個，同一件跨週同色） */
+  --wwh-mc0: #dce8f5;
+  --wwh-mc1: #dcefdc;
+  --wwh-mc2: #e8e0f4;
+  --wwh-mc3: #f3ecc9;
+  --wwh-mc4: #f5dde6;
+  --wwh-mc5: #d4eeec;
+  --wwh-mc6: #e1e4ee;
+  --wwh-mc7: #e6efcf;
+  background: var(--background-secondary);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -59,6 +72,15 @@
   --wwh-orange: #f2a072;
   --wwh-orange-soft: rgba(242, 160, 114, 0.16);
   --wwh-on-orange: #1e1e1e;
+  --wwh-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  --wwh-mc0: rgba(96, 165, 250, 0.3);
+  --wwh-mc1: rgba(74, 222, 128, 0.24);
+  --wwh-mc2: rgba(167, 139, 250, 0.32);
+  --wwh-mc3: rgba(250, 204, 21, 0.22);
+  --wwh-mc4: rgba(244, 114, 182, 0.28);
+  --wwh-mc5: rgba(45, 212, 191, 0.24);
+  --wwh-mc6: rgba(129, 140, 248, 0.32);
+  --wwh-mc7: rgba(163, 230, 53, 0.22);
   --wwh-bar: color-mix(in srgb, var(--text-muted) 38%, var(--background-primary));
 }
 
@@ -69,6 +91,12 @@
 
 .wwh-hidden {
   display: none !important;
+}
+
+.wwh-paper {
+  background: var(--wwh-paper);
+  border-radius: 12px;
+  box-shadow: var(--wwh-shadow);
 }
 
 .wwh-nokb {
@@ -419,6 +447,23 @@
   min-width: 0;
 }
 
+.wwh-timeline-section {
+  padding: 16px 0 10px;
+  overflow: clip;
+  background: var(--wwh-paper);
+  border-radius: 12px;
+  box-shadow: var(--wwh-shadow);
+}
+
+.wwh-timeline-section > .wwh-section-head,
+.wwh-timeline-section > .wwh-month-head,
+.wwh-timeline-section > .wwh-month,
+.wwh-timeline-section > .wwh-legend,
+.wwh-timeline-section > .wwh-empty {
+  margin-right: 18px;
+  margin-left: 18px;
+}
+
 .wwh-section h2,
 .wwh-block h2,
 .wwh-col-left h2 {
@@ -427,9 +472,6 @@
   font-weight: 700;
 }
 
-.wwh-timeline-section {
-  overflow-x: auto;
-}
 
 .wwh-section-head {
   display: flex;
@@ -506,7 +548,6 @@
 .wwh-gantt {
   display: flex;
   flex-direction: column;
-  min-width: 820px;
 }
 
 .wwh-line {
@@ -527,49 +568,69 @@
 }
 
 .wwh-axis {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
+  padding: 0 var(--wwh-pad);
+  background: var(--wwh-paper);
 }
 
 .wwh-axis-track {
   position: relative;
   flex: 1;
   height: 46px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--wwh-line-soft);
 }
 
 .wwh-tick {
   position: absolute;
-  top: 4px;
-  padding-left: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-normal);
+  padding-left: 4px;
   white-space: nowrap;
+}
+
+.wwh-tick.is-month {
+  top: 3px;
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wwh-tick.is-day {
+  top: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .wwh-today-flag {
   position: absolute;
-  top: 25px;
+  top: 24px;
   transform: translateX(-50%);
   padding: 0 6px;
   border-radius: 4px;
   background: var(--wwh-orange);
   color: var(--wwh-on-orange);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 16px;
   white-space: nowrap;
 }
 
 .wwh-axis-track .wwh-grid {
   position: absolute;
-  top: 24px;
+  top: 40px;
   bottom: 0;
 }
 
 .wwh-row {
   position: relative;
-  border-bottom: 1px solid var(--wwh-line-soft);
+  padding: 0 var(--wwh-pad);
+  border-top: 1.5px solid var(--wwh-line-soft);
+}
+
+.wwh-row.is-alt {
+  background: color-mix(in srgb, var(--background-secondary) 55%, var(--wwh-paper));
 }
 
 
@@ -608,16 +669,12 @@
 .wwh-row-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wwh-row-link:hover {
-  color: var(--text-accent);
-  text-decoration: underline;
-}
 
 .wwh-row-count {
   flex: 0 0 auto;
@@ -635,9 +692,9 @@
 .wwh-overlay {
   position: absolute;
   top: 0;
-  right: 0;
+  right: var(--wwh-pad);
   bottom: 0;
-  left: var(--wwh-left);
+  left: calc(var(--wwh-pad) + (100% - 2 * var(--wwh-pad)) * 0.38);
   overflow: hidden;
   pointer-events: none;
 }
@@ -849,7 +906,9 @@
 
 /* 推測的：淡一點的填色加虛線外框（不是整條白底虛線框） */
 .wwh-mark.is-bar.is-inferred {
-  background: color-mix(in srgb, var(--wwh-bar) 45%, transparent);
+  box-sizing: border-box;
+  border: 1.5px dashed var(--text-muted);
+  background: color-mix(in srgb, var(--wwh-bar) 35%, transparent);
 }
 
 .wwh-mark.is-bar.is-critical {
@@ -929,8 +988,9 @@
 .wwh-legend-swatch.is-inferred {
   width: 18px;
   height: 8px;
+  border: 1.5px dashed var(--text-muted);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--wwh-bar) 45%, transparent);
+  background: color-mix(in srgb, var(--wwh-bar) 35%, transparent);
 }
 
 .wwh-legend-swatch.is-late {
@@ -1033,6 +1093,15 @@
   cursor: pointer;
 }
 
+.wwh-mbar.wwh-mc0 { background: var(--wwh-mc0); }
+.wwh-mbar.wwh-mc1 { background: var(--wwh-mc1); }
+.wwh-mbar.wwh-mc2 { background: var(--wwh-mc2); }
+.wwh-mbar.wwh-mc3 { background: var(--wwh-mc3); }
+.wwh-mbar.wwh-mc4 { background: var(--wwh-mc4); }
+.wwh-mbar.wwh-mc5 { background: var(--wwh-mc5); }
+.wwh-mbar.wwh-mc6 { background: var(--wwh-mc6); }
+.wwh-mbar.wwh-mc7 { background: var(--wwh-mc7); }
+
 .wwh-mbar.clip-left {
   margin-left: 0;
   border-top-left-radius: 0;
@@ -1046,7 +1115,7 @@
 }
 
 .wwh-mbar.is-inferred {
-  background: color-mix(in srgb, var(--wwh-bar) 45%, transparent);
+  opacity: 0.65;
   color: var(--text-muted);
 }
 
@@ -1125,8 +1194,7 @@
 }
 
 .wwh-block-confirm {
-  padding-left: 14px;
-  border-left: 3px solid var(--interactive-accent);
+  gap: 10px;
 }
 
 .wwh-block-confirm h2 {
@@ -1243,8 +1311,8 @@
 .wwh-confirm {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
+  gap: 8px;
+  padding: 14px 16px;
 }
 
 .wwh-confirm-text {

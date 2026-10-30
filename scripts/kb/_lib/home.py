@@ -1,6 +1,6 @@
 """kb home --json 的本體（Obsidian 首頁，#22，D-252）：首頁一次要的東西一支給齊，只讀、不開回合。
 
-格式 willy-home/1（spec「資料與介面格式」第 1 節）：鼓勵句、件數、時間軸（每個事類實體一列，marks 是現成的圖形）、待辦三組、
+格式 willy-home/1（spec「資料與介面格式」第 1 節）：問候句（只寫問候，裁定 32）、件數、時間軸（每個事類實體一列，marks 是現成的圖形）、待辦三組、
 要你確認的（跟 kb asks 同一支）、其他要處理的、最近。外掛只畫，不自己推日期、不判逾期（D-252）：逾期、今天、這週照 agenda 既有的
 算法（counts 的條件），marks 的 late 照 D-129。日程第二題的欄位（baseline、critical、slack、derived、children、links）這題一律給預設值。
 任何一區讀不到只記進 warnings、那一區給空的，其他區照畫。
@@ -18,9 +18,10 @@ from kb._lib.paths import read_manifest
 SCHEMA = "willy-home/1"
 OTHER_KEY = "_other"
 OTHER_LABEL = "其他"
-# 鼓勵句：有逾期與沒有逾期各一組，每句 12 字內，照日期挑（不叫 Claude，預設照做 5）
-CHEER_PLAIN = ("今天也辛苦了", "一件一件來，不急", "慢慢做，都會到", "今天有什麼要看的？", "先喝口水再開始", "步調穩穩的就好", "今天看起來還行")
-CHEER_LATE = ("有幾件過期了，先看這", "先處理過期的，其他再說", "不用急，一件一件補", "先把過期的收一收", "有幾件要追，加油", "先看過期的，別擔心", "挑一件先做掉")
+# 一句話只寫問候（裁定 32）：早上、下午、晚上各一組，每句 8 字內，照日期挑；不講要做什麼、不看逾期；不叫 Claude
+CHEER_MORNING = ("早安", "早安，今天也加油", "早安，慢慢來", "早，先喝口水")
+CHEER_AFTERNOON = ("午安", "午安，繼續加油", "午安，慢慢來", "午安，喝口水")
+CHEER_EVENING = ("辛苦了", "今天辛苦了", "晚安", "辛苦了，慢慢來")
 STATUS_PROGRESS = {"ongoing": "active", "paused": "paused", "closed": "closed"}
 HARD_KINDS = ("deadline", "meeting")
 
@@ -32,13 +33,15 @@ def _day(text):
         return None
 
 
-def cheer(day, late):
-    group = CHEER_LATE if late else CHEER_PLAIN
+def cheer(day, hour):
+    """問候一句：hour 0~23，5 點到 11 點早上、12 點到 17 點下午、其餘晚上；同一天同一時段同一句。"""
+    group = CHEER_MORNING if 5 <= hour < 12 else CHEER_AFTERNOON if 12 <= hour < 18 else CHEER_EVENING
     return group[dt.date.fromisoformat(day).toordinal() % len(group)]
 
 
-def _mark(it, today):
-    """日程條目 → 一個 mark（也是待辦那一件的格式）。bar：期間或有 start；end 是日期（期間結案用 ended）。"""
+def _mark(it, today, card=None):
+    """日程條目 → 一個 mark（也是待辦那一件的格式）。bar：期間或有 start；end 是日期（期間結案用 ended）。
+    card 是點這一件該開的卡（_card_of 的結果，沒有就 None）。"""
     kind = it.get("kind")
     status = it.get("status")
     start = it.get("start") if isinstance(it.get("start"), str) else None
@@ -54,10 +57,38 @@ def _mark(it, today):
         "repeat": rep, "hard": kind in HARD_KINDS,
         "entities": list(it.get("entities") or []),
         "baseline": None, "critical": False, "slack": None, "derived": False, "children": [],
+        "card": card,
     }
 
 
-def _todo(vault, items, today):
+def _card_resolver(vault, ent_data):
+    """回 it → 點下去該開的卡：條目 origin 記的那張檔案卡 → 沒有就掛的第一個實體的綜合卡 → 都沒有 None（外掛才開日程.md 那一行）。
+    結果 {"path": 相對路徑, "kind": "origin"|"synthesis"}；卡不在了（清冊沒有、檔不見）不算有。"""
+    groups = cards._scan_groups(vault)[0]
+    syn = {}
+
+    def synthesis(name):
+        e = entities.find(ent_data, name)[0]
+        if e is None or e.get("status") != "active" or not e.get("type") or entities.is_self(e):
+            return None
+        if e["id"] not in syn:
+            syn[e["id"]] = entities.locate(vault, e, ent_data)
+        return syn[e["id"]]
+
+    def resolve(it):
+        cid = (it.get("origin") or {}).get("card") if isinstance(it.get("origin"), dict) else None
+        if cid in groups:
+            return {"path": groups[cid][0]["path"], "kind": "origin"}
+        for name in it.get("entities") or []:
+            path = synthesis(name)
+            if path:
+                return {"path": path, "kind": "synthesis"}
+            break  # 只看第一個實體
+        return None
+    return resolve
+
+
+def _todo(vault, items, today, card_of=None):
     """待辦三組：已經過了（TRACKED 逾期）、今天、這週（今天之後 lead_days 天內）；條件跟 agenda.counts 一樣。"""
     now = dt.date.fromisoformat(today)
     groups = {"overdue": [], "today": [], "week": []}
@@ -67,11 +98,11 @@ def _todo(vault, items, today):
             continue
         if d < now:
             if it.get("kind") in agenda.TRACKED:
-                groups["overdue"].append(_mark(it, today))
+                groups["overdue"].append(_mark(it, today, card_of(it) if card_of else None))
         elif d == now:
-            groups["today"].append(_mark(it, today))
+            groups["today"].append(_mark(it, today, card_of(it) if card_of else None))
         elif d <= now + dt.timedelta(days=agenda._window(vault, it)):
-            groups["week"].append(_mark(it, today))
+            groups["week"].append(_mark(it, today, card_of(it) if card_of else None))
     return groups
 
 
@@ -98,7 +129,7 @@ def _in_window(it, lo, hi):
     return start <= hi
 
 
-def _timeline(vault, items, ent_data, today):
+def _timeline(vault, items, ent_data, today, card_of=None):
     now = dt.date.fromisoformat(today)
     lo = (now - dt.timedelta(days=7)).isoformat()
     hi = (now + dt.timedelta(days=config.get(vault, "home_timeline_days"))).isoformat()
@@ -112,7 +143,7 @@ def _timeline(vault, items, ent_data, today):
     histories = agenda._histories(vault)
     rows = []
     for key, (owner, its) in buckets.items():
-        marks = [_mark(i, today) for i in sorted(its, key=agenda._order)]
+        marks = [_mark(i, today, card_of(i) if card_of else None) for i in sorted(its, key=agenda._order)]
         pauses = []
         if owner is not None:
             pauses = [{"start": a, "end": b} for a, b in agenda._pauses(histories, owner["name"], today) if b >= lo and a <= hi]
@@ -201,13 +232,13 @@ def _recent(vault, opened, sources):
     return rows
 
 
-def build(vault, opened=(), today=None):
-    """willy-home/1。opened 是外掛記的卡編號（新到舊）。"""
+def build(vault, opened=(), today=None, hour=None):
+    """willy-home/1。opened 是外掛記的卡編號（新到舊）；hour 是問候句挑時段用的鐘點（沒給就是現在）。"""
     with _one_read():
-        return _build(vault, opened, today)
+        return _build(vault, opened, today, dt.datetime.now().hour if hour is None else hour)
 
 
-def _build(vault, opened, today):
+def _build(vault, opened, today, hour):
     today = today or agenda._today()
     warnings = []
 
@@ -223,17 +254,18 @@ def _build(vault, opened, today):
     ent_data = safe("實體清單", lambda: entities.load(vault), {"entities": []})
     sources = safe("來源清單", lambda: sources_lib.load(vault), None)  # 壞了只「最近」那區空白
     got = agenda.counts(vault, {"items": items}, today)
-    todo = _todo(vault, items, today)
+    card_of = safe("卡", lambda: _card_resolver(vault, ent_data), None)  # 讀不到只是點下去開不了卡，外掛退回開日程.md
+    todo = _todo(vault, items, today, card_of)
     asks = safe("要問你的事", lambda: _asks(vault), [])
     asked = {a.get("key") for a in asks}
     others = safe("待處理", lambda: _others(vault, asked), [])
     confirm = _confirm(vault, asks)
     out = {
         "schema": SCHEMA, "version": read_manifest()["version"], "today": today,
-        "cheer": cheer(today, got["overdue"] > 0),
+        "cheer": cheer(today, hour),
         "counts": {"overdue": got["overdue"], "today": got["today"], "week": got["upcoming"], "confirm": len(confirm),
                    "other": len(others)},
-        "timeline": _timeline(vault, items, ent_data, today),
+        "timeline": _timeline(vault, items, ent_data, today, card_of),
         "todo": todo, "confirm": confirm, "others": others,
         "recent": [] if sources is None else safe("最近", lambda: _recent(vault, list(opened or []), sources), []),
     }

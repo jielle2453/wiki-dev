@@ -64,19 +64,57 @@ class Shape(Base):
 
 class Cheer(Base):
     def test_short_and_from_the_right_group(self):
-        for late in (False, True):
-            for n in range(14):
-                text = home.cheer(day(n), late)
-                self.assertLessEqual(len(text), 12, text)
-                self.assertIn(text, home.CHEER_LATE if late else home.CHEER_PLAIN)
+        groups = ((range(5, 12), home.CHEER_MORNING), (range(12, 18), home.CHEER_AFTERNOON),
+                  (list(range(18, 24)) + list(range(0, 5)), home.CHEER_EVENING))
+        for hours, group in groups:
+            for hour in hours:
+                for n in range(14):
+                    text = home.cheer(day(n), hour)
+                    self.assertLessEqual(len(text), 8, text)
+                    self.assertIn(text, group)
 
-    def test_late_group_when_overdue(self):
-        self.assertIn(self.build()["cheer"], home.CHEER_PLAIN)
+    def test_greeting_only_never_about_overdue(self):
+        late = self.build(hour=9)["cheer"]
         self.add("到期", day(-1), "過期的")
-        self.assertIn(self.build()["cheer"], home.CHEER_LATE)
+        self.assertEqual(self.build(hour=9)["cheer"], late, "有沒有逾期句子都一樣")
+        for text in home.CHEER_MORNING + home.CHEER_AFTERNOON + home.CHEER_EVENING:
+            self.assertNotIn("過期", text)
 
-    def test_same_day_same_sentence(self):
-        self.assertEqual(self.build()["cheer"], self.build()["cheer"])
+    def test_time_of_day_picks_the_group(self):
+        self.assertIn(self.build(hour=8)["cheer"], home.CHEER_MORNING)
+        self.assertIn(self.build(hour=14)["cheer"], home.CHEER_AFTERNOON)
+        self.assertIn(self.build(hour=21)["cheer"], home.CHEER_EVENING)
+
+    def test_same_day_same_hour_same_sentence(self):
+        self.assertEqual(self.build(hour=9)["cheer"], self.build(hour=10)["cheer"])
+
+
+class ClickTarget(Base):
+    """點日程那件該開哪張卡（裁定 32）：origin 的檔案卡 → 掛的第一個實體的綜合卡 → None。"""
+
+    def marks(self):
+        return {m["text"]: m for m in next(r for r in self.build()["timeline"]["rows"] if r["key"] == E.XINYI)["marks"]}
+
+    def test_origin_card_first(self):
+        cid = self.card(E.QUOTE, "報價單")
+        self.add("到期", day(2), "有出處的", card=cid)
+        got = self.marks()["有出處的"]["card"]
+        self.assertEqual(got["kind"], "origin")
+        self.assertTrue(got["path"].endswith(".md"))
+        self.assertNotEqual(got["path"], "案子/信義王/信義王.md", "是檔案卡，不是綜合卡")
+
+    def test_synthesis_of_first_entity_when_no_origin(self):
+        self.add("到期", day(2), "沒出處的")
+        self.assertEqual(self.marks()["沒出處的"]["card"], {"path": "案子/信義王/信義王.md", "kind": "synthesis"})
+
+    def test_none_when_no_card_and_no_entity(self):
+        self.add("到期", day(2), "沒掛的", entity=())
+        row = next(r for r in self.build()["timeline"]["rows"] if r["key"] == home.OTHER_KEY)
+        self.assertIsNone(row["marks"][0]["card"])
+
+    def test_todo_items_carry_it_too(self):
+        self.add("到期", day(-1), "過期的")
+        self.assertEqual(self.build()["todo"]["overdue"][0]["card"]["kind"], "synthesis")
 
 
 class Counts(Base):

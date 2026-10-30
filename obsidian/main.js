@@ -1,6 +1,6 @@
 'use strict';
 /*
- * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，issue #22）。
+ * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，裁定 32，issue #22）。
  *
  * 純 CommonJS、不打包、不加依賴。要算的都在 kb（kb home / kb find / kb renders apply …），這裡只負責：
  * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
@@ -383,7 +383,7 @@ function layoutTimeline(timeline, opts) {
 /**
  * 月曆：回 {year, month, weeks:[{days:[{date, day, inMonth, isToday, marks}]×7, bars:[…], lanes}]}。
  * 期間（不只一天的）畫成橫跨那一週的一條 bar（col 0~6 起、span 天）：每一週那段都寫名字（寫在開頭、太長截斷，裁定 31），
- * 跨週的下一週接著畫；單天的與點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
+ * 跨週的下一週接著畫、同一件同一個淡色（color 0~7，裁定 32）；單天的與點進 days[].marks 佔格子。做完、取消的不畫（裁定 30）。
  */
 function layoutMonth(timeline, opts) {
   const options = opts || {};
@@ -419,6 +419,7 @@ function layoutMonth(timeline, opts) {
     raw: f.m,
   });
   const weeks = [];
+  const colors = new Map(); // 同一件事跨週同一個顏色：照月曆裡出現的順序輪流給
   for (let n = startN; n <= gridEnd; n += 7) {
     const days = [];
     for (let i = 0; i < 7; i++) {
@@ -436,7 +437,10 @@ function layoutMonth(timeline, opts) {
       .map((f) => {
         const col = Math.max(f.sp.first, n) - n;
         const end = Math.min(f.sp.last, n + 6) - n;
+        const key = f.m.id || `${f.row}|${f.m.text}|${f.sp.first}`;
+        if (!colors.has(key)) colors.set(key, colors.size % MONTH_COLORS);
         return Object.assign(info(f), {
+          color: colors.get(key),
           col,
           span: end - col + 1,
           continuesLeft: f.sp.first < n,
@@ -1161,6 +1165,7 @@ function defaultUi() {
 const HEAD_H = 48; // 時間軸每一塊（事類實體）標題列的高度
 const ROW_H = 40; // 展開後每件一列的高度
 const RECENT_MAX = 8;
+const MONTH_COLORS = 8; // 月曆期間的淡色，styles.css 的 --wwh-mc0～7
 const ICON_SHAPES = {
   meeting: [
     ['circle', { cx: 6, cy: 5.5, r: 2.4 }],
@@ -1385,8 +1390,8 @@ class HomeView extends ItemView {
     this.root.appendChild(this.bannerEl);
     this.root.appendChild(this.topEl);
     this.root.appendChild(this.searchEl);
-    this.root.appendChild(this.colsEl);
     this.root.appendChild(this.timelineEl);
+    this.root.appendChild(this.colsEl);
     clear(this.contentEl);
     this.contentEl.appendChild(this.root);
     this.contentEl.appendChild(this.drawerEl); // 抽屜蓋在首頁右邊，不跟著首頁捲動
@@ -1440,7 +1445,7 @@ class HomeView extends ItemView {
     }
   }
 
-  // ---- 日期、一句話、三個數字 ----
+  // ---- 日期與問候（只寫問候，kb 挑的；不放數字，裁定 32）----
   renderTop(el) {
     const home = this.plugin.home;
     if (!home) {
@@ -1449,19 +1454,6 @@ class HomeView extends ItemView {
     }
     el.appendChild(
       h('div', { cls: 'wwh-greet' }, h('p', { cls: 'wwh-date', text: longDate(home.today) }), h('h1', { cls: 'wwh-cheer', text: home.cheer || '' })),
-    );
-    const c = home.counts;
-    const big = (label, n, cls) =>
-      h('div', { cls: ['wwh-count', cls, n ? 'has' : ''] }, h('span', { cls: 'wwh-count-n', text: String(n) }), h('span', { cls: 'wwh-count-label', text: label }));
-    el.appendChild(
-      h(
-        'div',
-        { cls: 'wwh-counts' },
-        big('已經過了', c.overdue, 'overdue'),
-        big('今天', c.today, 'today'),
-        big('要你確認', c.confirm, 'confirm'),
-        h('div', { cls: 'wwh-counts-minor', text: `這週 ${c.week}　其他要處理 ${c.other}` }),
-      ),
     );
   }
 
@@ -1644,7 +1636,7 @@ class HomeView extends ItemView {
     const p = this.plugin;
     const home = p.home;
     const ui = p.ui;
-    const head = h('div', { cls: 'wwh-section-head' }, h('h2', { text: '手上的事' }));
+    const head = h('div', { cls: 'wwh-section-head' }, h('h2', { text: '日程' }));
     const tools = h('div', { cls: 'wwh-tools' });
     if (home && ui.timelineMode === 'timeline') { // kb home 還沒回來時不畫，按了也沒東西可展開
       const layout = this.timelineLayout();
@@ -1711,7 +1703,7 @@ class HomeView extends ItemView {
     );
   }
 
-  /** 軸頭：只標月份、畫週線；今天的旗子放在月份下面一行，不壓到月份的字。 */
+  /** 軸頭（黏住）：上排月份、下排日期（每週一個）；今天的旗子放在日期那排，附近的日期讓位。 */
   axis(layout) {
     const track = h('div', { cls: 'wwh-axis-track' });
     const months = layout.ticks.filter((t) => t.kind === 'month');
@@ -1721,7 +1713,12 @@ class HomeView extends ItemView {
     }
     for (const t of layout.ticks) {
       if (t.kind === 'month') track.appendChild(h('span', { cls: 'wwh-tick is-month', style: { left: `${t.pct}%` }, text: t.label }));
-      else track.appendChild(h('i', { cls: 'wwh-grid is-week', style: { left: `${t.pct}%` } }));
+      else {
+        track.appendChild(h('i', { cls: 'wwh-grid is-week', style: { left: `${t.pct}%` } }));
+        if (layout.todayPct === null || Math.abs(t.pct - layout.todayPct) > 4.5) {
+          track.appendChild(h('span', { cls: 'wwh-tick is-day', style: { left: `${t.pct}%` }, text: t.label }));
+        }
+      }
     }
     if (layout.todayPct !== null) track.appendChild(h('span', { cls: 'wwh-today-flag', style: { left: `${layout.todayPct}%` }, text: '今天' }));
     return h('div', { cls: 'wwh-axis' }, h('div', { cls: 'wwh-cell-left' }), track);
@@ -1730,26 +1727,13 @@ class HomeView extends ItemView {
   timelineBlock(layout, row, index, todayN) {
     const ui = this.plugin.ui;
     const collapsed = rowIsCollapsed(ui, row, todayN);
-    const isOther = row.key === '_other';
     const open = row.marks.filter((m) => m.status === 'open').length;
     const toggle = () => {
       ui.rowCollapsed[row.key] = !collapsed;
       this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     };
-    // 標題前一個小箭頭、整個標題列可點收合；名稱本身點下去開綜合卡
-    const name = isOther
-      ? h('span', { cls: 'wwh-row-name', text: row.label })
-      : h('span', {
-          cls: 'wwh-row-name wwh-row-link',
-          title: `開「${row.label}」的綜合卡`,
-          text: row.label,
-          on: {
-            click: (e) => {
-              if (e && e.stopPropagation) e.stopPropagation();
-              this.plugin.openSynthesis(row.label);
-            },
-          },
-        });
+    // 標題前一個小箭頭、點名字（整個標題列）收合；單雙數交替淡底
+    const name = h('span', { cls: 'wwh-row-name', text: row.label });
     const left = h(
       'div',
       { cls: 'wwh-cell-left wwh-row-head' },
@@ -1765,7 +1749,7 @@ class HomeView extends ItemView {
       ),
     );
     const headLine = h('div', { cls: 'wwh-line wwh-head-line', on: { click: toggle } }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.summary(row, todayN) : null));
-    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open'] }, headLine);
+    const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
     if (!collapsed) {
       const rows = h('div', { cls: 'wwh-rows' });
       row.marks.forEach((m) => rows.appendChild(this.markLine(m, todayN)));
@@ -1828,7 +1812,7 @@ class HomeView extends ItemView {
   /** 展開後的一件一列：左欄圖示、文字、日期；右邊同一列只放記號。只有過期、今天的記號上色，其他淺灰；點下去開日程.md 那一行。 */
   markLine(m, todayN) {
     const state = [m.late ? 'is-late' : '', isDueToday(m, todayN) ? 'is-today' : '', m.inferred ? 'is-inferred' : '', m.critical ? 'is-critical' : ''];
-    const onClick = () => this.plugin.openAgendaLine(m.raw);
+    const onClick = () => this.plugin.openItem(m.raw);
     const kind = m.kind && ICON_SHAPES[m.kind] ? m.kind : m.shape === 'bar' ? 'period' : null;
     const left = h(
       'div',
@@ -1881,7 +1865,7 @@ class HomeView extends ItemView {
     const dows = h('div', { cls: 'wwh-month-dows' });
     for (const w of WEEKDAY) dows.appendChild(h('div', { cls: 'wwh-month-dow', text: w }));
     grid.appendChild(dows);
-    const onClick = (raw) => () => this.plugin.openAgendaLine(raw);
+    const onClick = (raw) => () => this.plugin.openItem(raw);
     for (const week of m.weeks) {
       const wk = h('div', { cls: 'wwh-week' });
       const marksRow = String(week.lanes + 2);
@@ -1906,7 +1890,7 @@ class HomeView extends ItemView {
       for (const b of week.bars) {
         wk.appendChild(
           h('div', {
-            cls: ['wwh-mbar', b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
+            cls: ['wwh-mbar', `wwh-mc${b.color}`, b.late ? 'is-late' : '', b.inferred ? 'is-inferred' : '', b.continuesLeft ? 'clip-left' : '', b.continuesRight ? 'clip-right' : ''],
             style: { gridColumn: `${b.col + 1} / span ${b.span}`, gridRow: String(b.lane + 2) },
             title: `${b.row ? b.row + '：' : ''}${b.text}`,
             text: b.text,
@@ -2002,7 +1986,7 @@ class HomeView extends ItemView {
     });
     row.appendChild(box);
     row.appendChild(
-      h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開日程.md 這一行', text: it.text || '', on: { click: () => this.plugin.openAgendaLine(it) } }), meta),
+      h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開相關的卡', text: it.text || '', on: { click: () => this.plugin.openItem(it) } }), meta),
     );
     row.appendChild(
       h('span', { cls: 'wwh-todo-when', attrs: { role: 'button', tabindex: '0' }, title: '改日期、時間', text: formatWhen(it) || '（沒日期）', on: { click: () => this.plugin.editDateForm(it) } }),
@@ -2018,7 +2002,7 @@ class HomeView extends ItemView {
     if (!p.home) return;
     if (!p.home.confirm.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     for (const c of p.home.confirm) {
-      const card = h('div', { cls: 'wwh-confirm' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
+      const card = h('div', { cls: 'wwh-confirm wwh-paper' }, h('div', { cls: 'wwh-confirm-text', text: c.text || '' }));
       const answers = h('div', { cls: 'wwh-confirm-buttons' });
       asArray(c.results)
         .filter(isObject)
@@ -2482,7 +2466,17 @@ class WikiWithWillyPlugin extends Plugin {
     this.renderAll();
   }
 
-  // ---- 點下去：日程開日程.md 那一行、案子開綜合卡（D-266）----
+  // ---- 點下去：日程開相關的卡、案子開綜合卡（D-266、裁定 32）----
+  /** 點日程那件：kb 給的 card（origin 的檔案卡 → 掛的第一個實體的綜合卡）；都沒有才開日程.md 那一行。 */
+  async openItem(it) {
+    const card = it && isObject(it.card) ? it.card : null;
+    if (card && card.path) {
+      this.openPathInVault(card.path);
+      return;
+    }
+    await this.openAgendaLine(it);
+  }
+
   async openAgendaLine(it) {
     const rel = MANAGED_PAGES[0];
     let line = 0;
@@ -2823,6 +2817,7 @@ module.exports.lib = {
   longDate,
   icon,
   RECENT_MAX,
+  MONTH_COLORS,
   HomeView,
   FormModal,
   defaultUi,
