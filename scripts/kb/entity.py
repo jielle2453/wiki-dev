@@ -58,6 +58,8 @@ def add_arguments(sub):
     pg.add_argument("state", help="進行中、結案、擱置")
     pg.add_argument("--evidence", action="append", help="依據的檔案卡編號（f-…），可以重複")
     pg.add_argument("--note", help="一句白話（例：客戶說還沒結案）")
+    for p in (pg, rn, mg):
+        p.add_argument("--check", action="store_true", help="只算做了會怎樣（後果一句話，--json 回 effects 與 refuse），什麼都不寫")
     sc = subs.add_parser("suggest-close", help="看起來結案了，記一條待問", description="製卡者讀到結束證據：記一條待處理，由程式問客戶。")
     sc.add_argument("ref", help="名稱或編號（e-…）")
     sc.add_argument("--evidence", action="append", required=True, help="依據的檔案卡編號（f-…），可以重複")
@@ -244,6 +246,21 @@ def _progress(vault, args, as_json, conversation, turn_id):
                                        conversation)
     _out(as_json, lines, {"entity": got["entity"], "closed_periods": [p["id"] for p in got["closed_periods"]]})
     return 0
+
+
+def _check(vault, args, as_json):
+    from kb._lib import check
+    if args.entity_command == "progress":
+        state = PROGRESS_BY_TEXT.get(args.state.strip())
+        if state is None:
+            print(PROGRESS_REFUSAL)
+            return 3
+        got = check.progress(vault, args.ref, state)
+    elif args.entity_command == "rename":
+        got = check.rename(vault, args.ref, args.to.strip(), args.type.strip() if args.type else None)
+    else:
+        got = check.merge(vault, args.ref, args.into)
+    return check.emit(got, as_json)
 
 
 def _suggest_close(vault, args, as_json, conversation, turn_id):
@@ -444,6 +461,8 @@ def run(args):
     try:
         if command == "list":
             return _list(vault, as_json, args.tag)
+        if getattr(args, "check", False):  # 先算後果、什麼都不寫（也不開回合），Obsidian 的確認框用（#22，D-256）
+            return _check(vault, args, as_json)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
         if command == "render":

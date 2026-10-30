@@ -12,3 +12,5 @@
 | `design/` | 流程、約定、架構、決策、spec。只有設計 session 寫；實作、測試、確認 session 的發現寫在回報或報告，不改 backlog（process 第三節步驟 7） |
 | `tests/test_lib_home.py` `test_scripts_home_cli.py` `test_lib_find.py` `test_scripts_find_cli.py` | Obsidian 首頁（#22）：kb home 各區與件數、kb find 拆字與比對 |
 | `tests/test_renders_apply.py` `test_purge_obsidian.py` | Obsidian 首頁（#22）：kb renders apply／drop 與重新產生時認出手改直接照做（日程、待處理、裁示）、carried 的題、purge 清 Obsidian 的痕跡與 carried |
+| `tests/test_scripts_check.py` `test_init_obsidian.py` `test_scripts_obsidian_cli.py` `test_moved_obsidian.py` `test_selftest_obsidian.py` `test_release_obsidian.py` | Obsidian 首頁（#22）：--check 四支（什麼都沒寫）、kb init 放外掛、kb obsidian status／open（外部換替身）、kb moved 的 Obsidian 那行、selftest 的 obsidian 步、release 的 obsidian/ 檢查 |
+| `tests/obsidian/*.test.js` `test_obsidian_js.py` | Obsidian 外掛的 JS 測試（#22，D-265）：node 內建 test，`obsidian` 模組用假的；`helpers/` 放假環境與假 DOM；跑法 `node --test "tests/obsidian/*.test.js"`（node v24 對資料夾形式報 MODULE_NOT_FOUND），`test_obsidian_js.py` 沒有 node 就 skip |

@@ -127,11 +127,11 @@ class Start(Base):
 class Steps(Base):
     def test_sequence(self):
         self.assertEqual(build.sequence({}), ["env", "setup", "inventory", "sample", "cards", "names", "synthesis",
-                                              "tags", "finish", "done"])
+                                              "tags", "obsidian", "finish", "done"])
         self.assertEqual(build.sequence({"adopt": "C:/舊"}), ["env", "setup", "inventory", "sample", "cards", "names",
-                                                             "synthesis", "adopt", "tags", "finish", "done"])
-        self.assertEqual(build.sequence({"no_sources": True}), ["env", "setup", "finish", "done"])
-        self.assertEqual(build.sequence({"no_sources": True, "adopt": "x"}), ["env", "setup", "adopt", "finish", "done"])
+                                                             "synthesis", "adopt", "tags", "obsidian", "finish", "done"])
+        self.assertEqual(build.sequence({"no_sources": True}), ["env", "setup", "obsidian", "finish", "done"])
+        self.assertEqual(build.sequence({"no_sources": True, "adopt": "x"}), ["env", "setup", "adopt", "obsidian", "finish", "done"])
 
     def test_wrong_step_refused(self):
         self.started()
@@ -140,8 +140,8 @@ class Steps(Base):
     def test_no_sources_goes_to_finish(self):
         self.started()
         _v, data, line = build.done(self.D, "setup")
-        self.assertEqual((line, data["step"], data["no_sources"]), ("建置：訪談 做完了，下一步 交付報告", "finish", True))
-        self.assertEqual(build.status(self.D)["step"], "finish")
+        self.assertEqual((line, data["step"], data["no_sources"]), ("建置：訪談 做完了，下一步 Obsidian", "obsidian", True))  # #22：標籤之後多一步 Obsidian，沒登記資料夾也要走
+        self.assertEqual(build.status(self.D)["step"], "obsidian")
 
     def test_walk_all_steps_with_source(self):
         self.started()
@@ -154,7 +154,8 @@ class Steps(Base):
         lines = [build.done(self.D, s)[2] for s in ("setup", "inventory", "sample", "cards", "names", "synthesis", "tags")]
         self.assertEqual(lines[0], "建置：訪談 做完了，下一步 盤點")
         self.assertEqual(lines[-2], "建置：綜合卡 做完了，下一步 標籤")
-        self.assertEqual(lines[-1], "建置：標籤 做完了，下一步 交付報告")
+        self.assertEqual(lines[-1], "建置：標籤 做完了，下一步 Obsidian")
+        self.assertEqual(build.done(self.D, "obsidian")[2], "建置：Obsidian 做完了，下一步 交付報告")  # 這步沒有前提，不用 Obsidian 直接過
         self.assertEqual(self.refused(build.done, self.D, "finish"), "建置報告還沒寫，先跑 kb build report --from <寫好的那份>")
         self.put(report="2026-10-23T10:00:00")
         self.assertEqual(build.done(self.D, "finish")[2], "建置：交付報告 做完了，建置完成")
@@ -229,7 +230,7 @@ class Steps(Base):
                                          "reason": "補標籤（工種）", "added": [], "changed": [], "removed": []}])
         self.assertEqual(self.refused(build.done, self.D, "tags"), "還有 1 張綜合卡沒補完標籤，補完再往下")
         self.fake_todo()
-        self.assertEqual(build.done(self.D, "tags")[2], "建置：標籤 做完了，下一步 交付報告")
+        self.assertEqual(build.done(self.D, "tags")[2], "建置：標籤 做完了，下一步 Obsidian")
 
     def test_redo(self):
         self.at("cards")
@@ -290,7 +291,7 @@ class Lock(Base):
         self.assertEqual(self.data()["session_id"], "sid-a")
         self.put(lock_until=(datetime.now() - timedelta(minutes=1)).strftime(build.TIME))  # 過期
         turn.SESSION = None
-        self.assertEqual(build.done(self.D, "setup")[2], "建置：訪談 做完了，下一步 交付報告")
+        self.assertEqual(build.done(self.D, "setup")[2], "建置：訪談 做完了，下一步 Obsidian")
         self.assertEqual(self.data()["session_id"], "sid-a", "過期了終端機照做，但不換成終端機")
 
     def test_takeover_then_old_session_refused(self):
@@ -305,9 +306,9 @@ class Lock(Base):
         data = self.data()
         self.assertEqual((data["session_id"], [(t["from"], t["to"]) for t in data["takeovers"]]), ("sid-b", [("sid-a", "sid-b")]))
         self.assertEqual((data["step"], data["done"]), ("setup", {"env": data["done"]["env"]}), "其他不動")
-        self.assertEqual(build.done(self.D, "setup")[2], "建置：訪談 做完了，下一步 交付報告")
+        self.assertEqual(build.done(self.D, "setup")[2], "建置：訪談 做完了，下一步 Obsidian")
         turn.SESSION = "sid-a"
-        self.assertTrue(self.refused(build.status, self.D).startswith("另一個對話正在建置（交付報告，最後動作 "))
+        self.assertTrue(self.refused(build.status, self.D).startswith("另一個對話正在建置（Obsidian，最後動作 "))
         self.assertTrue(self.refused(build.done, self.D, "finish").startswith("另一個對話正在建置"))
 
     def test_takeover_by_owner_records_nothing(self):

@@ -64,6 +64,7 @@ COMMANDS = {
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
     "home": ("kb.home_cli", "Obsidian 首頁：--json 一次給齊首頁要的（時間軸、待辦、要你確認的、最近），只讀，給外掛用"),
     "renders": ("kb.renders_cli", "程式產生的頁（日程、待處理、裁示）：apply 照你在頁面上直接改的做，drop 把「你加的」裡的一筆拿掉"),
+    "obsidian": ("kb.obsidian_cli", "Obsidian：status 裝了沒、登記了沒、外掛放了沒，open 替她把知識庫加進 Obsidian 並打開"),
     "find": ("kb.find_cli", "找檔：把一串字拆成實體、卡型、標籤、時間詞和字，找卡與綜合卡；只讀，不讀原檔"),
     "selftest": ("kb.selftest_cli", "自我檢查：這份外掛在這台電腦跑不跑得起來（模組、版本、每個 hook、背景升級），用暫存的小知識庫，不碰你的"),
 }

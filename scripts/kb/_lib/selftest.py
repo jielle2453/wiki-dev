@@ -2,7 +2,7 @@
 換版之前，舊版用她的 Python 跑新版的這支（_lib/upgrade.verify）；發行程式打包時也跑（tools/release.py）。
 
 步驟照順序，第一個不過就停：import（scripts/kb/ 底下每個模組）→ version（plugin.json）→ vault（系統暫存夾用這份的 kb init 建小知識庫，
-清單網址設成空的）→ hooks（hooks.json 每個註冊的 command 用子行程跑一次，不經 shell）→ upgrade（kb.py upgrade --background）。
+清單網址設成空的）→ hooks（hooks.json 每個註冊的 command 用子行程跑一次，不經 shell）→ upgrade（kb.py upgrade --background）→ obsidian（obsidian/ 的三個檔在、manifest.json 是合法 JSON、版號等於 plugin.json，不跑 node，#22）。
 收尾一律刪掉暫存小知識庫。回 {"ok","version","step","file","line","why"}；自己出錯也回 ok false（why 是例外名稱），不丟。
 why 不含絕對路徑、遮過值（credentials.mask_secrets）。子行程經 _run，逾時殺整棵行程樹。
 """
@@ -28,7 +28,7 @@ ROOT_FROM_FILE = Path(__file__).resolve().parents[3]  # scripts/kb/_lib/selftest
 TEMP_PREFIX = "wiki-with-willy-selftest-"
 VAULT_NAME = "知識庫"
 SESSION = "selftest"
-STEPS = ("import", "version", "vault", "hooks", "upgrade")
+STEPS = ("import", "version", "vault", "hooks", "upgrade", "obsidian")
 MARKER = "【wiki-with-willy】kb 指令"  # 開場第一行的前綴（出錯那行也有「【wiki-with-willy】」，所以比到「kb 指令」）
 PLAIN_FILE = "系統/客戶設定檔.md"  # 小知識庫裡一份普通的檔：守門讀它不能 deny（裁定 9）
 GUARD_ERROR_HEAD = "守門出錯"
@@ -331,6 +331,23 @@ def _step_upgrade(root, vault, seconds):
         raise Failed(f"kb upgrade --background 結束碼 {code}", file, line)
 
 
+OBSIDIAN_FILES = ("manifest.json", "main.js", "styles.css")
+
+
+def _step_obsidian(root):
+    """Obsidian 首頁外掛（#22）：obsidian/ 底下三個檔都在、manifest.json 是合法 JSON 而且版號等於 plugin.json 的。不跑 node（客戶機沒有）。"""
+    from kb._lib import paths
+    for name in OBSIDIAN_FILES:
+        if not (root / "obsidian" / name).is_file():
+            raise Failed(f"obsidian/{name} 不在", f"obsidian/{name}")
+    try:
+        manifest = json.loads((root / "obsidian" / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        raise Failed("obsidian/manifest.json 不是合法的 JSON", "obsidian/manifest.json") from None
+    if not isinstance(manifest, dict) or manifest.get("version") != paths.read_manifest().get("version"):
+        raise Failed("obsidian/manifest.json 的版號跟 plugin.json 不一樣", "obsidian/manifest.json")
+
+
 def _remove(base):
     """刪暫存小知識庫；Windows 上剛結束的子行程或防毒偶爾還握著檔，刪不掉就等一下再試幾次。"""
     for _ in range(10):
@@ -361,6 +378,8 @@ def run():
         _step_hooks(root, vault, base / "外面.txt", seconds)
         step = "upgrade"
         _step_upgrade(root, vault, seconds)
+        step = "obsidian"
+        _step_obsidian(root)
         result["ok"] = True
     except Failed as e:
         result.update(step=step, file=e.file, line=e.line, why=clean_why(e.why))

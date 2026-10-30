@@ -12,7 +12,7 @@ from pathlib import Path
 from tests import _backup
 from tests._guard_fixture import KB, ROOT
 
-PLUGIN_PARTS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents")
+PLUGIN_PARTS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents", "obsidian")
 SELFTEST_PREFIX = "wiki-with-willy-selftest-"
 
 

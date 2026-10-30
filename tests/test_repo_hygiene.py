@@ -1,4 +1,4 @@
-"""repo 衛生：git ls-files 列出的 .py .md .json 檔要 UTF-8 無 BOM、LF、檔尾一個換行；
+"""repo 衛生：git ls-files 列出的 .py .md .json .js .css 檔要 UTF-8 無 BOM、LF、檔尾一個換行；
 不含開發機絕對路徑。排除 design/（唯讀設計文件，不受程式檔規範）。
 """
 import subprocess
@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXTS = {".py", ".md", ".json"}
+EXTS = {".py", ".md", ".json", ".js", ".css"}  # Obsidian 外掛的 .js、.css 也要（#22）
 BOM = b"\xef\xbb\xbf"
 # 刻意拆開拼，讓本檔自己不含那兩個字串
 DEV_PATHS = ("C:" + "\\" + "Users", "C:" + "/Users")

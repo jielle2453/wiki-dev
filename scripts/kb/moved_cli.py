@@ -54,6 +54,8 @@ def lines(got, applied):
         out.append(item["text"] + (f"（{item['fix']}）" if item.get("fix") else ""))
     if got["passwords_missing"]:
         out.append("這台電腦的憑證管理員沒有這些密碼，要重新記：" + "、".join(got["passwords_missing"]))
+    if got.get("obsidian_reopen"):
+        out.append("Obsidian 要重新打開：kb obsidian open")  # 新位置 Obsidian 還沒登記（#22）
     if len(out) == 1:
         out.append("沒有要補的")
     return out

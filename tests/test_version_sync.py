@@ -20,6 +20,16 @@ class VersionSync(unittest.TestCase):
         self.assertEqual(manifest_version, m.group(1))
 
 
+    def test_obsidian_manifest_version_equals_plugin_version(self):
+        """Obsidian 首頁外掛（#22，D-258）跟 plugin 同一版：obsidian/manifest.json 的 version 等於 plugin.json 的。"""
+        with open(ROOT / ".claude-plugin" / "plugin.json", encoding="utf-8") as f:
+            plugin_version = json.load(f)["version"]
+        with open(ROOT / "obsidian" / "manifest.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest["version"], plugin_version)
+        self.assertEqual(manifest["id"], "wiki-with-willy")
+
+
 class CustomerSentence(unittest.TestCase):
     """升級打包 要做的事 10：CHANGELOG 每一段多一行「給客戶的一句話」（從 0.20.0 起）；沒寫不准發行，發行程式也擋。"""
 

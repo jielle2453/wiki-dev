@@ -45,9 +45,9 @@ from kb._lib.paths import read_manifest
 
 BUILD_POSIX = ".system/build.json"
 SCHEMA_VERSION = 1
-STEPS = ("env", "setup", "inventory", "sample", "cards", "names", "synthesis", "adopt", "tags", "finish", "done")
+STEPS = ("env", "setup", "inventory", "sample", "cards", "names", "synthesis", "adopt", "tags", "obsidian", "finish", "done")
 STEP_TEXT = {"env": "環境", "setup": "訪談", "inventory": "盤點", "sample": "抽樣", "cards": "全量整理", "names": "確認名字",
-             "synthesis": "綜合卡", "adopt": "收舊 wiki", "tags": "標籤", "finish": "交付報告", "done": "完成"}
+             "synthesis": "綜合卡", "adopt": "收舊 wiki", "tags": "標籤", "obsidian": "Obsidian", "finish": "交付報告", "done": "完成"}
 SOURCE_STEPS = ("inventory", "sample", "cards", "names", "synthesis", "tags")  # 沒登記資料夾就跳過（D-044）
 LOCK_MINUTES = 30
 REPORT_POSIX = "系統/建置報告.md"
@@ -275,6 +275,7 @@ def view(vault, data):
         "names": ["kb cards todo --json"],
         "synthesis": ["kb cards dispatch --json"],
         "tags": ["kb profile show --json"],
+        "obsidian": ["kb obsidian status --json", "kb obsidian open"],
         "adopt": [f"kb build adopt {_arg(data.get('adopt') or '')} --check --json",
                   f"kb build adopt {_arg(data.get('adopt') or '')} --extract --json", "kb cards dispatch --adopt --json"],
         "finish": ["kb build report --facts --json", f"kb build report --from {_arg(_workspace_report(vault))}"],
