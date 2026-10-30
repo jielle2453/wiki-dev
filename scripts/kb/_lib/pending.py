@@ -162,9 +162,12 @@ def _hand_edit(vault, data, turn_id):
             return None
         known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
         base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
-        return hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
-                            lambda got: _apply_hand(data, got, turn_id), ignore_sections=(ASKS_TITLE,))
-    except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理
+        return hand.guarded(
+            vault, MD_POSIX, hers, data,
+            lambda st: hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
+                                    lambda got: _apply_hand(data, got, turn_id), ignore_sections=(ASKS_TITLE,), state=st),
+            lambda saved, diff: data["items"].append(_handedit_item(data["items"], MD_POSIX, saved, diff, turn_id)))  # 已在待處理的鎖裡，直接加
+    except Exception as e:  # noqa: BLE001  手改偵測不能擋住寫待處理（guarded 以外的出錯，例如讀頁面）
         ledger.log_error(vault, f"待處理.md 手改比對失敗：{type(e).__name__}: {e}", source="renders")
         return None
 

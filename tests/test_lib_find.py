@@ -257,6 +257,18 @@ class Fallback(Base):
         self.assertEqual([(p["kind"], p["text"]) for p in out["parsed"]], [("word", "追加燈具升級")])
         self.assertEqual([f["card"] for f in out["files"]], [self.upgrade])
 
+    def test_21_time_words_removed_by_position_not_by_text(self):
+        """裁定 21：去掉的是第一次拆字認到的那一段位置；時間詞字樣也出現在別的詞裡（這裡是標籤詞「去年度驗收」）時，那個詞不被切壞。"""
+        data = profile.load(self.V)
+        data["tags"].append({"type": "案子", "field": "階段", "words": ["去年度驗收"], "multi": False, "source": "interview", "date": TODAY})
+        text = profile.render_text(data)
+        (self.V / profile.MD_POSIX).write_text(text, encoding="utf-8", newline="\n")
+        data["md_sha256"] = profile.sha256_text(text)
+        (self.V / profile.PROFILE_POSIX).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        out = self.find("去年度驗收 去年 xyz")
+        self.assertTrue(out["fallback"])
+        self.assertEqual([p["text"] for p in out["parsed"]], ["去年度驗收", "xyz"])
+
     def test_no_fallback_key_when_first_pass_found_something(self):
         self.assertNotIn("fallback", self.find("信義王"))
 

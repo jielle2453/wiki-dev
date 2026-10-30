@@ -251,6 +251,21 @@ class OverlapWithObsidian(ViaBase):
         self.assertIsNone(TURN_CODE.search(r.stdout), r.stdout)
         self.assertEqual(self.snapshot(), before)
 
+    def test_23_other_conversation_and_obsidian_both_blocking_say_both_endings(self):
+        """裁定 23：同時撞到別的對話與 Obsidian，結尾兩句都講（別的對話那句照舊，接 Obsidian 那句）。"""
+        self.stop(A)
+        self.prompt(B, "我也加一條")
+        self.agenda(B, "B 加的", date="2026-11-28")
+        self.stop(B)
+        self.prompt(A, "再退回")
+        r = self.kb("versions", "revert", sid=A)
+        self.assertEqual(r.returncode, 3, r.stdout)
+        lines = r.stdout.splitlines()
+        self.assertIn("另一個對話", r.stdout)
+        self.assertIn("你在 Obsidian 按的", r.stdout)
+        self.assertEqual(lines[-2:], ["要退得先到那個對話退回它，或直接跟我說要改成什麼。",
+                                      "那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。"])
+
 
 if __name__ == "__main__":
     unittest.main()

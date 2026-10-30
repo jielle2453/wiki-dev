@@ -69,6 +69,7 @@ test('renders apply 的回報：套用了幾件、搬進「你加的」就說在
   assert.strictEqual(lib.summarizeApply({ applied: [], carried: [{ id: 'c-1' }] }, '日程').text, '你剛在這頁改的我留在最下面『你加的』');
   assert.strictEqual(lib.summarizeApply({ applied: 1, carried: 1 }, '待處理').text, '照你在待處理改的做了 1 件；你剛在這頁改的我留在最下面『你加的』');
   assert.strictEqual(lib.summarizeApply(null, '日程').text, '');
+  assert.strictEqual(lib.summarizeApply({ applied: [], carried: [], unrecognized: true }, '日程').text, '這頁你改的我沒認出來，記在待處理了');
   assert.ok(lib.hasCarriedSection('# 日程\n\n## 你加的（還沒處理）\n- 測試\n'));
   assert.ok(!lib.hasCarriedSection('# 日程\n'));
 });

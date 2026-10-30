@@ -13,6 +13,7 @@ import difflib
 from kb._lib import ledger, renders
 
 KEEP_FAILED = renders.KEEP_FAILED
+UNRECOGNIZED = "unrecognized"  # 認手改時出錯：她那份存了、開了 handedit，頁面照常重寫（裁定 22）
 SIMILAR = 0.6  # 刪掉的那行跟新打的那行像到這個程度，算「改了某行的字」而不是刪一行加一行
 PAGE_NAMES = {"系統/日程.md": "日程.md", "系統/待處理.md": "待處理.md", "系統/裁示.md": "裁示.md"}
 
@@ -59,10 +60,11 @@ def is_empty(got):
     return not any(got.get(k) for k in ("checked", "removed", "changed_date", "add", "drop"))
 
 
-def consume(vault, rel, hers, base_text, lines, known_ids, apply_fn, ignore_sections=()):
+def consume(vault, rel, hers, base_text, lines, known_ids, apply_fn, ignore_sections=(), state=None):
     """在鎖裡（呼叫端拿著）處理她那份：回 None（沒有要做的）、KEEP_FAILED（她那份沒存成，這次不重寫）或報告
     {"applied": [句子], "carried": [認不出的字], "dropped": 幾筆不用了, "saved": 她那份存到哪}。
-    apply_fn(got) 在資料上做認得出的，回 (做了什麼的句子, 這頁做不了而改記成認不出的)。"""
+    apply_fn(got) 在資料上做認得出的，回 (做了什麼的句子, 這頁做不了而改記成認不出的)。state 是 dict 時，她那份存好就把路徑放進
+    state["saved"]（guarded 靠它知道不用再存一份）。"""
     got = plan(vault, rel, hers, base_text, lines, known_ids, ignore_sections)
     if is_empty(got):
         return None
@@ -71,26 +73,38 @@ def consume(vault, rel, hers, base_text, lines, known_ids, apply_fn, ignore_sect
     except Exception as e:  # noqa: BLE001
         ledger.log_error(vault, f"{rel} 她那份沒存成，這次不重寫：{type(e).__name__}: {e}", source="renders")
         return KEEP_FAILED
+    if state is not None:
+        state["saved"] = saved
     applied, extra = apply_fn(got)
     added, dropped = renders.add_carried(vault, rel, got["add"] + list(extra), drop_ids=got["drop"])
     return {"applied": applied, "carried": [renders.carried_line(c) for c in added], "dropped": len(dropped), "saved": saved}
 
 
-def guarded(vault, rel, hers, data, run):
-    """consume 包一層（三頁的 _consume_hand 都用）：認手改時丟例外只記 hook-errors.log，data 退回呼叫前的樣子、回 None，
-    呼叫端照常做它自己的寫入，不讓之後每次寫都失敗；她那份盡力存（存不下也只記 log）。"""
+def guarded(vault, rel, hers, data, run, open_item):
+    """consume 包一層（三頁的 _consume_hand 都用）：run(state) 認手改時丟例外，記 hook-errors.log，data 退回呼叫前的樣子，
+    她那份只存一份（consume 已經存了就不再存），另開一件 handedit（open_item(存到哪, 差異)，D-223 原本那條路），回 UNRECOGNIZED；
+    呼叫端照常做它自己的寫入、頁面照常重寫，不讓之後每次寫都失敗。她那份存不下回 KEEP_FAILED（這次不重寫）。"""
     snap = copy.deepcopy(data)
+    state = {}
     try:
-        return run()
+        return run(state)
     except Exception as e:  # noqa: BLE001
         data.clear()
         data.update(snap)
         ledger.log_error(vault, f"{rel} 認手改失敗，這次照常寫、不照做：{type(e).__name__}: {e}", source="renders")
+        saved = state.get("saved")
+        if saved is None:
+            try:
+                saved = renders.keep(vault, rel, hers)
+            except Exception as e2:  # noqa: BLE001
+                ledger.log_error(vault, f"{rel} 她那份沒存成：{type(e2).__name__}: {e2}", source="renders")
+                return KEEP_FAILED
         try:
-            renders.keep(vault, rel, hers)
-        except Exception as e2:  # noqa: BLE001
-            ledger.log_error(vault, f"{rel} 她那份沒存成：{type(e2).__name__}: {e2}", source="renders")
-        return None
+            open_item(saved, renders.mask_diff(vault, {"checked": [], "removed": [], "changed_date": [],
+                                                       "other": ["（比對不出改了哪裡）"]}))
+        except Exception as e3:  # noqa: BLE001
+            ledger.log_error(vault, f"{rel} 手改沒記進待處理：{type(e3).__name__}: {e3}", source="renders")
+        return UNRECOGNIZED
 
 
 def note(rel, report):

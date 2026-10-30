@@ -153,9 +153,43 @@ class AgendaApply(Base):
         self.assertEqual(self.item(self.a)["status"], "open")  # 半做的不留
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertIn("RuntimeError", log)
-        self.assertTrue(any(n.endswith("日程.md") for n in self.saved_files()), "她那份照舊存")
+        self.assertEqual(len([n for n in self.saved_files() if n.endswith("日程.md")]), 1, "她那份只存一份（裁定 22）")
+        (he,) = self.handedits()  # 另開一件 handedit（D-223 原本那條）
+        self.assertEqual(he["data"]["file"], AGENDA_MD)
+        self.assertTrue(he["data"]["saved"].startswith(".system/handedits/"))
         agenda.add(self.V, "提醒", "2030-04-02", "再一個", ["信義王"], self.t)  # 下一次寫入不再失敗
         self.assertTrue(any(i["text"] == "再一個" for i in agenda.load(self.V)["items"]))
+        self.assertEqual(len(self.handedits()), 1, "同一份手改不會一直開新的")
+
+    def test_22_apply_says_it_did_not_understand_and_recorded_it(self):
+        from unittest import mock
+        from kb import cli
+        import contextlib
+        import io
+        self.hand_the_four_edits()
+        out = io.StringIO()
+        with mock.patch.object(agenda, "_apply_hand", side_effect=RuntimeError("壞了")), contextlib.redirect_stdout(out):
+            code = cli.main(["renders", "apply", AGENDA_MD, "--vault", str(self.V)])
+        self.assertEqual((code, out.getvalue().strip()), (0, "這頁你改的我沒認出來，記在待處理了"))
+        self.assertEqual(len(self.handedits()), 1)
+        self.assertEqual(self.item(self.a)["status"], "open")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["renders", "apply", AGENDA_MD, "--vault", str(self.V), "--json"])
+        self.assertEqual(json.loads(out.getvalue())["applied"], [], "頁面已經重寫，再叫一次沒有手改")
+        self.assertEqual(len(self.handedits()), 1)
+
+    def test_22_json_flag_for_the_plugin(self):
+        from unittest import mock
+        from kb import cli
+        import contextlib
+        import io
+        self.hand_the_four_edits()
+        out = io.StringIO()
+        with mock.patch.object(agenda, "_apply_hand", side_effect=RuntimeError("壞了")), contextlib.redirect_stdout(out):
+            cli.main(["renders", "apply", AGENDA_MD, "--vault", str(self.V), "--json"])
+        got = json.loads(out.getvalue())
+        self.assertEqual((got["page"], got["applied"], got["carried"], got["dropped"], got["unrecognized"]), (AGENDA_MD, [], [], 0, True))
 
     def test_9_history_turn_is_the_triggering_turn(self):
         self.hand_the_four_edits()
@@ -248,6 +282,20 @@ class PendingApply(Base):
         self.assertEqual(self.status(self.p2)["status"], "dismissed")
         self.assertIn("丙.pdf", self.md(PENDING_MD))
         self.assertEqual(self.handedits(), [])
+
+    def test_24_pending_page_hand_edit_goes_through_guarded(self):
+        """裁定 24：待處理頁認手改出錯，資料退回、她那份只存一份、另開 handedit，寫入照常。"""
+        from unittest import mock
+        self.edit_lines(PENDING_MD, lambda ls: [ln.replace("- ", "- [x] ", 1) if "甲.pdf" in ln else ln for ln in ls])
+        with mock.patch.object(pending, "_apply_hand", side_effect=RuntimeError("壞了")):
+            pending.add(self.V, "unreadable", ["f-33333333"], "「丙.pdf」讀不到", "檔案壞了", self.t)
+        self.assertEqual(self.status(self.p1)["status"], "open")
+        self.assertIn("丙.pdf", self.md(PENDING_MD))
+        (he,) = self.handedits()
+        self.assertEqual(he["data"]["file"], PENDING_MD)
+        self.assertEqual(len([n for n in self.saved_files() if n.endswith("待處理.md")]), 1)
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertIn("RuntimeError", log)
 
     def test_date_change_on_pending_is_carried(self):
         self.edit_lines(PENDING_MD, lambda ls: [ln.replace(ln[2:12], "2031-01-01") if "甲.pdf" in ln else ln for ln in ls])

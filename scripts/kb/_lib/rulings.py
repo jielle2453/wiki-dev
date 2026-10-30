@@ -123,7 +123,7 @@ def _mutate(vault, turn_id, fn, hand_out=None):
         if hand_out is not None:
             hand_out.append(hand)
         result, changed = fn(data)
-        changed = changed or isinstance(hand, dict)
+        changed = changed or isinstance(hand, dict) or hand == "unrecognized"  # hand.UNRECOGNIZED：頁面照常重寫
         if changed:
             from kb._lib import turn
             turn.backup(vault, RULINGS_POSIX, turn_id)
@@ -164,8 +164,12 @@ def _consume_hand(vault, data, turn_id):
     titles, names = agenda.card_titles(vault), file_names(vault)
     known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才重算
     base_text, lines = known if known else (render_text(data, titles, names), item_lines(data, titles, names))
-    return hand.guarded(vault, MD_POSIX, hers, data, lambda: hand.consume(
-        vault, MD_POSIX, hers, base_text, lines, {r.get("id") for r in data["rulings"]}, lambda got: _apply_hand(data, got, turn_id)))
+    from kb._lib import pending
+    return hand.guarded(
+        vault, MD_POSIX, hers, data,
+        lambda st: hand.consume(vault, MD_POSIX, hers, base_text, lines, {r.get("id") for r in data["rulings"]},
+                                lambda got: _apply_hand(data, got, turn_id), state=st),
+        lambda saved, diff: pending.add_handedit(vault, MD_POSIX, saved, diff, turn_id))
 
 
 def _new_id(data):

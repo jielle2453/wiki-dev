@@ -299,3 +299,23 @@ test('時間軸：有資料時照常有「全部展開／收起」', () => {
   const labels = byClass(view.timelineEl, 'wwh-small-btn').map((b) => b.textContent);
   assert.ok(labels.includes('全部展開') && labels.includes('全部收起'), labels.join());
 });
+
+test('搜尋：關掉首頁分頁重開（新的 view），舊 view 還在路上的查詢回來也不蓋新的結果（請求編號放在 plugin 上，裁定 25）', async () => {
+  const waits = {};
+  const { view: oldView, plugin } = makeView();
+  plugin.runner.run = (args) =>
+    new Promise((resolve) => {
+      waits[args[1]] = () => resolve({ code: 0, stdout: JSON.stringify({ q: args[1], parsed: [], entities: [], files: [], total: 0, more: false }), stderr: '' });
+    });
+  const slow = oldView.doSearch('舊的');
+  const newView = new lib.HomeView({}, plugin); // 新分頁、新的 view，同一個 plugin
+  newView.build();
+  newView.render();
+  const fresh = newView.doSearch('新的');
+  waits['新的']();
+  await fresh;
+  waits['舊的']();
+  await slow;
+  assert.strictEqual(plugin.ui.search.q, '新的');
+  assert.strictEqual(plugin.ui.search.result.q, '新的');
+});

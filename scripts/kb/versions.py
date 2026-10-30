@@ -233,7 +233,10 @@ def _refuse_overlap(hits, as_json):
         print(f"- {h['path']}：{_describe(h['turn'])}（{word}）")
     if len(hits) > ENTRY_LINES_MAX:
         print(f"……共 {len(hits)} 處")
-    print(OVERLAP_TAIL_OBSIDIAN if any(_obsidian(h["turn"]) for h in hits) else OVERLAP_TAIL)
+    if any(not _obsidian(h["turn"]) for h in hits):  # 別的對話那句照舊；有 Obsidian 的再接一句（裁定 13、23）
+        print(OVERLAP_TAIL)
+    if any(_obsidian(h["turn"]) for h in hits):
+        print(OVERLAP_TAIL_OBSIDIAN)
     return 3
 
 

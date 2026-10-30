@@ -151,7 +151,7 @@ def parse(vault, q, today=None, ent_data=None, prof=None):
         picked.append((i, j, "word", None))
         i = j
     picked.sort(key=lambda p: p[0])
-    parsed, cond = [], {"entity": [], "type": [], "tag": [], "time": [], "word": []}
+    parsed, cond = [], {"entity": [], "type": [], "tag": [], "time": [], "word": [], "time_spans": []}
     for a, b, kind, payload in picked:
         text = q[where[a]:where[b - 1] + 1].strip()
         if kind == "entity":
@@ -170,6 +170,7 @@ def parse(vault, q, today=None, ent_data=None, prof=None):
             parsed.append({"kind": "time", "text": text, "label": _range_label(lo, hi, today),
                            "value": [lo.isoformat(), hi.isoformat()]})
             cond["time"].append((lo.isoformat(), hi.isoformat()))
+            cond["time_spans"].append((where[a], where[b - 1] + 1))  # 在原字串 q 裡的位置，fallback 照這個拿掉（裁定 21）
         else:
             word = q[where[a]:where[b - 1] + 1]
             parsed.append({"kind": "word", "text": word, "label": f"字 {word}", "value": word})
@@ -212,22 +213,22 @@ def _body(vault, path):
     return entities.key(text[m.end():] if m else text)
 
 
-def _fallback_words(q, parsed):
+def _fallback_words(q, parsed, cond):
     """拆完 0 筆時的第二次：整串去掉認出的時間詞，剩下的照空白與標點切成字。回 (parsed, cond)；沒有什麼好再試的回 None。"""
     main = [p for p in parsed if p["kind"] != "time"]
     if not any(p["kind"] in ("entity", "type", "tag") for p in main):
         return None
     if len(main) == 1 and main[0]["kind"] in ("entity", "type"):
         return None  # 整串就是一個認得的實體或卡型：沒有卡就是沒有，不拆錯
-    rest = q
-    for p in parsed:
-        if p["kind"] == "time":
-            rest = rest.replace(p["text"], " ", 1)
+    rest = list(q)
+    for a, b in cond["time_spans"]:  # 第一次拆字認到的時間詞那一段，不是字樣相同的第一處
+        rest[a:b] = " " * (b - a)
+    rest = "".join(rest)
     words = [w for w in re.split("[" + re.escape(_PUNCT) + "]+", rest) if w]
     if not words:
         return None
     again = [{"kind": "word", "text": w, "label": f"字 {w}", "value": w} for w in words]
-    return again, {"entity": [], "type": [], "tag": [], "time": [], "word": [entities.key(w) for w in words]}
+    return again, {"entity": [], "type": [], "tag": [], "time": [], "word": [entities.key(w) for w in words], "time_spans": []}
 
 
 def find(vault, q, today=None):
@@ -238,7 +239,7 @@ def find(vault, q, today=None):
     out = _search(vault, q, parsed, cond, ent_data)
     if out["files"]:
         return out
-    again = _fallback_words(q, parsed)
+    again = _fallback_words(q, parsed, cond)
     if again is None:
         return out
     second = _search(vault, q, again[0], again[1], ent_data)

@@ -163,7 +163,7 @@ def _mutate(vault, turn_id, fn, hand_out=None):
         if hand_out is not None:
             hand_out.append(hand)
         result, changed = fn(data)
-        changed = changed or rolled or isinstance(hand, dict)
+        changed = changed or rolled or isinstance(hand, dict) or hand == "unrecognized"  # hand.UNRECOGNIZED：頁面照常重寫
         if changed:
             from kb._lib import turn
             turn.backup(vault, AGENDA_POSIX, turn_id)
@@ -941,8 +941,12 @@ def _consume_hand(vault, data, turn_id):
         base_text, lines = known if known else (render_text(vault, data, day), item_lines(vault, data, day))
     except Exception:  # noqa: BLE001  算不出她看到的那份：只比得出「其他」
         base_text, lines = "", []
-    return hand.guarded(vault, MD_POSIX, hers, data, lambda: hand.consume(
-        vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]}, lambda got: _apply_hand(vault, data, got, turn_id)))
+    from kb._lib import pending
+    return hand.guarded(
+        vault, MD_POSIX, hers, data,
+        lambda st: hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
+                                lambda got: _apply_hand(vault, data, got, turn_id), state=st),
+        lambda saved, diff: pending.add_handedit(vault, MD_POSIX, saved, diff, turn_id))
 
 
 def render(vault, turn_id=None, data=None, today=None, base=None, hand=None):

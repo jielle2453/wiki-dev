@@ -40,6 +40,7 @@ const RELOAD_TEXT = '首頁更新了，按這裡重新載入';
 const COPIED_TEXT = '已複製，貼到 Claude 的對話裡';
 const NEED_CLAUDE_TEXT = '到對話跟 Claude 說';
 const CARRIED_TEXT = '你剛在這頁改的我留在最下面『你加的』';
+const UNRECOGNIZED_TEXT = '這頁你改的我沒認出來，記在待處理了';
 const UPDATED_TEXT = '這頁剛被更新了';
 const CARD_REF_RE = /〔(f-[0-9a-f]{4,})〕/g;
 
@@ -1029,6 +1030,7 @@ function summarizeApply(json, pageName) {
   const applied = count(j.applied);
   const carried = count(j.carried);
   const parts = [];
+  if (j.unrecognized) parts.push(UNRECOGNIZED_TEXT);
   if (applied) parts.push(`照你在${pageName || '這頁'}改的做了 ${applied} 件`);
   if (carried) parts.push(CARRIED_TEXT);
   return { applied, carried, text: parts.join('；') };
@@ -1410,11 +1412,11 @@ class HomeView extends ItemView {
     ui.loading = true;
     ui.error = null;
     this.inputEl.value = q;
-    this.searchSeq = (this.searchSeq || 0) + 1;
-    const seq = this.searchSeq;
+    ui.seq = (ui.seq || 0) + 1; // 請求編號跟搜尋狀態放同一處：重開分頁（新的 view）也只認最新那次
+    const seq = ui.seq;
     this.renderSearchPanels();
     const res = await this.plugin.runner.run(findArgs(q));
-    if (seq !== this.searchSeq) return; // 後面又搜了（或清掉了）：這個舊的結果丟掉
+    if (seq !== ui.seq) return; // 後面又搜了（或清掉了）：這個舊的結果丟掉
     const c = classify(res);
     ui.loading = false;
     if (c.kind === 'ok') {
@@ -1430,7 +1432,7 @@ class HomeView extends ItemView {
 
   clearSearch() {
     const ui = this.plugin.ui.search;
-    this.searchSeq = (this.searchSeq || 0) + 1; // 還在路上的查詢回來不算數
+    ui.seq = (ui.seq || 0) + 1; // 還在路上的查詢回來不算數
     ui.q = '';
     ui.active = false;
     ui.result = null;

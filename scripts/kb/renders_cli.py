@@ -17,6 +17,7 @@ NOTHING = "這頁沒有要照做的"
 BAD_PAGE = "頁只收 系統/日程.md、系統/待處理.md、系統/裁示.md"
 NO_SUCH = "沒有這一筆「你加的」"
 KEEP_FAILED = "她那份沒存成，這次先不動；再說一次"
+UNRECOGNIZED = "這頁你改的我沒認出來，記在待處理了"
 CLI_LOCK_TIMEOUT = 30
 PAGES = {
     "系統/日程.md": (agenda.apply_hand, [agenda.AGENDA_POSIX, agenda.MD_POSIX]),
@@ -67,6 +68,9 @@ def _apply(vault, args, as_json, conversation):
     if report == hand.KEEP_FAILED:
         print(KEEP_FAILED)
         return 3
+    if report == hand.UNRECOGNIZED:  # 認手改時出錯：她那份存了、待處理開了一件，頁面已重寫（裁定 22）
+        _out(as_json, [UNRECOGNIZED], {"page": rel, "applied": [], "carried": [], "dropped": 0, "unrecognized": True})
+        return 0
     if report is None:
         _out(as_json, [NOTHING], {"page": rel, "applied": [], "carried": [], "dropped": 0})
         return 0
