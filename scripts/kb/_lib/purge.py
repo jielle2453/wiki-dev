@@ -531,6 +531,7 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
 
 OBSIDIAN_WORKSPACE = ".obsidian/workspace.json"
 OBSIDIAN_DATA = ".obsidian/plugins/wiki-with-willy/data.json"
+OBSIDIAN_BOOKMARKS = ".obsidian/bookmarks.json"
 
 
 def _obsidian_match(path, ids, folder):
@@ -565,10 +566,27 @@ def _prune_workspace(node, ids, folder):
     return out, n
 
 
+def _prune_bookmarks(items, ids, folder):
+    """書籤清單：type 是 file／folder、path 指到那些卡或那夾的拿掉，群組（group）裡的也算；回 (新清單, 拿掉幾個)。"""
+    out, n = [], 0
+    for b in items:
+        if isinstance(b, dict) and b.get("type") in ("file", "folder") and _obsidian_match(b.get("path"), ids, folder):
+            n += 1
+            continue
+        if isinstance(b, dict) and isinstance(b.get("items"), list):
+            inner, k = _prune_bookmarks(b["items"], ids, folder)
+            n += k
+            b = dict(b, items=inner) if k else b
+        out.append(b)
+    return out, n
+
+
 def _obsidian_traces(vault, ids, folder, counts):
-    """Obsidian 的痕跡（Obsidian 首頁，#22，D-262）：.obsidian/workspace.json 的 lastOpenFiles 與 main／left／right 樹裡指到那些卡或那夾的
-    項目拿掉；外掛 data.json 的「最近」拿掉那些卡編號。讀不懂的整份不動、算沒清完（state）。沒有這些檔就略過。"""
+    """Obsidian 的痕跡（Obsidian 首頁，#22，D-262、裁定 15）：.obsidian/workspace.json 的 lastOpenFiles 與 main／left／right 樹裡指到那些卡或那夾的
+    項目拿掉；bookmarks.json（核心外掛「書籤」）指到那些卡或那夾的拿掉；外掛 data.json 的「最近」拿掉那些卡編號。
+    讀不懂的整份不動、算沒清完（state）。沒有這些檔就略過。清了幾個記在 counts["obsidian"]，給成功句照實說。"""
     ids = set(ids)
+    got = counts.setdefault("obsidian", {"workspace": 0, "bookmarks": 0, "recent": 0})
     ws = Path(vault) / OBSIDIAN_WORKSPACE
     if ws.is_file():
         try:
@@ -576,13 +594,30 @@ def _obsidian_traces(vault, ids, folder, counts):
             if not isinstance(data, dict):
                 raise ValueError("workspace.json 不是物件")
             new = dict(data)
+            n = 0
             if isinstance(data.get("lastOpenFiles"), list):
                 new["lastOpenFiles"] = [f for f in data["lastOpenFiles"] if not _obsidian_match(f, ids, folder)]
+                n += len(data["lastOpenFiles"]) - len(new["lastOpenFiles"])
             for part in ("main", "left", "right"):
                 if part in data:
-                    new[part], _n = _prune_workspace(data[part], ids, folder)
+                    new[part], k = _prune_workspace(data[part], ids, folder)
+                    n += k
             if new != data:
                 write_text_atomic(ws, json.dumps(new, ensure_ascii=False, indent=2) + "\n")
+                got["workspace"] += n
+        except (ValueError, OSError, UnicodeDecodeError):
+            counts["left"]["state"] += 1
+    bm = Path(vault) / OBSIDIAN_BOOKMARKS
+    if bm.is_file():
+        try:
+            data = json.loads(bm.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or (data.get("items") is not None and not isinstance(data["items"], list)):
+                raise ValueError("bookmarks.json 格式不對")
+            if isinstance(data.get("items"), list):
+                items, n = _prune_bookmarks(data["items"], ids, folder)
+                if n:
+                    write_text_atomic(bm, json.dumps(dict(data, items=items), ensure_ascii=False, indent=2) + "\n")
+                    got["bookmarks"] += n
         except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
     dj = Path(vault) / OBSIDIAN_DATA
@@ -595,6 +630,7 @@ def _obsidian_traces(vault, ids, folder, counts):
                 kept = [o for o in data["opened"] if not (isinstance(o, dict) and o.get("card") in ids)]
                 if len(kept) != len(data["opened"]):
                     write_text_atomic(dj, json.dumps(dict(data, opened=kept), ensure_ascii=False, indent=2) + "\n")
+                    got["recent"] += len(data["opened"]) - len(kept)
         except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
 
@@ -1295,7 +1331,7 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     record(vault, alias, spec, "turns", own_turns(vault), turn_id)
     keep = recorded(vault, alias, spec, "turns")  # 排除那一句、清那一句：「問」不換
     counts = {"card_ids": set(), "finding_ids": set(), "backups": 0, "temp": 0, "journal": 0, "findings": 0,
-              "undecodable": 0, "left": {k: 0 for k, _w in LEFT_WORDS}}
+              "undecodable": 0, "obsidian": {"workspace": 0, "bookmarks": 0, "recent": 0}, "left": {k: 0 for k, _w in LEFT_WORDS}}
     prefix = folder_uri(alias, spec)
     mask = masker(vault, alias, spec, root)  # 備份、ledger、hook-errors 只換路徑（第六輪）
     words = word_masker(mask, ids, word_titles(vault, titles))  # 工作日誌與回合檔的「問」、result、note 另比編號與標題
@@ -1326,7 +1362,7 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     snapshots = _snapshots(vault, counts, keep_snapshots)
     return {"cards": len(counts["card_ids"]), "backups": counts["backups"], "temp": counts["temp"],
             "journal": counts["journal"], "findings": counts["findings"], "undecodable": counts["undecodable"],
-            "snapshots": snapshots,
+            "obsidian": counts["obsidian"], "snapshots": snapshots,
             "remaining": {k: v for k, v in counts["left"].items() if v}}
 
 

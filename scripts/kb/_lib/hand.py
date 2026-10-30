@@ -7,6 +7,7 @@
 
 呼叫端（agenda._mutate、pending._edit、rulings._mutate）已經拿著那份狀態檔的鎖、手上有資料：consume 在資料上直接改，寫檔與重新產生由呼叫端接著做。
 """
+import copy
 import difflib
 
 from kb._lib import ledger, renders
@@ -73,6 +74,23 @@ def consume(vault, rel, hers, base_text, lines, known_ids, apply_fn, ignore_sect
     applied, extra = apply_fn(got)
     added, dropped = renders.add_carried(vault, rel, got["add"] + list(extra), drop_ids=got["drop"])
     return {"applied": applied, "carried": [renders.carried_line(c) for c in added], "dropped": len(dropped), "saved": saved}
+
+
+def guarded(vault, rel, hers, data, run):
+    """consume 包一層（三頁的 _consume_hand 都用）：認手改時丟例外只記 hook-errors.log，data 退回呼叫前的樣子、回 None，
+    呼叫端照常做它自己的寫入，不讓之後每次寫都失敗；她那份盡力存（存不下也只記 log）。"""
+    snap = copy.deepcopy(data)
+    try:
+        return run()
+    except Exception as e:  # noqa: BLE001
+        data.clear()
+        data.update(snap)
+        ledger.log_error(vault, f"{rel} 認手改失敗，這次照常寫、不照做：{type(e).__name__}: {e}", source="renders")
+        try:
+            renders.keep(vault, rel, hers)
+        except Exception as e2:  # noqa: BLE001
+            ledger.log_error(vault, f"{rel} 她那份沒存成：{type(e2).__name__}: {e2}", source="renders")
+        return None
 
 
 def note(rel, report):

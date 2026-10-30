@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime, timedelta
 
 from tests._guard_fixture import KB, ROOT
-from tests.test_versions_sessions import A, B, Base
+from tests.test_versions_sessions import A, B, Base, TURN_CODE
 from kb._lib import clean, turn  # noqa: E402
 
 
@@ -225,6 +225,31 @@ class Clean(ViaBase):
         got = clean.run(self.V)
         self.assertEqual(got["turns_removed"], 30)
         self.assertEqual(self.count(""), 5)
+
+
+class OverlapWithObsidian(ViaBase):
+    """裁定 13：對話退回撞到後來 Obsidian 的回合，拒絕句寫「你在 Obsidian 按的」，不叫她去別的對話退回。"""
+    def setUp(self):
+        super().setUp()
+        self.prompt(A, "11/25 有個會")
+        self.agenda(A, "對話裡加的")
+        self.stop(A)
+        self.agenda_via("Obsidian 後來加的", date="2026-11-27")
+        self.prompt(A, "退回上一步")
+
+    def test_refusal_names_obsidian_not_other_conversation(self):
+        before = self.snapshot()
+        r = self.kb("versions", "revert", sid=A)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[0], "退不回去：這一句之後，有別的地方也改過同一份，什麼都沒動")
+        mine = [x for x in lines if x.startswith("- .system/agenda.json：")]
+        self.assertEqual(len(mine), 1, r.stdout)
+        self.assertRegex(mine[0], r"^- \.system/agenda\.json：\d\d-\d\d \d\d:\d\d 你在 Obsidian 按的$")
+        self.assertNotIn("對話外", r.stdout)
+        self.assertEqual(lines[-1], "那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。")
+        self.assertIsNone(TURN_CODE.search(r.stdout), r.stdout)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":

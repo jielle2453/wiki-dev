@@ -1,8 +1,8 @@
 """kb obsidian status／open [--json]（Obsidian 首頁，#22，D-259）：Obsidian 裝了沒、這個知識庫登記了沒、外掛放了沒；open 替她把知識庫加進 Obsidian 並打開。
 
-open：沒裝 Obsidian 說去哪下載（不替她裝）；外掛沒放先放（同 kb init）；已登記的直接 obsidian://open?path=<知識庫> 打開；沒登記的，
-Obsidian 沒在跑就先把知識庫寫進 %APPDATA%\obsidian\obsidian.json（id 16 碼 hex、ts 現在）再打開，在跑就說「先關掉 Obsidian 再說一次」exit 3
-（它在跑時會把自己的設定寫回去，我們寫的會被蓋掉）。第一次打開 Obsidian 會問要不要信任這個資料夾的外掛，請她按「信任」。
+open：沒裝 Obsidian 說去哪下載（不替她裝）；已登記的直接 obsidian://open?path=<知識庫> 打開；沒登記的，
+Obsidian 沒在跑就先把知識庫寫進 %APPDATA%/obsidian/obsidian.json（id 16 碼 hex、ts 現在）再打開，在跑就說「先關掉 Obsidian 再說一次」exit 3
+（它在跑時會把自己的設定寫回去，我們寫的會被蓋掉）。外掛檔在檢查、登記都過了才放（同 kb init；放不成只記一句、不擋打開）。第一次打開 Obsidian 會問要不要信任這個資料夾的外掛，請她按「信任」。
 終端機跑的記一段工作日誌程式段，對話裡叫的併進回合。
 """
 import argparse
@@ -45,12 +45,9 @@ def _open(vault, as_json, conversation):
     if not obsidian.installed():
         print(NOT_INSTALLED)
         return 3
-    changed = []
-    wrote, notes = obsidian.place(vault)
-    changed += [{"path": rel, "action": "modify"} for rel in wrote]
     registered = obsidian.vault_registered(vault)
     added = False
-    if not registered:
+    if not registered:  # 先檢查、先登記，擋下來的時候知識庫裡不留外掛檔；外掛檔最後才放
         if obsidian._running():
             print(CLOSE_FIRST)
             return 3
@@ -60,6 +57,12 @@ def _open(vault, as_json, conversation):
             print(f"沒辦法把知識庫加進 Obsidian：{e}")
             return 3
         added = True
+    wrote, notes = [], []
+    try:
+        wrote, notes = obsidian.place(vault)
+    except OSError as e:  # 同 kb init：外掛沒放成不擋打開
+        notes = [f"Obsidian 外掛沒放成：{e}"]
+    changed = [{"path": rel, "action": "modify"} for rel in wrote]
     try:
         obsidian._startfile(obsidian.open_url(vault))
     except OSError as e:

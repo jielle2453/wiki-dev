@@ -340,5 +340,16 @@ class SetValue(Base):
         self.assertEqual(self.refused(build.set_value, self.D, "people", "  "), "要記的值是空的")
 
 
+
+class StepOrderDocs(unittest.TestCase):
+    def test_14_header_and_ops_row_list_the_obsidian_step(self):
+        """裁定 14：build.py 檔頭與 ops 那列寫的步驟順序跟 STEPS 一樣（tags → obsidian → finish）。"""
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        for text in ((root / "scripts" / "kb" / "_lib" / "build.py").read_text(encoding="utf-8"),
+                     (root / "ops" / "map-lib-platform.md").read_text(encoding="utf-8")):
+            self.assertRegex(text, r"tags[^→\n]*→ obsidian[^→\n]*→ finish")
+
+
 if __name__ == "__main__":
     unittest.main()

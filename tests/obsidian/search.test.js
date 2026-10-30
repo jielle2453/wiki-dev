@@ -250,3 +250,52 @@ test('最近那一列：沒打字時顯示，來自 kb home 的 recent', () => {
   assert.strictEqual(byTag(view.recentEl, 'button').length, 1, '只有有卡路徑的有開卡小圖示');
   assert.ok(!view.recentEl.classList.contains('wwh-hidden'));
 });
+
+test('搜尋：先送的慢查詢比後送的晚回來，不會蓋掉後面的結果（請求編號，裁定 14）', async () => {
+  const waits = {};
+  const { view, plugin } = makeView();
+  plugin.runner.run = (args) =>
+    new Promise((resolve) => {
+      waits[args[1]] = () => resolve({ code: 0, stdout: JSON.stringify({ q: args[1], parsed: [], entities: [], files: [], total: 0, more: false }), stderr: '' });
+    });
+  const slow = view.doSearch('慢的');
+  const fast = view.doSearch('快的');
+  waits['快的']();
+  await fast;
+  assert.strictEqual(plugin.ui.search.q, '快的');
+  assert.strictEqual(plugin.ui.search.result.q, '快的');
+  assert.strictEqual(plugin.ui.search.loading, false);
+  waits['慢的']();
+  await slow;
+  assert.strictEqual(plugin.ui.search.q, '快的', '舊的回來不改搜尋字');
+  assert.strictEqual(plugin.ui.search.result.q, '快的', '舊的回來不蓋結果');
+});
+
+test('搜尋：清掉之後才回來的舊結果丟掉', async () => {
+  let release;
+  const { view, plugin } = makeView();
+  plugin.runner.run = () =>
+    new Promise((resolve) => {
+      release = () => resolve({ code: 0, stdout: JSON.stringify({ q: 'x', parsed: [], entities: [], files: [], total: 0, more: false }), stderr: '' });
+    });
+  const pending = view.doSearch('x');
+  view.clearSearch();
+  release();
+  await pending;
+  assert.strictEqual(plugin.ui.search.active, false);
+  assert.strictEqual(plugin.ui.search.result, null);
+});
+
+test('時間軸：kb home 還沒回來（home 是空的）時不畫「全部展開／收起」，按不到就不會出錯', () => {
+  const { view } = makeView({ home: null });
+  const labels = byClass(view.timelineEl, 'wwh-small-btn').map((b) => b.textContent);
+  assert.ok(!labels.includes('全部展開'), labels.join());
+  assert.ok(!labels.includes('全部收起'), labels.join());
+  assert.doesNotThrow(() => view.setAllRows(false));
+});
+
+test('時間軸：有資料時照常有「全部展開／收起」', () => {
+  const { view } = makeView();
+  const labels = byClass(view.timelineEl, 'wwh-small-btn').map((b) => b.textContent);
+  assert.ok(labels.includes('全部展開') && labels.includes('全部收起'), labels.join());
+});

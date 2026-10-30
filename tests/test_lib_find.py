@@ -223,6 +223,64 @@ class Tags(Base):
         self.assertEqual(sorted(self.ids("已交屋")), sorted([self.estimate, self.meeting]))
         self.assertEqual(self.ids("已交屋 報價"), [self.estimate])
 
+    def test_two_tag_words_are_or(self):
+        """裁定 11：同種類是「或」，兩個標籤詞中一個就算。"""
+        out = self.find("施工中 已交屋")
+        self.assertEqual([p["kind"] for p in out["parsed"]], ["tag", "tag"])
+        self.assertEqual(sorted(self.ids("施工中 已交屋")), sorted([self.quote, self.estimate, self.meeting]))
+
+    def test_tag_or_still_and_with_other_kinds(self):
+        self.assertEqual(sorted(self.ids("施工中 已交屋 報價")), sorted([self.quote, self.estimate]))
+
+
+class Fallback(Base):
+    """裁定 12：拆完 0 筆時，整串去掉時間詞當字再找一次。"""
+    def setUp(self):
+        super().setUp()
+        data = profile.load(self.V)
+        data["tags"] = [{"type": "案子", "field": "工種", "words": ["燈具"], "multi": False, "source": "interview", "date": TODAY}]
+        text = profile.render_text(data)
+        (self.V / profile.MD_POSIX).write_text(text, encoding="utf-8", newline="\n")
+        data["md_sha256"] = profile.sha256_text(text)
+        (self.V / profile.PROFILE_POSIX).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.upgrade = self.card(E.TEMPLATE, "追加燈具升級", "報價", "2026-10-01", ["信義王"], "換燈。〔第 1 段〕\n")
+
+    def test_zero_results_retry_whole_string_as_words(self):
+        out = self.find("燈具升級")
+        self.assertTrue(out["fallback"])
+        self.assertEqual([(p["kind"], p["text"]) for p in out["parsed"]], [("word", "燈具升級")])
+        self.assertEqual([f["card"] for f in out["files"]], [self.upgrade])
+
+    def test_fallback_drops_time_words_and_keeps_the_rest(self):
+        out = self.find("追加燈具升級 這個月")
+        self.assertTrue(out["fallback"])
+        self.assertEqual([(p["kind"], p["text"]) for p in out["parsed"]], [("word", "追加燈具升級")])
+        self.assertEqual([f["card"] for f in out["files"]], [self.upgrade])
+
+    def test_no_fallback_key_when_first_pass_found_something(self):
+        self.assertNotIn("fallback", self.find("信義王"))
+
+    def test_still_zero_after_fallback(self):
+        out = self.find("不存在的詞語 信義王")
+        self.assertEqual(out["files"], [])
+        self.assertTrue(out["fallback"])
+        self.assertEqual([p["kind"] for p in out["parsed"]], ["word", "word"])
+
+    def test_nothing_to_retry_when_only_words(self):
+        out = self.find("不存在的詞語")
+        self.assertNotIn("fallback", out)
+
+    def test_one_recognized_entity_is_not_retried(self):
+        out = self.find("信義王 去年")
+        self.assertEqual(out["files"], [])
+        self.assertNotIn("fallback", out)
+        self.assertEqual([p["kind"] for p in out["parsed"]], ["entity", "time"])
+
+    def test_time_only_zero_results_has_no_fallback(self):
+        out = self.find("去年")
+        self.assertEqual(out["files"], [])
+        self.assertNotIn("fallback", out)
+
 
 class ReadOnly(Base):
     def test_nothing_written_no_turn(self):

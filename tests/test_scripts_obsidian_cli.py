@@ -28,6 +28,18 @@ def kb(vault, *args):
     return code, out.getvalue()
 
 
+class Source(unittest.TestCase):
+    def test_14_no_invalid_escape_sequences(self):
+        """裁定 14：docstring 裡無效的跳脫序列（Windows 路徑的反斜線加 o）在 Python 3.14 是 SyntaxWarning、-W error 下是 SyntaxError。"""
+        import warnings
+        for rel in ("scripts/kb/obsidian_cli.py", "scripts/kb/_lib/obsidian.py", "scripts/kb/home_cli.py", "scripts/kb/find_cli.py",
+                    "scripts/kb/renders_cli.py", "scripts/kb/_lib/home.py", "scripts/kb/_lib/find.py", "scripts/kb/_lib/hand.py"):
+            path = Path(__file__).resolve().parent.parent / rel
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                compile(path.read_bytes(), str(path), "exec")
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
@@ -141,6 +153,30 @@ class Open(Base):
         self.assertEqual(code, 3)
         self.assertEqual(self.cfg.read_text(encoding="utf-8"), "{壞")
         self.assertEqual(self.started, [])
+
+    def test_14_refusal_does_not_place_the_plugin(self):
+        """裁定 14：先檢查再放外掛檔；拒絕的時候知識庫裡不留東西。"""
+        self.state["running"] = True
+        self.assertEqual(kb(self.V, "obsidian", "open")[0], 3)
+        self.assertFalse((self.V / obsidian.PLUGIN_REL / "main.js").exists())
+        self.assertFalse((self.V / obsidian.COMMUNITY_REL).exists())
+        self.cfg.write_text("{壞", encoding="utf-8")
+        self.state["running"] = False
+        self.assertEqual(kb(self.V, "obsidian", "open")[0], 3)
+        self.assertFalse((self.V / obsidian.PLUGIN_REL / "main.js").exists())
+        self.assertFalse((self.V / obsidian.COMMUNITY_REL).exists())
+
+    def test_14_place_oserror_is_a_note_not_a_traceback(self):
+        self.register()
+        with mock.patch.object(obsidian, "place", side_effect=OSError("唯讀")):
+            code, out = kb(self.V, "obsidian", "open")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Obsidian 外掛沒放成：唯讀", out)
+        self.assertEqual(len(self.started), 1)
+        with mock.patch.object(obsidian, "place", side_effect=OSError("唯讀")):
+            code, out = kb(self.V, "obsidian", "open", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Obsidian 外掛沒放成：唯讀", json.loads(out)["notes"])
 
     def test_open_url_encodes_everything(self):
         url = obsidian.open_url("D:/資料/王 小明/知識庫".replace("/", chr(92)))

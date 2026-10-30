@@ -53,12 +53,16 @@ def _refresh(vault, rel, turn_id):
             rulings.render(vault, turn_id, hand={})
 
 
-def _apply(vault, args, as_json, conversation, turn_id):
+def _apply(vault, args, as_json, conversation):
     rel = _page(args.page)
     if rel is None:
         print(BAD_PAGE)
         return 3
     run, changed = PAGES[rel]
+    if renders.check(vault, rel) is None:  # 她沒改過這頁：不開回合（外掛每次離開一行、切頁都叫，大多沒事）
+        _out(as_json, [NOTHING], {"page": rel, "applied": [], "carried": [], "dropped": 0})
+        return 0
+    turn_id = turn.current(vault)["turn"]
     report = run(vault, turn_id)
     if report == hand.KEEP_FAILED:
         print(KEEP_FAILED)
@@ -80,13 +84,16 @@ def _apply(vault, args, as_json, conversation, turn_id):
     return 0
 
 
-def _drop(vault, args, as_json, conversation, turn_id):
+def _drop(vault, args, as_json, conversation):
     cid = str(args.id or "").strip()
     rel = next((r for r, items in renders.carried_all(vault).items() if any(c["id"] == cid for c in items)), None)
     if rel is None:
         print(NO_SUCH)
         return 3
-    PAGES[rel][0](vault, turn_id)  # 先把她這頁上其他的改動照意思處理掉，免得重寫頁面時蓋掉
+    turn_id = turn.current(vault)["turn"]
+    if PAGES[rel][0](vault, turn_id) == hand.KEEP_FAILED:  # 先把她這頁上其他的改動照意思處理掉，免得重寫頁面時蓋掉；存不下就不動
+        print(KEEP_FAILED)
+        return 3
     page, item = renders.drop_carried(vault, cid)
     if page is None:
         print(NO_SUCH)
@@ -115,10 +122,9 @@ def run(args):
     as_json = getattr(args, "json", False)
     conversation = journal_cli.in_conversation(vault)
     try:
-        turn_id = turn.current(vault)["turn"]
         if args.renders_command == "apply":
-            return _apply(vault, args, as_json, conversation, turn_id)
-        return _drop(vault, args, as_json, conversation, turn_id)
+            return _apply(vault, args, as_json, conversation)
+        return _drop(vault, args, as_json, conversation)
     except agenda.AgendaRefused as e:
         print(e)
         return 3

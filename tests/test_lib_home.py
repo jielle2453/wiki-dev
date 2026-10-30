@@ -311,6 +311,22 @@ class Resilience(Base):
         self.assertTrue(any("日程" in w for w in out["warnings"]))
         self.assertIn("recent", out)
 
+    def test_14_broken_sources_only_blanks_what_needs_it(self):
+        """裁定 14：.system/sources.json 壞了，只有要用它的那區空白，其他照常（驗收 1 的 resilience）。"""
+        (self.V / ".system" / "sources.json").write_text("{bad", encoding="utf-8")
+        out = self.build()
+        self.assertTrue(any("來源" in w for w in out["warnings"]), out.get("warnings"))
+        self.assertEqual(out["recent"], [])
+        for key in ("timeline", "todo", "confirm", "others", "counts", "cheer"):
+            self.assertIn(key, out)
+
+    def test_14_broken_sources_cli_exit_0_with_json(self):
+        (self.V / ".system" / "sources.json").write_text("{bad", encoding="utf-8")
+        from tests.test_scripts_inventory_cli import run_kb
+        r = run_kb("home", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout)["schema"], "willy-home/1")
+
     def test_read_only_and_no_turn(self):
         before = sorted(p.name for p in (self.V / ".system" / "versions").iterdir()) if (self.V / ".system" / "versions").is_dir() else []
         files = {str(p): p.stat().st_mtime_ns for p in (self.V / ".system").rglob("*") if p.is_file() and "hook-errors" not in p.name}

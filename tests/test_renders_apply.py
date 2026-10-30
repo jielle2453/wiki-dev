@@ -143,6 +143,20 @@ class AgendaApply(Base):
         self.assertEqual(self.handedits(), [])
         self.assertTrue(any(n.endswith("日程.md") for n in self.saved_files()), "她那份照舊存")
 
+    def test_14_consume_failure_is_only_logged_and_the_write_goes_on(self):
+        """裁定 14：認手改時丟例外，只記 hook-errors.log，這次寫入照常做，之後的寫入也不會一直失敗；她那份照舊存。"""
+        from unittest import mock
+        self.hand_the_four_edits()
+        with mock.patch.object(agenda, "_apply_hand", side_effect=RuntimeError("壞了")):
+            agenda.add(self.V, "提醒", "2030-04-01", "別的", ["信義王"], self.t)
+        self.assertTrue(any(i["text"] == "別的" for i in agenda.load(self.V)["items"]))
+        self.assertEqual(self.item(self.a)["status"], "open")  # 半做的不留
+        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
+        self.assertIn("RuntimeError", log)
+        self.assertTrue(any(n.endswith("日程.md") for n in self.saved_files()), "她那份照舊存")
+        agenda.add(self.V, "提醒", "2030-04-02", "再一個", ["信義王"], self.t)  # 下一次寫入不再失敗
+        self.assertTrue(any(i["text"] == "再一個" for i in agenda.load(self.V)["items"]))
+
     def test_9_history_turn_is_the_triggering_turn(self):
         self.hand_the_four_edits()
         t2 = turn.start(self.V, None, "")["turn"]
@@ -305,6 +319,19 @@ class Drop(Base):
         (it,) = [i for i in agenda.load(self.V)["items"] if i["text"] == "付尾款"]
         self.assertEqual(it["status"], "done")
 
+    def test_14_drop_with_unsaved_hand_edit_does_not_overwrite_it(self):
+        """她那份存不下（KEEP_FAILED）時 drop 也不重寫那頁，免得蓋掉她的改動（裁定 14）。"""
+        d = self.V / ".system" / "handedits"
+        if d.is_dir():
+            shutil.rmtree(d)
+        d.write_text("擋住", encoding="utf-8")
+        self.edit_lines(AGENDA_MD, lambda ls: [ln.replace("- ", "- [x] ", 1) if "付尾款" in ln else ln for ln in ls])
+        mine = self.md(AGENDA_MD)
+        r = run_kb("renders", "drop", self.cid, cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "她那份沒存成，這次先不動；再說一次"))
+        self.assertEqual(self.md(AGENDA_MD), mine)
+        self.assertEqual([c["id"] for c in renders.carried(self.V, AGENDA_MD)], [self.cid])
+
     def test_ask_results_for_agenda_page(self):
         asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
         (ask,) = [a for a in asks if a["kind"] == "carried"]
@@ -351,6 +378,33 @@ class Misc(Base):
         r = run_kb("--via", "obsidian", "renders", "apply", AGENDA_MD, cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("你在 Obsidian 按的", run_kb("journal", "recent", "--n", "2", cwd=self.V).stdout)
+
+    def turn_dirs(self):
+        d = self.V / ".system" / "versions"
+        return sorted(x.name for x in d.iterdir()) if d.is_dir() else []
+
+    def test_14_nothing_to_apply_opens_no_obsidian_turn(self):
+        agenda.add(self.V, "到期", "2030-03-01", "付尾款", ["信義王"], self.t)
+        before = self.turn_dirs()
+        r = run_kb("--via", "obsidian", "renders", "apply", AGENDA_MD, cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "這頁沒有要照做的"))
+        r = run_kb("--via", "obsidian", "renders", "apply", AGENDA_MD, "--json", cwd=self.V)
+        self.assertEqual(json.loads(r.stdout), {"page": AGENDA_MD, "applied": [], "carried": [], "dropped": 0})
+        self.assertEqual(self.turn_dirs(), before)
+
+    def test_14_unknown_drop_opens_no_obsidian_turn(self):
+        before = self.turn_dirs()
+        r = run_kb("--via", "obsidian", "renders", "drop", "c-00000000", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "沒有這一筆「你加的」"))
+        self.assertEqual(self.turn_dirs(), before)
+
+    def test_14_real_edit_still_opens_the_obsidian_turn(self):
+        agenda.add(self.V, "到期", "2030-03-01", "付尾款", ["信義王"], self.t)
+        self.write(AGENDA_MD, self.md(AGENDA_MD) + "\n- 測試\n")
+        before = self.turn_dirs()
+        r = run_kb("--via", "obsidian", "renders", "apply", AGENDA_MD, cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(self.turn_dirs()), len(before) + 1)
 
     def test_index_and_journal_pages_still_only_saved(self):
         self.assertEqual(hand.PAGE_NAMES.keys(), {AGENDA_MD, PENDING_MD, RULINGS_MD})

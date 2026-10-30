@@ -3,7 +3,8 @@
 只讀卡（檔案索引/）與綜合卡，不讀原檔；清冊 active 的才找得到（排除與 purge 清掉的本來就不在）。
 拆字：先 NFKC 加 casefold（entities.key）；在整串裡由長到短找實體名稱與別名（合併轉址到目標、只認 active）、設定檔卡型、第八節標籤詞、
 時間詞，長度一樣時實體 > 卡型 > 標籤 > 時間；剩下的照空白切成字。
-比對：不同種類「且」、同種類「或」。實體 → 掛它的卡；標籤 → 標了那詞的實體的卡；時間 → 卡的文件日期在範圍；字 → 標題（hit title）或內文（hit body）。
+比對：不同種類「且」、同種類「或」（兩個標籤詞中一個就算，裁定 11）。實體 → 掛它的卡；標籤 → 標了那詞的實體的卡；時間 → 卡的文件日期在範圍；字 → 標題（hit title）或內文（hit body）。
+拆完一份都沒有時，整串去掉時間詞當字再找一次（裁定 12，JSON 多 fallback: true、parsed 換成第二次那份）。
 排序：標題命中在前，再照日期新到舊；最多 find_results_max 份，more 說還有沒有。
 """
 import datetime as dt
@@ -211,11 +212,44 @@ def _body(vault, path):
     return entities.key(text[m.end():] if m else text)
 
 
+def _fallback_words(q, parsed):
+    """拆完 0 筆時的第二次：整串去掉認出的時間詞，剩下的照空白與標點切成字。回 (parsed, cond)；沒有什麼好再試的回 None。"""
+    main = [p for p in parsed if p["kind"] != "time"]
+    if not any(p["kind"] in ("entity", "type", "tag") for p in main):
+        return None
+    if len(main) == 1 and main[0]["kind"] in ("entity", "type"):
+        return None  # 整串就是一個認得的實體或卡型：沒有卡就是沒有，不拆錯
+    rest = q
+    for p in parsed:
+        if p["kind"] == "time":
+            rest = rest.replace(p["text"], " ", 1)
+    words = [w for w in re.split("[" + re.escape(_PUNCT) + "]+", rest) if w]
+    if not words:
+        return None
+    again = [{"kind": "word", "text": w, "label": f"字 {w}", "value": w} for w in words]
+    return again, {"entity": [], "type": [], "tag": [], "time": [], "word": [entities.key(w) for w in words]}
+
+
 def find(vault, q, today=None):
-    """回 {"q","parsed","entities","files","total","more"}（格式見 spec 第 2 節）。"""
+    """回 {"q","parsed","entities","files","total","more"}（格式見 spec 第 2 節）；第二次才找到的另加 "fallback": true。"""
     ent_data = entities.load(vault)
     prof = cards._profile_or_default(vault)[0]
     parsed, cond = parse(vault, q, today, ent_data, prof)
+    out = _search(vault, q, parsed, cond, ent_data)
+    if out["files"]:
+        return out
+    again = _fallback_words(q, parsed)
+    if again is None:
+        return out
+    second = _search(vault, q, again[0], again[1], ent_data)
+    second["fallback"] = True
+    # 第一次認到的實體（沒有卡也要看得到）接在第二次的前面
+    names = {e["name"] for e in second["entities"]}
+    second["entities"] = [e for e in out["entities"] if e["name"] not in names] + second["entities"]
+    return second
+
+
+def _search(vault, q, parsed, cond, ent_data):
     cap = config.get(vault, "find_results_max")
     out = {"q": q, "parsed": parsed, "entities": [], "files": [], "total": 0, "more": False}
     if not parsed:
@@ -228,7 +262,7 @@ def find(vault, q, today=None):
             out["entities"].append({"name": target["name"], "type": target.get("type"), "why": how})
     sources = sources_lib.load(vault)
     ent_ids = {t["id"] for t, _h, _w in cond["entity"]}
-    tag_ids = [_tag_entities(ent_data, rows) for rows in cond["tag"]]
+    tag_ids = set().union(*[_tag_entities(ent_data, rows) for rows in cond["tag"]]) if cond["tag"] else set()
     types = {entities.key(t) for t in cond["type"]}
     words = cond["word"]
     rows = []
@@ -240,7 +274,7 @@ def find(vault, q, today=None):
             mine = set(_card_entity_ids(ent_data, front))
             if cond["entity"] and not (mine & ent_ids):
                 continue
-            if any(not (mine & ids) for ids in tag_ids):
+            if cond["tag"] and not (mine & tag_ids):
                 continue
         if types and entities.key(brief["card_type"]) not in types:
             continue

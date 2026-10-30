@@ -1,7 +1,7 @@
 """建置（build 第 2 點，D-189～D-194、D-201、D-202）：.system/build.json schema 1 與 kb build 九個子子命令的本體。
 
 建置在 cwd 建（桌面版開對話時選的那個資料夾，hook 才管得到）。步驟照 STEPS：env → setup → inventory → sample → cards → names
-→ synthesis → adopt（記了舊 wiki 才有）→ tags（設定檔第八節的標籤字典，D-238）→ finish → done；setup 做完時沒登記任何資料夾（no_sources）
+→ synthesis → adopt（記了舊 wiki 才有）→ tags（設定檔第八節的標籤字典，D-238）→ obsidian（Obsidian 首頁外掛放好、替她打開，#22，D-259）→ finish → done；setup 做完時沒登記任何資料夾（no_sources）
 就跳過 inventory～synthesis 與 tags（D-044）。tags 做完的前提：補標籤的批次不在跑、沒有只差補標籤的綜合卡（第八節空的照過）；
 view 在 tags 這步多 tag_suggest_cards_max（提候選時一個型別最多讀幾張綜合卡）。
 認知識庫只看 .system/（D-190 再補）：cwd 有 .system/ 但沒有 build.json、或建置做完了 → 擋（ALREADY）；cwd 在別的知識庫裡面也擋。

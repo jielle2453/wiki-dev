@@ -1410,8 +1410,11 @@ class HomeView extends ItemView {
     ui.loading = true;
     ui.error = null;
     this.inputEl.value = q;
+    this.searchSeq = (this.searchSeq || 0) + 1;
+    const seq = this.searchSeq;
     this.renderSearchPanels();
     const res = await this.plugin.runner.run(findArgs(q));
+    if (seq !== this.searchSeq) return; // 後面又搜了（或清掉了）：這個舊的結果丟掉
     const c = classify(res);
     ui.loading = false;
     if (c.kind === 'ok') {
@@ -1427,6 +1430,7 @@ class HomeView extends ItemView {
 
   clearSearch() {
     const ui = this.plugin.ui.search;
+    this.searchSeq = (this.searchSeq || 0) + 1; // 還在路上的查詢回來不算數
     ui.q = '';
     ui.active = false;
     ui.result = null;
@@ -1565,7 +1569,7 @@ class HomeView extends ItemView {
       h('button', { cls: ['wwh-small-btn', ui.timelineMode === 'month' ? 'is-on' : ''], text: '月曆', on: { click: () => this.setMode('month') } }),
     );
     head.appendChild(toggle);
-    if (ui.timelineMode === 'timeline') {
+    if (home && ui.timelineMode === 'timeline') { // kb home 還沒回來時不畫，按了也沒東西可展開
       head.appendChild(h('button', { cls: 'wwh-small-btn', text: '全部展開', on: { click: () => this.setAllRows(false) } }));
       head.appendChild(h('button', { cls: 'wwh-small-btn', text: '全部收起', on: { click: () => this.setAllRows(true) } }));
     }
@@ -1591,6 +1595,7 @@ class HomeView extends ItemView {
   }
 
   setAllRows(collapsed) {
+    if (!this.plugin.home) return;
     const layout = layoutTimeline(this.plugin.home.timeline, { today: this.plugin.home.today });
     for (const r of layout.rows) this.plugin.ui.rowCollapsed[r.key] = collapsed;
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));

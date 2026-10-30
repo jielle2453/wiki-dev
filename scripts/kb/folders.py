@@ -337,13 +337,20 @@ def _left_line(got, name):
         purge.remaining_text(got["remaining"]) + "；" + plan.PURGE_NO_CMD
 
 
+def _obsidian_line(cleared):
+    """Obsidian 那行：清了工作區、書籤、外掛最近的就照實說清了幾個，再接我碰不到的那一處（裁定 15）；什麼都沒清就只有後半。"""
+    parts = [f"{word} {cleared[key]} {unit}" for key, word, unit in (("workspace", "工作區", "處"), ("bookmarks", "書籤", "個"),
+                                                                  ("recent", "外掛最近", "筆")) if (cleared or {}).get(key)]
+    return f"Obsidian 裡清了：{'、'.join(parts)}；{OBSIDIAN_LINE}" if parts else OBSIDIAN_LINE
+
+
 def _purge_sentence(got):
     found = f"、推算 {got['findings']} 條" if got["findings"] else ""
     line = (f"清好了：卡 {got['cards']} 張、備份 {got['backups']} 份、暫存 {got['temp']} 份{found}、"
             f"工作日誌 {got['journal']} 段；{PURGE_TAIL}")
     if got.get("undecodable"):  # 讀不懂編碼的備份跳過、不算沒清完（第六輪）
         line += f"\n有 {got['undecodable']} 份備份讀不懂編碼，沒動"
-    return line + "\n" + OBSIDIAN_LINE + "\n" + SNAPSHOT_LINE
+    return line + "\n" + _obsidian_line(got.get("obsidian")) + "\n" + SNAPSHOT_LINE
 
 
 def _new_locations(report):

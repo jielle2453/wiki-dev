@@ -221,7 +221,7 @@ def _build(vault, opened, today):
 
     items = safe("日程", lambda: agenda.load(vault)["items"], [])
     ent_data = safe("實體清單", lambda: entities.load(vault), {"entities": []})
-    sources = sources_lib.load(vault)
+    sources = safe("來源清單", lambda: sources_lib.load(vault), None)  # 壞了只「最近」那區空白
     got = agenda.counts(vault, {"items": items}, today)
     todo = _todo(vault, items, today)
     asks = safe("要問你的事", lambda: _asks(vault), [])
@@ -235,7 +235,7 @@ def _build(vault, opened, today):
                    "other": len(others)},
         "timeline": _timeline(vault, items, ent_data, today),
         "todo": todo, "confirm": confirm, "others": others,
-        "recent": safe("最近", lambda: _recent(vault, list(opened or []), sources), []),
+        "recent": [] if sources is None else safe("最近", lambda: _recent(vault, list(opened or []), sources), []),
     }
     if warnings:
         out["warnings"] = warnings

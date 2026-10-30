@@ -72,6 +72,8 @@ UNEXPECTED = "退不回去：{why}；可能只退了一部分，先別再說退�
 AGAIN = "再說一次「退回」會把這次的退回取消，不會再往前退。"  # 成功時最後一行（B-441：D-074 連退兩次是取消，不是再往前）
 OVERLAP_HEAD = "退不回去：這一句之後，有別的地方也改過同一份，什麼都沒動"
 OVERLAP_TAIL = "要退得先到那個對話退回它，或直接跟我說要改成什麼。"
+OVERLAP_TAIL_OBSIDIAN = "那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。"
+OBSIDIAN_SAID = "你在 Obsidian 按的"
 SIDE_WORDS = {"other": "另一個對話", "none": "對話外", "self": "這個對話"}
 OTHER_LINE = "另一個對話還有 {n} 次改動，不在這裡退"
 _DRIVE = re.compile(r"^[A-Za-z]:")
@@ -223,11 +225,15 @@ def _refuse_overlap(hits, as_json):
     print(OVERLAP_HEAD)
     for h in hits[:ENTRY_LINES_MAX]:
         side = _side(h["turn"])
+        if _obsidian(h["turn"]):  # Obsidian 的回合不是「對話外」，是她在 Obsidian 按的（裁定 13）
+            when = _short_time(h["turn"].get("started"))
+            print(f"- {h['path']}：{when + ' ' if when else ''}{OBSIDIAN_SAID}")
+            continue
         word = SIDE_WORDS[side] if turn.SESSION or side == "none" else "對話裡"  # 終端機沒有「這個對話」，不說「另一個」
         print(f"- {h['path']}：{_describe(h['turn'])}（{word}）")
     if len(hits) > ENTRY_LINES_MAX:
         print(f"……共 {len(hits)} 處")
-    print(OVERLAP_TAIL)
+    print(OVERLAP_TAIL_OBSIDIAN if any(_obsidian(h["turn"]) for h in hits) else OVERLAP_TAIL)
     return 3
 
 
