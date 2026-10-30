@@ -1410,6 +1410,10 @@ test('便條（裁定 39）：移到右上角、跟日期問候同一排；標�
   assert.match(CSS, /\.wwh-note \{[^}]*width: 240px/, '約 240px 寬');
   assert.match(CSS, /\.wwh-note \.wwh-note-text:hover,[^{]*\.wwh-note-text:focus,[^{]*\{[^}]*background: transparent/, 'hover、focus 不變白（蓋掉 Obsidian 的底色）');
   assert.match(CSS, /\.wwh-note \.wwh-note-text[^{]*\{[^}]*overflow-y: auto/, '內容多就在框裡捲');
+  assert.match(CSS, /\.wwh-toprow \{[^}]*align-items: flex-start/, '日期與便條上緣對齊（裁定 40）');
+  assert.ok(!/\.wwh-toprow \.wwh-top \{[^}]*align-self: flex-end/.test(CSS), '日期不再貼下緣被便條往下推');
+  assert.match(CSS, /\.wwh-note \.wwh-note-text[^{]*\{[^}]*height: 8em/, '剛好 5 行，不切半行');
+  assert.match(CSS, /\.wwh-note-text::-webkit-scrollbar \{[^}]*width: 6px/, '字多時看得出可以捲');
   assert.match(CSS, /--wwh-note-bg: #fff6c9/);
   assert.match(CSS, /\.theme-dark \.wwh-root \{[^}]*--wwh-note-bg: #3f3b24/, '深色主題調暗');
   const hidden = viewOf(null, { runner: null }).view;
