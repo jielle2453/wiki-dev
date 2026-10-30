@@ -75,3 +75,43 @@ code-review 另外 2 條沒列：「`-ArgumentList` 含空白的元素加雙引�
 - 全套測試（照只跑相關測試的規則）。
 - macOS 的 `open`／`xdg-open` 只驗了解析，沒在那些平台跑。
 - 發現 #2 的實際執行沒重現出來（見表）。
+
+## 第 2 輪
+
+日期：2026-10-30
+測的版本：實作 `af40b38`（修裁定 9、10、11），併入 main `49384db`（裁定 15）後的 `0ef5916`。這輪 diff 是 `380fd00..af40b38`。
+做法：同第 1 輪的假知識庫與 `kb guard decide --json`（cwd＝`<V>`），每條都用 `git archive main` 解出的 main 再跑一次對照。這輪只驗裁定 9～11、15，另外抽回歸 4 條（驗收 1、6、9、10 各一條）。`/code-review high 380fd00..af40b38` 是分叉執行的，**卡住 600 秒後被終止，沒有結果**；這輪程式 diff 只有 26 行，我在主線程自己讀過，並補了 19 條會走到新程式路徑的邊界探測。
+
+### 結論
+
+**裁定 9、10、11、15 全過，回歸 4 條照舊。這輪沒有新壞的。** 新的發現有 2 條（#8 是照裁定 9 字面做的多擋、#9 是 main 本來就有的），都是低，不影響進確認。
+
+相關測試（spec 列的 9 檔加 `grep -l` 找到的 6 檔，共 15 檔）序列跑：**487 passed、3085 subtests passed**，pytest 本身沒有失敗（花了 75 分鐘，第 1 輪是 6 分鐘，那段時間機器比較忙，原因沒查）。語料：1050 條，前 1044 條（含原本的 988 條）跟 `380fd00` 逐筆相同，這輪加了 6 條、沒有刪。全套沒跑（照只跑相關測試的規則）。
+
+### 裁定逐條
+
+| 裁定 | 判 | 證據（worktree／main） |
+|---|---|---|
+| 9 | 過 | 密碼檔在 `<RAW>\客戶案件\深\`：`explorer <RAW>/客戶案件 ; grep -r x <RAW>/客戶案件/*` → `(deny, Z9, credential_inside)`／同；單獨 `explorer <RAW>/客戶案件` → `(pass)`／main 是 deny。變化版都擋：PowerShell `explorer …; Select-String -Path '…\*'`、`&& grep -r x <夾>`、`explorer <RAW> ; grep -r x <RAW>/客戶案件`（Z10b credential_inside，跟 main 同）、`explorer <子夾> ; grep -r x <RAW>`、`cd <夾> && explorer . ; grep -r x .`、開別的夾再 grep、一次開兩個夾（其中一個被讀）都是 deny credential_inside。`explorer <RAW>/客戶案件 ; cat <RAW>/客戶案件/深/*` → `(deny, Z9, credential)` |
+| 10 | 過 | cwd＝`<V>`，`cd '<RAW>\客戶案件'; Start-Process onlyw`（夾裡只有 `onlyw.wsf`）→ `(deny, Z9, run_file)`；`.vbe .jse .wsh .msc .cpl` 各一份也都是 `(deny, Z9, run_file)`；main 全部是 unparsed。裸名稱 `notepad`（cwd 底下沒有這個檔）→ `(pass)`，main 是 unparsed |
+| 11 | 過 | `C:\Windows\explorer.exe '<RAW>\客戶案件\evil.bat'`、全大寫的 `C:\WINDOWS\EXPLORER.EXE …`、`C:\Windows\SysWOW64\explorer.exe …`、PowerShell 的 `C:\Windows\System32\cmd.exe /c start "" "…evil.bat"`、Bash 的 `C:/Windows/System32/cmd.exe //c start …`、`/c/Windows/explorer.exe …`、UNC `\srv\share\explorer.exe …` 都是 `(deny, Z9, run_file)`；main 全部是 pass。全路徑開文件（`C:\Windows\explorer.exe '<V>\AI 產出\x.docx'`、`cmd.exe /c start "" "…x.docx"`）→ `(pass)`。全路徑程式本身在知識庫裡（`& '<V>\AI 產出\explorer.exe' …`、`& '<V>\cmd.exe' /c start …`、`.\explorer.exe …`）→ deny run_file（Z3／Z8）。裁定說不修的 `start a\ b.docx <bat>` 照舊是 pass |
+| 15 | 過 | 密碼檔直接放在 `客戶案件\`：explorer 加 grep 那條 → `(deny, Z9, credential)`／main 同。`open_stage` 回傳的 `exe` 欄：`C:\Windows\explorer.exe …` 回 `C:\Windows\explorer.exe`，`…\cmd.exe /c start` 回 `C:\Windows\System32\cmd.exe`，裸的 `explorer`、`Start-Process` 回 None |
+| 回歸 | 過 | 驗收 1 第一條 pass、6 第一條 pass、9 第一條 `(deny, Z3, run_file)`、10 第三條 `explorer '<RAW>'` pass（`客戶案件\深\` 有密碼檔時也是 pass，開夾不算讀整夾） |
+
+### 發現
+
+| # | 嚴重 | 內容 | 證據 |
+|---|---|---|---|
+| 8 | 低 | 照裁定 9 的字面做（別段讀的路徑在開的夾底下就取消豁免），「開夾給客戶看，再讀夾裡一份檔」會被擋，只要那個夾的子夾裡有密碼檔。main 也一樣擋，不是新壞的。給設計參考：這種日常用法要不要放行。單獨讀那份檔是 pass | 密碼檔在 `客戶案件\深\`：`explorer <RAW>/客戶案件 ; cat <RAW>/客戶案件/a.docx`、`Invoke-Item '<RAW>\客戶案件'; Get-Content '<RAW>\客戶案件\a.docx'` → `(deny, Z9, credential_inside)`，main 同；單獨 `cat <RAW>/客戶案件/a.docx` → pass |
+| 9 | 低 | **main 本來就有、spec 外。** `cd $X ; cat *.txt`：`$X` 是句子外面來的（環境變數）時推不出 cwd，萬用字元的讀取整句放行。變數在同一句設的（`X=…; cd $X; cat *.txt`、PowerShell `$x='…'; cd $x; Get-Content *.txt`）會擋 credential_inside。這輪的 `explorer <RAW>/客戶案件 ; cd $X ; cat *.txt` 也是 pass，結果跟拿掉 explorer 的版本一樣，開檔沒有多開新的能力 | `cd $X ; cat *.txt` → worktree 與 main 都是 `(pass)`；explorer 版：worktree pass、main deny（main 是靠 explorer 那段被算成寫才擋到的） |
+
+### 這輪 diff 自己審的
+
+- `open_exempt` 改成跟 `read_dirs`、`implicit_dirs`、`free_dirs`、glob 的開頭夾、寫入目標、cd 目標比上下層：相對 glob（`ls *.md`）、`Get-ChildItem *` 這類沒夾的 glob 都沒出錯，判斷合理（E1、E3 是 pass）。
+- `exe`：全路徑的動詞只要 `_base` 對得上就照開檔判。程式本身在知識庫或來源外面時（例如 `C:\nope\ii.exe '<V>\AI 產出\x.docx'`）照開檔放行，main 也是 pass，沒變寬。
+- 沒有發現正確性的問題。
+
+### 沒測到的
+
+- 這輪 code-review 子代理沒有結果，只有我在主線程讀 diff 加探測；要另外的審查，得再開一次。
+- 確認情境、全套，同第 1 輪。
