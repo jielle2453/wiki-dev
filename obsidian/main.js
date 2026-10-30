@@ -3671,8 +3671,9 @@ class WikiWithWillyPlugin extends Plugin {
     return (this.cardTitles && this.cardTitles.get(id)) || null;
   }
 
-  /** 出處的小檔案圖示（裁定 41）：跟字同高、淡色，滑過去提示那張卡的標題，點了開那張卡；檔案裡存的字不變。 */
-  cardRefIcon(ref, target) {
+  /** 出處的小檔案圖示（裁定 41）：跟字同高、淡色，滑過去提示那張卡的標題，點了開那張卡；檔案裡存的字不變。
+   *  editor 是編輯模式（裁定 43）：CodeMirror 的 mousedown 會先把游標放進那段、圖示換回原字，click 到不了，所以在 mousedown 就開卡、不讓游標動。 */
+  cardRefIcon(ref, target, editor) {
     const title = this.cardTitleOf(ref) || String(target).replace(/^.*\//, '').replace(/\.md$/, '');
     const a = dom.doc().createElement('a');
     a.className = 'wwh-cardref';
@@ -3681,9 +3682,21 @@ class WikiWithWillyPlugin extends Plugin {
     a.setAttribute('title', title);
     a.setAttribute('aria-label', `出處：${title}`);
     a.appendChild(icon('file-text', 14, 1.4));
-    a.addEventListener('click', (e) => {
+    const stop = (e) => {
       if (e && e.preventDefault) e.preventDefault();
       if (e && e.stopPropagation) e.stopPropagation();
+    };
+    if (editor) {
+      a.addEventListener('mousedown', (e) => {
+        stop(e);
+        if (e && e.button) return; // 右鍵、中鍵不開
+        this.openPathInVault(target);
+      });
+      a.addEventListener('click', stop);
+      return a;
+    }
+    a.addEventListener('click', (e) => {
+      stop(e);
       this.openPathInVault(target);
     });
     return a;
@@ -3713,11 +3726,12 @@ class WikiWithWillyPlugin extends Plugin {
       }
 
       toDOM() {
-        return plugin.cardRefIcon(this.ref, this.target);
+        return plugin.cardRefIcon(this.ref, this.target, true);
       }
 
+      // 圖示上的滑鼠事件編輯器不管（不放游標），由圖示自己處理
       ignoreEvent() {
-        return false;
+        return true;
       }
     }
     const build = (v) => {

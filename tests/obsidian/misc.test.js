@@ -174,6 +174,21 @@ test('出處（裁定 41）：編輯模式——cardRefRanges 找位置；裝飾
   const dom = got[0].widget.toDOM();
   assert.ok(dom.classList.contains('wwh-cardref') && byTag(dom, 'svg').length === 1);
   assert.ok(got[0].widget.eq(new (got[0].widget.constructor)('f-1a2b3c4d', '檔案索引/報價-1a2b3c4d.md')));
+  // 裁定 43：編輯模式 mousedown 在圖示上就開卡、不動游標（編輯器不接這個事件）
+  assert.strictEqual(got[0].widget.ignoreEvent(), true, '編輯器不處理圖示上的事件');
+  const opened43 = [];
+  plugin.openPathInVault = (r) => opened43.push(r);
+  const w43 = new (got[0].widget.constructor)('f-1a2b3c4d', '檔案索引/報價-1a2b3c4d.md');
+  const icon43 = w43.toDOM();
+  let prevented = 0;
+  let stopped = 0;
+  icon43.fire('mousedown', { button: 0, preventDefault: () => prevented++, stopPropagation: () => stopped++ });
+  assert.deepStrictEqual(opened43, ['檔案索引/報價-1a2b3c4d.md'], 'mousedown 就開卡');
+  assert.ok(prevented >= 1 && stopped >= 1, 'preventDefault 擋掉游標進去');
+  icon43.fire('click', { preventDefault: () => prevented++, stopPropagation: () => stopped++ });
+  assert.strictEqual(opened43.length, 1, '後面的 click 不再開第二次');
+  icon43.fire('mousedown', { button: 2, preventDefault: () => {}, stopPropagation: () => {} });
+  assert.strictEqual(opened43.length, 1, '右鍵不開');
   assert.strictEqual(decos(viewOf2(5, true)).length, 0, '游標進到那段顯示原字照常改');
   assert.strictEqual(decos(viewOf2(0, false)).length, 0, '原始碼模式不改');
   assert.strictEqual(typeof ext.spec.decorations, 'function');
