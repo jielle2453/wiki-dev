@@ -95,13 +95,16 @@ def plan(vault, now=None):
             rows.append((started or datetime.min, d, info))
     rows.sort(key=lambda r: (r[0], r[1].name))  # 由舊到新
     protected = _protected(vault)
-    total = len(rows)
     cutoff = now - timedelta(days=days)
-    candidates = [r[1] for i, r in enumerate(rows)
+    # Obsidian 的回合（--via obsidian，D-264）不算進回合數上限與下限，只照天數清；其餘照舊
+    ours = [r for r in rows if r[2].get("source") != "obsidian"]
+    total = len(ours)
+    candidates = [r[1] for i, r in enumerate(ours)
                   if r[1].name not in protected and (r[0] < cutoff or total - i > keep_turns)]
     doomed = candidates[:max(0, total - min_turns)]
+    doomed += [r[1] for r in rows if r[2].get("source") == "obsidian" and r[1].name not in protected and r[0] < cutoff]
     gone = {d.name for d in doomed}
-    left = [r for r in rows if r[1].name not in gone]
+    left = [r for r in ours if r[1].name not in gone]  # 「最早還能退回的那一句」是對話與終端機的，Obsidian 的沒有那句話
     earliest = None
     if left:
         first = left[0]

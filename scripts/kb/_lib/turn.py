@@ -156,6 +156,8 @@ def _latest_turn_time(vault, session_id, now):
 
 OVERRIDE = None  # kb.py --turn 給的回合代號（cli 設，一次呼叫一個行程）
 SESSION = None  # kb.py --session 給的 session（守門替主對話的每個單一 kb 呼叫插的，D-506；兩個視窗不會串）
+VIA = None  # kb.py --via 給的來源（只有 "obsidian"，Obsidian 外掛帶的，#22 D-255）：這次呼叫自己開一個回合，不碰 current.json 與 turns/
+_VIA_TURNS = {}  # 知識庫 → 這個行程裡 Obsidian 的回合（同一次呼叫內沿用同一個）
 
 
 class NoSuchTurn(ValueError):
@@ -167,7 +169,10 @@ def in_conversation(vault):
     對話答完（done true）後在終端機跑的不算。只讀不開新回合；versions 在動作前判斷。
     kb.py 帶 --turn（card-maker 的呼叫，守門插的）或 --session（守門替主對話每個單一 kb 呼叫插的，D-506）一律算對話裡（D-195）。
     回合已經答完、但這個 session 正在背景整理（或剛整理完）時主對話跑的也算（收通知那一輪，card-maker 第一輪修）。
-    日誌（journal_cli）與 current() 共用這一份判斷（D-502 裁定 2）。"""
+    日誌（journal_cli）與 current() 共用這一份判斷（D-502 裁定 2）。
+    Obsidian 外掛叫的（--via）永遠不算：它有自己的回合，工作日誌要寫程式段（D-255）。"""
+    if VIA:
+        return False
     if OVERRIDE or SESSION:
         return True
     try:
@@ -192,6 +197,8 @@ def current(vault, session_id=None):
         if data is None:
             raise NoSuchTurn(OVERRIDE)
         return data
+    if VIA:
+        return _via_turn(vault)
     sid = session_id or SESSION
     if sid:
         return _read_turn(_session_file(vault, sid)) or start(vault, sid, "")
@@ -203,8 +210,33 @@ def current(vault, session_id=None):
     return start(vault, session_id, "")
 
 
+def _via_turn(vault):
+    """--via obsidian 的回合（D-255）：第一次要用時才開（只讀的指令不開），同一次呼叫沿用同一個。代號尾 obsd，
+    只寫 versions/<回合>/turn.json（source: obsidian）：不寫 turns/ 也不寫 current.json，所以不併進正在回答的對話、
+    對話裡的 current() 也看不到它；程式段由 journal 認 source。"""
+    key = str(vault)
+    got = _VIA_TURNS.get(key)
+    if got is not None:
+        return got
+    now = _now().replace(microsecond=0)
+    latest = _latest_turn_time(vault, None, now)
+    if latest is not None and now <= latest:
+        now = latest + timedelta(seconds=1)
+    tid = f"{now:%Y%m%d-%H%M%S}-obsd"
+    data = {"schema_version": 1, "turn": tid, "session_id": "", "started": now.strftime("%Y-%m-%dT%H:%M:%S"),
+            "prompt_head": "", "source": "obsidian", "done": True, "approved": False, "note": ""}
+    meta = _meta_file(vault, tid)
+    meta.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(meta, data)
+    _VIA_TURNS[key] = data
+    return data
+
+
 def _now_file(vault):
-    """這次呼叫的「目前回合檔」：有 --session 是那個對話的 turns/<sid>.json，沒有是 current.json（D-506）。"""
+    """這次呼叫的「目前回合檔」：有 --session 是那個對話的 turns/<sid>.json，沒有是 current.json（D-506）。
+    --via obsidian 沒有對話：回一個永遠不存在的檔，讀目前回合的（mark、touch、last、_set）全落空，不會記到正在回答的對話上。"""
+    if VIA:
+        return Path(vault) / TURNS_REL / "via-obsidian.none"
     return _session_file(vault, SESSION) if SESSION else _current_file(vault)
 
 
@@ -213,6 +245,8 @@ def now(vault):
     只讀，沒有回 None、不開新回合。讀「這一句」的旗標、touched、回合代號用這支，不要直接讀 current.json。"""
     if OVERRIDE:
         return turn_data(vault, OVERRIDE)
+    if VIA:
+        return _VIA_TURNS.get(str(vault))
     return _read_turn(_now_file(vault))
 
 

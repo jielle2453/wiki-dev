@@ -20,7 +20,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 ## 分辨
 
 - **某件事、某個人現在怎樣**（「內湖李進行到哪了」「信義王結案了嗎」「王董的電話幾號」）：查那個實體。
-- **找檔**（「上次那份估價單在哪」）：列出檔名與日期。
+- **找檔**（「上次那份估價單在哪」）：先 `kb find "<她的話>"`，列出檔名與日期。
 - **數字、統計、比較**（「大安陳報價多少」「今年報了幾次價」「兩案木作比一比」）：找齊那幾張卡，核對後加總。
 - **這週要做什麼、哪天要交**：看日程。
 - **問我最近改了什麼**跟**問以前聊過什麼**是兩件事：都看工作日誌，篩法不同。
@@ -46,7 +46,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 ## 骨架
 
-- 分辨問法，照 `references/find.md` 挑程式：某個實體用 `kb lookup`，按卡型、年、實體列卡用 `kb cards list`；最近改了什麼用 `kb journal recent --changed`、以前聊過什麼用 `--find`，這週要做什麼用 `kb agenda list --from --to`；有沒有要我確認的、看待處理用 `kb asks --all --json`。照條件找人或案子（「在意醫療的客戶有誰」）：條件是設定檔第八節的標籤就先用 `kb entity list --tag` 篩，只讀篩出來的綜合卡（`references/find.md` 第九節）。
+- 分辨問法，照 `references/find.md` 挑程式：找檔先用 `kb find`（第十節），某個實體用 `kb lookup`，按卡型、年、實體列卡用 `kb cards list`；最近改了什麼用 `kb journal recent --changed`、以前聊過什麼用 `--find`，這週要做什麼用 `kb agenda list --from --to`；有沒有要我確認的、看待處理用 `kb asks --all --json`。照條件找人或案子（「在意醫療的客戶有誰」）：條件是設定檔第八節的標籤就先用 `kb entity list --tag` 篩，只讀篩出來的綜合卡（`references/find.md` 第九節）。
 - 讀綜合卡與需要的那幾張卡；原檔改過還沒重做的卡，照原檔答。
 - 有數字：工具之間先說一句粗估、標明還沒核對；逐份 `kb convert` 讀卡上〔位置〕那頁對過，再交 `kb tally` 加總、附逐筆表（`references/verify.md`）。要核的份數超過程式給的門檻先問。
 - 對不上：卡抄錯用 `kb cards redo`，兩份原檔寫法不同用 `kb pending add`，說法看 `references/verify.md`。

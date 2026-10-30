@@ -140,6 +140,7 @@ class Purge(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertRegex(out.strip(), r"^清好了：卡 1 張、備份 \d+ 份、暫存 3 份、推算 1 條、工作日誌 \d+ 段；"
                                       r"之前讀過的已送過雲端，Claude 自己的對話紀錄也還有，這兩處清不掉；以前的回答若沒提到檔名或卡名、只是轉述，認不出來\n"
+                                      r"Obsidian 自己的快取在知識庫外面，下次打開 Obsidian 會自己丟掉\n"  # #22（D-262）：成功句多講 Obsidian 的快取
                                       r"還原用的快照也清掉了；你自己存在外面的備份我碰不到$")
         self.assertNotEqual(self.sources_row()["purge"], "pending")
         # 第 5 點：目前的狀態檔
@@ -310,9 +311,14 @@ class LintPending(unittest.TestCase):
         from kb._lib import statements
         V = self.V
         t = turn.start(V, None, "")["turn"]
+        # #22（D-263）：手改不再開 handedit 件；升級前留下的 handedit 件還在，purge 照樣要清它每行的原文，所以直接造一件
+        from kb._lib import renders
         md = Path(V) / pending.MD_POSIX
-        md.write_text("\n".join(ln.replace("- ", "- [x] ", 1) if DIARY in ln else ln
-                                for ln in md.read_text(encoding="utf-8").splitlines()) + "\n", encoding="utf-8")
+        line = next(ln for ln in md.read_text(encoding="utf-8").splitlines() if DIARY in ln)
+        pid = next(i["id"] for i in pending.load(V)["items"] if DIARY in pending.line_of(i))
+        saved = renders.keep(V, pending.MD_POSIX, md.read_text(encoding="utf-8"))
+        pending.add_handedit(V, pending.MD_POSIX, saved, {"checked": [{"id": pid, "line": line}], "removed": [],
+                                                           "changed_date": [], "other": []}, t)
         pending.add(V, "unreadable", [self.keep_fid], "「估價單.pdf」讀不到", "檔案壞了", t)
         self.assertTrue([i for i in pending.load(V)["items"] if i["kind"] == "handedit"])
         pending.add_lint(V, "inferred:agenda", "日程有 1 條是我從檔案推測的，放了超過 30 天還沒確認：2026-12-01 推測的事",

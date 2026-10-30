@@ -4,6 +4,7 @@
 全域 --turn <回合> --agent <agent_id>（放在子命令前、--help 不列）：守門替 card-maker 的 kb 呼叫插的（D-195）；
 有 --turn 時這次呼叫的備份都進那個回合、算對話裡（不寫程式段）；回合不存在、或不是這個對話（--agent 記的回合、
 這個 session 的目前回合或 job 回合）的 exit 3（第一輪修 S4）。--session <sid>：守門替主對話插的，每個單一 kb 呼叫都插（帶 --turn 與 selftest 除外）。
+--via obsidian（#22，D-255）：只有 Obsidian 外掛帶，這次呼叫永遠開自己的回合（不讀 current.json、不併進對話）；值只收 obsidian，其他 exit 3。
 """
 import argparse
 import importlib
@@ -12,6 +13,7 @@ import sys
 
 NO_SUCH_TURN = "回合不存在：{}"
 NOT_THIS_TURN = "這個回合不是這個對話的：{}"
+BAD_VIA = "--via 只收 obsidian"
 
 # 名稱: (模組, 一句說明)
 COMMANDS = {
@@ -60,6 +62,10 @@ COMMANDS = {
     "lint": ("kb.lint_cli", "健檢：查整個知識庫、能修的修掉、要你決定的放進待處理、寫這個月的報告；--background 開場背景跑，"
                             "handedit 列你手改程式產生的檔的差異"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
+    "home": ("kb.home_cli", "Obsidian 首頁：--json 一次給齊首頁要的（時間軸、待辦、要你確認的、最近），只讀，給外掛用"),
+    "renders": ("kb.renders_cli", "程式產生的頁（日程、待處理、裁示）：apply 照你在頁面上直接改的做，drop 把「你加的」裡的一筆拿掉"),
+    "obsidian": ("kb.obsidian_cli", "Obsidian：status 裝了沒、登記了沒、外掛放了沒，open 替她把知識庫加進 Obsidian 並打開"),
+    "find": ("kb.find_cli", "找檔：把一串字拆成實體、卡型、標籤、時間詞和字，找卡與綜合卡；只讀，不讀原檔"),
     "selftest": ("kb.selftest_cli", "自我檢查：這份外掛在這台電腦跑不跑得起來（模組、版本、每個 hook、背景升級），用暫存的小知識庫，不碰你的"),
 }
 
@@ -74,6 +80,7 @@ def build_parser():
     parser.add_argument("--turn", help=argparse.SUPPRESS)
     parser.add_argument("--agent", help=argparse.SUPPRESS)
     parser.add_argument("--session", help=argparse.SUPPRESS)
+    parser.add_argument("--via", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", metavar="<子命令>", required=True)
     for name, (module_name, doc) in COMMANDS.items():
         sub = subparsers.add_parser(name, help=doc, description=doc)
@@ -114,6 +121,12 @@ def main(argv=None):
     if args.session is not None:
         from kb._lib import turn
         turn.SESSION = args.session
+    if args.via is not None:
+        from kb._lib import turn
+        if args.via != "obsidian":
+            print(BAD_VIA)
+            return 3
+        turn.VIA = args.via
     if args.turn is not None:
         from kb import guard
         from kb._lib import turn

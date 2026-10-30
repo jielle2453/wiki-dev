@@ -72,6 +72,9 @@ def make_tree(root, version, note="日程可以匯出成 Excel。", schema=2, sk
     write(root, "scripts/kb/_lib/migrate.py", "STATE_FILES = ()\n")
     write(root, "scripts/kb.py", "print('kb')\n")
     write(root, "agents/card-maker.md", "---\nname: card-maker\n---\n")
+    write(root, "obsidian/manifest.json", json.dumps({"id": "wiki-with-willy", "version": version}))  # Obsidian 首頁外掛（#22）：三個檔都要在
+    write(root, "obsidian/main.js", "module.exports = {};\n")
+    write(root, "obsidian/styles.css", "/* 外掛 */\n")
     write(root, "skills/manage/SKILL.md", "---\nname: manage\n---\n")
     write(root, "rules/core.md", "核心\n")
     write(root, "templates/card.md", "卡\n")

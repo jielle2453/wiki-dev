@@ -188,8 +188,8 @@ class Round3(unittest.TestCase):
         self.assertNotIn("--json", line)
 
     def test_33_claude_md_tally_row_keeps_three_columns(self):
-        row = next(ln for ln in (ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()
-                   if ln.startswith("| `scripts/kb/tally_cli.py` |"))
+        maps = "\n".join(m.read_text(encoding="utf-8") for m in sorted((ROOT / "ops").glob("map-*.md")))  # 原始碼地圖搬到 ops/ 了
+        row = next(ln for ln in maps.splitlines() if ln.startswith("| `scripts/kb/tally_cli.py` |"))
         cells = re.split(r"(?<!\\)\|", row)
         self.assertEqual(len(cells), 4, cells)
 

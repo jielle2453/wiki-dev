@@ -163,7 +163,7 @@ class GuardScope(unittest.TestCase):
                 with self.subTest(cmd=cmd, tool=tool):
                     out = self.call(cmd, tool=tool)
                     self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
-                                     ("deny", "kb 指令不能自己帶 --turn、--agent 或 --session"))
+                                     ("deny", "kb 指令不能自己帶 --turn、--agent、--session 或 --via"))
 
     def test_main_global_agent_or_session_denied_turn_subflag_ok(self):
         for cmd in (f"{KB} --agent a-x entity list", f"{KB} --session other cards status"):

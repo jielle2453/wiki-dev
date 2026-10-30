@@ -189,7 +189,7 @@ class Apply(Base):
         extra = {k for k in now if k not in was}
         missing = {k for k in was if k not in now}
         self.assertEqual(missing, set(), missing)
-        self.assertFalse([k for k in extra if not k.startswith((".system/", "系統/", "_extras/"))], extra)  # kb init 補的骨架（含彈性區，#21 裁定 3）
+        self.assertFalse([k for k in extra if not k.startswith((".system/", "系統/", "_extras/", ".obsidian/"))], extra)  # kb init 補的骨架（含彈性區，#21 裁定 3；Obsidian 外掛每次 init 都放，#22 D-260）
 
     def test_journal_gets_a_restore_segment_at_the_end(self):
         restore.apply(self.V, str(self.zip))

@@ -44,8 +44,13 @@ RECENT_MONTHS = 12
 AUTO_LABELS = {"lint --background": "每週健檢（自動）"}
 
 
-def program_label(command):
-    """程式段的抬頭：自動跑的照 AUTO_LABELS，其他是「程式 <指令>」。"""
+OBSIDIAN_LABEL = "你在 Obsidian 按的"  # --via obsidian 的程式段（#22，D-255）
+
+
+def program_label(command, source=None):
+    """程式段的抬頭：Obsidian 外掛按的（source obsidian）寫「你在 Obsidian 按的」，自動跑的照 AUTO_LABELS，其他是「程式 <指令>」。"""
+    if source == "obsidian":
+        return OBSIDIAN_LABEL
     return AUTO_LABELS.get(str(command or ""), f"程式 {command or ''}".rstrip())
 
 # 地板句（D-084）：區 → [(action, 動詞)], 單位；Z7 不數，其他區數總檔數
@@ -330,6 +335,8 @@ def record_program(vault, note, changed, command):
         "schema_version": SCHEMA_VERSION, "kind": "program", "turn": tid, "time": _iso(now),
         "command": command, "note": str(note or ""), "changed": _clean_changed(changed),
     }
+    if turn.VIA:
+        row["source"] = turn.VIA  # Obsidian 外掛按的：抬頭寫「你在 Obsidian 按的」，不說是她在終端機跑的
 
     def edit(items):
         items.append((None, row))
@@ -551,7 +558,7 @@ def _changed_lines(row):
 def _block(row):
     when = str(row.get("time", "")).replace("T", " ")
     if row.get("kind") == "program":
-        return [f"## {when}　{program_label(row.get('command'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+        return [f"## {when}　{program_label(row.get('command'), row.get('source'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
     lines = [f"## {when}　回合 {row.get('turn', '')}", f"- 問：{_flat(row.get('prompt'))}"]
     if not row.get("done"):
         return lines + [f"- 結果：{IN_PROGRESS}"]

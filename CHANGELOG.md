@@ -4,6 +4,16 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.29.0 — 2026-10-30
+- **給客戶的一句話**：在 Obsidian 打開知識庫就是一張首頁：上面是日程的時間軸和月曆，下面是待辦和要你確認的，點一下就能打勾、改日期、回答；搜尋框打「王先生 報價 上個月」就找得到檔；右上角有一張隨手記的便條。
+- **改了什麼**：Obsidian 首頁（D-252～D-269，issue #22，併入 B-050、B-072）。外掛 `obsidian/`（main.js、styles.css、manifest.json，純 CommonJS，`kb init` 放進 `.obsidian/plugins/`、照 `installed_plugins.json` 找 kb）：首頁由上到下是日期、問候、搜尋框與右上的便條（`_extras/隨手記.md`，D-267）；日程（時間軸照案子分段、同案同色、Ctrl＋滾輪或觸控板縮放、左右捲動、小箭頭收合，月曆每週寫名字、收起成色線、點日期列出那天與「＋這天加一件」）；待辦（已經過了、今天、這週，打勾、點日期改、＋新增日程，推測的點「推測」確認）；要你確認的（D-268：只放點一下、選一個、填一個就做完的題，告知類「知道了」，其餘算進「還有 N 件要跟 Claude 一起看」）；點事情開相關的卡、點案子名開右邊總覽；綜合卡內文的〔f-…〕在閱讀與編輯模式顯示成小檔案圖示。kb 新指令與旗標：`kb home --json`（`willy-home/1`）、`kb find`（照字、時間、型別找檔）、`kb renders apply／drop`（她手改日程.md、待處理.md 等頁直接照做，D-263）、全域 `--via obsidian`（外掛按的開自己的回合，對話說「退回」不退它，D-255）、`kb obsidian`；`--check` 四支；建置多一步 Obsidian；`kb moved`／`selftest`／`release` 認得外掛。`系統/日程.md` 拿掉 mermaid 時程圖（D-269）。
+- **為什麼**：客戶要一個打開就看得到「今天要做什麼、有什麼要我回答」的地方，不用每件事都開對話問（issue #22）；B-050 spike 驗過 Obsidian 能做到（`design/reports/B-050-spike.md`）。測試兩輪（`design/reports/Obsidian首頁-測試.md`）；確認時使用者在真的 Obsidian 看了六輪樣子、改到「做得很好」（`design/reports/Obsidian首頁-確認.md`）。
+- **還沒驗、還沒定的**：沒在真的 Obsidian 驗的：開著日程.md 打字時在首頁勾、Claude 桌面版說「退回」不退 Obsidian 按的、換一版外掛的提示、原檔在網路磁碟、注音與縮放等細節（B-516）。
+- **已知問題**：綜合卡被她手改的段，下次 Claude 更新那張卡可能改掉（B-511，要做）；卡的屬性欄清單點不到、帶 f- 編號（B-514）；「跟…同一個」在被併的實體夾裡還有別的檔時會被擋下；拖曳改日期等 #23。
+- **commit**：d4bcbd4、4074a8e、ecdcc2f、f3d496e、1f54c34、89d40a9、952fd8d、0d6c732、4d43741、ab29f84、8d0b43b、aae40cb、59af49c、1420cdc、335b6d5、795ac88、7e1b25c、10bd758、712976e、db6e73f（分支 spec/obsidian-home）
+- **spec**：design/specs/2026-10-30-Obsidian首頁.md
+- **關掉的 issue**：#22
+
 ## 0.28.0 — 2026-10-30
 - **給客戶的一句話**：知識庫多了一個 _extras 資料夾，放你自己的東西；你可以自己丟檔，也可以叫我寫進去，我平常不看，你提到它我才讀。
 - **改了什麼**：彈性區（D-509～D-513，issue #21）。知識庫第一層多一個 `_extras`（名稱只在 `_lib/areas.py` 的 `FREE_DIR` 定一次）。守門多一區 Z12：讀放行；用檔案工具寫放行，寫前備進回合（說「退回」退得掉）；用指令寫照擋；像密碼的檔名照擋，而且不套總資料夾內部豁免；製卡助手讀寫都擋，Grep、Glob 從知識庫根或更上層開始搜也擋。各處的第一層保留夾清單都加上它（不盤點、不做卡、不算型別夾、來源別名不能叫這個名字），工作日誌「改了」說「_extras N 份」。`kb convert` 讀得了這一區的檔。`rules/core.md` R-01 補一句：平常不讀不搜，別處找不到也不去翻，_extras 有檔才問要不要看，她提到這一區或答應要看才讀，Word、Excel 用 kb convert 讀。交貨前 `kb build done finish` 遇到這一區有檔就擋（`kb build report --facts` 多 `free_files`）；`kb restore check` 也比這一區；`kb upgrade --finish` 補建這個夾，她自己改名成 `_extras` 的型別夾改回預設編號名字（`_lib/migrate` 一列）。

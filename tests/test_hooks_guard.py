@@ -522,7 +522,7 @@ class EverySession(unittest.TestCase):
         self.assertNotIn("updatedInput", got)
         got = self.out(f"{kb} --session other versions revert")
         self.assertEqual((got["permissionDecision"], got["permissionDecisionReason"]),
-                         ("deny", "kb 指令不能自己帶 --turn、--agent 或 --session"))
+                         ("deny", "kb 指令不能自己帶 --turn、--agent、--session 或 --via"))
 
     def test_selftest_not_rewritten(self):
         """kb selftest 要走 cli.main 不建 parser 的快路（換版前先驗新版 裁定 1），不插 --session。"""
