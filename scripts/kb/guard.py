@@ -26,6 +26,9 @@ produce（第 3 點、實作回報裁定 1、3）：Z2、Z9 擋寫的理由句�
 - 工具夾與 plugin 夾不比憑證樣式（B-088、B-093 (a)，credentials.exempt）。
 彈性區（D-510）：Z12 是第一層的 areas.FREE_DIR，讀放行、檔案工具寫放行（hook 先備份）、指令寫照 SHELL_WRITE 擋；
 內部豁免不套這一區：第一道從彈性區根以下比段，讀取範圍是彈性區或含它的夾（含整個知識庫）時另走訪彈性區找密碼檔。
+開檔（D-514）：Start-Process、Invoke-Item、start、explorer 開的是文件、資料夾或網址（cmdparse.open_stage）→ 目標照讀判、不算碰 AI 產出，
+開一個夾不走第三道也不算 Z10b；-RedirectStandardOutput／Error 照寫判；開的是程式 → 程式檔在知識庫或來源裡擋 run_file，
+其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態。
 """
 import glob as globlib
 import os
@@ -56,6 +59,8 @@ if os.name != "nt":
 SHELL_WRITE = ("deny", "shell_write", "用指令改的退不回來，請用檔案工具改。")
 # produce：指令碰到 AI 產出一律擋（讀也擋）；成品經 kb output save 放進來、轉 PDF 與看版面經 kb office（D-170）
 OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放進來；要轉 PDF 或看版面用 kb office")
+RUN_FILE = ("deny", "run_file", "知識庫與原檔夾裡的程式或巨集檔不直接執行；要打開給客戶看，請用 PDF、Word 這類文件")
+_RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk")  # 裸程式名在效用 cwd 底下找的副檔名
 SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
 # B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
 SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
@@ -570,13 +575,15 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
     globs：含萬用字元的 token（Bash 只認引號外，PowerShell 引號內也收），接效用 cwd 正規化；cd 到萬用字元路徑的目標也收（V2）；
     cd_targets：cd 的目標（只切目錄不讀內容：不走第三道、不算 Z10b，D-185 與 B-093 (b)；Z10 照擋）；
     list_only：整句只有列檔名、切目錄、印目前目錄（D-185），沒有管線、導向、內文：第三道不走訪；
-    body_reads：內文裡的絕對路徑（照讀判斷）；token：第二道命中的段（只在效用 cwd 不在總資料夾裡、或推不出效用 cwd 時比）。
+    body_reads：內文裡的絕對路徑（照讀判斷）；token：第二道命中的段（只在效用 cwd 不在總資料夾裡、或推不出效用 cwd 時比）；
+    open_exempt：開檔段（D-514）要開的文件與夾，別段沒碰、不是寫入目標也不是 cd 目標的（不走第三道、不算 Z10b）。
     效用 cwd 跨管線段、跨子指令延續。"""
     cleaned = cmdparse.DISCARD_OUTPUT.sub(" ", command)
     base = normalize(cwd, None)
     out = {"read_dirs": [], "implicit_dirs": [], "free_dirs": [], "read_paths": set(), "write_targets": set(), "write_globs": [],
            "globs": [], "cd_dirs": [], "cd_targets": set(), "token": None, "unparsed": False, "has_write": False,
-           "list_only": False, "body_reads": [], "stages": []}
+           "list_only": False, "body_reads": [], "stages": [], "open_exempt": set()}
+    open_targets, other_paths = set(), set()
     plans = _plan_stages(cleaned, bodies, tool == "PowerShell")
     out["stages"] = plans
     out["list_only"] = bool(plans) and not bodies and all(
@@ -609,6 +616,15 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             out["unparsed"] = True
         switch_ok = tool == "PowerShell" or verb in cmdparse.SWITCH_VERBS  # X3
         stage_base = base
+        opened = cmdparse.open_stage(verb, cmdparse.raw_words(stage_text, tool == "PowerShell"), tool == "PowerShell",
+                                     stage_base or cwd)
+        plan["open"] = opened
+        open_kind = opened is not None and opened["kind"] == "open"
+        if opened is not None and (opened["opaque"] or (tool == "PowerShell" and plan["stage"] > 0) or (
+                stage_base is None and any(not cmdparse.OPEN_URL.match(t) and not cmdparse._ABS_START.match(t)
+                                           for t in opened["targets"] + opened["writes"] + opened["reads"]))):
+            # 要開的、程式的參數、導向有變數或替換，要開的從管線前面來（gci x | ii），或 cd $X 之後的相對路徑：看不出會開什麼
+            out["has_write"] = out["unparsed"] = True
         if stage_write and stage_base in out["cd_targets"]:
             cd_written.add(stage_base)  # cd 進去之後要寫：那個夾照一般規則判（cd 的 Z10b 豁免只給只切目錄、讀、列的）
         own, stage_reads = [], []
@@ -630,6 +646,16 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             if plan["var_code"]:  # 程式碼經變數餵：整句裡的絕對路徑都是目標（N5）
                 own.extend(p for p in (_norm(raw, stage_base) for raw in cmdparse.code_paths(cmdparse.strip_marks(cleaned)))
                            if p is not None)
+        if opened is not None:
+            # 開檔段（D-514）：寫入目標只有導向；要開的文件與夾、-RedirectStandardInput 照讀
+            own = [p for p in (_norm(raw, stage_base) for raw in opened["writes"]) if p is not None]
+            for raw in opened["reads"] + (opened["targets"] if open_kind else []):
+                p = None if cmdparse.OPEN_URL.match(raw) else _norm(raw, stage_base)
+                if p is not None:
+                    out["read_paths"].add(p)
+                    stage_reads.append(p)
+                    if open_kind and raw in opened["targets"]:
+                        open_targets.add(p)
         expect_cd, has_read_path = False, False
         verbs, flags, stage_globs, redirect_targets = [], [], [], []
         for tok, quoted, glob_out, after_redirect in tokens:
@@ -702,8 +728,9 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
                 has_read_path = True
                 out["read_paths"].add(p)
                 stage_reads.append(p)
-                out["read_dirs"].append(p)  # Q8：讀取那段（含 tee 之前、tar c 的輸入）的 . 與 .. 是讀取範圍
-                out["implicit_dirs"].append(p)
+                if not open_kind:  # explorer .：開一個夾不是讀整夾
+                    out["read_dirs"].append(p)  # Q8：讀取那段（含 tee 之前、tar c 的輸入）的 . 與 .. 是讀取範圍
+                    out["implicit_dirs"].append(p)
                 continue
             if glob_out:
                 has_read_path = True
@@ -732,7 +759,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             has_read_path = True
             out["read_paths"].add(p)
             stage_reads.append(p)
-            if os.path.isdir(p):
+            if os.path.isdir(p) and not open_kind:
                 out["read_dirs"].append(p)
         search = any(v in SEARCH_ALWAYS or any(_is_recursive_flag(v, f) for f in flags) for v in verbs)
         if search and not has_read_path and not write_verb and base is not None and not inside(base, vault_n):
@@ -746,6 +773,8 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
         if stage_write and uncertain:
             own.extend(uncertain)  # cd 到展不開的萬用字元之後才寫：那些夾整個算目標（第九輪 Z1、驗收 90）
         own = [p for p in dict.fromkeys(own) if p not in redirect_targets]
+        if not open_kind:
+            other_paths.update(own + stage_reads + redirect_targets)
         sub_paths.setdefault(plan["sub"], []).extend(own + stage_reads)
         sub_globs.setdefault(plan["sub"], []).extend(stage_globs)
         if stage_write:
@@ -765,6 +794,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
         else:
             out["unparsed"] = True
     out["cd_targets"] -= cd_written
+    out["open_exempt"] = open_targets - other_paths - out["write_targets"] - out["cd_targets"]
     out["final_base"] = base  # 這段指令跑完時的效用 cwd（指令替換遞迴用）
     return out
 
@@ -998,13 +1028,16 @@ def _touches_output(info, bodies, vault_n, sources, tool):
     """produce 與 D-186 補：指令碰到 AI 產出（Z3）。只有真正會寫或看不出會不會寫的才算：
     (1) 寫入目標在 Z3；(2) 不是已知只讀的那一段（node、python 腳本、soffice、cp…）的參數或效用 cwd 在 Z3；
     (3) 餵給直譯器或殼的 heredoc 內文提到 AI 產出。已知只讀指令（cat、grep、Get-Content、Test-Path…）、echo 的字串、
-    餵給 cat／tee 的 heredoc 內文裡提到的不算（讀）。只多擋、不放行任何東西。"""
+    餵給 cat／tee 的 heredoc 內文裡提到的不算（讀）。開檔段開的是文件、夾或網址（D-514）也不算，導向進 Z3 照 (1) 擋。
+    只多擋、不放行任何東西。"""
     for p in info["write_targets"]:
         if inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
             return True
     for plan in info["stages"]:
         verb = plan["verb"]
-        if verb in _CD_VERBS or (verb in cmdparse.READONLY_VERBS and plan["kind"] != "write"):
+        opened = plan.get("open")
+        if verb in _CD_VERBS or (verb in cmdparse.READONLY_VERBS and plan["kind"] != "write") or (
+                opened is not None and opened["kind"] == "open"):
             continue
         base = plan.get("base")
         if base is not None and inside(base, vault_n) and classify(base, vault_n, sources)[0] == "Z3":
@@ -1072,6 +1105,25 @@ def _inner_commands(clean, bodies, powershell):
     return found
 
 
+def _program_file(raw, base):
+    """開檔段要跑的程式檔（D-514）：帶路徑的（相對或絕對，存不存在都算）接效用 cwd；裸名稱只在效用 cwd 底下真的有這個檔
+    （含補 .exe、.bat 這些）才算，沒有就是從 PATH 找的系統程式（powershell、cmd）。網址回 None。"""
+    if cmdparse.OPEN_URL.match(raw) or cmdparse._URL.match(raw):
+        return None
+    if "/" in raw or "\\" in raw or cmdparse._ABS_START.match(raw):
+        return _norm(raw, base)
+    if base is None:
+        return None
+    for ext in _RUN_EXT:
+        try:
+            p = normalize(raw + ext, base)
+            if os.path.isfile(p):
+                return p
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     powershell = tool == "PowerShell"
     clean, bodies = cmdparse.split_bodies(command, powershell=powershell)
@@ -1104,6 +1156,37 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
             return unparsed()  # 效用 cwd 推不出來（cd $X 之後）又要寫：看不出寫到哪
 
     info = _analyze(clean, cwd, vault_n, tool, bodies)
+    # 開檔段開的是程式（D-514）：程式檔在知識庫或來源裡擋 run_file；其餘把程式名加參數那行照直接下那行判（內層 deny 就 deny）
+    for plan in info["stages"]:
+        opened = plan.get("open")
+        if opened is None or opened["kind"] != "run" or opened["opaque"]:
+            continue
+        base = plan.get("base")
+        run_cwd = _norm(opened["cwd"], base) if opened["cwd"] else base
+        forced = opened["verb_flag"] is not None and opened["verb_flag"].lower() not in cmdparse.OPEN_VERB_FLAGS
+        programs = [t for t in opened["targets"] if forced or not cmdparse._openable(t, base)]
+        if base is None and any(not cmdparse.OPEN_URL.match(t) and not cmdparse._ABS_START.match(t) for t in programs):
+            return unparsed()  # cd $X 之後跑相對的程式：看不出跑的是哪個檔
+        for raw in programs:
+            for p in dict.fromkeys(_program_file(raw, b) for b in (base, run_cwd)):
+                zone = classify(p, vault_n, sources)[0] if p is not None else None
+                if zone in VAULT_ZONES or zone in SOURCE_ZONES:
+                    return deny(zone, RUN_FILE[1], RUN_FILE[2])
+        # 程式的參數裡點名知識庫或來源裡的腳本（cmd /c <x.bat>、wscript <x.wsf>、powershell -c "& '<x.ps1>'"）：同樣不直接執行
+        for p in cmdparse.extract_paths(opened["program"] or "", run_cwd or cwd, powershell=powershell):
+            zone = classify(p, vault_n, sources)[0]
+            if (zone in VAULT_ZONES or zone in SOURCE_ZONES) and not cmdparse._openable(p, None):
+                return deny(zone, RUN_FILE[1], RUN_FILE[2])
+        if not opened["program"]:
+            continue
+        if depth >= SUBST_DEPTH_MAX:
+            return unparsed()
+        d = _shell_tool(tool, opened["program"], run_cwd or cwd, vault, sources, depth + 1)
+        if d.decision == "deny":
+            return deny(d.zone, d.reason_code, d.reason)
+        if run_cwd is None and _analyze(*cmdparse.split_bodies(opened["program"], powershell=powershell)[:1], cwd, vault_n,
+                                        tool)["has_write"]:
+            return unparsed()  # 效用 cwd 推不出來又要寫：看不出寫到哪
     paths = cmdparse.extract_paths(flat, cwd, powershell=powershell)
     # D-186 (d)：內文照舊抽路徑判斷讀（憑證、排除）；只是提到一個夾不算讀它整夾，不走第三道
     body_only = [p for p in dict.fromkeys(info["body_reads"]) if p not in paths]
@@ -1157,8 +1240,9 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
         scanned = []
         extra += [(p, *classify(p, vault_n, sources)) for p in info["free_dirs"]]
         for p, zone, _alias in classified + head_classified + extra:
-            if p in scanned or p in writes or p in body_only or zone == "Z10" or not os.path.isdir(p):
-                continue  # 真正的磁碟根照走訪，撞上限就「範圍太大」（W2）；/c 這種開關 cmdparse 已不當路徑（V5）
+            if p in scanned or p in writes or p in body_only or zone == "Z10" or not os.path.isdir(p) or (
+                    p in info["open_exempt"] and p not in info["read_dirs"]):
+                continue  # 真正的磁碟根照走訪，撞上限就「範圍太大」（W2）；/c 這種開關 cmdparse 已不當路徑（V5）；開一個夾不走訪（D-514）
             scanned.append(p)
             code, reason = free_scan(vault, p, sources)
             if code:
@@ -1207,7 +1291,8 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     cd_only = info["list_only"]  # cd 的 Z10b 豁免只給整句只切目錄、列檔名的（cd 進去再跑程式照擋）
     for p, zone, alias in classified:  # 照抽出的順序，每個路徑先讀、是寫的目標再寫（理由句跟第八輪以前一樣具體）
         decision, code, reason = _verdict(zone, "read", alias)
-        if decision == "deny" and not (zone == "Z10b" and cd_only and p in info["cd_targets"] and p not in writes):
+        if decision == "deny" and not (zone == "Z10b" and cd_only and p in info["cd_targets"] and p not in writes) and not (
+                zone == "Z10b" and p in info["open_exempt"]):  # 開一個含排除夾的夾不是讀它（D-514）
             return deny(zone, code, reason)
         if p in writes:
             checked.add(p)

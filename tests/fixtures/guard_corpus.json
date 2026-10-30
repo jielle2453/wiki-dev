@@ -10738,6 +10738,632 @@
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "指令範圍讀整個知識庫、彈性區有帳密.xlsx → deny"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "開 AI 產出的 Word"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process -FilePath '<V>\\AI 產出\\x.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "-FilePath"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Invoke-Item '<V>\\AI 產出\\x.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "Invoke-Item"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "ii '<V>\\AI 產出\\x.pdf'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "ii，檔不存在也一樣"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "explorer '<V>\\AI 產出'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "開 AI 產出的夾"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process 'AI 產出\\x.xlsx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 1",
+   "note": "相對路徑"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cmd //c start \"\" \"<V>/AI 產出/x.docx\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 2",
+   "note": "Git Bash 的 cmd start"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "start \"\" \"<V>/AI 產出/x.docx\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 2",
+   "note": "Git Bash 的 start"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "start \"<V>/AI 產出/x.docx\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 2",
+   "note": "第一個引號字當標題，等於沒給目標"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "explorer.exe \"<V>/AI 產出\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 2",
+   "note": "explorer.exe"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\總目錄.md'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 3",
+   "note": "第一層（原本 Z8 protected）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\系統\\工作日誌.md'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 3",
+   "note": "系統區（原本 Z6 system_render）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\檔案索引\\x.md'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 3",
+   "note": "檔案索引"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 3",
+   "note": "登記的來源（原本 Z9 readonly_source）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\_extras\\筆記.md'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/_extras/筆記.md"
+   ],
+   "來源": "開檔與Office一起改 驗收 3",
+   "note": "彈性區"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process 'https://example.com'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 4",
+   "note": "網址（原本 unparsed）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "start https://example.com"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 4",
+   "note": "Git Bash 開網址"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "start https://example.com"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 4",
+   "note": "PowerShell 的 start 是 Start-Process"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb Print"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 5",
+   "note": "-Verb Print"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb Edit"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 5",
+   "note": "-Verb Edit"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Wait"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 5",
+   "note": "-Wait"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx' -WindowStyle Maximized"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 5",
+   "note": "-WindowStyle"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name 問答測試 --plugin-dir C:\\x'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 6",
+   "note": "#18 開新視窗跑 claude（原本 unparsed）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name 問答測試 --plugin-dir C:\\x' -WorkingDirectory '<V>'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 6",
+   "note": "#18 加 -WorkingDirectory"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --name 問答測試'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 6",
+   "note": "陣列逗號後有空白"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<V>\\x.txt'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 7",
+   "note": "導向寫第一層 → Z8 protected"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardError '<V>\\AI 產出\\e.txt'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 7",
+   "note": "導向寫 AI 產出 → Z3 output_shell"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<RAW>\\客戶案件\\o.txt'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 7",
+   "note": "導向寫原檔 → Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-Command','Remove-Item ''<V>\\系統\\x.md'''"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 8",
+   "note": "開的是程式：內層照直接下那行判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process cmd -ArgumentList '/c','del \"<V>\\AI 產出\\x.docx\"'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 8",
+   "note": "cmd /c del 內層照判"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "start \"\" powershell -Command \"Remove-Item '<V>/系統/x.md'\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 8",
+   "note": "Git Bash start 跑程式，內層照判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.bat'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "run_file：檔不存在也擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.ps1'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "run_file"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\x.cmd'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "run_file Z8"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docm'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docm"
+   ],
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "巨集檔不收"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<RAW>\\客戶案件\\run.exe'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "run_file Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Invoke-Item '<V>\\AI 產出\\x.lnk'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "捷徑"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "cmd //c start \"\" \"<V>/AI 產出/x.bat\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "Git Bash cmd start .bat"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "start '<V>\\AI 產出\\x.bat'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "PowerShell 的 start 不跳標題"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "ii '<V>\\AI 產出\\*'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "萬用字元可能開到程式"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb RunAs"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 9",
+   "note": "-Verb 不是開、改、印 → 當跑程式"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<RAW>\\行政\\薪資\\s.xlsx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 10",
+   "note": "排除夾 Z10"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<RAW>\\客戶案件\\密碼.txt'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<RAW>/客戶案件/密碼.txt"
+   ],
+   "來源": "開檔與Office一起改 驗收 10",
+   "note": "密碼檔名"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "explorer '<RAW>'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 10",
+   "note": "開夾不是讀整夾（底下有排除夾）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "explorer '<RAW>'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<RAW>/客戶案件/密碼.txt"
+   ],
+   "來源": "開檔與Office一起改 驗收 10",
+   "note": "開夾不走訪找密碼檔"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "explorer '<RAW>'; Get-ChildItem -Recurse '<RAW>' | Get-Content"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 10",
+   "note": "同一個夾另一段真的讀，照擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process $f"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 11",
+   "note": "unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList $a"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 11",
+   "note": "unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process (Get-Item x)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "開檔與Office一起改 驗收 11",
+   "note": "unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process '<V>\\AI 產出\\x.docx'; Remove-Item '<V>\\AI 產出\\y.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 12",
+   "note": "後半照舊"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "cmd /c start '<V>\\AI 產出\\x.docx' '&' del '<V>\\系統\\x.md'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 12",
+   "note": "cmd 的 & 交給 cmd 串接"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $w.Documents.Open('<V>\\AI 產出\\x.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 13",
+   "note": "COM 開檔照擋（D-514 放棄了）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.Documents | Where-Object { $_.Name -eq 'x.docx' }; $d.Content.InsertAfter('x'); $d.Save()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 14",
+   "note": "D-515 附著 Word 改"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$x=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$x.Workbooks | Where-Object { $_.FullName -eq '<RAW>\\客戶案件\\a.xlsx' }; $b.Worksheets.Item(1).Range('A1').Value2 = '下週交'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 14",
+   "note": "D-515 附著 Excel 改原檔"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName==r'<V>\\AI 產出\\x.docx'][0]; d.Content.InsertAfter('x')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/AI 產出/x.docx"
+   ],
+   "來源": "開檔與Office一起改 驗收 14",
+   "note": "D-515 Bash python 附著"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $p.ActivePresentation.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "開檔與Office一起改 驗收 14",
+   "note": "D-515 附著 PowerPoint 改"
   }
  ]
 }

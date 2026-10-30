@@ -397,5 +397,123 @@ class CodePaths(unittest.TestCase):
         self.assertEqual(cmdparse.code_paths("p = C:/x/a.txt"), ["C:/x/a.txt"])
 
 
+def op(text, powershell=True, base=None):
+    """跟 guard 一樣：動詞從去引號的字取，開檔段吃原樣的字。"""
+    words = cmdparse.raw_words(text, powershell)
+    return cmdparse.open_stage(cmdparse.verb_of([w.strip("'\"") for w in words]), words, powershell, base)
+
+
+class OpenStage(unittest.TestCase):
+    """開檔與Office一起改（D-514）：open_stage 抽要開的東西、分開檔與跑程式。"""
+
+    def test_not_open_verb(self):
+        for text, ps in (("Get-Content 'C:\\x\\a.docx'", True), ("cmd /c del x.docx", True), ('cmd /c "start x.docx"', True),
+                         ("$w.Documents.Open('C:\\x\\a.docx')", True), ("& 'C:\\x\\AI 產出\\explorer.exe' a.docx", True),
+                         ('"C:/x/start" a.docx', False)):
+            with self.subTest(text=text):
+                self.assertIsNone(op(text, ps))
+
+    def test_start_process_targets(self):
+        for text in ("Start-Process 'C:\\x\\AI 產出\\a.docx'", "Start-Process -FilePath 'C:\\x\\AI 產出\\a.docx'",
+                     "Start-Process -FilePath:'C:\\x\\AI 產出\\a.docx'", "saps -File 'C:\\x\\AI 產出\\a.docx' -Wait",
+                     "start 'C:\\x\\AI 產出\\a.docx'",
+                     "Start-Process 'C:\\x\\AI 產出\\a.docx' -Verb Print -WindowStyle Maximized"):
+            with self.subTest(text=text):
+                got = op(text)
+                self.assertEqual((got["targets"], got["kind"], got["writes"], got["opaque"]),
+                                 (["C:\\x\\AI 產出\\a.docx"], "open", [], False))
+
+    def test_invoke_item_targets(self):
+        self.assertEqual(op("Invoke-Item 'C:\\x\\a.docx', 'C:\\x\\b.pdf'")["targets"], ["C:\\x\\a.docx", "C:\\x\\b.pdf"])
+        self.assertEqual(op("ii -LiteralPath 'C:\\x\\a b.pdf'")["targets"], ["C:\\x\\a b.pdf"])
+        self.assertEqual(op("ii C:\\x\\a.xlsx")["kind"], "open")
+
+    def test_cmd_start_skips_title(self):
+        for text, ps, targets in (('start "" "C:/x/AI 產出/a.docx"', False, ["C:/x/AI 產出/a.docx"]),
+                                  ('start "C:/x/AI 產出/a.docx"', False, []),
+                                  ('start /b /wait /min "" C:/x/a.docx', False, ["C:/x/a.docx"]),
+                                  ('cmd //c start "" "C:/x/AI 產出/a.docx"', False, ["C:/x/AI 產出/a.docx"]),
+                                  ('cmd /c start "" "C:\\x\\AI 產出\\a.docx"', True, ["C:\\x\\AI 產出\\a.docx"]),
+                                  ('cmd.exe /C start C:\\x\\a.bat', True, ["C:\\x\\a.bat"]),
+                                  ('start "C:/x/a.bat"', False, ["C:/x/a.bat"])):  # 沒空白的引號傳給 cmd 時沒有引號，不是標題
+            with self.subTest(text=text):
+                self.assertEqual(op(text, ps)["targets"], targets)
+        got = op('start /d "C:/w" "" a.docx', False)
+        self.assertEqual((got["cwd"], got["targets"]), ("C:/w", ["a.docx"]))
+
+    def test_explorer_open(self):
+        self.assertEqual(op("explorer 'C:\\x\\AI 產出'")["targets"], ["C:\\x\\AI 產出"])
+        self.assertEqual(op('explorer.exe /select,"C:\\x\\a.docx"')["targets"], ["C:\\x\\a.docx"])
+        self.assertEqual(op("open /tmp/a.pdf", False)["targets"], ["/tmp/a.pdf"])
+        self.assertEqual(op("xdg-open /tmp/a.pdf", False)["kind"], "open")
+
+    def test_kind(self):
+        tmp, V, _raw = make_vault()
+        try:
+            for target, kind in (("https://example.com", "open"), ("mailto:a@b.tw", "open"), ("C:\\x\\a.PDF", "open"),
+                                 ("C:\\x\\a.bat", "run"), ("C:\\x\\a.docm", "run"), ("C:\\x\\a.lnk", "run"),
+                                 ("C:\\x\\a.bat:.docx", "run"), ("C:\\x\\夾", "run"), (str(V / "AI 產出"), "open"),
+                                 ("AI 產出", "open"), ("powershell", "run")):
+                with self.subTest(target=target):
+                    self.assertEqual(op(f"Start-Process '{target}'", base=str(V))["kind"], kind)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_verb_flag(self):
+        for verb, kind in (("Print", "open"), ("edit", "open"), ("OpenAsReadOnly", "open"), ("Open", "open"), ("RunAs", "run")):
+            with self.subTest(verb=verb):
+                got = op(f"Start-Process 'C:\\x\\a.docx' -Verb {verb}")
+                self.assertEqual((got["verb_flag"], got["kind"]), (verb, kind))
+
+    def test_program_line(self):
+        for text, program in (
+                ("Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name t'",
+                 'powershell -NoExit -Command "claude --name t"'),
+                ("Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --name t'",
+                 'powershell -NoExit -Command "claude --name t"'),
+                ("Start-Process powershell '-NoExit','-Command','claude'", "powershell -NoExit -Command claude"),
+                ("Start-Process powershell -ArgumentList '-Command','Remove-Item ''C:\\x\\a.md'''",
+                 "powershell -Command \"Remove-Item 'C:\\x\\a.md'\""),
+                ("Start-Process powershell -ArgumentList '-NoExit -Command x'", "powershell -NoExit -Command x"),
+                ("Start-Process cmd -ArgumentList '/c','del \"C:\\x\\a b.docx\"'", 'cmd /c del "C:\\x\\a b.docx"'),
+                ("Start-Process 'C:\\x\\a b.bat'", '"C:\\x\\a b.bat"')):
+            with self.subTest(text=text):
+                got = op(text)
+                self.assertEqual((got["kind"], got["program"]), ("run", program))
+        got = op('start "" powershell -Command "Remove-Item x"', False)
+        self.assertEqual(got["program"], 'powershell -Command "Remove-Item x"')
+        self.assertIsNone(op("Start-Process 'C:\\x\\a.docx'")["program"])
+
+    def test_redirects_and_cwd(self):
+        got = op("Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput 'C:\\x\\o.txt' "
+                 "-RedirectStandardError C:\\x\\e.txt -RedirectStandardInput 'C:\\x\\i.txt' -WorkingDirectory 'C:\\w'")
+        self.assertEqual((got["writes"], got["reads"], got["cwd"]), (["C:\\x\\o.txt", "C:\\x\\e.txt"], ["C:\\x\\i.txt"], "C:\\w"))
+        self.assertIsNone(op("Start-Process 'C:\\x\\a.docx'")["cwd"])
+
+    def test_opaque(self):
+        for text, ps in (("Start-Process $f", True), ("Start-Process powershell -ArgumentList $a", True),
+                         ("Start-Process (Get-Item x)", True), ('Start-Process "$env:TEMP\\x.docx"', True),
+                         ("Start-Process -FilePath $f", True), ("Start-Process @a", True),
+                         ("start %TEMP%\\x.docx", False), ('start "" "$HOME/x.docx"', False),
+                         ("cmd /c start x.docx '&' del y", True), ('start "" "a|b.docx"', False),
+                         ("Start-Process -Foo x.docx", True), ("Start-Process -Red x.txt powershell", True),
+                         ("Start-Process powershell -RedirectStandardOutput $o", True),
+                         ("Start-Process -FilePath a.txt -FilePath x.bat", True), ('cmd /c start \'"t"\' x.bat', True),
+                         ("open -- sh -c 'rm -rf .'", False)):
+            with self.subTest(text=text):
+                self.assertTrue(op(text, ps)["opaque"])
+        self.assertFalse(op("Start-Process 'https://x.tw/%E4%B8%AD'")["opaque"])
+        self.assertFalse(op("Start-Process '$f.docx'")["opaque"])  # 單引號不展開
+
+    def test_stage_kind_and_write_words(self):
+        self.assertEqual(cmdparse.stage_kind("start-process", "Start-Process 'C:\\x\\a.docx'", powershell=True), "read")
+        self.assertEqual(cmdparse.stage_kind("start-process", "Start-Process powershell -RedirectStandardOutput o.txt",
+                                             powershell=True), "write")
+        self.assertEqual(cmdparse.stage_kind("cmd", 'cmd //c start "" "C:/x/a.docx"'), "read")
+        self.assertFalse(cmdparse.is_write("Start-Process 'C:\\x\\a.docx'", True))
+        self.assertNotIn("start-process", cmdparse.SHELL_WRAPPERS)
+        self.assertNotIn("start", cmdparse.SHELL_WRAPPERS)
+
+
 if __name__ == "__main__":
     unittest.main()

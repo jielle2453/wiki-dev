@@ -26,9 +26,11 @@ WRITE_WORDS = re.compile(
     + _W + r"curl\b[^|;&]*\s(?:-[a-zA-Z]*o|-O|--output)\b|-delete\b|"
     + _W + r"git\s+(?:clean|checkout|restore|reset|stash|rm|mv)\b|"
     + _W + r"(?:remove-item|move-item|copy-item|rename-item|new-item|set-content|add-content|out-file|clear-content|"
-    r"set-itemproperty|export-csv|export-clixml|invoke-expression|start-process)\b",
+    r"set-itemproperty|export-csv|export-clixml|invoke-expression)\b",
     re.IGNORECASE,
 )
+# 包在殼字串裡的開檔（powershell -Command "Start-Process …"）不拆（D-514 不做），照拿掉之前一樣算寫
+WRAPPED_OPEN = re.compile(_W + r"(?:start-process|saps)\b", re.IGNORECASE)
 # 程式碼裡的寫入（python -c、heredoc 餵給直譯器、inline script）：引號內也算。
 # 密碼與守門（D-186 (c)）：直譯器的程式碼只看這個，不再看裡面的 > 與寫入動詞，所以這裡要收齊開檔寫、刪、搬、建、開子行程
 WRITE_CODE = re.compile(
@@ -52,8 +54,8 @@ WRAPPER = re.compile(
 )
 # 密碼與守門（D-186 (c)）：包裝分兩種。殼（引號裡是指令）照舊整段看 > 與寫入動詞；直譯器（引號裡、heredoc 裡是程式碼）只看 WRITE_CODE
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh", "eval", "exec", "source", ".",
-                  "iex", "invoke-expression", "start-process", "saps", "start", "wsl", "busybox",
-                  "watch", "parallel"}  # watch、parallel 把後面的字串交給殼跑（測試 28 N1）
+                  "iex", "invoke-expression", "wsl", "busybox",
+                  "watch", "parallel"}  # watch、parallel 把後面的字串交給殼跑（測試 28 N1）；start-process、saps、start 走開檔段（D-514）
 # 包一層再跑後面指令的（測試 28 N1，跟 env、timeout、nohup 一樣）：後面接殼或直譯器時，這一段照那個殼或直譯器判。
 # -exec 這幾個是 find 的動作
 EXEC_WRAPPERS = {"xargs", "setsid", "stdbuf", "env", "timeout", "nohup", "nice", "ionice", "sudo", "doas", "time", "command",
@@ -406,7 +408,7 @@ def inner_verb(verb, words):
     wrapped = False
     for w in words:
         b = _base(w)
-        if wrapped and (b in INTERPRETERS or (b in SHELL_WRAPPERS and b not in (".", "start", "exec"))):
+        if wrapped and (b in INTERPRETERS or (b in SHELL_WRAPPERS and b not in (".", "exec"))):
             return b
         if b in EXEC_WRAPPERS:
             wrapped = True
@@ -449,14 +451,19 @@ def readonly_writes(verb, args):
 def stage_kind(verb, text, code="", args=None, powershell=False):
     """D-186：一段指令的種類。text 是這段（記號已換回空白）、code 是要當程式碼看的內文（這段的 heredoc、或管線前面餵過來的）。
     args：這段的字（不含導向目標），只讀動詞看輸出旗標與位置參數用。
-    回 "write"（寫：參數都是寫的目標）、"read"（只讀或不知道會不會寫的執行檔）。導向另外算。"""
+    回 "write"（寫：參數都是寫的目標）、"read"（只讀或不知道會不會寫的執行檔）。導向另外算。
+    開檔段（D-514）：只有 -RedirectStandardOutput／-RedirectStandardError 是寫；開的是程式時由 guard 把那行當內層指令判。"""
+    opened = open_stage(verb, raw_words(text, powershell), powershell)
+    if opened is not None:
+        return "write" if opened["writes"] else "read"
     bare = outside_quotes(text, powershell)
     unquoted = bare if bare is not None else text
     if verb in READONLY_VERBS and not (verb == "find" and FIND_ACTIONS.search(unquoted)):
         return "write" if readonly_writes(verb, args or []) else "read"
     if verb in SHELL_WRAPPERS:
         scope = text + "\n" + code
-        return "write" if (REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(scope)) else "read"
+        return "write" if (REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(scope)
+                           or WRAPPED_OPEN.search(scope)) else "read"
     if verb in INTERPRETERS:
         if verb in SCRIPT_BUILTIN_VERBS and (SCRIPT_BUILTIN_WRITE.search(text) or SCRIPT_BUILTIN_WRITE.search(code)):
             return "write"  # perl -e 'unlink q(…)'（F2-4）：perl、ruby、php 的內建刪改檔與跑指令
@@ -476,6 +483,331 @@ def list_only(verb, words):
         flags = [w.lower() for w in words if w.startswith("-")]
         return all(f in FIND_LIST_FLAGS for f in flags)
     return True
+
+
+# 開檔（D-514）：開的是文件、資料夾或網址照讀判；開的是程式時 guard 把「程式名加參數」那行當內層指令判
+OPEN_VERBS = {"start-process", "saps", "invoke-item", "ii", "start", "explorer", "open", "xdg-open"}
+# 文件白名單：巨集檔（.docm .xlsm .pptm .dotm .xltm）刻意不收
+OPEN_DOC_EXT = frozenset(
+    ".pdf .doc .docx .xls .xlsx .csv .ppt .pptx .odt .ods .odp .rtf .txt .md .log .json .xml .html .htm .png .jpg .jpeg "
+    ".gif .bmp .tif .tiff .webp .heic .svg .mp3 .wav .m4a .mp4 .mov .avi .zip .msg .eml .dwg .dxf .stp .step".split())
+OPEN_URL = re.compile(r"^(?:https?|mailto):", re.IGNORECASE)
+OPEN_VERB_FLAGS = {"open", "edit", "print", "openasreadonly"}
+# PowerShell 參數名可縮寫（照前綴認，認不出或不只一種就當看不出來）；值是那個參數的用處，"switch" 不帶值、"" 帶值但不管
+_PS_COMMON = {"erroraction": "", "ea": "", "warningaction": "", "wa": "", "informationaction": "", "infa": "",
+              "errorvariable": "", "ev": "", "warningvariable": "", "wv": "", "informationvariable": "", "iv": "",
+              "outvariable": "", "ov": "", "outbuffer": "", "ob": "", "pipelinevariable": "", "pv": "",
+              "verbose": "switch", "vb": "switch", "debug": "switch", "db": "switch"}
+_SAPS_PARAMS = {"filepath": "file", "pspath": "file", "path": "file", "argumentlist": "args", "args": "args",
+                "workingdirectory": "cwd", "verb": "verb", "redirectstandardoutput": "out", "redirectstandarderror": "out",
+                "redirectstandardinput": "in", "windowstyle": "", "credential": "", "runas": "", "environment": "",
+                "wait": "switch", "nonewwindow": "switch", "nnw": "switch", "passthru": "switch", "usenewenvironment": "switch",
+                "loaduserprofile": "switch", "lup": "switch", **_PS_COMMON}
+_II_PARAMS = {"path": "file", "literalpath": "file", "pspath": "file", "lp": "file", "filter": "", "include": "", "exclude": "",
+              "credential": "", "whatif": "switch", "wi": "switch", "confirm": "switch", "cf": "switch", **_PS_COMMON}
+_PS_MODULE = "microsoft.powershell.management\\"
+_CMD_SWITCH = re.compile(r"^/[a-z]+$", re.IGNORECASE)
+_CMD_META = set("&|<>^")  # cmd 會把這些當串接與導向
+_PCT_VAR = re.compile(r"%[A-Za-z_]\w*%")
+
+
+def raw_words(text, powershell=False):
+    """照引號把一段拆成字，引號原樣留著（開檔段要知道哪個字有引號）。PowerShell 的陣列（'a', 'b'，逗號前後有空白）併成一個字。"""
+    words, buf, quote, i, n = [], [], None, 0, len(text)
+    esc = "`" if powershell else "\\"
+    while i < n:
+        ch = text[i]
+        if ch == esc and i + 1 < n and quote != "'":
+            buf.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch.isspace():
+            if buf:
+                words.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    if buf:
+        words.append("".join(buf))
+    if not powershell:
+        return words
+    merged = []
+    for w in words:
+        if merged and (merged[-1].endswith(",") or w.startswith(",")):
+            merged[-1] += w
+        else:
+            merged.append(w)
+    return merged
+
+
+def _unquote(word, powershell):
+    """原樣的字去引號：回 (值, 有引號, 展不開)。展不開：引號外或雙引號裡的變數與 $(…)、引號外的 ( )、PowerShell 開頭的 @、
+    Bash 的反引號、任何地方的 %X%（cmd 會展開；網址的 %E4% 不算）、引號沒收尾。"""
+    out, quote, quoted, dyn, i, n = [], None, False, False, 0, len(word)
+    esc = "`" if powershell else "\\"
+    while i < n:
+        ch = word[i]
+        if quote == "'":
+            if ch == "'" and powershell and word.startswith("''", i):
+                out.append("'")
+                i += 2
+                continue
+            if ch == "'":
+                quote = None
+            else:
+                out.append(ch)
+            i += 1
+            continue
+        if ch == esc and i + 1 < n and (powershell or quote is None or word[i + 1] in '"\\$`'):
+            out.append(word[i + 1])
+            i += 2
+            continue
+        if ch == '"' and quote == '"':
+            if powershell and word.startswith('""', i):
+                out.append('"')
+                i += 2
+                continue
+            quote = None
+            i += 1
+            continue
+        if ch in "\"'" and quote is None:
+            quote, quoted = ch, True
+            i += 1
+            continue
+        if ch == "$" and i + 1 < n and (not powershell or word[i + 1].isalnum() or word[i + 1] in "_{(:"):
+            dyn = True
+        elif quote is None and (ch in "()" or (powershell and ch == "@" and i == 0)):
+            dyn = True
+        elif ch == "`" and not powershell:
+            dyn = True
+        out.append(ch)
+        i += 1
+    value = "".join(out)
+    if _PCT_VAR.search(value) and not OPEN_URL.match(value):
+        dyn = True
+    return value, quoted, dyn or quote is not None
+
+
+def _elements(word):
+    """PowerShell 的陣列字（'a','b'）照引號外的逗號拆成元素，元素原樣（引號還在）。"""
+    parts, buf, quote, i, n = [], [], None, 0, len(word)
+    while i < n:
+        ch = word[i]
+        if ch == "`" and i + 1 < n and quote != "'":
+            buf.append(word[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == ",":
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return [p for p in parts if p]
+
+
+def _quote_arg(value):
+    """接成一行時含空白的加雙引號（跟 Start-Process 一樣）；本來就有雙引號的照原樣。"""
+    return f'"{value}"' if (not value or any(c.isspace() for c in value)) and '"' not in value else value
+
+
+def _verb_word(value):
+    """這個字當開檔動詞看：只認裸名稱（explorer、explorer.exe、Start-Process、Microsoft.PowerShell.Management\\Start-Process）；
+    帶路徑的（C:\\x\\explorer.exe）是別的程式，回 None。"""
+    low = value.lower()
+    if low.startswith(_PS_MODULE):
+        low = low[len(_PS_MODULE):]
+    if "/" in low or "\\" in low:
+        return None
+    return low[:-4] if low.endswith(".exe") else low
+
+
+def _ps_role(name, table):
+    if name in table:
+        return table[name]
+    roles = {role for key, role in table.items() if key.startswith(name)}
+    return roles.pop() if name and len(roles) == 1 else None
+
+
+def _ps_params(words, table):
+    """PowerShell cmdlet 的參數：回 (具名 {用處: [原樣的值]}, 位置參數, 認不出)。有引號的 '-x' 是字串、不是參數名。"""
+    named, positional, bad, k = {}, [], False, 0
+    while k < len(words):
+        w = words[k]
+        if w.startswith("-") and len(w) > 1:
+            name, colon, value = w[1:].partition(":")
+            role = None if w.startswith("--") else _ps_role(name.lower(), table)
+            if role is None:
+                bad = True  # --%、認不出、縮寫不只一種：PowerShell 會報錯，守門當看不出來
+            elif role != "switch":
+                if not colon:
+                    if k + 1 >= len(words):
+                        bad = True
+                        break
+                    k += 1
+                    value = words[k]
+                named.setdefault(role, []).append(value)
+            k += 1
+            continue
+        positional.append(w)
+        k += 1
+    return named, positional, bad
+
+
+def _openable(target, base):
+    """網址（http、https、mailto）、磁碟上存在的夾、副檔名在 OPEN_DOC_EXT 的檔。最後一段帶 : 的（x.bat:.docx）不算。"""
+    if OPEN_URL.match(target):
+        return True
+    try:
+        if os.path.isdir(normalize(target, base) if base else target):
+            return True
+    except (OSError, ValueError):
+        pass
+    last = re.split(r"[\\/]", target)[-1]
+    return ":" not in last and os.path.splitext(last)[1].lower() in OPEN_DOC_EXT
+
+
+def _start_process(rest, powershell):
+    named, positional, opaque = _ps_params(rest, _SAPS_PARAMS)
+    file_raw = named.get("file", [None])[0]
+    if file_raw is None and positional:
+        file_raw = positional.pop(0)
+    args_raw = named.get("args", [None])[0]
+    if args_raw is None and positional:
+        args_raw = positional.pop(0)
+    opaque = opaque or bool(positional) or any(len(named.get(r, ())) > 1 for r in ("file", "args", "cwd", "verb"))
+
+    def values(raws):
+        nonlocal opaque
+        out = []
+        for raw in raws:
+            v, _q, dyn = _unquote(raw, powershell)
+            opaque = opaque or dyn
+            out.append(v)
+        return out
+
+    targets = [v for v in values([file_raw] if file_raw is not None else []) if v]
+    elements = values(_elements(args_raw) if (args_raw is not None and powershell) else [args_raw] if args_raw else [])
+    args_line = elements[0] if len(elements) == 1 else " ".join(_quote_arg(e) for e in elements)
+    cwd = values(named.get("cwd", [])[:1])
+    verb = values(named.get("verb", [])[:1])
+    program = " ".join(x for x in (_quote_arg(targets[0]) if targets else "", args_line) if x) or None
+    return {"targets": targets, "program": program, "verb_flag": verb[0] if verb else None,
+            "writes": values(named.get("out", [])), "reads": values(named.get("in", [])),
+            "cwd": cwd[0] if cwd else None, "opaque": opaque}
+
+
+def _cmd_start(rest, powershell):
+    """cmd 的 start：跳過開關與 /d <夾>；第一個空的或含空白的引號字是視窗標題（Git Bash 與 PowerShell 傳給 cmd 時只有這兩種帶引號）；
+    之後第一個字是要開的，其餘是它的參數。cmd 會再拆一次，任何字裡有 & | < > ^ 就看不出來。"""
+    cwd, title, target, params, opaque, k = None, False, None, [], False, 0
+    while k < len(rest):
+        raw = rest[k]
+        v, quoted, dyn = _unquote(raw, powershell)
+        opaque = opaque or dyn or bool(_CMD_META & set(v)) or '"' in v  # 值裡的引號 cmd 會再認一次（'"x.pdf"' 是標題）
+        k += 1
+        if target is not None:
+            params.append(raw)
+            continue
+        sw = v[1:] if not powershell and v.startswith("//") else v  # Git Bash 的 //b 是 /b
+        low = sw.lower()
+        if low == "/d" and k < len(rest):
+            cwd, _q, dyn = _unquote(rest[k], powershell)
+            opaque = opaque or dyn
+            k += 1
+        elif low.startswith("/d") and len(low) > 2 and (powershell or low[2] != "/"):
+            cwd = sw[2:]
+        elif low in ("/node", "/affinity"):
+            k += 1
+        elif _CMD_SWITCH.match(low):
+            pass
+        elif not title and quoted and (not v or any(c.isspace() for c in v)):
+            title = True
+        else:
+            target = v
+    program = " ".join([_quote_arg(target)] + params) if target else None
+    return {"targets": [target] if target else [], "program": program, "verb_flag": None, "writes": [], "reads": [],
+            "cwd": cwd, "opaque": opaque}
+
+
+def _positional_targets(rest, powershell, table=None):
+    """Invoke-Item（table 給參數表）、explorer、open、xdg-open 要開的東西。"""
+    targets, opaque = [], False
+    if table is not None:
+        named, positional, opaque = _ps_params(rest, table)
+        raws = [e for raw in named.get("file", []) + positional for e in (_elements(raw) if powershell else [raw])]
+    else:
+        raws = list(rest)
+    k = 0
+    while k < len(raws):
+        v, _q, dyn = _unquote(raws[k], powershell)
+        opaque = opaque or dyn
+        k += 1
+        parts = v.split(",")
+        if table is None and _CMD_SWITCH.match(parts[0]):
+            targets += [p for p in parts[1:] if p and not _CMD_SWITCH.match(p)]  # explorer /select,<路徑>
+        elif table is None and v.startswith("-"):
+            if v in ("-a", "-b") and k < len(raws):  # open -a <程式>：程式也是要開的東西
+                targets.append(_unquote(raws[k], powershell)[0])
+                k += 1
+            else:
+                opaque = True  # open --、open -e、xdg-open --help…：後面接的未必是要開的檔
+        elif v:
+            targets.append(v)
+    return {"targets": targets, "program": None, "verb_flag": None, "writes": [], "reads": [], "cwd": None, "opaque": opaque}
+
+
+def open_stage(verb, words, powershell=False, base=None):
+    """D-514 開檔段。verb 是這段的動詞（verb_of），words 是 raw_words 拆的字（引號原樣），base 是效用 cwd（判夾用）。
+    不是開檔動詞回 None；是的話回 {"targets", "kind", "program", "verb_flag", "writes", "reads", "cwd", "opaque"}，路徑是原字串。
+    PowerShell 的 start 是 Start-Process 的別名；Bash 的 start 與 cmd /c start 照 cmd 的規則。"""
+    if verb not in OPEN_VERBS and verb != "cmd":
+        return None
+    values = [_unquote(w, powershell)[0] for w in words]
+    idx = next((k for k, v in enumerate(values) if _base(v) == verb), None)
+    if idx is None or _verb_word(values[idx]) != verb:
+        return None
+    rest = words[idx + 1:]
+    if verb == "cmd":
+        k = 0
+        while k < len(rest) and values[idx + 1 + k].lower() not in ("/c", "//c") and re.match(
+                r"^//?[a-z](?::\S*)?$", values[idx + 1 + k], re.IGNORECASE):
+            k += 1  # /s /q /d /v:on 這類開關
+        if k + 1 >= len(rest) or values[idx + 1 + k].lower() not in ("/c", "//c") or _verb_word(values[idx + 2 + k]) != "start":
+            return None
+        got = _cmd_start(rest[k + 2:], powershell)
+    elif verb == "start" and not powershell:
+        got = _cmd_start(rest, powershell)
+    elif verb in ("start-process", "saps", "start"):
+        got = _start_process(rest, powershell)
+    elif verb in ("invoke-item", "ii"):
+        got = _positional_targets(rest, powershell, _II_PARAMS)
+    else:
+        got = _positional_targets(rest, powershell)
+    kind = "open" if all(_openable(t, base) for t in got["targets"]) else "run"
+    if got["verb_flag"] is not None and got["verb_flag"].lower() not in OPEN_VERB_FLAGS:
+        kind = "run"
+    program = got["program"]
+    if program is None and got["targets"]:
+        program = _quote_arg(next((t for t in got["targets"] if not _openable(t, base)), got["targets"][0]))
+    got.update(kind=kind, program=program if kind == "run" else None)
+    return got
+
+
 REDIRECT = re.compile(r">")
 # 引號外不能出現的字元：串接（; & |）、導向（< >）、換行、子運算式（( )，含 $( 與 PowerShell 的 @( ）；反引號在引號裡也會執行
 SHELL_META = set(";&|<>()\n\r")
@@ -847,8 +1179,10 @@ def is_write(command, powershell=False):
     導到 null 不算。"""
     cleaned = DISCARD_OUTPUT.sub(" ", command)
     bare = outside_quotes(cleaned, powershell)
-    scope = cleaned if (bare is None or WRAPPER.search(bare)) else bare
-    return bool(REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(cleaned))
+    wrapped = bare is None or WRAPPER.search(bare)
+    scope = cleaned if wrapped else bare
+    return bool(REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(cleaned)
+                or (wrapped and WRAPPED_OPEN.search(scope)))
 
 
 def _interpreter_ok(token):
