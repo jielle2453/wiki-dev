@@ -2499,7 +2499,7 @@
 
 ## D-515 附著到開著的 Word／Excel／PowerPoint 一起改：不擋、不問、不備份，退回交給 Office
 - 日期：2026-10-30
-- 選了：jacky 2026-10-30 定：AI 用 COM（`GetActiveObject`）附著到客戶開著的 Office 改檔，守門維持不表態（pass），不加詢問、不加備份；這類修改由 Office 自己存檔、留版本，「退回」交給 Office（復原、版本歷程記錄），willy 的 `versions revert` 不管。用守門語料把現在的判斷鎖住（PowerShell 與 python win32com 兩種寫法、目標是 AI 產出與原檔），往後改守門時不准收緊這條。
+- 選了：jacky 2026-10-30 定：AI 用 COM（`GetActiveObject`）附著到客戶開著的 Office 改檔，守門維持不表態（pass），不加詢問、不加備份；這類修改由 Office 自己存檔、留版本，「退回」交給 Office（復原、版本歷程記錄），willy 的 `versions revert` 不管。包括改登記來源裡的正本：不備份，這個風險 jacky 接受，算在允許範圍內（jacky 2026-10-30 裁示）。用守門語料把現在的判斷鎖住（PowerShell 與 python win32com 兩種寫法、目標是 AI 產出與原檔），往後改守門時不准收緊這條。
 - 為什麼：客戶習慣把檔開著、跟 AI 邊看邊改，擋或卡著備份都會抗議（issue #24）；Office 開著的檔本來就有自己的復原與版本。
 - 放棄了：附著前先備進回合（要先知道是哪份檔，COM 腳本裡未必寫路徑；Office 開著時複製可能拿到舊版）；改原檔一律走 `kb office copy`（她要的就是在她畫面上那份直接改）。
 - 重談條件：客戶說「退回」想退的是附著改的內容，Office 卻已關掉、復原不了。
