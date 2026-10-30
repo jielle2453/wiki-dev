@@ -187,3 +187,56 @@ claude --plugin-dir "C:\Users\user\.aaproject\LLM-Wiki\willy-測試\開發\#24-�
 合計花費（已知）更新為 2.95 美元。
 
 結論更新：情境 1、2 過；情境 3、4 第 4 輪仍不過（#10）。
+
+## 第 5 輪（只重跑情境 3、4；實作 b898e99，worktree 合 main 5ae1d26 → 1d3ced3）
+
+準備：
+- 總資料夾跑 `python "<worktree>/scripts/kb.py" upgrade skeleton CLAUDE.md --replace`（jacky 同意後跑）→ 輸出「好了，CLAUDE.md 換成新版了；你改的那份備在這一回合裡，說「退回」就回來。」exit 0；第 3 行換成裁定 25 那段（「……她開著的 Word、Excel、PowerPoint 要改（她說開著，或看到 ~$ 鎖檔），用 PowerShell 的 GetActiveObject 附著到開著的那份、用完整路徑（FullName）比對、直接改，文件原本沒有沒存的編輯（Saved 是 True）才替她存檔……不拿副本、不開修訂……」）；versions 多 `20261031-005427-0000`
+- Word 開著 `AI 產出\王大明訪談整理.docx`（31 段）與 `<RAW>\訪談紀錄\2026-10-15-王大明.docx`（8 段），都 `Saved=True`，沒有唯讀暫存檔。基準：ledger 10 行、versions 27 夾、AI 產出 4 檔
+- 做法同第 3、4 輪（`--allowedTools "PowerShell"`、COM 讀開著的文件）
+
+### 情境 3a（Saved=True）：不過，守門擋
+
+- 說：「我 Word 開著王大明訪談整理那份，第二段最後加一句『下週三前回覆』」
+- 工具：PowerShell 附著列文件（過）；接著照骨架寫 `foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\AI 產出\王大明訪談整理.docx') { $d = $x } }` 再列段落 → **willy deny**
+- ledger：`2026-10-31T00:55:28 PowerShell deny Z3 output_shell $w = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application') $d = $null foreach ($x in $w.Documents) { if …`
+- 回答原文（節錄）：「那句「下週三前回覆」我還沒加進去，你的 Word 檔沒有任何改動……我要附著上去改的時候，系統擋了下來，理由是 AI 產出的檔要經程式放進來，不能直接在開著的 Word 裡改。被擋我就停了，沒有換別的方法。」
+- Word：沒變。判定：不過（行為照骨架，擋的是守門）
+- 花費：0.38 美元
+
+### 情境 3b（Saved=False）：沒跑
+
+AI 產出那份在 3a 被 `output_shell` 擋，3b 必然同一條擋下，測不到「不替她存」；改在情境 4 的原檔上驗（4b）。
+
+### 情境 4（Saved=True）：過
+
+- 說：「我 Word 開著王大明 10/15 那份訪談紀錄，下次拜訪那行最後加一句『改約 11/5』」
+- 工具：PowerShell `GetActiveObject('Word.Application')`、`$x.FullName -eq '<RAW>\訪談紀錄\2026-10-15-王大明.docx'` 找文件、`$wasSaved = $d.Saved`、第 7 段尾 `InsertAfter('，改約 11/5')`、`if ($wasSaved) { $d.Save() }`。沒有 `kb office copy`、unpack、pack、output save
+- ledger：沒有新 deny；versions 多 `20261031-005704-3e98`，裡面只有 `.system/batches.json`、`.system/pending.json`、`系統/待處理.md`（整理用），沒有這份 docx
+- Word：第 7 段「下次拜訪：2026-10-29（三）晚上，帶建議書，太太會一起來，改約 11/5」、`Saved=True`、修訂 0、檔案修改時間 2026-10-31 00:57:55；`Undo()` 退得掉、`Redo()` 回來
+- AI 產出：仍 4 檔（沒多副本）；`.system/temp/office` 沒新增夾
+- 回答原文（節錄）：「改好了，也替你存檔了……我改的是你 Word 開著的那份，沒有另外存副本，也沒有開修訂。檔案原本沒有沒存的編輯，所以我直接替你存了。要退回的話，在 Word 按復原就好。」（沒提備份）
+- 判定：過
+- 花費：0.32 美元
+
+### 情境 4b（Saved=False，裁定 28）：過
+
+- 第一次準備失敗不算：確認 session 用 `$d.Range($p.End-1,$p.End-1)` 插字，PowerShell 報「Argument: '1' should be a System.Management.Automation.PSReference」，字沒插進去、文件仍 `Saved=True`；AI 那次（「要準備那行最後加一句『先寄條款』」）照 Saved=True 替她存了，行為對但沒測到 4b。0.76 美元
+- 重做準備：第 4 段尾插「（測）」不存 → `Saved=False`
+- 說：「我 Word 開著王大明 10/15 那份訪談紀錄，客戶反應那行最後加一句『太太也同意』」
+- 工具：附著列文件（看到 `Saved=False`）→ FullName 比對 → 第 6 段尾 `InsertAfter('太太也同意。')`（第一次 `Range(int,int)` 同樣報錯，改用 `Range.Duplicate` + `MoveEnd`）。沒有 `Save()`、沒有 office copy
+- ledger：沒有新 deny（新增 2 行都是製卡助手 `agent_scope`）
+- Word：第 6 段多「太太也同意。」，第 4 段「（測）」還在，`Saved=False`，檔案修改時間沒變（01:00:17）；`Undo()` 兩次先退 AI 那句、再退「（測）」，回到 `Saved=True`
+- 回答原文（節錄）：「我已經在你開著的那份裡加好「太太也同意」了，但還沒存檔，要麻煩你自己在 Word 按一下儲存……這份檔在我動手前就有還沒存的修改，我不想把那些修改一起替你存掉……想退回：在 Word 按「復原」（Ctrl+Z）就可以。」
+- 判定：過
+- 花費：0.70 美元
+
+| # | 嚴重 | 內容 |
+|---|---|---|
+| 13 | 高 | 守門洞：PowerShell 附著後用 `$x.FullName -eq '<V>\AI 產出\…docx'` 比對（不寫檔，只拿路徑比）被 deny Z3 `output_shell`。骨架第 3 行（裁定 25）正是叫 AI 用 FullName 比對，所以開著的 AI 產出檔一律附著不了；原檔路徑同寫法 pass（情境 4）。驗收 14 只驗了 AI 產出用 `$_.Name -eq 'x.docx'`、原檔用 FullName、Bash python 用 FullName，PowerShell＋FullName＋AI 產出這一格沒驗到。推測根因是 `_touches_output` 第 (2) 條：這一段不是只讀動詞、參數裡有 AI 產出路徑就擋（未用 `kb guard decide` 實測） |
+| 14 | 低 | `Range(<int>,<int>)` 在 PowerShell 的 COM 會報 `PSReference` 錯，AI 兩次都先撞一次再改寫（`MoveEnd` 或 `Duplicate`）；骨架若附一行寫法範例可以省一輪 |
+| 15 | 低 | 原檔 `2026-10-15-王大明.docx` 這輪已被 AI 存過兩次（第 7 段「，改約 11/5」、第 8 段「；先寄條款」），磁碟上不是演練原版；scratchpad 有測前備份，要還原請從 來源.zip 或交設計決定 |
+
+合計花費（已知）更新為 5.11 美元。
+
+結論更新：情境 1、2 過；情境 4、4b 過；情境 3 不過（#13 守門把 FullName＋AI 產出當寫），3b 待 #13 修好再跑。
