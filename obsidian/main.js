@@ -1,6 +1,6 @@
 'use strict';
 /*
- * wiki-with-willy 的 Obsidian 外掛（D-252～D-266，裁定 34，issue #22）。
+ * wiki-with-willy 的 Obsidian 外掛（D-252～D-267，裁定 35，issue #22）。
  *
  * 純 CommonJS、不打包、不加依賴。要算的都在 kb（kb home / kb find / kb renders apply …），這裡只負責：
  * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
@@ -829,6 +829,31 @@ async function copyForChat(ctx, phrase) {
   }
 }
 
+// ---- 隨手記（D-267、裁定 35）：一句一行接在彈性區的「隨手記.md」，Claude 不讀 ----
+const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_jot_cli.py 對齊）
+const JOT_REL = `${FREE_DIR}/隨手記.md`;
+const JOT_RECENT = 3;
+const JOT_LINE_RE = /^- ([0-9]{4}-[0-9]{2}-[0-9]{2}) ([0-9]{2}:[0-9]{2}) (.*)$/;
+
+/** 隨手記那一頁最後 n 則（新到舊）：只認「- 日期 時間 內容」那種行，其他（檔頭、她自己加的）略過。 */
+function jotRecent(text, n) {
+  const out = [];
+  const lines = String(text == null ? '' : text).split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0 && out.length < (n || JOT_RECENT); i--) {
+    const m = JOT_LINE_RE.exec(lines[i]);
+    if (m) out.push({ date: m[1], time: m[2], text: m[3] });
+  }
+  return out;
+}
+
+/** 隨手記輸入框按鍵：Enter 存（注音選字中不存，空的不存）。 */
+function jotDecision(ev) {
+  if (!ev || ev.key !== 'Enter') return {};
+  if (ev.composing || ev.isComposing || ev.keyCode === 229) return {};
+  const text = String(ev.value == null ? '' : ev.value).trim();
+  return text ? { save: true, text } : {};
+}
+
 function putFlag(args, flag, value) {
   if (value !== undefined && value !== null && value !== '') args.push(flag, String(value));
 }
@@ -885,6 +910,17 @@ const actions = {
       json: true,
       toastText: (j) => (j && j.item ? `已加進日程：${j.item.text || form.text}` : '已加進日程'),
       undo: (j) => (j && j.created !== false && j.item && j.item.id ? { args: ['agenda', 'cancel', j.item.id] } : null),
+    };
+  },
+
+  /** 隨手記存一則：kb jot；復原 = 退回這一筆的回合（kb 回的 turn）。內容用 -- 隔開，免得「-」開頭的字被當旗標。 */
+  jot(text) {
+    return {
+      id: 'jot',
+      args: ['jot', '--json', '--', text],
+      json: true,
+      toastText: () => '記下了',
+      undo: (j) => (j && j.turn ? { args: ['versions', 'revert', j.turn] } : null),
     };
   },
 
@@ -1291,6 +1327,7 @@ function defaultUi() {
     timelineDays: DEFAULT_ZOOM, // 時間軸一次看幾天（14／30／90／180），記在 data.json
     tlStart: null, // 畫面最左邊是哪一天（天數）；沒捲過是 null，照今天算
     tlRange: null, // 已經跟 kb 要過的範圍 {from, to}；捲到外面才會變大
+    jotDraft: '', // 隨手記輸入框還沒存的字（重畫不洗掉）
     confirmFill: null, // 「要你確認的」展開著填空的那個答案 {key, index, value, focus}
     month: null, // {year, month}
     rowCollapsed: {},
@@ -1485,6 +1522,7 @@ class HomeView extends ItemView {
     this.rightEl = h('div', { cls: 'wwh-col wwh-col-right' });
     this.colsEl = h('div', { cls: 'wwh-cols' }, this.leftEl, this.rightEl);
     this.drawerEl = h('aside', { cls: 'wwh-drawer' });
+    this.buildJot();
     this.inputEl = h('input', {
       cls: 'wwh-search-input',
       attrs: { type: 'search', placeholder: '找檔案、人、案子，打完按 Enter（例：王先生 報價 上個月）' },
@@ -1536,12 +1574,65 @@ class HomeView extends ItemView {
     this.root.appendChild(this.searchEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
+    this.root.appendChild(this.jotEl);
     this.contentEl.addEventListener('mousemove', (e) => this.onDragMove(e));
     this.contentEl.addEventListener('mouseup', () => this.onDragEnd());
     this.contentEl.addEventListener('mouseleave', () => this.onDragEnd());
     clear(this.contentEl);
     this.contentEl.appendChild(this.root);
     this.contentEl.appendChild(this.drawerEl); // 抽屜蓋在首頁右邊，不跟著首頁捲動
+  }
+
+  /** 首頁最底下的隨手記：輸入框只建一次（重畫不洗掉打到一半的字、也不掉游標），下面的最近幾則每次重畫。 */
+  buildJot() {
+    let composing = false;
+    this.jotInputEl = h('input', {
+      cls: 'wwh-jot-input',
+      attrs: { type: 'text', placeholder: '隨手記一下…' },
+      value: this.plugin.ui.jotDraft || '',
+      on: {
+        compositionstart: () => {
+          composing = true;
+        },
+        compositionend: () => {
+          composing = false;
+        },
+        input: () => {
+          this.plugin.ui.jotDraft = this.jotInputEl.value;
+        },
+        keydown: (e) => {
+          const d = jotDecision({ key: e.key, isComposing: e.isComposing, keyCode: e.keyCode, composing, value: this.jotInputEl.value });
+          if (d.save) {
+            if (e.preventDefault) e.preventDefault();
+            this.saveJot(d.text);
+          }
+        },
+      },
+    });
+    this.jotListEl = h('div', { cls: 'wwh-jot-list' });
+    this.jotEl = h('section', { cls: 'wwh-jot wwh-paper' }, h('h2', { text: '隨手記' }), this.jotInputEl, this.jotListEl);
+  }
+
+  /** 存一則：成功才清空輸入框；沒成功（kb 擋了、沒找到 kb）字留著。 */
+  async saveJot(text) {
+    const p = this.plugin;
+    if (!p.saveJot) return null;
+    const r = await p.saveJot(text);
+    if (r && r.ok) {
+      p.ui.jotDraft = '';
+      this.jotInputEl.value = '';
+    }
+    return r;
+  }
+
+  /** 最近 3 則（新到舊）淡淡列、加「看全部」；讀不到那一頁就不列。 */
+  renderJotList(el) {
+    const lines = asArray(this.plugin.jotLines);
+    if (!lines.length) return;
+    for (const j of lines) {
+      el.appendChild(h('div', { cls: 'wwh-jot-row' }, h('span', { cls: 'wwh-jot-when', text: `${shortDate(j.date)} ${j.time}` }), h('span', { cls: 'wwh-jot-text', text: j.text })));
+    }
+    el.appendChild(h('span', { cls: 'wwh-text-btn wwh-jot-all', attrs: { role: 'button', tabindex: '0' }, text: '看全部', on: { click: () => this.plugin.openPathInVault(JOT_REL) } }));
   }
 
   safe(name, el, fn) {
@@ -1558,7 +1649,7 @@ class HomeView extends ItemView {
     if (!this.root) return;
     const p = this.plugin;
     if (!p.runner) {
-      for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.drawerEl, this.bannerEl]) {
+      for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.jotEl, this.drawerEl, this.bannerEl]) {
         el.classList.add('wwh-hidden');
       }
       if (!this.noKbEl) this.noKbEl = h('div', { cls: 'wwh-nokb', text: NO_KB_TEXT });
@@ -1566,7 +1657,7 @@ class HomeView extends ItemView {
       return;
     }
     if (this.noKbEl && this.noKbEl.parentNode) this.root.removeChild(this.noKbEl);
-    for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.drawerEl, this.bannerEl]) {
+    for (const el of [this.topEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.jotEl, this.drawerEl, this.bannerEl]) {
       el.classList.remove('wwh-hidden');
     }
     this.safe('提示', this.bannerEl, (el) => this.renderBanners(el));
@@ -1575,6 +1666,7 @@ class HomeView extends ItemView {
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     this.safe('待辦', this.leftEl, (el) => this.renderTodo(el));
     this.safe('要你確認的', this.rightEl, (el) => this.renderRight(el));
+    this.safe('隨手記', this.jotListEl, (el) => this.renderJotList(el));
     this.safe('總覽', this.drawerEl, (el) => this.renderDrawer(el));
   }
 
@@ -2486,6 +2578,7 @@ class WikiWithWillyPlugin extends Plugin {
     this.ui = defaultUi();
     this.home = null;
     this.homeError = null;
+    this.jotLines = [];
     this.needsReload = false;
     this.refreshing = false;
     this.refreshAgain = false;
@@ -2660,6 +2753,7 @@ class WikiWithWillyPlugin extends Plugin {
           if (c.kind === 'failed') console.error('[wiki-with-willy] kb home 失敗', res.stderr || res.stdout);
         }
         this.checkSelfUpdate();
+        this.readJot();
         this.renderAll();
         if (this.ui.drawer.open && this.ui.drawer.stack.length) this.loadDrawer(false);
       } while (this.refreshAgain);
@@ -2722,6 +2816,25 @@ class WikiWithWillyPlugin extends Plugin {
         else if (typeof window !== 'undefined') window.open(u);
       },
     };
+  }
+
+  /** 隨手記那一頁最後 3 則：直接讀檔（Claude 不經手）；讀不到就空，不列。 */
+  readJot() {
+    try {
+      this.jotLines = jotRecent(fs.readFileSync(path.join(this.vaultPath, JOT_REL), 'utf8'), JOT_RECENT);
+    } catch (e) {
+      this.jotLines = [];
+    }
+  }
+
+  /** 存一則隨手記：kb jot（Obsidian 的回合，退得回來）；成功就重讀最近幾則、重畫。 */
+  async saveJot(text) {
+    const r = await this.runAction(actions.jot(text));
+    if (r && r.ok) {
+      this.readJot();
+      this.renderAll();
+    }
+    return r;
   }
 
   /** 記住時間軸上次選的縮放（data.json）。 */
@@ -3205,6 +3318,10 @@ module.exports.lib = {
   RECENT_MAX,
   MONTH_COLORS,
   TIMELINE_ZOOMS,
+  FREE_DIR,
+  JOT_REL,
+  jotRecent,
+  jotDecision,
   DEFAULT_ZOOM,
   zoomOf,
   defaultTimelineStart,

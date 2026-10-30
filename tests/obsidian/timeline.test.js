@@ -904,3 +904,160 @@ test('時間軸（裁定 34）：縮放記在 data.json，開起來讀回；其�
   await plugin.saveTimelineDays(5);
   assert.strictEqual(saves[1].timelineDays, 90, '壞值存預設');
 });
+
+// ---- 裁定 35（D-267）：首頁最底下的隨手記 ----
+
+test('隨手記（裁定 35）：最近 3 則從那一頁最後幾行讀，新到舊；檔頭與不是「- 日期 時間 內容」的行略過', () => {
+  const text = ['# 隨手記', '', '- 2026-10-01 08:00 最舊的', '她自己加的一行', '- 2026-10-02 09:30 第二', '- 2026-10-30 10:05 含 - 與 空白  的 一則', '- 2026-10-30 17:27 最新'].join('\n');
+  assert.deepStrictEqual(lib.jotRecent(text, 3), [
+    { date: '2026-10-30', time: '17:27', text: '最新' },
+    { date: '2026-10-30', time: '10:05', text: '含 - 與 空白  的 一則' },
+    { date: '2026-10-02', time: '09:30', text: '第二' },
+  ]);
+  assert.strictEqual(lib.jotRecent(text, 10).length, 4, '不足就有幾則給幾則');
+  assert.deepStrictEqual(lib.jotRecent('', 3), []);
+  assert.deepStrictEqual(lib.jotRecent(null, 3), []);
+  assert.deepStrictEqual(lib.jotRecent('# 隨手記\r\n\r\n- 2026-10-30 17:27 CRLF 的檔\r\n', 3), [{ date: '2026-10-30', time: '17:27', text: 'CRLF 的檔' }]);
+  assert.strictEqual(lib.JOT_REL, `${lib.FREE_DIR}/隨手記.md`);
+});
+
+test('隨手記（裁定 35）：Enter 才存；注音選字中不存；空的不存', () => {
+  assert.deepStrictEqual(lib.jotDecision({ key: 'Enter', value: '  記一下  ' }), { save: true, text: '記一下' });
+  assert.deepStrictEqual(lib.jotDecision({ key: 'Enter', value: '   ' }), {});
+  assert.deepStrictEqual(lib.jotDecision({ key: 'Enter', value: 'x', composing: true }), {});
+  assert.deepStrictEqual(lib.jotDecision({ key: 'Enter', value: 'x', isComposing: true }), {});
+  assert.deepStrictEqual(lib.jotDecision({ key: 'Enter', value: 'x', keyCode: 229 }), {});
+  assert.deepStrictEqual(lib.jotDecision({ key: 'a', value: 'x' }), {});
+});
+
+test('隨手記（裁定 35）：動作是 kb jot（內容前面隔 --），復原退回 kb 回的那個回合', () => {
+  const a = lib.actions.jot('-開頭的字');
+  assert.deepStrictEqual(a.args, ['jot', '--json', '--', '-開頭的字']);
+  assert.strictEqual(a.toastText(), '記下了');
+  assert.deepStrictEqual(a.undo({ path: '_extras/隨手記.md', line: '- x', turn: '20261030-172756-obsd' }), { args: ['versions', 'revert', '20261030-172756-obsd'] });
+  assert.strictEqual(a.undo({ path: 'x' }), null, 'kb 沒回回合代號就不給復原');
+  assert.strictEqual(a.undo(null), null);
+});
+
+test('隨手記（裁定 35）：在首頁最底下，有輸入框；最近 3 則淡淡列，下面「看全部」開那一頁', () => {
+  const opened = [];
+  const { view, plugin } = viewOf(null, { jotLines: [{ date: '2026-10-30', time: '17:27', text: '最新' }, { date: '2026-10-29', time: '09:00', text: '前一則' }], openPathInVault: (r) => opened.push(r) });
+  const kids = Array.from(view.root.children);
+  assert.strictEqual(kids[kids.length - 1], view.jotEl, '最底下');
+  assert.ok(kids.indexOf(view.colsEl) < kids.indexOf(view.jotEl));
+  assert.ok(view.jotEl.classList.contains('wwh-paper'));
+  const input = byClass(view.jotEl, 'wwh-jot-input')[0];
+  assert.strictEqual(input.attrs.placeholder, '隨手記一下…');
+  const rows = byClass(view.jotEl, 'wwh-jot-row');
+  assert.deepStrictEqual(rows.map((r) => byClass(r, 'wwh-jot-text')[0].textContent), ['最新', '前一則']);
+  assert.deepStrictEqual(rows.map((r) => byClass(r, 'wwh-jot-when')[0].textContent), ['10/30 17:27', '10/29 09:00']);
+  byClass(view.jotEl, 'wwh-jot-all')[0].fire('click');
+  assert.deepStrictEqual(opened, ['_extras/隨手記.md']);
+  assert.ok(plugin);
+});
+
+test('隨手記（裁定 35）：讀不到那一頁就不列，也不顯示「看全部」', () => {
+  const { view } = viewOf(null, { jotLines: [] });
+  assert.strictEqual(byClass(view.jotEl, 'wwh-jot-row').length, 0);
+  assert.strictEqual(byClass(view.jotEl, 'wwh-jot-all').length, 0);
+  assert.strictEqual(byClass(view.jotEl, 'wwh-jot-input').length, 1, '輸入框還在');
+});
+
+test('隨手記（裁定 35）：Enter 存（去頭尾空白）、存成功才清空；注音選字中、空的不存；沒存成字留著', async () => {
+  const saved = [];
+  let result = { ok: true };
+  const { view, plugin } = viewOf(null, { saveJot: async (t) => { saved.push(t); return result; } });
+  const input = byClass(view.jotEl, 'wwh-jot-input')[0];
+  input.value = '  11 月談保固  ';
+  input.fire('input');
+  assert.strictEqual(plugin.ui.jotDraft, '  11 月談保固  ');
+  input.fire('compositionstart');
+  input.fire('keydown', { key: 'Enter' });
+  assert.deepStrictEqual(saved, [], '選字中不存');
+  input.fire('compositionend');
+  input.fire('keydown', { key: 'Enter' });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(saved, ['11 月談保固']);
+  assert.strictEqual(input.value, '', '存成功清空');
+  assert.strictEqual(plugin.ui.jotDraft, '');
+  input.value = '   ';
+  input.fire('keydown', { key: 'Enter' });
+  assert.strictEqual(saved.length, 1, '空的不存');
+  result = { ok: false };
+  input.value = '被擋下的';
+  input.fire('keydown', { key: 'Enter' });
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(saved.length, 2);
+  assert.strictEqual(input.value, '被擋下的', '沒存成字留著');
+});
+
+test('隨手記（裁定 35）：重畫不洗掉打到一半的字，輸入框還是同一個（游標不掉）', () => {
+  const { view, plugin } = viewOf();
+  const input = byClass(view.jotEl, 'wwh-jot-input')[0];
+  input.value = '打到一半';
+  input.fire('input');
+  view.render();
+  plugin.jotLines = [{ date: '2026-10-30', time: '17:27', text: '新的一則' }];
+  view.render();
+  assert.strictEqual(byClass(view.jotEl, 'wwh-jot-input')[0], input);
+  assert.strictEqual(input.value, '打到一半');
+  assert.strictEqual(byClass(view.jotEl, 'wwh-jot-row').length, 1);
+});
+
+test('隨手記（裁定 35）：plugin 存一則——叫 kb jot、跳「記下了」加復原；復原走 versions revert 那一個回合；存完重讀最近幾則', async () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wwh-jot-'));
+  try {
+    const { plugin, calls, toasts } = makeJotPlugin(dir);
+    fs.mkdirSync(path.join(dir, lib.FREE_DIR), { recursive: true });
+    plugin.runner.run = async (args) => {
+      calls.push(args);
+      if (args[0] === 'jot') {
+        fs.writeFileSync(path.join(dir, lib.JOT_REL), '# 隨手記\n\n- 2026-10-30 17:27 存進去的\n', 'utf8');
+        return { code: 0, stdout: JSON.stringify({ path: lib.JOT_REL, line: '- 2026-10-30 17:27 存進去的', turn: '20261030-172756-obsd' }), stderr: '' };
+      }
+      return { code: 0, stdout: '退回了', stderr: '' };
+    };
+    const r = await plugin.saveJot('存進去的');
+    assert.strictEqual(r.ok, true);
+    assert.deepStrictEqual(calls[0], ['jot', '--json', '--', '存進去的']);
+    assert.strictEqual(toasts[0].t, '記下了');
+    assert.ok(toasts[0].undo, '有復原');
+    assert.deepStrictEqual(plugin.jotLines, [{ date: '2026-10-30', time: '17:27', text: '存進去的' }]);
+    await toasts[0].undo();
+    assert.deepStrictEqual(calls[1], ['versions', 'revert', '20261030-172756-obsd']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('隨手記（裁定 35）：kb 擋了（exit 3）不重讀、不當成存成功', async () => {
+  const { plugin, toasts } = makeJotPlugin('/不存在');
+  plugin.runner.run = async () => ({ code: 3, stdout: '沒有內容可以記', stderr: '' });
+  const r = await plugin.saveJot('x');
+  assert.strictEqual(r.ok, false);
+  assert.ok(toasts.length >= 1);
+});
+
+test('隨手記（裁定 35）：讀不到檔（沒建過、沒權限）jotLines 是空的，不丟錯', () => {
+  const { plugin } = makeJotPlugin('/一定不存在的路徑');
+  plugin.jotLines = [{ date: 'x', time: 'y', text: 'z' }];
+  plugin.readJot();
+  assert.deepStrictEqual(plugin.jotLines, []);
+});
+
+function makeJotPlugin(dir) {
+  const calls = [];
+  const toasts = [];
+  const app = { vault: { adapter: { getBasePath: () => dir } }, workspace: { getLeavesOfType: () => [] } };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  plugin.ui = lib.defaultUi();
+  plugin.vaultPath = dir;
+  plugin.data = lib.sanitizeData(null);
+  plugin.home = lib.normalizeHome(sample());
+  plugin.runner = { run: async (args) => { calls.push(args); return { code: 0, stdout: '', stderr: '' }; } };
+  plugin.toast = (t, o) => toasts.push({ t, undo: o && o.undo });
+  plugin.scheduleRefresh = () => {};
+  plugin.renderAll = () => {};
+  return { plugin, calls, toasts };
+}

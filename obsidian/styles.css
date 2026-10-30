@@ -1520,3 +1520,54 @@
   height: auto;
   cursor: pointer;
 }
+
+/* ---- 隨手記（首頁最底下，D-267）---- */
+.wwh-jot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 16px 18px 14px;
+}
+
+.wwh-jot h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.wwh-jot-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+
+.wwh-jot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wwh-jot-row {
+  display: flex;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wwh-jot-when {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.wwh-jot-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wwh-jot-all {
+  align-self: flex-start;
+  padding-left: 0;
+}
