@@ -398,8 +398,9 @@ test('時間軸：子項縮排、連線與基準線在展開的那一塊裡畫�
 test('版面（裁定 32）：日期與問候 → 搜尋 → 日程 → 待辦｜要你確認的；最上面沒有數字', () => {
   const { view } = viewOf();
   const kids = Array.from(view.root.children);
-  const order = [view.topRowEl, view.searchEl, view.timelineEl, view.colsEl].map((e) => kids.indexOf(e));
+  const order = [view.topRowEl, view.timelineEl, view.colsEl].map((e) => kids.indexOf(e));
   assert.ok(order.every((n) => n >= 0) && order.every((n, i) => i === 0 || n > order[i - 1]), order.join());
+  assert.deepStrictEqual(Array.from(view.topLeftEl.children), [view.topEl, view.searchEl], '搜尋框在日期問候下面（裁定 40：左欄）');
   assert.strictEqual(byClass(view.topEl, 'wwh-count').length, 0, '數字全拿掉');
   assert.strictEqual(byClass(view.topEl, 'wwh-counts').length, 0);
   assert.strictEqual(byClass(view.topEl, 'wwh-cheer')[0].textContent, '今天也辛苦了', '一句話照 kb 給的畫');
@@ -1395,10 +1396,12 @@ test('便條（裁定 39）：移到右上角、跟日期問候同一排；標�
   const opened = [];
   const flushed = [];
   const { view } = viewOf(null, { openPathInVault: (r) => opened.push(r), flushNote: () => flushed.push(1) });
-  assert.deepStrictEqual(Array.from(view.topRowEl.children), [view.topEl, view.noteEl], '日期問候在左、便條在右');
+  assert.deepStrictEqual(Array.from(view.topRowEl.children), [view.topLeftEl, view.noteEl], '左欄（日期、問候、搜尋框）、右欄便條');
+  assert.deepStrictEqual(Array.from(view.topLeftEl.children), [view.topEl, view.searchEl]);
   const kids = Array.from(view.root.children);
   assert.ok(kids.indexOf(view.topRowEl) >= 0 && kids.indexOf(view.noteEl) < 0, '便條不再單獨放在最底下');
-  assert.ok(kids.indexOf(view.topRowEl) < kids.indexOf(view.searchEl));
+  assert.ok(kids.indexOf(view.searchEl) < 0, '搜尋框進了左欄');
+  assert.match(CSS, /\.wwh-search \{[^}]*max-width: 720px/, '搜尋框寬照舊、不跟著便條撐開');
   const box = byClass(view.noteEl, 'wwh-note-text')[0];
   assert.strictEqual(box.tagName, 'TEXTAREA');
   assert.strictEqual(box.attrs.rows, '5', '四五行高');

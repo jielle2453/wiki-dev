@@ -1635,7 +1635,9 @@ class HomeView extends ItemView {
     this.colsEl = h('div', { cls: 'wwh-cols' }, this.leftEl, this.rightEl);
     this.drawerEl = h('aside', { cls: 'wwh-drawer' });
     this.buildNote();
-    this.topRowEl = h('div', { cls: 'wwh-toprow' }, this.topEl, this.noteEl); // 日期、問候在左，便條在右上（裁定 39）
+    // 左欄＝日期、問候、搜尋框，右欄＝便條，兩欄上緣對齊（裁定 39、40）
+    this.topLeftEl = h('div', { cls: 'wwh-topleft' }, this.topEl, this.searchEl);
+    this.topRowEl = h('div', { cls: 'wwh-toprow' }, this.topLeftEl, this.noteEl);
     this.claudeEl = h('div', { cls: 'wwh-others' });
     this.inputEl = h('input', {
       cls: 'wwh-search-input',
@@ -1685,7 +1687,6 @@ class HomeView extends ItemView {
     }
     this.root.appendChild(this.bannerEl);
     this.root.appendChild(this.topRowEl);
-    this.root.appendChild(this.searchEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
     this.root.appendChild(this.claudeEl);

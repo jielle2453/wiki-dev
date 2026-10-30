@@ -1569,8 +1569,12 @@
   gap: 16px 32px;
 }
 
-.wwh-toprow .wwh-top {
+.wwh-topleft {
+  display: flex;
   flex: 1 1 260px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .wwh-note {
