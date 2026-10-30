@@ -120,3 +120,36 @@ claude --plugin-dir "C:\Users\user\.aaproject\LLM-Wiki\willy-測試\開發\#24-�
 | 7 | 低 | spec 外：回答又問「原檔寫星期三、照日曆是星期四，哪個對」，但 2026-10-26 已有口述記錄說那是筆誤（`kb lookup` 列得到），R-02 該兩邊並陳而不是再問 |
 
 合計花費（已知）更新為 1.68 美元。
+
+## 第 3 輪（情境 3、4，jacky 要確認 session 代跑）
+
+做法變動：`-p` 沒人按允許，這輪加 `--allowedTools "PowerShell"`（只免 Claude Code 對 PowerShell 的允許詢問；willy 的 PreToolUse 守門照跑，權限模式仍是預設，不是 auto 或 skip）。「畫面當場變」改用 COM 讀開著的文件內容驗。開跑前關掉落差 #1 那份暫存唯讀檔，Word 開著 `AI 產出\王大明訪談整理.docx`（標題＋五段）與 `<RAW>\訪談紀錄\2026-10-15-王大明.docx`（8 段）。基準：ledger 10 行、versions 24 夾。
+
+### 情境 3：不過
+
+- 說：「我 Word 開著王大明訪談整理那份，第二段最後加一句『下週三前回覆』」
+- 工具：produce skill；`kb office check`、`kb lookup`、`Grep`、`Glob`、PowerShell `Get-ChildItem -Force`（看到 `~$大明訪談整理.docx`）；想 Grep `skills/produce` 找「開著」的做法被權限擋（同落差 #2）。沒有附著、沒有改檔
+- ledger：沒有新行；versions 沒有為這句新增
+- 回答原文（節錄）：「還沒改。這份檔現在正開在 Word 裡，我先停下來……檔被 Word 鎖著，程式可能存不進去，存進去了也做不了備份。麻煩你在 Word 按「儲存」，然後把這份檔關掉，再跟我說一聲。我會在第二段最後加上「下週三前回覆」，用修訂標記……這一步之後說「退回」可以退。」
+- Word 內容：沒變
+- 判定：不過（沒附著改、要她關 Word、提到備份）
+- 花費：0.16 美元
+
+### 情境 4：不過
+
+- 說：「我 Word 開著王大明 10/15 那份訪談紀錄，下次拜訪那行最後加一句『改約 11/5』」
+- 工具：`kb office copy` 原檔 → `kb office unpack` → Edit `document.xml` 加 `<w:ins>` 修訂 → `kb office pack --to … --like …` → `kb output save … --to "AI 產出/客戶/2026-10-15-王大明-改約.docx" --from <原檔>`
+- ledger：沒有新行；versions 多 `20261030-235539-189e`（`kb output save` 的備份）
+- 回答原文（節錄）：「已經加好了，不過是加在另一份新檔，**你 Word 裡開著的那份沒有動**。客戶的原檔我不直接改，所以先複製一份，在複製的那份加字。」
+- Word 內容：原檔第 7 段不變、`Saved=True`、最後修改 23:15:01（測前）
+- 判定：不過（正是情境要排除的「改走 `kb office copy`」）
+- 花費：0.28 美元
+
+| # | 嚴重 | 內容 |
+|---|---|---|
+| 8 | 高 | 情境 3、4 不過的根因在 spec：D-515 只鎖守門（不擋、不問、不備份），但 skills 沒有任何一處教 AI「Word／Excel 開著時附著改」；反而 R-01（Word、Excel 用 `kb output save`）、produce（改原檔一律 `kb office copy`、改 Word 用修訂）、make.md（「檔案被別的程式開著」請她關掉）都把 AI 導向另存或請她關檔。spec 把 `skills/`、`rules/` 列為不可以動，所以這題做完 AI 也不會走附著。守門端沒問題（兩句 ledger 都沒有 deny） |
+| 9 | 低 | 情境 3 的回答問「下週三是指 11/4 吧」，她說的就是「下週三前回覆」字面，多問一次 |
+
+合計花費（已知）更新為 2.12 美元。
+
+結論更新：4 條情境，自動 2 過；情境 3、4 由確認 session 代跑，2 條不過（#8，spec 缺 skill 端）。
