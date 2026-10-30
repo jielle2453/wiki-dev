@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>首頁：綜合版</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457B8}a:hover{color:#1A4290}
+</style>
+</helmet>
+<div style="min-height: 1000px; background: #FFFFFF; color: #1F1F1E; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column;">
+  <div style="height: 36px; background: #EDEDEB; border-bottom: 1px solid #DCDCD8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5E5E5A;">知識庫 · 首頁</div>
+  <div style="display: flex; flex-wrap: wrap; flex-grow: 1;">
+    <nav aria-label="檔案樹" style="flex: 1 1 220px; max-width: 260px; background: #F5F5F4; border-right: 1px solid #E4E4E1; padding: 16px 12px; box-sizing: border-box; font-size: 14px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; background: #E8EEFA; color: #1A4290; font-weight: 500; text-decoration: none;">首頁</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">總目錄</a>
+      <div style="height: 10px;"></div>
+      <div style="padding: 6px 10px; font-weight: 500;">01 案子</div>
+      <div style="padding: 6px 10px; font-weight: 500;">02 業主</div>
+      <div style="padding: 6px 10px; font-weight: 500;">03 廠商</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">AI 產出</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">收件匣</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">系統</div>
+    </nav>
+    <main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px; max-width: 1180px;">
+
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <p style="margin: 0; font-size: 14px; color: #5E5E5A;">10 月 29 日 星期四</p>
+          <h1 style="margin: 0; font-size: 26px; font-weight: 700;">{{ headline }}</h1>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #FBEDE4; color: #A4410E; font-weight: 500;">過期 {{ nLate }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #E8EEFA; color: #1A4290; font-weight: 500;">今天 {{ nToday }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #F5F5F4; color: #3A3A37;">這週 {{ nWeek }}</span>
+          <span style="font-size: 13px; padding: 4px 12px; border-radius: 14px; background: #F5F5F4; color: #3A3A37;">要你確認 3</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; max-width: 680px;">
+        <label for="q2" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">找人、案子或檔案</label>
+        <input id="q2" type="search" placeholder="找人、案子或檔案，例：信義王宅、王先生" style="font: inherit; font-size: 15px; padding: 11px 14px; border: 1px solid #CFCFCA; border-radius: 8px; flex-grow: 1; min-width: 0; box-sizing: border-box;">
+        <button type="button" style="font: inherit; font-size: 14px; padding: 0 16px; min-height: 44px; border-radius: 8px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z" stroke-linejoin="round"/></svg>
+          <span>篩選</span>
+        </button>
+      </div>
+
+      <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px 14px; overflow-x: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;">
+          <h2 style="margin: 0; font-size: 17px;">手上的案子</h2>
+          <div role="group" aria-label="怎麼看" style="display: flex; border: 1px solid #CFCFCA; border-radius: 8px; overflow: hidden;">
+            <button type="button" onClick="{{ showGantt }}" aria-pressed="{{ isGantt }}" style="font: inherit; font-size: 13px; padding: 0 16px; min-height: 36px; border: none; background: {{ gBg }}; color: {{ gFg }}; font-weight: 500;">時間軸</button>
+            <button type="button" onClick="{{ showMonth }}" aria-pressed="{{ isMonth }}" style="font: inherit; font-size: 13px; padding: 0 16px; min-height: 36px; border: none; border-left: 1px solid #CFCFCA; background: {{ mBg }}; color: {{ mFg }}; font-weight: 500;">月曆</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ isGantt }}" hint-placeholder-val="{{ true }}">
+          <div style="min-width: 760px; display: flex; flex-direction: column;">
+            <div style="display: flex;">
+              <div style="flex: 0 0 140px;"></div>
+              <div style="flex-grow: 1; position: relative; height: 26px; border-bottom: 1px solid #E4E4E1;">
+                <sc-for list="{{ months }}" as="m" hint-placeholder-count="3">
+                  <span style="position: absolute; top: 4px; left: {{ m.left }}; font-size: 13px; font-weight: 500; color: #3A3A37; padding-left: 6px;">{{ m.name }}</span>
+                </sc-for>
+                <span style="position: absolute; top: 4px; left: {{ todayLeft }}; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: #FFFFFF; background: #A4410E; padding: 0 6px; border-radius: 4px;">今天</span>
+              </div>
+            </div>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4">
+              <div style="display: flex; border-bottom: 1px solid #F0F0EE;">
+                <a href="#" style="flex: 0 0 140px; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 8px 0; text-decoration: none; color: #1F1F1E;">
+                  <span style="font-size: 14px; font-weight: 500;">{{ r.name }}</span>
+                  <span style="font-size: 12px; color: #5E5E5A;">{{ r.stage }}</span>
+                </a>
+                <div style="flex-grow: 1; position: relative; height: 54px;">
+                  <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="10">
+                    <div style="position: absolute; top: 0; bottom: 0; left: {{ w.left }}; width: 1px; background: #F0F0EE;"></div>
+                  </sc-for>
+                  <div style="position: absolute; top: 22px; height: 10px; left: {{ r.left }}; width: {{ r.width }}; background: {{ r.color }}; border-radius: {{ r.radius }};"></div>
+                  <sc-for list="{{ r.marks }}" as="k" hint-placeholder-count="2">
+                    <div style="position: absolute; top: 2px; left: {{ k.left }}; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                      <span style="font-size: 11px; color: {{ k.labelColor }}; white-space: nowrap; line-height: 14px;">{{ k.label }}</span>
+                      <div style="width: 10px; height: 10px; transform: rotate(45deg); background: {{ k.fill }};"></div>
+                    </div>
+                  </sc-for>
+                  <div style="position: absolute; top: 0; bottom: 0; width: 2px; background: #A4410E; left: {{ todayLeft }};"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isMonth }}" hint-placeholder-val="{{ false }}">
+          <div style="min-width: 700px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #E4E4E1; border-left: 1px solid #E4E4E1;">
+            <sc-for list="{{ dow }}" as="d" hint-placeholder-count="7">
+              <div style="padding: 6px 8px; font-size: 12px; color: #5E5E5A; border-right: 1px solid #E4E4E1; border-bottom: 1px solid #E4E4E1; background: #FAFAF9;">{{ d }}</div>
+            </sc-for>
+            <sc-for list="{{ cells }}" as="c" hint-placeholder-count="35">
+              <div style="min-height: 84px; padding: 6px; box-sizing: border-box; border-right: 1px solid #E4E4E1; border-bottom: 1px solid #E4E4E1; display: flex; flex-direction: column; gap: 3px; background: {{ c.bg }};">
+                <span style="font-size: 12px; font-weight: {{ c.weight }}; color: {{ c.fg }};">{{ c.label }}</span>
+                <sc-for list="{{ c.ev }}" as="e" hint-placeholder-count="1">
+                  <span style="font-size: 12px; line-height: 1.35; padding: 2px 6px; border-radius: 4px; background: {{ e.bg }}; color: {{ e.fg }}; text-decoration: {{ e.deco }};">{{ e.text }}</span>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </section>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px;">
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 2px;">
+          <h2 style="margin: 0 0 8px; font-size: 17px;">今天與這週</h2>
+          <sc-for list="{{ todos }}" as="t" hint-placeholder-count="5">
+            <div style="border-top: 1px solid #F0F0EE; padding: 8px 0; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="{{ t.cid }}" checked="{{ t.done }}" onChange="{{ t.toggle }}" style="width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: #2457B8;">
+                <label for="{{ t.cid }}" style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer;">
+                  <span style="font-size: 15px; color: {{ t.textFg }}; text-decoration: {{ t.deco }};">{{ t.text }}</span>
+                  <span style="font-size: 12px; color: #5E5E5A;">{{ t.entity }}</span>
+                </label>
+                <span style="flex-shrink: 0; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: {{ t.chipBg }}; color: {{ t.chipFg }};">{{ t.when }}</span>
+                <button type="button" onClick="{{ t.openMove }}" aria-expanded="{{ t.moving }}" style="flex-shrink: 0; font: inherit; font-size: 12px; padding: 0 10px; min-height: 30px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #3A3A37;">延期</button>
+              </div>
+              <sc-if value="{{ t.moving }}" hint-placeholder-val="{{ false }}">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 30px;">
+                  <span style="font-size: 12px; color: #5E5E5A;">改到</span>
+                  <button type="button" onClick="{{ t.toTomorrow }}" style="font: inherit; font-size: 12px; padding: 0 10px; min-height: 30px; border-radius: 15px; border: 1px solid #C9D5EE; background: #F2F6FD; color: #1A4290;">明天</button>
+                  <button type="button" onClick="{{ t.toMonday }}" style="font: inherit; font-size: 12px; padding: 0 10px; min-height: 30px; border-radius: 15px; border: 1px solid #C9D5EE; background: #F2F6FD; color: #1A4290;">下週一</button>
+                  <label style="font-size: 12px; color: #5E5E5A; display: flex; align-items: center; gap: 4px;">選日期<input type="date" onChange="{{ t.toDate }}" style="font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #CFCFCA; border-radius: 6px;"></label>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <div style="border-top: 1px solid #F0F0EE; padding-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+            <label for="newText" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">新增一件事</label>
+            <input id="newText" type="text" value="{{ newText }}" onChange="{{ setText }}" placeholder="新增一件事，例：打給陳小姐確認磁磚" style="font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #CFCFCA; border-radius: 6px; flex: 1 1 200px; min-width: 0;">
+            <label for="newDate" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">日期</label>
+            <input id="newDate" type="date" value="{{ newDate }}" onChange="{{ setDate }}" style="font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #CFCFCA; border-radius: 6px;">
+            <button type="button" onClick="{{ addItem }}" style="font: inherit; font-size: 14px; padding: 0 16px; min-height: 38px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">新增</button>
+          </div>
+        </section>
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;">
+          <h2 style="margin: 0 0 6px; font-size: 17px;">要你確認的</h2>
+          <sc-for list="{{ asks }}" as="q" hint-placeholder-count="2">
+            <div style="padding: 10px 0; border-top: 1px solid #F0F0EE; display: flex; flex-direction: column; gap: 8px;">
+              <span style="font-size: 15px; line-height: 1.5;">{{ q.text }}</span>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #2457B8; background: #2457B8; color: #FFFFFF;">{{ q.yes }}</button>
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">{{ q.no }}</button>
+                <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: #5E5E5A;">先放著</button>
+              </div>
+            </div>
+          </sc-for>
+          <a href="#" style="font-size: 13px; text-decoration: none; padding-top: 6px;">還有 1 件</a>
+        </section>
+      </div>
+      <p style="margin: 0; font-size: 13px; color: #A4410E;">收件匣有 2 份還沒歸位</p>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  defaults() {
+    return [
+      { id: 'a1', date: '2026-10-27', text: '回覆陳小姐建材選樣', entity: '大安陳宅', done: false },
+      { id: 'a2', date: '2026-10-29', time: '14:00', text: '現場會議（木作收尾）', entity: '信義王宅', done: false },
+      { id: 'a3', date: '2026-10-30', text: '系統櫃進場', entity: '中和林宅廚房', done: false },
+      { id: 'a4', date: '2026-10-31', text: '第二版報價給陳小姐', entity: '大安陳宅', done: false },
+      { id: 'a5', date: '2026-11-03', text: '水電驗收', entity: '信義王宅', done: false },
+      { id: 'a6', date: '2026-11-05', text: '丈量', entity: '松山張宅', done: false },
+      { id: 'a7', date: '2026-11-15', text: '預計簽約', entity: '大安陳宅', done: false },
+      { id: 'a8', date: '2026-11-20', text: '完工', entity: '中和林宅廚房', done: false }
+    ];
+  }
+  renderVals() {
+    const st = this.state || {};
+    const items = st.items || this.defaults();
+    const view = st.view || 'gantt';
+    const moving = st.moving || '';
+    const newText = st.newText || '';
+    const newDate = st.newDate || '2026-10-30';
+    const TODAY = Date.UTC(2026, 9, 29);
+    const day = 86400000;
+    const ms = (iso) => { const a = iso.split('-').map(Number); return Date.UTC(a[0], a[1] - 1, a[2]); };
+    const iso = (t) => new Date(t).toISOString().slice(0, 10);
+    const wk = ['日', '一', '二', '三', '四', '五', '六'];
+    const short = (t) => { const d = new Date(t); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
+    const put = (next) => this.setState(Object.assign({ items, view, moving, newText, newDate }, next));
+    const setDateOf = (id, t) => put({ items: items.map((x) => x.id === id ? Object.assign({}, x, { date: iso(t) }) : x), moving: '' });
+
+    // 時間軸
+    const start = Date.UTC(2026, 9, 12), days = 70;
+    const raw = (m, d) => (Date.UTC(2026, m - 1, d) - start) / (days * day) * 100;
+    const p = (m, d) => Math.max(0, Math.min(100, raw(m, d)));
+    const pc = (v) => v.toFixed(2) + '%';
+    const row = (name, stage, color, a, b, marks) => {
+      const l = p(a[0], a[1]), r = p(b[0], b[1]);
+      const cutL = raw(a[0], a[1]) < 0, cutR = raw(b[0], b[1]) > 100;
+      return { name, stage, color, marks, left: pc(l), width: pc(r - l), radius: (cutL ? '0' : '5px') + ' ' + (cutR ? '0 0' : '5px 5px') + ' ' + (cutL ? '0' : '5px') };
+    };
+    const mk = (m, d, label, late) => ({ left: pc(p(m, d)), label, fill: late ? '#A4410E' : '#1F1F1E', labelColor: late ? '#A4410E' : '#3A3A37' });
+    const weeks = [];
+    for (let i = 0; i < 10; i++) weeks.push({ left: pc(i * 7 / days * 100) });
+
+    // 月曆：10/25（日）起五週
+    const calStart = Date.UTC(2026, 9, 25);
+    const cells = [];
+    for (let i = 0; i < 35; i++) {
+      const t = calStart + i * day;
+      const d = new Date(t);
+      const isToday = t === TODAY;
+      const ev = items.filter((x) => ms(x.date) === t).map((x) => {
+        const late = !x.done && t < TODAY;
+        return {
+          text: x.entity + ' ' + x.text,
+          bg: x.done ? '#F5F5F4' : late ? '#FBEDE4' : '#E8EEFA',
+          fg: x.done ? '#8C8C87' : late ? '#A4410E' : '#1A4290',
+          deco: x.done ? 'line-through' : 'none'
+        };
+      });
+      cells.push({
+        label: d.getUTCDate() === 1 ? (d.getUTCMonth() + 1) + ' 月 1 日' : String(d.getUTCDate()),
+        bg: isToday ? '#F2F6FD' : '#FFFFFF',
+        fg: isToday ? '#1A4290' : '#3A3A37',
+        weight: isToday ? '700' : '400',
+        ev
+      });
+    }
+
+    // 今天與這週（過期的加上往後 7 天）
+    const inWindow = items.filter((x) => ms(x.date) <= TODAY + 7 * day);
+    const sorted = inWindow.slice().sort((a, b) => (a.done - b.done) || (ms(a.date) - ms(b.date)));
+    const todos = sorted.map((x) => {
+      const t = ms(x.date), diff = Math.round((t - TODAY) / day);
+      let when = short(t) + ' 週' + wk[new Date(t).getUTCDay()], chipBg = '#F5F5F4', chipFg = '#3A3A37';
+      if (x.done) { when = '完成了'; chipBg = '#E6F1E8'; chipFg = '#2F6B3A'; }
+      else if (diff < 0) { when = '過期 ' + (-diff) + ' 天'; chipBg = '#FBEDE4'; chipFg = '#A4410E'; }
+      else if (diff === 0) { when = '今天' + (x.time ? ' ' + x.time : ''); chipBg = '#E8EEFA'; chipFg = '#1A4290'; }
+      else if (diff === 1) { when = '明天'; }
+      const base = Math.max(t, TODAY);
+      const toMon = TODAY + ((8 - new Date(TODAY).getUTCDay()) % 7 || 7) * day;
+      return {
+        cid: 'todo-' + x.id, text: x.text, entity: x.entity, done: x.done, when, chipBg, chipFg,
+        textFg: x.done ? '#8C8C87' : '#1F1F1E', deco: x.done ? 'line-through' : 'none',
+        moving: moving === x.id,
+        toggle: () => put({ items: items.map((y) => y.id === x.id ? Object.assign({}, y, { done: !y.done }) : y) }),
+        openMove: () => put({ moving: moving === x.id ? '' : x.id }),
+        toTomorrow: () => setDateOf(x.id, base + day),
+        toMonday: () => setDateOf(x.id, toMon),
+        toDate: (e) => { if (e && e.target && e.target.value) setDateOf(x.id, ms(e.target.value)); }
+      };
+    });
+    const open = items.filter((x) => !x.done);
+    const nLate = open.filter((x) => ms(x.date) < TODAY).length;
+    const nToday = open.filter((x) => ms(x.date) === TODAY).length;
+    const nWeek = open.filter((x) => ms(x.date) >= TODAY && ms(x.date) <= TODAY + 7 * day).length;
+    let headline = '早安。今天有 ' + (nToday + nLate) + ' 件事';
+    headline += nLate ? '，' + nLate + ' 件已經過期' : '，沒有過期的';
+
+    return {
+      headline, nLate, nToday, nWeek,
+      isGantt: view === 'gantt', isMonth: view === 'month',
+      gBg: view === 'gantt' ? '#E8EEFA' : '#FFFFFF', gFg: view === 'gantt' ? '#1A4290' : '#3A3A37',
+      mBg: view === 'month' ? '#E8EEFA' : '#FFFFFF', mFg: view === 'month' ? '#1A4290' : '#3A3A37',
+      showGantt: () => put({ view: 'gantt' }),
+      showMonth: () => put({ view: 'month' }),
+      todayLeft: pc(p(10, 29)),
+      months: [{ name: '10 月', left: pc(0) }, { name: '11 月', left: pc(p(11, 1)) }, { name: '12 月', left: pc(p(12, 1)) }],
+      weeks,
+      rows: [
+        row('信義王宅', '施工 · 到 12/15', '#2457B8', [9, 12], [12, 15], [mk(11, 3, '水電驗收'), mk(12, 15, '完工')]),
+        row('中和林宅廚房', '施工 · 到 11/20', '#2457B8', [10, 1], [11, 20], [mk(10, 30, '系統櫃'), mk(11, 20, '完工')]),
+        row('大安陳宅', '報價', '#8AA7DE', [10, 20], [11, 15], [mk(10, 27, '選樣', true), mk(11, 15, '簽約')]),
+        row('松山張宅', '報價', '#8AA7DE', [10, 25], [11, 30], [mk(11, 5, '丈量')])
+      ],
+      dow: wk, cells, todos,
+      newText, newDate,
+      setText: (e) => put({ newText: e.target.value }),
+      setDate: (e) => put({ newDate: e.target.value }),
+      addItem: () => {
+        if (!newText.trim() || !newDate) return;
+        const id = 'n' + (items.length + 1);
+        put({ items: items.concat([{ id, date: newDate, text: newText.trim(), entity: '（還沒掛案子）', done: false }]), newText: '' });
+      },
+      asks: [
+        { text: '信義王宅的完工日：報價寫 11/30，第 3 次會議紀錄寫 12 月中，要用哪個？', yes: '用 12 月中', no: '用 11/30' },
+        { text: '「順發水電」和「順發水電行」是同一家嗎？', yes: '是同一家', no: '不是' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

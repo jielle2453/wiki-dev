@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>首頁：時間軸</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#2457B8}a:hover{color:#1A4290}
+</style>
+</helmet>
+<div style="min-height: 1180px; background: #FFFFFF; color: #1F1F1E; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column;">
+  <div style="height: 36px; background: #EDEDEB; border-bottom: 1px solid #DCDCD8; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5E5E5A;">知識庫 · 首頁</div>
+  <div style="display: flex; flex-wrap: wrap; flex-grow: 1;">
+    <nav aria-label="檔案樹" style="flex: 1 1 220px; max-width: 260px; background: #F5F5F4; border-right: 1px solid #E4E4E1; padding: 16px 12px; box-sizing: border-box; font-size: 14px; display: flex; flex-direction: column; gap: 2px;">
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; background: #E8EEFA; color: #1A4290; font-weight: 500; text-decoration: none;">首頁</a>
+      <a href="#" style="display: block; padding: 6px 10px; border-radius: 6px; color: #1F1F1E; text-decoration: none;">總目錄</a>
+      <div style="height: 10px;"></div>
+      <div style="padding: 6px 10px; font-weight: 500;">01 案子</div>
+      <div style="padding: 6px 10px; font-weight: 500;">02 業主</div>
+      <div style="padding: 6px 10px; font-weight: 500;">03 廠商</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">AI 產出</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">收件匣</div>
+      <div style="padding: 6px 10px; color: #3A3A37;">系統</div>
+    </nav>
+    <main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; max-width: 1180px;">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <p style="margin: 0; font-size: 14px; color: #5E5E5A;">10 月 29 日 星期四</p>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 700;">手上的案子</h1>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 36px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">兩週</button>
+          <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 36px; border-radius: 6px; border: 1px solid #2457B8; background: #E8EEFA; color: #1A4290; font-weight: 500;">四個月</button>
+          <button type="button" style="font: inherit; font-size: 13px; padding: 6px 14px; min-height: 36px; border-radius: 6px; border: 1px solid #CFCFCA; background: #FFFFFF; color: #1F1F1E;">一年</button>
+        </div>
+      </div>
+
+      <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px 14px; overflow-x: auto;">
+        <div style="min-width: 860px; display: flex; flex-direction: column;">
+          <div style="display: flex;">
+            <div style="flex: 0 0 150px;"></div>
+            <div style="flex-grow: 1; position: relative; height: 28px; border-bottom: 1px solid #E4E4E1;">
+              <sc-for list="{{ months }}" as="m" hint-placeholder-count="4">
+                <span style="position: absolute; top: 4px; left: {{ m.left }}; font-size: 13px; font-weight: 500; color: #3A3A37; padding-left: 6px;">{{ m.name }}</span>
+              </sc-for>
+              <span style="position: absolute; top: 4px; left: {{ todayLeft }}; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: #FFFFFF; background: #A4410E; padding: 0 6px; border-radius: 4px;">今天</span>
+            </div>
+          </div>
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+            <div style="display: flex; border-bottom: 1px solid #F0F0EE;">
+              <a href="#" style="flex: 0 0 150px; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 10px 0; text-decoration: none; color: #1F1F1E;">
+                <span style="font-size: 15px; font-weight: 500;">{{ r.name }}</span>
+                <span style="font-size: 12px; color: #5E5E5A;">{{ r.stage }}</span>
+              </a>
+              <div style="flex-grow: 1; position: relative; height: 64px;">
+                <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="16">
+                  <div style="position: absolute; top: 0; bottom: 0; left: {{ w.left }}; width: 1px; background: #F0F0EE;"></div>
+                </sc-for>
+                <sc-if value="{{ r.hasBase }}" hint-placeholder-val="{{ false }}">
+                  <div style="position: absolute; top: 34px; height: 4px; border-radius: 2px; background: #C9D5EE; left: {{ r.baseLeft }}; width: {{ r.baseWidth }};"></div>
+                </sc-if>
+                <div style="position: absolute; top: 24px; height: 12px; border-radius: 6px; left: {{ r.left }}; width: {{ r.width }}; background: {{ r.color }};"></div>
+                <sc-for list="{{ r.marks }}" as="k" hint-placeholder-count="2">
+                  <div style="position: absolute; top: 0; left: {{ k.left }}; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                    <span style="font-size: 11px; color: {{ k.labelColor }}; white-space: nowrap; line-height: 14px;">{{ k.label }}</span>
+                    <div style="width: 11px; height: 11px; transform: rotate(45deg); margin-top: 1px; box-sizing: border-box; background: {{ k.fill }}; border: 2px solid {{ k.edge }};"></div>
+                  </div>
+                </sc-for>
+                <div style="position: absolute; top: 0; bottom: 0; width: 2px; background: #A4410E; left: {{ todayLeft }};"></div>
+              </div>
+            </div>
+          </sc-for>
+          <div style="display: flex; flex-wrap: wrap; gap: 18px; padding-top: 12px; font-size: 12px; color: #3A3A37;">
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 22px; height: 10px; border-radius: 5px; background: #2457B8;"></span>施工</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 22px; height: 10px; border-radius: 5px; background: #8AA7DE;"></span>報價</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 22px; height: 10px; border-radius: 5px; background: #CFCFCA;"></span>保固</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 22px; height: 4px; border-radius: 2px; background: #C9D5EE;"></span>原定的期間</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; transform: rotate(45deg); background: #1F1F1E;"></span>重要日期</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; transform: rotate(45deg); background: #A4410E;"></span>過期了</span>
+            <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; transform: rotate(45deg); box-sizing: border-box; border: 2px solid #8C8C87; background: #FFFFFF;"></span>原定的日期</span>
+          </div>
+        </div>
+      </section>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px;">
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+          <h2 style="margin: 0; font-size: 17px;">十一月</h2>
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center;">
+            <sc-for list="{{ dow }}" as="d" hint-placeholder-count="7">
+              <span style="font-size: 12px; color: #5E5E5A; padding: 4px 0;">{{ d }}</span>
+            </sc-for>
+            <sc-for list="{{ cal }}" as="c" hint-placeholder-count="35">
+              <div style="height: 44px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 14px; background: {{ c.bg }}; color: {{ c.fg }};">
+                <span>{{ c.day }}</span>
+                <span style="width: 6px; height: 6px; border-radius: 3px; background: {{ c.dot }};"></span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        <section style="border: 1px solid #E4E4E1; border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+          <h2 style="margin: 0; font-size: 17px;">十一月的重要日期</h2>
+          <sc-for list="{{ novList }}" as="n" hint-placeholder-count="6">
+            <div style="display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid #F0F0EE; font-size: 14px;">
+              <span style="flex: 0 0 70px; color: #3A3A37; font-weight: 500;">{{ n.date }}</span>
+              <span style="flex-grow: 1;">{{ n.text }}</span>
+              <a href="#" style="flex-shrink: 0; text-decoration: none;">{{ n.entity }}</a>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const start = Date.UTC(2026, 8, 7);
+    const span = 112 * 86400000;
+    const p = (m, d) => Math.max(0, Math.min(100, (Date.UTC(2026, m - 1, d) - start) / span * 100));
+    const pc = (v) => v.toFixed(2) + '%';
+    const bar = (a, b) => ({ left: pc(p(a[0], a[1])), width: pc(p(b[0], b[1]) - p(a[0], a[1])) });
+    const mark = (m, d, label, kind) => {
+      const k = { left: pc(p(m, d)), label, fill: '#1F1F1E', edge: '#1F1F1E', labelColor: '#3A3A37' };
+      if (kind === 'late') { k.fill = '#A4410E'; k.edge = '#A4410E'; k.labelColor = '#A4410E'; }
+      if (kind === 'orig') { k.fill = '#FFFFFF'; k.edge = '#8C8C87'; k.labelColor = '#5E5E5A'; }
+      return k;
+    };
+    const row = (name, stage, color, a, b, marks, base) => {
+      const r = Object.assign({ name, stage, color, marks, hasBase: !!base }, bar(a, b));
+      if (base) { const bb = bar(base[0], base[1]); r.baseLeft = bb.left; r.baseWidth = bb.width; }
+      return r;
+    };
+    const weeks = [];
+    for (let i = 0; i < 16; i++) weeks.push({ left: pc(i * 7 / 112 * 100) });
+    const novDots = { 3: '#1F1F1E', 5: '#1F1F1E', 15: '#8AA7DE', 20: '#1F1F1E', 30: '#8C8C87' };
+    const cal = [];
+    for (let d = 1; d <= 30; d++) cal.push({ day: String(d), bg: '#FFFFFF', fg: '#1F1F1E', dot: novDots[d] || 'transparent' });
+    for (let i = 0; i < 5; i++) cal.push({ day: '', bg: 'transparent', fg: '#1F1F1E', dot: 'transparent' });
+    return {
+      todayLeft: pc(p(10, 29)),
+      months: [{ name: '9 月', left: pc(0) }, { name: '10 月', left: pc(p(10, 1)) }, { name: '11 月', left: pc(p(11, 1)) }, { name: '12 月', left: pc(p(12, 1)) }],
+      weeks,
+      rows: [
+        row('信義王宅', '施工 · 王先生', '#2457B8', [9, 12], [12, 15], [mark(11, 3, '水電驗收'), mark(11, 30, '原定完工', 'orig'), mark(12, 15, '完工')], [[9, 12], [11, 30]]),
+        row('中和林宅廚房', '施工 · 林太太', '#2457B8', [10, 1], [11, 20], [mark(10, 30, '系統櫃'), mark(11, 20, '完工')]),
+        row('大安陳宅', '報價 · 陳小姐', '#8AA7DE', [10, 20], [11, 15], [mark(10, 27, '選樣', 'late'), mark(11, 15, '簽約')]),
+        row('松山張宅', '報價 · 張先生', '#8AA7DE', [10, 25], [11, 30], [mark(11, 5, '丈量')]),
+        row('永和吳宅', '保固到 2027/3 · 吳先生', '#CFCFCA', [9, 7], [12, 27], [])
+      ],
+      dow: ['日', '一', '二', '三', '四', '五', '六'],
+      cal,
+      novList: [
+        { date: '11/03 週二', text: '水電驗收', entity: '信義王宅' },
+        { date: '11/05 週四', text: '丈量', entity: '松山張宅' },
+        { date: '11/15 週日', text: '預計簽約', entity: '大安陳宅' },
+        { date: '11/20 週五', text: '完工', entity: '中和林宅廚房' },
+        { date: '11/30 週一', text: '原定完工（已延到 12/15）', entity: '信義王宅' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

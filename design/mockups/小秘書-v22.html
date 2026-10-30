@@ -1,0 +1,1031 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+
+<title>小秘書 v22</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
+<style>
+/* 一人用的手機頁，黑白灰：淺灰底、白卡片加淡陰影、沒有框線；黑色只用在小地方（選到的日期、勾、主要按鈕），最先要做的那件是淺灰框卡。
+   紅色只給逾期。今天＝一週直條＋三個數字＋「完成了嗎？」＋時間軸；甘特圖、月曆照舊。所有寫入都是 Drive 新增變動檔。 */
+:root{
+  --bg:#F3F3F1; --surface:#FFFFFF; --surface-2:#F2F2F0; --weekend:#F8F8F6; --band:#EAEAE6;
+  --ink:#141414; --muted:#8A8A8A; --muted-2:#BDBDBA; --line:#E4E4E0; --hair:#EFEFEB;
+  --dark:#161616; --on-dark:#FFFFFF; --on-dark-muted:#9E9E9E;
+  --bad:#D9483B; --bad-soft:#FBE7E4; --pend:#9A6E17; --pend-soft:#F5ECD8; --ok:#141414;
+  --k-meeting:#141414; --k-promise:#5C5C5C; --k-due:#141414; --k-reminder:#7A7A7A; --k-period:#A9A9A6;
+  --shadow:0 4px 18px rgba(0,0,0,.05); --shadow-2:0 10px 28px rgba(0,0,0,.12);
+  --willy-ink:#141414; --scrim:rgba(0,0,0,.4);
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-num:"Plus Jakarta Sans","Noto Sans TC",system-ui,sans-serif;
+  --tabbar:66px; --r:22px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0F0F10; --surface:#1A1A1C; --surface-2:#242427; --weekend:#1E1E21; --band:#2C2C30;
+  --ink:#F2F2F2; --muted:#8E8E93; --muted-2:#56565B; --line:#2C2C30; --hair:#26262A;
+  --dark:#F2F2F2; --on-dark:#141414; --on-dark-muted:#5E5E62;
+  --bad:#FF6B5E; --bad-soft:#3A1E1B; --pend:#E2B05A; --pend-soft:#352A15; --ok:#F2F2F2;
+  --k-meeting:#F2F2F2; --k-promise:#B4B4B9; --k-due:#F2F2F2; --k-reminder:#9A9AA0; --k-period:#6E6E74;
+  --shadow:0 4px 18px rgba(0,0,0,.35); --shadow-2:0 10px 28px rgba(0,0,0,.55);
+  --willy-ink:#E9E9E9; --scrim:rgba(0,0,0,.6); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F0F10; --surface:#1A1A1C; --surface-2:#242427; --weekend:#1E1E21; --band:#2C2C30;
+  --ink:#F2F2F2; --muted:#8E8E93; --muted-2:#56565B; --line:#2C2C30; --hair:#26262A;
+  --dark:#F2F2F2; --on-dark:#141414; --on-dark-muted:#5E5E62;
+  --bad:#FF6B5E; --bad-soft:#3A1E1B; --pend:#E2B05A; --pend-soft:#352A15; --ok:#F2F2F2;
+  --k-meeting:#F2F2F2; --k-promise:#B4B4B9; --k-due:#F2F2F2; --k-reminder:#9A9AA0; --k-period:#6E6E74;
+  --shadow:0 4px 18px rgba(0,0,0,.35); --shadow-2:0 10px 28px rgba(0,0,0,.55);
+  --willy-ink:#E9E9E9; --scrim:rgba(0,0,0,.6); color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+html{scrollbar-gutter:stable} /* 電腦上：頁面長短不同時捲軸出現／消失，不讓內容左右跳 */
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:var(--surface-2);border-radius:12px;padding:6px 14px;min-height:42px;font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--ink);color:var(--surface)}
+button.ghost{background:transparent;color:var(--muted);font-weight:500}
+button.small{min-height:36px;padding:3px 12px;font-size:.88rem}
+button.warn{color:var(--bad)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+input,textarea,select{background:var(--surface-2);border:1.5px solid transparent;border-radius:12px;padding:8px 12px;width:100%;min-height:46px}
+input:focus,select:focus{border-color:var(--ink);outline:none}
+svg{display:block}
+
+.wrap{max-width:600px;margin:0 auto;min-height:100vh;min-height:100dvh;padding-block:10px calc(var(--tabbar) + 56px); /* 每頁至少一個畫面高，短的那頁不會讓頁面突然縮 */padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px;min-width:0}
+main{display:flex;flex-direction:column;gap:18px;min-width:0}
+.block{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);min-width:0}
+
+/* 頁首只放兩樣：左邊日期與大標題，右邊 Willy；Willy 右下的小點是同步狀態（綠＝同步中、灰＝範例資料、紅＝停了） */
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:14px}
+.ttl{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ttl .sub{font-size:.85rem;color:var(--muted);font-weight:500}
+.ttl h1{margin:0;font-size:2rem;font-weight:700;letter-spacing:.01em;line-height:1.15}
+.mewrap{position:relative;flex:none}
+.me{width:44px;height:44px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.me svg{width:100%;height:100%}
+.st{position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;border-radius:50%;border:2.5px solid var(--bg);background:var(--muted-2)}
+.st.ok{background:#2FA36B} .st.bad{background:var(--bad)}
+/* 要處理的（待記入、失敗、衝突、同步停了）才出現，接在大標題右邊 */
+.trow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;min-width:0}
+.sync{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px} /* 貼著標題底部 */
+.sync:empty{display:none}
+.info{text-align:center;font-size:.75rem;color:var(--muted-2);font-weight:500}
+.info b{color:var(--muted);font-weight:600}
+.info .ver{font-size:.75rem} /* 每版改這裡，交貨測試對版號 */
+.pill{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:999px;padding:2px 10px;background:var(--surface);box-shadow:var(--shadow);color:var(--muted);min-height:0;font-size:.75rem;font-weight:600;line-height:1.6}
+.pill.ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink)}
+.pill.pend{color:var(--pend)}
+.pill.bad{color:var(--bad)}
+.pill.sample{background:var(--surface-2);box-shadow:none}
+
+/* 一週：一天一欄，選到的是黑色直條 */
+.week{display:flex;flex-direction:column;gap:8px}
+.wkhead{display:flex;align-items:center;justify-content:space-between}
+.wkm{font-size:.85rem;color:var(--muted);font-weight:600}
+.wknav{display:flex;gap:6px;align-items:center}
+.wknav .nav{width:34px;min-height:34px;padding:0;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center}
+.wknav .nav svg{width:16px;height:16px}
+.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.wd{display:flex;flex-direction:column;align-items:center;gap:2px;background:none;padding:4px 0;min-height:0;border-radius:999px;font-weight:500}
+.wd .wn{font-family:var(--f-num);font-weight:700;font-size:1.05rem;color:var(--muted);width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.wd .wl{font-size:.72rem;color:var(--muted-2)}
+.wd .wdot{width:5px;height:5px;border-radius:50%;background:transparent;margin-top:3px}
+.wd.has .wdot{background:var(--muted-2)}
+.wd.over .wdot{background:var(--bad)}
+.wd.today .wn,.wd.today .wl{color:var(--ink)}
+.wd.sel .wn{background:var(--dark);color:var(--on-dark)}
+.wd.sel .wl{color:var(--ink)}
+
+/* 三個數字 */
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:12px 6px}
+.stat{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:2px 14px;background:none;border-radius:0;min-height:0;text-align:left}
+.stat+.stat{border-left:1.5px solid var(--hair)}
+.stat .n{font-family:var(--f-num);font-size:1.6rem;font-weight:700;line-height:1.2}
+.stat .l{font-size:.78rem;color:var(--muted);font-weight:500}
+.stat.hot .n{color:var(--bad)}
+
+/* 區塊標題 */
+.bhead{display:flex;align-items:center;gap:8px;padding:16px 18px 6px}
+.bhead h2{margin:0;font-size:1.02rem;font-weight:700}
+.bhead .cnt{font-family:var(--f-num);font-size:.78rem;font-weight:700;color:var(--muted);background:var(--surface-2);border-radius:999px;padding:0 8px;line-height:1.7}
+.bhead .cnt.hot{color:var(--bad);background:var(--bad-soft)}
+
+/* 一列一件（完成了嗎？）：方形勾選、內容、右邊時間 */
+.rows{display:flex;flex-direction:column;padding:2px 8px 8px}
+.row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border-radius:14px;cursor:pointer;min-width:0}
+.row+.row{border-top:1.5px solid var(--hair);border-top-left-radius:0;border-top-right-radius:0}
+@media (hover:hover){.row:hover,.ti:hover .tc{background:var(--surface-2)}}
+.ck{width:26px;height:26px;min-height:0;padding:0;border-radius:50%;border:2px solid var(--muted-2);background:transparent;display:flex;align-items:center;justify-content:center;flex:none;color:var(--surface)}
+.ck svg{width:14px;height:14px;opacity:0}
+.ck.on{background:var(--ink);border-color:var(--ink)} .ck.on svg{opacity:1}
+@media (hover:hover){.ck:not(.on):not(.off):hover svg{opacity:.5;color:var(--ink)}}
+.ck.off{visibility:hidden}
+.ico{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--ink);flex:none}
+.ico svg{width:22px;height:22px}
+.rmain{min-width:0;display:flex;flex-direction:column;gap:1px}
+.rmain .t{font-weight:500;font-size:.95rem;overflow-wrap:anywhere;line-height:1.4}
+.who{font-size:.8rem;color:var(--muted)}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+.chip{font-size:.7rem;font-weight:600;border-radius:999px;padding:0 8px;line-height:1.7;background:var(--surface-2);color:var(--muted)}
+.chip.pend{background:var(--pend-soft);color:var(--pend)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.rtime{font-family:var(--f-num);font-weight:600;font-size:.88rem;color:var(--muted);text-align:right;white-space:nowrap}
+.rtime.late{color:var(--bad);font-family:var(--f-body);font-size:.78rem;font-weight:700}
+.row.done .t,.row.cancelled .t{text-decoration:line-through;color:var(--muted)}
+.row.past .t{color:var(--muted)}
+.more{display:block;margin:0 auto 14px;font-size:.85rem}
+
+/* 時間軸：左邊一條細線，線上的圓圈就是勾選；最先要做的那件淺灰底 */
+.tl{position:relative;display:flex;flex-direction:column;padding:4px 12px 12px}
+.tl::before{content:"";position:absolute;left:26.25px;top:24px;bottom:30px;width:1.5px;background:var(--line)}
+.ti{display:grid;grid-template-columns:30px minmax(0,1fr);gap:6px;align-items:start;cursor:pointer;position:relative}
+.ti .node{width:30px;height:30px;min-height:0;padding:0;margin-top:7px;border-radius:50%;border:2px solid var(--muted-2);background:var(--surface);display:flex;align-items:center;justify-content:center;position:relative;z-index:1;color:var(--surface)}
+.ti .node svg{width:15px;height:15px;opacity:0}
+@media (hover:hover){.ti .node:not(.on):not(.off):hover{border-color:var(--ink)} .ti .node:not(.on):not(.off):hover svg{opacity:.45;color:var(--ink)}}
+.ti .node.on{background:var(--ink);border-color:var(--ink)} .ti .node.on svg{opacity:1}
+.ti .node.off{border-style:dashed;cursor:default}
+.ti.feat .node:not(.on){border-color:var(--ink)}
+.ti .tc{padding:10px 12px;border-radius:14px;min-width:0;margin-bottom:2px}
+.next{font-size:.7rem;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:2px}
+.ttop{display:flex;align-items:baseline;gap:10px}
+.ttop .t{flex:1;min-width:0;font-weight:600;font-size:.98rem;line-height:1.4;overflow-wrap:anywhere}
+.ttop .tt{font-family:var(--f-num);font-weight:600;font-size:.85rem;color:var(--muted);white-space:nowrap}
+.ti .who{margin-top:2px}
+.ti.done .t,.ti.cancelled .t{text-decoration:line-through;color:var(--muted)}
+.ti.past .t{color:var(--muted)}
+.ti.feat .tc{background:var(--surface-2)}
+.ti.feat .ttop .tt{color:var(--ink)}
+.ti.feat .chip{background:var(--surface)}
+.empty{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 16px 20px;color:var(--muted);font-weight:500;font-size:.9rem;text-align:center}
+.empty svg{width:84px;height:84px}
+
+/* 自己做的下拉：按鈕＋浮出的清單（分組小標、選到的打勾、名單長就有搜尋） */
+.pick{position:relative;flex:1;min-width:0}
+.pickbtn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--band);min-height:40px;border-radius:12px;padding:6px 12px;font-weight:600;color:var(--ink);text-align:left}
+.pickbtn span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pickbtn svg{width:16px;height:16px;flex:none;color:var(--muted);transition:transform .15s}
+.pick.open .pickbtn svg{transform:rotate(180deg)}
+.sheet .pickbtn{background:var(--surface-2);min-height:46px;font-weight:500}
+.pickpanel{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:20;background:var(--surface);border-radius:14px;box-shadow:var(--shadow-2);padding:6px;max-height:min(360px,60vh);overflow:auto;display:flex;flex-direction:column}
+.pickpanel input{min-height:38px;margin:2px 2px 6px;width:auto}
+.pgh{font-size:.72rem;color:var(--muted);font-weight:700;padding:10px 10px 4px;letter-spacing:.04em}
+.popt{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:transparent;min-height:40px;padding:6px 10px;border-radius:10px;font-weight:500;text-align:left;color:var(--ink)}
+@media (hover:hover){.popt:hover{background:var(--surface-2)}}
+.popt svg{width:16px;height:16px;flex:none;opacity:0}
+.popt[aria-selected="true"]{font-weight:700} .popt[aria-selected="true"] svg{opacity:1}
+
+/* 篩選與分段 */
+.filters{display:flex;gap:8px;align-items:center}
+.filters select{flex:1;min-width:0;font-weight:600;background:var(--band);min-height:40px}
+button.toggle{white-space:nowrap;font-size:.88rem;border-radius:999px;background:var(--band);min-height:40px}
+button.toggle[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.seg{display:inline-flex;border-radius:999px;padding:3px;gap:2px;background:var(--surface-2);max-width:100%}
+.seg button{background:transparent;min-height:32px;padding:2px 12px;font-size:.85rem;color:var(--muted);border-radius:999px;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+
+/* 月曆 */
+.mblock{padding:14px}
+.mhead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 4px 10px}
+.mtitle{font-size:1.1rem;font-weight:700}
+.mnav{display:flex;gap:6px} .mnav button{border-radius:999px}
+.mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.mgrid .wdh{text-align:center;font-size:.72rem;color:var(--muted-2);font-weight:600;padding-bottom:4px}
+.cell{aspect-ratio:1;max-width:100%;min-height:0;border-radius:12px;padding:3px 1px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;background:transparent;font-weight:500}
+.cell.pad{pointer-events:none}
+.cell .dn{font-family:var(--f-num);font-size:.95rem;font-weight:600;line-height:32px;width:32px;height:32px;border-radius:50%;text-align:center;color:var(--muted)}
+.cell.today .dn{color:var(--ink);font-weight:700;box-shadow:inset 0 0 0 1.5px var(--ink)}
+.cell.sel .dn{background:var(--dark);color:var(--on-dark);box-shadow:none}
+.cell.over:not(.sel) .dn{color:var(--bad)}
+.dots{display:flex;gap:2px;flex-wrap:wrap;justify-content:center;max-width:100%}
+.dot{width:5px;height:5px;border-radius:50%}
+.dot.past{opacity:.35}
+
+/* 甘特圖：一張白卡；日期軸在最上面、捲動時黏住；每個對象一段，單雙數交替淡底，點名字收起／展開 */
+.gwrap{display:flex;flex-direction:column;gap:12px;min-width:0;--gbg:none;--gday:var(--hair);--gmon:var(--muted-2)}
+/* 甘特圖控制：不用卡片，直接放在灰底上三層（翻頁與日期範圍、看多長、分組與全部收起），讓下面的圖是主角 */
+.gctl{padding:0 2px;display:flex;flex-direction:column;gap:8px}
+.gctl .seg{background:var(--band)}
+.gtop{display:flex;align-items:center;gap:2px;min-height:36px}
+.gtop .range{font-family:var(--f-num);font-size:1rem;font-weight:600;margin:0;padding:0 4px;white-space:nowrap}
+.gtop .nav{width:34px;min-height:34px;padding:0;border-radius:50%;background:transparent;display:flex;align-items:center;justify-content:center;flex:none}
+.gtop .nav svg{width:18px;height:18px}
+@media (hover:hover){.gtop .nav:hover{background:var(--surface-2)}}
+.gtop .sp,.gopts .sp{flex:1}
+button.link{background:transparent;min-height:32px;padding:2px 6px;font-size:.88rem;font-weight:600;color:var(--ink);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--muted-2)}
+.seg.full{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%}
+.gopts{display:flex;align-items:center;gap:8px}
+.glab{font-size:.8rem;color:var(--muted);font-weight:600}
+.gopts .seg button{min-height:26px;padding:1px 10px;font-size:.78rem}
+.legend{display:flex;gap:6px 12px;flex-wrap:wrap;font-size:.76rem;color:var(--muted);align-items:center;padding:8px 2px 2px}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend svg{width:12px;height:12px}
+details.lg summary{cursor:pointer;color:var(--muted);font-size:.85rem;font-weight:600;width:max-content;padding:4px 2px}
+.gbig{overflow:clip}
+.gaxis{padding:8px 14px 2px;position:sticky;top:env(safe-area-inset-top,0px);z-index:3;background:var(--surface)}
+.gblock{display:flex;flex-direction:column;padding:0 14px 6px;border-top:1.5px solid var(--hair)}
+.gblock.alt{background:color-mix(in srgb,var(--surface-2) 45%,var(--surface))}
+.gblock.folded{padding-bottom:0}
+.gblock .grow{padding:5px 0}
+.gfold{display:grid;grid-template-columns:38% minmax(0,1fr);gap:8px;align-items:center;margin:0 -14px;padding:10px 14px 4px;background:transparent;border-radius:0;min-height:0;text-align:left;cursor:pointer}
+.gblock.folded .gfold{padding-bottom:10px}
+.gblock:not(.folded) .gfold{grid-template-columns:minmax(0,1fr)}
+.gfold .gname{display:flex;align-items:center;gap:6px;min-width:0;font-weight:700;font-size:.92rem}
+.gfold .gname span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gfold .gname svg{width:16px;height:16px;flex:none;color:var(--muted);transition:transform .15s}
+.gblock.folded .gfold .gname svg{transform:rotate(-90deg)}
+.gfold .gn{font-family:var(--f-num);font-weight:600;font-size:.78rem;color:var(--muted);flex:none}
+.gfold .gtrack{height:18px}
+.mdot{position:absolute;top:5px;width:8px;height:8px;border-radius:50%;transform:translateX(-50%);background:var(--k)}
+.mdot.late{background:var(--bad)} .mdot.closed{opacity:.3}
+.mbar{position:absolute;top:6px;height:6px;border-radius:3px;background:var(--k);opacity:.8}
+.grow{display:grid;grid-template-columns:38% minmax(0,1fr);gap:8px;align-items:center;padding:9px 0;cursor:pointer;text-align:left;background:transparent;border-radius:0;min-height:0;font-weight:500}
+.grow.axis{cursor:default;padding:0 0 2px}
+.glabel{min-width:0}
+.gt{font-size:.88rem;font-weight:500;padding-left:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gtrack{position:relative;height:28px;background:var(--gbg);overflow:visible;touch-action:pan-y}
+.axis .gtrack{height:30px}
+/* 軸標籤：上排月份、下排日期；left 由 paintTicks 量寬度後算成 px */
+.tick{position:absolute;top:15px;font-family:var(--f-num);font-size:.72rem;line-height:14px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tick.m{top:0;color:var(--ink);font-family:var(--f-body);font-size:.68rem;font-weight:700}
+.tick.today{color:var(--ink);font-weight:700}
+.tband{position:absolute;top:-1px;bottom:-1px;background:var(--band)}
+.axis .tband{top:0;bottom:-3px;border-radius:6px 6px 0 0}
+.gbar{position:absolute;top:9px;height:10px;border-radius:5px;min-width:6px;background:var(--k)}
+.gbar.run{border-radius:5px 0 0 5px}
+.gbar.cl{border-top-left-radius:0;border-bottom-left-radius:0} .gbar.cr{border-top-right-radius:0;border-bottom-right-radius:0}
+.gover{position:absolute;top:9px;height:10px;border-radius:0 5px 5px 0;background:repeating-linear-gradient(135deg,var(--bad) 0 3px,transparent 3px 6px);opacity:.8}
+.gpin{position:absolute;left:0;top:3px;bottom:3px;width:3px;border-radius:0 2px 2px 0;background:var(--bad)} /* 起點以前就逾期，釘在左邊界 */
+.glead{position:absolute;top:11px;height:6px;border-radius:3px;background:var(--k);opacity:.2}
+.glate{position:absolute;top:13px;height:0;border-top:2px dashed var(--bad);opacity:.7}
+.gmark{position:absolute;top:6px;width:16px;height:16px;transform:translateX(-50%);color:var(--k);display:block}
+.gmark svg{width:100%;height:100%;overflow:visible}
+.grow.inferred .gmark svg path,.grow.inferred .gmark svg circle{stroke-dasharray:2.5 1.8}
+.grow.inferred .gbar{outline:2px dashed var(--muted);outline-offset:-2px}
+.grow.pend .gmark,.grow.pend .gbar{filter:drop-shadow(0 0 2px var(--pend))}
+.grow.pend .gbar{outline:2px solid var(--pend);outline-offset:1px}
+/* 逾期：時間軸照樣標紅；名稱維持黑字，前面一個小紅點 */
+.grow.late .gmark{color:var(--bad)}
+.grow.late .gmark.act{border-color:var(--bad);color:var(--bad)}
+.grow.late .gt{position:relative}
+.grow.late .gt::before{content:"";position:absolute;left:1px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--bad)}
+.grow.closed .gmark,.grow.closed .gbar,.grow.closed .glead{opacity:.3}
+.grow.past .gmark,.grow.past .gbar,.grow.past .glead{opacity:.5} .grow.past .gt{color:var(--muted)}
+.grow.closed .gt{text-decoration:line-through;color:var(--muted)}
+/* 拖曳：track 只攔水平手勢，垂直仍可捲頁 */
+.gmark,.gbar{cursor:grab}
+.gmark.act{width:26px;height:26px;top:1px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+.gmark.act svg{width:15px;height:15px}
+.grow.inferred .gmark.act{border:1.5px dashed var(--muted)}
+.grow.inferred .gmark.act svg path,.grow.inferred .gmark.act svg circle{stroke-dasharray:none}
+.ghandle{position:absolute;top:5px;width:10px;height:18px;border-radius:4px;background:var(--surface);border:2px solid var(--muted-2);cursor:ew-resize;transform:translateX(-50%)}
+.dragging{opacity:.85;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3));z-index:2}
+
+/* 詳情抽屜 */
+.detail{display:flex;flex-direction:column;gap:14px}
+.dtop{display:flex;gap:12px;align-items:center}
+.dtop .ico{width:54px;height:54px}
+.dtop .ico svg{width:28px;height:28px}
+.dtop .t{font-size:1.15rem;font-weight:700;line-height:1.35;overflow-wrap:anywhere}
+.dtop .who{font-size:.88rem}
+.facts{display:flex;gap:6px;flex-wrap:wrap}
+.fact{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 12px;font-size:.85rem;font-weight:600;background:var(--surface-2)}
+.fact svg{width:15px;height:15px;color:var(--muted)}
+.fact.bad{color:var(--bad);background:var(--bad-soft)} .fact.bad svg{color:var(--bad)} .fact.pend{color:var(--pend);background:var(--pend-soft)} .fact.soft{color:var(--muted)}
+.actbox{display:flex;flex-direction:column;gap:10px}
+.big3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.big3 button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;border-radius:16px;min-height:76px;font-size:.88rem}
+.big3 button svg{width:24px;height:24px}
+.big3 .okb{background:var(--surface-2);box-shadow:inset 0 0 0 1.5px var(--ink);color:var(--ink)}
+.datepick{display:flex;gap:8px;align-items:center}
+.datepick input{flex:1;min-width:0}
+.acts.one{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;padding-top:6px}
+
+/* 新增表單 */
+.acts-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.acts-grid button{display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 2px 8px;border-radius:14px;min-height:0;font-size:.8rem;font-weight:500;background:transparent}
+.acts-grid button .ico{width:40px;height:40px}
+.acts-grid button[aria-pressed="true"] .ico{background:var(--dark);color:var(--on-dark)}
+.acts-grid button[aria-pressed="true"]{font-weight:700}
+.check-row{display:flex;gap:8px;align-items:center;font-size:.92rem;font-weight:600} .check-row input{width:20px;min-height:20px;height:20px;accent-color:var(--ink)}
+
+/* 底部分頁列：白色浮卡，中間黑色＋ */
+nav.tabs{position:fixed;z-index:5;left:max(16px,env(safe-area-inset-left,0px),calc((100vw - 600px)/2 + 16px));right:max(16px,env(safe-area-inset-right,0px),calc((100vw - 600px)/2 + 16px));bottom:calc(12px + env(safe-area-inset-bottom,0px));height:var(--tabbar);background:var(--surface);border-radius:24px;box-shadow:var(--shadow-2);display:flex;align-items:center;justify-content:space-around;padding:0 6px}
+nav.tabs button{flex:1;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted-2);min-height:50px;padding:0;border-radius:14px;position:relative}
+nav.tabs button svg{width:23px;height:23px}
+nav.tabs button .lb{display:none}
+nav.tabs button[aria-selected="true"]{color:var(--ink)}
+nav.tabs button[aria-selected="true"]::after{content:"";position:absolute;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--ink)}
+nav.tabs button.add{flex:none;width:46px;min-height:46px;height:46px;border-radius:50%;background:#8B7CF6;color:#FFC531;transform:translateY(-10px);box-shadow:0 0 0 5px var(--bg),0 6px 14px rgba(139,124,246,.4)} /* Willy 的配色：紫身、黃色 ＋ */
+nav.tabs button.add svg{width:21px;height:21px}
+nav.tabs button.spin svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 底部抽屜 */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:8}
+.sheet{position:fixed;left:0;right:0;bottom:0;margin-inline:auto;max-width:600px;z-index:9;background:var(--surface);border-radius:26px 26px 0 0;box-shadow:var(--shadow-2);max-height:92vh;overflow:auto;padding-block:10px calc(20px + env(safe-area-inset-bottom,0px));padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px;animation:up .18s ease-out}
+.sheet::before{content:"";align-self:center;width:40px;height:4px;border-radius:2px;background:var(--line);flex:none}
+@keyframes up{from{transform:translateY(16px);opacity:.6}}
+.sheet h3{margin:0;font-size:1.15rem;font-weight:700;text-wrap:balance}
+.hint{color:var(--muted);font-size:.88rem;margin:0}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:.82rem;color:var(--muted);font-weight:600}
+.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.inline > *{flex:1;min-width:120px}
+.sheet .foot{display:flex;gap:8px;justify-content:flex-end;padding-top:4px}
+.sheet .foot button{min-width:92px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabbar) + 36px + env(safe-area-inset-bottom,0px));background:var(--dark);color:var(--on-dark);padding:9px 18px 9px 14px;border-radius:999px;font-size:.9rem;font-weight:600;z-index:10;max-width:90vw;display:flex;align-items:center;gap:8px;box-shadow:var(--shadow-2)}
+.toast svg{width:16px;height:16px;flex:none}
+.toast.plain{padding-left:18px}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}nav.tabs button.spin svg{animation:none}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="ttl"><span class="sub" id="today"></span><div class="trow"><h1 id="title">今天</h1><div class="sync" id="sync"></div></div></div>
+    <i class="st" id="st" hidden></i><!-- 頭貼拿掉（jacky 2026-10-27：看起來很奇怪）；同步狀態看頁尾那行，停了標題旁出紅字 -->
+  </header>
+  <main id="view"></main>
+  <footer class="info"><b>小秘書</b> <small class="ver">v22</small><span id="syncinfo"></span></footer>
+</div>
+
+<nav class="tabs" aria-label="分頁">
+  <button data-tab="today" aria-selected="true" aria-label="今天"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 12 4l8 7v9H4z"/><path d="M10 20v-5h4v5"/></svg><span class="lb">今天</span></button>
+  <button data-tab="gantt" aria-selected="false" aria-label="甘特圖"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4.5" width="10" height="3.6" rx="1.8"/><rect x="8" y="10.2" width="13" height="3.6" rx="1.8"/><rect x="5" y="15.9" width="8" height="3.6" rx="1.8"/></svg><span class="lb">甘特圖</span></button>
+  <button class="add" id="add" aria-label="新增"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button data-tab="month" aria-selected="false" aria-label="月曆"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span class="lb">月曆</span></button>
+  <button id="refresh" aria-label="重新讀取"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+</nav>
+
+<script>
+// ---------- 常數與範例資料（Drive 讀不到時顯示；真資料由 Mac 上的 sync.py 匯出） ----------
+// 新增日程「跟誰有關」列的 willy 實體型別，照這個順序分組（保單不列）
+const ENT_TYPES=["客戶","團隊","保險公司"];
+const SERVER="Google Drive", F_AGENDA="willy-agenda.json", F_STATUS="willy-status.json", F_CLIENTS="willy-clients.json", CHANGE_PREFIX="willy-change-";
+const KINDS={meeting:"會議",promise:"承諾",deadline:"到期",reminder:"提醒",period:"期間"};
+const KCOLOR={meeting:"var(--k-meeting)",promise:"var(--k-promise)",deadline:"var(--k-due)",reminder:"var(--k-reminder)",period:"var(--k-period)"};
+// 行為：willy 沒有這個欄位，先放在一句話開頭「拜訪｜…」（sync.py 兩邊照此約定）；每個行為對到一個 willy 種類與圖示
+const ACTS={拜訪:{kind:"meeting",g:"🤝"},電話:{kind:"meeting",g:"📞"},簽約:{kind:"meeting",g:"✍️"},送件:{kind:"promise",g:"📨"},報價:{kind:"promise",g:"🧮"},繳費:{kind:"deadline",g:"💰"},續保:{kind:"deadline",g:"🔁"},生日:{kind:"reminder",g:"🎂"},理賠:{kind:"period",g:"🏥"},
+  課程:{kind:"meeting",g:"📚"},會議:{kind:"meeting",g:"👥"},行政:{kind:"promise",g:"📋"}, // 自己的事（jacky 2026-10-26 定 13 個；改這行時 notify.py 的 ACTS 同步）
+  其他:{kind:"reminder",g:"📌"}};
+// 畫面上的小圖（取代 ACTS.g 的 emoji）：線條一律深色、底是淡色方塊，兩種主題都一樣
+const ICON={
+  拜訪:'<path d="M4 11 12 4l8 7v9H4z" fill="#FFC531"/><path d="M10 20v-5h4v5"/>',
+  電話:'<path d="M6.5 3.5h3l1.5 4-2 1.5a10 10 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5.5a2 2 0 0 1 2-2z" fill="#7FD3C2"/>',
+  簽約:'<path d="M14.5 4.5l5 5L10 19l-5 1 1-5z" fill="#FFC531"/><path d="M4 21h9"/>',
+  送件:'<rect x="3" y="6" width="18" height="13" rx="2" fill="#B8C3FF"/><path d="m3.5 7 8.5 6.5L20.5 7"/>',
+  報價:'<rect x="5" y="3" width="14" height="18" rx="2" fill="#B8C3FF"/><rect x="8" y="6" width="8" height="3.5" rx="1" fill="#fff"/><path d="M8.5 13h0M12 13h0M15.5 13h0M8.5 16.5h0M12 16.5h0M15.5 16.5h0" stroke-width="2.6"/>',
+  繳費:'<circle cx="12" cy="12" r="8.5" fill="#FFC531"/><path d="M12 7v10M14.6 9.4c-.5-.9-1.4-1.4-2.6-1.4-1.5 0-2.6.8-2.6 2s1 1.6 2.6 2 2.6.9 2.6 2.1-1.1 2-2.6 2c-1.2 0-2.2-.5-2.7-1.5"/>',
+  續保:'<path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z" fill="#7FD3C2"/><path d="m9 12.5 2 2 4-4.2"/>',
+  生日:'<rect x="4" y="11" width="16" height="9" rx="2" fill="#FFB6C9"/><path d="M4 15c2 1.5 4 1.5 6 0s4-1.5 6 0 3 1 4 0M12 11V8.5"/><path d="M12 4c1.1 1.1 1.1 2.4 0 3.3-1.1-.9-1.1-2.2 0-3.3z" fill="#FFC531"/>',
+  理賠:'<rect x="4" y="4" width="16" height="16" rx="4.5" fill="#FFB3A3"/><path d="M12 8v8M8 12h8" stroke-width="2.4"/>',
+  課程:'<path d="M3.5 5.5C6 4.3 9 4.4 12 6c3-1.6 6-1.7 8.5-.5V19c-2.5-1.2-5.5-1.1-8.5.5-3-1.6-6-1.7-8.5-.5z" fill="#B8C3FF"/><path d="M12 6v13.5"/>',
+  會議:'<circle cx="9" cy="8.5" r="3" fill="#FFC531"/><circle cx="16.5" cy="9.5" r="2.5" fill="#7FD3C2"/><path d="M3.5 19.5c.5-3 2.7-5 5.5-5s5 2 5.5 5M14.6 14.6c2.6-.6 4.9.9 5.6 4.4"/>',
+  行政:'<rect x="5" y="4.5" width="14" height="16.5" rx="2" fill="#fff"/><rect x="9" y="3" width="6" height="3.5" rx="1" fill="#FFC531"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/>',
+  其他:'<path d="M12 21s6-5.6 6-10.5A6 6 0 0 0 6 10.5C6 15.4 12 21 12 21z" fill="#FFB3A3"/><circle cx="12" cy="10.5" r="2.2" fill="#fff"/>',
+  meeting:'<circle cx="9" cy="8.5" r="3" fill="#FFC531"/><circle cx="16.5" cy="9.5" r="2.5" fill="#7FD3C2"/><path d="M3.5 19.5c.5-3 2.7-5 5.5-5s5 2 5.5 5M14.6 14.6c2.6-.6 4.9.9 5.6 4.4"/>',
+  promise:'<circle cx="12" cy="12" r="8.5" fill="#C9C0FF"/><path d="m8 12.5 3 3 5-6"/>',
+  deadline:'<path d="M6 4h11l-2.5 4L17 12H6z" fill="#FFB3A3"/><path d="M6 21V4"/>',
+  reminder:'<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z" fill="#FFC531"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  period:'<path d="M9.5 19.5h5L12 16z" fill="#FFC531"/><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9"/>'};
+// 線條一律深色、不填色（ICON 裡寫的 fill 在這裡拿掉）
+const svgI=inner=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner.replace(/ fill="#[0-9A-Fa-f]+"/g,"")}</svg>`;
+function iconOf(it){const a=actOf(it); return a?ICON[a]:(ICON[it.kind]||ICON.reminder);}
+function tileEl(it){const t=el("span","ico"); t.innerHTML=svgI(iconOf(it)); return t;}
+// 介面用的小圖
+const UI={
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19 7"/></svg>',
+  alarm:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7.5" fill="#FFB3A3"/><path d="M12 9v4l2.5 2M4.5 5.5l2.5-2M19.5 5.5l-2.5-2"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.5" fill="#FFC531"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>',
+  week:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="#C9C0FF"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  page:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="#FFF2CC"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="15.5" cy="15" r="2" fill="#1F2433"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  repeat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11V9a3 3 0 0 1 3-3h12l-3-3M20 13v2a3 3 0 0 1-3 3H5l3 3"/></svg>',
+  move:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="#FFC531"/><path d="M3.5 10h17M8 3v4M16 3v4M10 15h5m-2-2 2 2-2 2"/></svg>',
+  okbig:'<svg viewBox="0 0 24 24" fill="none" stroke="#1F2433" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" fill="#7FD3A8"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'};
+// 介面小圖單色，跟著所在位置的字色（深色主題也看得到）
+UI.left='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>';
+UI.right='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+for(const k of ["alarm","sun","week","page","move","okbig"]) UI[k]=UI[k].replace(/stroke="#1F2433"/g,'stroke="currentColor"').replace(/ fill="#[0-9A-Fa-f]+"/g,"");
+function actOf(it){const m=/^(.{1,4})｜/.exec(it.text||"");return m&&ACTS[m[1]]?m[1]:null;}
+function plainText(it){return actOf(it)?it.text.replace(/^.{1,4}｜/,""):it.text;}
+const WD=["日","一","二","三","四","五","六"];
+const $=s=>document.querySelector(s);
+const todayStr=()=>iso(new Date());
+function iso(d){const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10);}
+function addDays(n,base){const x=base?new Date(base+"T00:00"):new Date();x.setDate(x.getDate()+n);return iso(x);}
+function dayDiff(a,b){return Math.round((new Date(b+"T00:00")-new Date(a+"T00:00"))/864e5);}
+function shiftMonth(cur,n){const [y,m]=cur.split("-").map(Number);const d=new Date(y,m-1+n,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;}
+function dayLabel(s){const d=new Date(s+"T00:00");const diff=Math.round((d-new Date(todayStr()+"T00:00"))/864e5);
+  const base=`${d.getMonth()+1}/${d.getDate()} 週${WD[d.getDay()]}`;
+  return diff===0?`今天 ${base}`:diff===1?`明天 ${base}`:diff<0?`${base}（逾期 ${-diff} 天）`:base;}
+function clockLabel(t){return t?t.slice(0,5):"";}
+function uid(p){return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+const md=s=>s.slice(5).replace("-","/");
+
+// ---------- Willy（紫身、黃髮黃眼鏡、得意臉）；手腳線條跟主題走，臉固定深色 ----------
+function willy(mood,crop){
+  const B="#8B7CF6",A="#FFC531",F="#1F2433",L="var(--willy-ink)";
+  const ln=(d,w=3.5,c=L)=>`<path d="${d}" stroke="${c}" stroke-width="${w}" fill="none"/>`;
+  const fing=(x,y,a)=>{const r=v=>v*Math.PI/180,f=d=>`M${x} ${y} l${(7*Math.cos(r(a+d))).toFixed(1)} ${(7*Math.sin(r(a+d))).toFixed(1)}`;return ln(f(-40)+f(0)+f(40));};
+  const shoe=(x,y,d=1)=>`<path transform="translate(${x},${y}) scale(${d},1)" d="M-10 4 Q-10 -6 0 -6 Q9 -6 10 4Z" fill="${L}"/>`;
+  const legs={stand:ln("M-18 54 Q-21 74 -18 90 M18 54 Q21 74 18 90")+shoe(-22,92)+shoe(22,92),
+    jump:ln("M-16 54 Q-30 64 -24 78 M16 54 Q30 64 24 78")+shoe(-28,81,-1)+shoe(28,81),
+    cross:ln("M-16 54 Q-2 74 12 90 M16 54 Q4 74 -10 90")+shoe(16,92)+shoe(-14,92,-1)};
+  const ey=4,er=11,cx=30,w=48,h=44,gap=cx-w/2,my=ey+h/2+7;
+  const eyeW=x=>`<ellipse cx="${x}" cy="${ey}" rx="${er}" ry="${er*1.2}" fill="#fff"/>`;
+  const lid=(x,px,py,lv=-1)=>eyeW(x)+`<circle cx="${x+px}" cy="${ey+py}" r="5.7" fill="${F}"/><path d="M${x-er-1} ${ey+lv} Q${x} ${ey+lv-3} ${x+er+1} ${ey+lv} L${x+er+1} ${ey-15} L${x-er-1} ${ey-15}Z" fill="${B}"/>`+ln(`M${x-er+1} ${ey+lv} Q${x} ${ey+lv-3} ${x+er-1} ${ey+lv}`,2.6,F);
+  const arcE=x=>ln(`M${x-8} ${ey+3} Q${x} ${ey-8} ${x+8} ${ey+3}`,3.4,F);
+  const smirk=ln(`M-8 ${my+1} Q2 ${my+7} 10 ${my-3}`,3,F);
+  const faces={smug:lid(-cx,1,4)+lid(cx,1,4)+smirk,
+    cheer:arcE(-cx)+arcE(cx)+`<path d="M-12 ${my-2} Q0 ${my+16} 12 ${my-2}Z" fill="${F}"/>`,
+    coffee:lid(-cx,0,6,4)+lid(cx,0,6,4)+ln(`M-8 ${my} Q0 ${my+6} 8 ${my}`,3,F),
+    think:eyeW(-cx)+eyeW(cx)+`<circle cx="${-cx-4}" cy="${ey-5}" r="5.7" fill="${F}"/><circle cx="${cx-4}" cy="${ey-5}" r="5.7" fill="${F}"/>`+ln(`M-7 ${my+2} Q0 ${my-1} 7 ${my+3}`,3,F)};
+  const frame=x=>`<rect x="${x-w/2}" y="${ey-h/2}" width="${w}" height="${h}" rx="15" fill="none" stroke="${A}" stroke-width="5.5"/>`;
+  const glasses=frame(-cx)+frame(cx)+ln(`M${-gap-1} ${ey-7} Q0 ${ey-17} ${gap+1} ${ey-7}`,5.5,A)+ln(`M-54 ${ey-8} L-59 ${ey-10} M54 ${ey-8} L59 ${ey-10}`,5,A);
+  const hair=`<path transform="translate(0,-40)" d="M-12 4 C-14 -4 -18 -12 -25 -15 C-27 -16 -27 -20 -23 -21 C-16 -23 -11 -17 -8 -10 Q-6 -7 -4 -9 C-3 -12 -1 -15 0 -15 C1 -15 3 -12 4 -9 Q6 -7 8 -10 C11 -17 16 -23 23 -21 C27 -20 27 -16 25 -15 C18 -12 14 -4 12 4 Z" fill="${A}" stroke="${A}" stroke-width="2"/>`;
+  const body=`<path d="M-60 26 C-62 -14 -34 -44 0 -44 C34 -44 62 -14 60 26 C58 50 32 62 0 62 C-32 62 -58 50 -60 26Z" fill="${B}"/>`;
+  const arms={smug:ln("M-56 22 C-66 26 -72 36 -76 46 M56 22 C66 26 72 36 76 46")+fing(-76,46,110)+fing(76,46,70),
+    cheer:ln("M-56 16 C-66 10 -72 -4 -74 -16 M56 16 C66 10 72 -4 74 -16")+fing(-74,-16,-90)+fing(74,-16,-90),
+    coffee:ln("M-56 22 C-74 24 -74 44 -60 44 M56 24 C60 40 54 46 44 46"),
+    think:ln("M-56 22 C-74 24 -74 44 -60 44")}[mood]||"";
+  const front={coffee:`<g transform="translate(46,42)" stroke="${F}"><path d="M-12 -10 L12 -10 L9 12 Q8 15 5 15 L-5 15 Q-8 15 -9 12Z" fill="#fff" stroke-width="2.5"/><path d="M12 -5 Q19 -5 18 2 Q17 7 10 7" stroke-width="2.5" fill="none"/><rect x="-11" y="-2" width="21" height="6" fill="${A}" stroke="none"/><path d="M-4 -16 q-3 -4 0 -8 M4 -16 q-3 -4 0 -8" stroke="#9aa0ab" stroke-width="2.2" fill="none"/></g>`,
+    think:ln("M56 24 C50 44 30 48 14 42")+fing(14,42,200)+`<path d="M62 -60 Q62 -72 72 -72 Q82 -72 82 -63 Q82 -56 73 -53 L73 -47" stroke="${A}" stroke-width="5" fill="none"/><circle cx="73" cy="-38" r="3.2" fill="${A}"/>`,
+    cheer:`<path d="M58 -40 L70 -26 L94 -56" stroke="#3BB273" stroke-width="9" fill="none"/>`}[mood]||"";
+  const t={coffee:"translate(0,60) rotate(6) scale(1.04,.97) translate(0,-60)",think:"translate(0,60) rotate(-10) translate(0,-60)"}[mood]||"";
+  const up=`${arms}${hair}${body}${faces[mood]||faces.smug}${glasses}${front}`;
+  const inner=mood==="cheer"?`<ellipse cx="0" cy="100" rx="34" ry="5" fill="var(--hair)"/><g transform="translate(0,-14)">${legs.jump}${up}</g>`:`${mood==="coffee"?legs.cross:legs.stand}<g transform="${t}">${up}</g>`;
+  return `<svg viewBox="${crop||"-100 -82 200 196"}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+}
+
+function sampleData(){
+  const d=n=>addDays(n), fp="sample"; const data={
+    agenda:{schema:"willy-agenda/1",exported_at:new Date().toISOString(),fp,items:[
+      {id:"a-s001",kind:"meeting",date:d(0),time:"14:30",text:"拜訪｜到公司談醫療險加保，帶兩版建議書",entities:["範例客戶甲"],status:"open",source:"confirmed"},
+      {id:"a-s002",kind:"promise",date:d(0),time:null,text:"報價｜回覆旅平險報價（去日本 5 天）",entities:["範例客戶乙"],status:"open",source:"confirmed"},
+      {id:"a-s003",kind:"deadline",date:d(-2),time:null,text:"繳費｜年繳保費繳費日，提醒轉帳",entities:["範例客戶丙"],status:"open",source:"inferred",lead_days:7},
+      {id:"a-s004",kind:"meeting",date:d(2),time:"10:00",text:"第一次見面，先聊家庭狀況",entities:["範例客戶丁"],status:"open",source:"confirmed"},
+      {id:"a-s005",kind:"reminder",date:d(5),time:null,text:"生日｜寄卡片",entities:["範例客戶乙"],status:"open",source:"inferred"},
+      {id:"a-s011",kind:"meeting",date:d(3),time:"16:00",text:"電話｜確認收到建議書、約簽約時間",entities:["範例客戶甲"],status:"open",source:"confirmed"},
+      {id:"a-s006",kind:"deadline",date:d(12),time:null,text:"保單滿期，約時間談續約",entities:["範例客戶甲"],status:"open",source:"confirmed",lead_days:10},
+      {id:"a-s009",kind:"period",date:d(-1),start:d(-9),time:null,text:"保單變更申請（公司審核）",entities:["範例客戶丙"],status:"open",source:"confirmed"},
+      {id:"a-s010",kind:"reminder",date:d(1),time:null,text:"回電確認收到建議書",entities:["範例客戶甲"],status:"cancelled",source:"confirmed"},
+      {id:"a-s007",kind:"promise",date:d(-1),time:null,text:"寄理賠申請書範本",entities:["範例客戶戊"],status:"done",source:"confirmed"},
+      {id:"a-s008",kind:"period",date:d(3),start:d(-4),time:null,text:"理賠案處理中",entities:["範例客戶戊"],status:"open",source:"confirmed"},
+      {id:"a-s012",kind:"meeting",date:d(1),time:"19:00",text:"課程｜投資型保單認證課（線上）",entities:[],status:"open",source:"confirmed"},
+      {id:"a-s013",kind:"meeting",date:d(4),time:"09:30",text:"會議｜通訊處週會，報上週業績",entities:["範例通訊處"],status:"open",source:"confirmed"}],
+      entities:[..."甲乙丙丁戊"].map((x,i)=>({id:"e-0"+(i+1),name:"範例客戶"+x,type:"客戶"})).concat([{id:"e-06",name:"範例通訊處",type:"團隊"},{id:"e-07",name:"範例人壽",type:"保險公司"},{id:"e-08",name:"範例客戶甲的醫療險",type:"保單"}])},
+    status:{last_ok_at:new Date(Date.now()-6*6e4).toISOString(),applied:[],results:{},conflicts:[]},
+    clients:{schema:"willy-clients/1",clients:[
+      {id:"e-01",name:"範例客戶甲",last_contact:d(-1),pending_statements:1,sections:{"在意的事":["醫療險保障夠不夠，特別是住院日額","小孩的教育金"],"已買保單":["終身醫療（2019）","定期壽險 500 萬（2021）"],"上次聊到":["想在年底前把醫療險加保完成","太太最近換工作，公司團保變少"]},statements:[{date:d(-1),text:"他說太太的團保從明年起沒有住院日額，想補到 3000。",cited:false}]},
+      {id:"e-02",name:"範例客戶乙",last_contact:d(-3),pending_statements:0,sections:{"在意的事":["出國旅遊的保障","保費不要太高"],"已買保單":["旅平險（每次出國單買）"],"上次聊到":["11 月去日本 5 天，要報價"]},statements:[]},
+      {id:"e-03",name:"範例客戶丙",last_contact:d(-20),pending_statements:0,sections:{"在意的事":["退休後的現金流"],"已買保單":["年金險（2015）","年繳 12 萬"],"上次聊到":["繳費日前提醒他一下"]},statements:[]},
+      {id:"e-04",name:"範例客戶丁",last_contact:null,pending_statements:0,sections:{"在意的事":[],"已買保單":[],"上次聊到":["朋友介紹，還沒見過面"]},statements:[]},
+      {id:"e-05",name:"範例客戶戊",last_contact:d(-6),pending_statements:2,sections:{"在意的事":["理賠流程快不快"],"已買保單":["實支實付（2020）"],"上次聊到":["住院 4 天，要申請理賠"]},statements:[{date:d(-6),text:"出院了，診斷書下週拿到。",cited:false},{date:d(-5),text:"問說自費的部分能賠多少。",cited:false}]}]}
+  };
+  return data;
+}
+
+// ---------- 狀態 ----------
+const S={tab:"today",data:null,sample:true,mcp:null,pending:[],ganttGroup:"client",monthCursor:null,selectedDay:null,day:null,showDone:false,clientFilterAgenda:""};
+try{S.pending=JSON.parse(localStorage.getItem("pending")||"[]");}catch{S.pending=[];}
+function savePending(){try{localStorage.setItem("pending",JSON.stringify(S.pending));}catch{}}
+function pendingFor(id){return S.pending.filter(p=>p.id===id);}
+
+// ---------- 畫面 ----------
+function renderSync(){
+  const el=$("#sync"); el.innerHTML="";
+  const st=S.data.status||{};
+  // 平常只看 Willy 右下的小點與頁尾一行；同步停了才在標題下面提醒
+  const dot=$("#st"), info=$("#syncinfo");
+  // 範例資料要一眼看得出來，不能只靠頁尾小字（交貨測試 D-42）
+  if(S.sample){ dot.className="st"; dot.title="範例資料"; info.textContent="・範例資料"; el.append(pill("範例資料，不是你的日程","pend")); }
+  else if(st.last_ok_at){ const min=Math.round((Date.now()-new Date(st.last_ok_at))/6e4), hm=new Date(st.last_ok_at).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false});
+    dot.className="st "+(min>12?"bad":"ok"); dot.title=`同步於 ${hm}`; info.textContent=`・同步於 ${hm}`;
+    if(min>12) el.append(pill(`同步停了 ${min} 分鐘`,"bad")); }
+  else { dot.className="st"; dot.title=""; info.textContent=""; }
+  const failed=S.pending.filter(p=>p.state&&p.state!=="applied"&&p.state!=="retry"||p.failed);
+  if(S.pending.length){ const b=btn(`待記入 ${S.pending.length}`,"pill pend",openPendingSheet); el.append(b); }
+  if(failed.length) el.append(btn(`${failed.length} 筆失敗`,"pill bad",openPendingSheet));
+  if((st.conflicts||[]).length) el.append(pill(`${st.conflicts.length} 筆衝突`,"bad"));
+}
+function pill(t,c){const s=document.createElement("span");s.className="pill "+(c||"");s.textContent=t;return s;}
+function btn(t,c,fn){const b=document.createElement("button");b.className=c;b.textContent=t;b.onclick=fn;return b;}
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+function html(tag,cls,h){const e=el(tag,cls);e.innerHTML=h;return e;}
+// 分段按鈕：opts＝[[值,字]]，目前那個 aria-pressed
+function seg(opts,cur,fn,label){const s=el("div","seg"); s.setAttribute("role","group"); if(label) s.setAttribute("aria-label",label);
+  opts.forEach(([k,l])=>{const b=btn(l,"",()=>fn(k)); b.setAttribute("aria-pressed",String(k===cur)); s.append(b);}); return s;}
+
+// 畫面用「套上手機待套用改動」後的樣子：改期的在新位置、打勾／取消的劃掉並收起按鈕（測試 ⚠️3、⚠️6）
+function effective(){ return S.data.agenda.items.map(it=>{ const ps=pendingFor(it.id); if(!ps.length) return it; const v={...it};
+  ps.forEach(p=>{ if(p.op==="edit"){ if(p.date) v.date=p.date; if(p.start) v.start=p.start; } if(p.op==="done") v.pendDone=true; if(p.op==="cancel") v.pendCancel=true; }); return v; }); }
+// 重新整理後把手機上還沒套用的新增放回畫面（測試 ⚠️2）
+function applyPending(p){
+  const items=S.data.agenda.items, cs=S.data.clients.clients;
+  if(p.op==="add"&&!items.some(i=>i.id===p.id)) items.push({id:p.id,kind:p.kind,date:p.date,time:p.time,start:p.start,text:p.text,entities:p.entities||[],status:"open",source:"confirmed",pendingAdd:true});
+  if((p.op==="entity"||(p.op==="statement"&&p.new_entity))&&!cs.some(c=>c.name===p.entity)) cs.push({id:"tmp-"+p.cid,name:p.entity,last_contact:iso(new Date(p.at)),pending_statements:0,sections:{},statements:[],pendingAdd:true});
+  if(p.next_meeting&&p.nm_id&&!items.some(i=>i.id===p.nm_id)) items.push({id:p.nm_id,kind:"meeting",date:p.next_meeting.date,time:p.next_meeting.time,text:"拜訪｜下次見面（記一筆時約的）",entities:[p.entity],status:"open",source:"confirmed",pendingAdd:true});
+}
+function dayPlain(s){const d=new Date(s+"T00:00");const diff=dayDiff(todayStr(),s);return `${d.getMonth()+1}/${d.getDate()} 週${WD[d.getDay()]}`+(diff===0?"・今天":diff===1?"・明天":"");}
+function bucket(it){const t=todayStr(); if(it.date<t) return "over"; if(it.date===t) return "today"; if(it.date<=addDays(7)) return "week"; if(it.date<=addDays(30)) return "month"; return "later";}
+function openItems(){return effective().filter(i=>i.status==="open");}
+const isClosed=it=>it.status!=="open"||it.pendDone||it.pendCancel;
+
+function render(){
+  document.querySelectorAll("nav.tabs button[data-tab]").forEach(b=>b.setAttribute("aria-selected",String(b.dataset.tab===S.tab)));
+  const day=S.day||todayStr(); $("#title").textContent={today:day===todayStr()?"今天":dayPlain(day),gantt:"甘特圖",month:"月曆"}[S.tab];
+  renderSync();
+  const v=$("#view"); v.innerHTML="";
+  ({today:renderToday,gantt:v=>renderAgenda(v,"gantt"),month:v=>renderAgenda(v,"month")})[S.tab](v);
+}
+
+// 過了、還開著（jacky 2026-10-26：「開起來時應該顯示請問是否完成」）：有時間的看到分鐘；沒時間的與期間看日期（期間的 date＝結束日）
+const nowHM=()=>{const d=new Date(),z=n=>String(n).padStart(2,"0");return `${z(d.getHours())}:${z(d.getMinutes())}`;};
+function isPast(it){const t=todayStr(); return it.date<t||it.date===t&&!!it.time&&it.kind!=="period"&&clockLabel(it.time)<nowHM();}
+const pastToday=it=>it.date===todayStr()&&isPast(it); // 今天、時間已過：淡一點，不標紅
+const askable=it=>isPast(it)&&!it.pendDone&&!it.pendCancel&&!it.pendingAdd; // 進「完成了嗎？」的；今天那張就不再列一次
+
+// 一列一件（完成了嗎？）：左邊方框直接打勾、內容、右邊時間或逾期幾天；點整列開詳情
+function chipsOf(it){
+  const chips=el("div","chips"), conf=(S.data.status.conflicts||[]).find(c=>c.id===it.id);
+  if(repOf(it)) chips.append(el("span","chip",repOf(it)));
+  if(it.source==="inferred") chips.append(el("span","chip","推測"));
+  if(it.pendingAdd) chips.append(el("span","chip pend","待記入"));
+  pendingFor(it.id).forEach(p=>chips.append(el("span","chip "+(p.state&&p.state!=="retry"?"bad":"pend"),p.state==="rejected"?"沒套用":p.state==="conflict"?"衝突":`待${opLabel(p)}`)));
+  if(conf) chips.append(el("span","chip bad","衝突"));
+  return chips;
+}
+function openOnTap(r,it){ r.tabIndex=0; r.setAttribute("role","button"); r.setAttribute("aria-label",`${plainText(it)}，${dayLabel(it.date)}，看詳情`);
+  r.onclick=()=>openItem(it); r.onkeydown=ev=>{ if(ev.target===r&&(ev.key==="Enter"||ev.key===" ")){ev.preventDefault();openItem(it);} }; }
+function rowEl(it,opt={}){
+  const closed=isClosed(it), canAct=!closed&&!it.pendingAdd, isDone=it.status==="done"||it.pendDone;
+  const r=el("div","row "+(it.pendDone?"done":it.pendCancel?"cancelled":it.status)+(!closed&&pastToday(it)&&!opt.late?" past":""));
+  const ck=html("button","ck"+(isDone?" on":"")+(!canAct&&!isDone?" off":""),UI.check);
+  ck.setAttribute("aria-label",canAct?`完成：${plainText(it)}`:"已完成");
+  ck.onclick=ev=>{ev.stopPropagation(); if(canAct) doneAsk(it);}; if(!canAct) ck.tabIndex=-1;
+  const main=el("div","rmain"); main.append(el("div","t",plainText(it)));
+  main.append(el("div","who",[actOf(it)||KINDS[it.kind]||it.kind,...(it.entities||[])].join("・")));
+  const chips=chipsOf(it); if(chips.children.length) main.append(chips);
+  const n=dayDiff(it.date,todayStr());
+  const tm=opt.late&&n>0?el("div","rtime late",`逾期 ${n} 天`):el("div","rtime",it.time?clockLabel(it.time):it.start&&it.kind==="period"?`～${md(it.date)}`:"");
+  r.append(ck,main,tm); openOnTap(r,it);
+  return r;
+}
+// 時間軸：左邊一條細線串起每件事；線上的圓圈就是勾選，點了直接問「做完了？」，點其他地方開詳情。
+// 每列都一樣：標題、右邊時間，第二行是種類與對象；最先要做的那件只多一個淺灰底和「下一件」
+function timeline(list){
+  const box=el("div","tl"), t=todayStr();
+  const feat=list.find(it=>!isClosed(it)&&!it.pendingAdd&&!(it.date===t&&isPast(it)));
+  list.forEach(it=>{ const closed=isClosed(it), isDone=it.status==="done"||it.pendDone, canAct=!closed&&!it.pendingAdd, pt=plainText(it);
+    const row=el("div","ti"+(it===feat?" feat":"")+(isDone?" done":"")+(it.status==="cancelled"||it.pendCancel?" cancelled":"")+(!closed&&pastToday(it)?" past":""));
+    const ck=html("button","node"+(isDone?" on":"")+(canAct?"":" off"),UI.check);
+    ck.setAttribute("aria-label",canAct?`完成：${pt}`:isDone?`已完成：${pt}`:`不能打勾：${pt}`);
+    if(canAct) ck.onclick=ev=>{ev.stopPropagation(); doneAsk(it);}; else { ck.tabIndex=-1; ck.onclick=ev=>ev.stopPropagation(); }
+    const c=el("div","tc");
+    if(it===feat) c.append(el("div","next","下一件"));
+    const top=el("div","ttop"); top.append(el("div","t",pt), el("div","tt",it.time?clockLabel(it.time):it.start&&it.kind==="period"?`～${md(it.date)}`:""));
+    c.append(top, el("div","who",[actOf(it)||KINDS[it.kind]||it.kind,...(it.entities||[])].join("・")));
+    const chips=chipsOf(it); if(chips.children.length) c.append(chips);
+    row.append(ck,c); openOnTap(row,it); box.append(row); });
+  return box;
+}
+function blockHead(title,count,hot){const h=el("div","bhead"); h.append(el("h2",null,title)); if(count!=null) h.append(el("span","cnt"+(hot?" hot":""),String(count))); return h;}
+function emptyEl(mood,text){const e=html("div","empty",willy(mood)); e.append(el("span",null,text)); return e;}
+
+function weekStart(s){const d=new Date(s+"T00:00"); return addDays(-((d.getDay()+6)%7),s);} // 週一開頭
+// 一週：一天一欄（日期在上、星期在下），選到的那天是黑色直條；底下小點＝還有事，紅點＝逾期沒做
+function weekStrip(v){
+  const t=todayStr(), sel=S.day||t, ws=weekStart(sel), eff=effective();
+  const b=el("section","week");
+  const head=el("div","wkhead"), nav=el("div","wknav");
+  const d0=new Date(ws+"T00:00"); head.append(el("span","wkm",`${d0.getFullYear()} 年 ${d0.getMonth()+1} 月`));
+  const pv=html("button","nav",UI.left), nx=html("button","nav",UI.right);
+  pv.onclick=()=>{S.day=addDays(-7,sel);render();}; nx.onclick=()=>{S.day=addDays(7,sel);render();}; pv.setAttribute("aria-label","上一週"); nx.setAttribute("aria-label","下一週");
+  if(weekStart(t)!==ws) nav.append(btn("今天","small",()=>{S.day=null;render();})); nav.append(pv,nx); head.append(nav); b.append(head);
+  const days=el("div","days");
+  for(let i=0;i<7;i++){ const ds=addDays(i,ws), list=eff.filter(it=>it.date===ds&&it.status!=="cancelled"&&!it.pendCancel);
+    const open=list.filter(it=>!(it.status==="done"||it.pendDone)).length;
+    const dd=new Date(ds+"T00:00"), w=el("button","wd"+(ds===t?" today":"")+(ds===sel?" sel":"")+(open?" has":"")+(open&&ds<t?" over":"")); w.setAttribute("aria-pressed",String(ds===sel));
+    w.append(el("span","wn",String(dd.getDate())), el("span","wl",ds===t?"今天":WD[dd.getDay()]), el("span","wdot"));
+    w.setAttribute("aria-label",`${dd.getMonth()+1}/${dd.getDate()}，${open} 件還沒做`); w.onclick=()=>{S.day=ds;render();showDay();}; days.append(w); }
+  b.append(days); v.append(b);
+}
+function pastCard(v){
+  const list=openItems().filter(askable).sort(sortItems); if(!list.length) return;
+  const sec=el("section","block pastblock"); sec.append(blockHead("已經過了，完成了嗎？",list.length,true));
+  const rows=el("div","rows"); (S.pastAll?list:list.slice(0,5)).forEach(it=>rows.append(rowEl(it,{late:true}))); sec.append(rows);
+  if(list.length>5&&!S.pastAll) sec.append(btn(`還有 ${list.length-5} 件`,"small more",()=>{S.pastAll=true;render();}));
+  v.append(sec);
+}
+function renderToday(v){
+  weekStrip(v);
+  const items=openItems(); const c={over:0,today:0,week:0}; items.forEach(i=>{const b=bucket(i); if(b in c) c[b]++;});
+  const stats=el("section","block stats");
+  // 點逾期跳到「完成了嗎？」、點今天跳到今天的時間軸、點 7 天內看一週的甘特圖
+  const go={over:()=>{ const p=$(".pastblock"); if(p) p.scrollIntoView({behavior:motion(),block:"start"}); else {S.tab="gantt";render();} },
+    today:()=>{ S.day=null; render(); showDay(true); },
+    week:()=>{ S.tab="gantt"; S.ganttN=7; S.ganttFrom=null; render(); window.scrollTo(0,0); }};
+  [["over","逾期"],["today","今天"],["week","7 天內"]].forEach(([k,l])=>{const b=el("button","stat"+(k==="over"&&c[k]?" hot":""));
+    b.innerHTML=`<span class="n">${c[k]}</span><span class="l">${l}</span>`; b.setAttribute("aria-label",`${l} ${c[k]} 件`); b.onclick=go[k]; stats.append(b);});
+  v.append(stats);
+  pastCard(v);
+  const t=todayStr(), day=S.day||t;
+  const list=effective().filter(it=>it.date===day&&it.status!=="cancelled"&&!it.pendCancel&&(day!==t||!askable(it))).sort(sortItems);
+  const sec=el("section","block"); sec.id="dayblock"; sec.append(blockHead(day===t?"今天的行程":`${dayPlain(day)} 的行程`,list.filter(i=>!isClosed(i)).length));
+  if(!list.length) sec.append(emptyEl("coffee",day<t?"這天沒有記事":"沒排事，喝杯咖啡"));
+  else sec.append(timeline(list));
+  v.append(sec);
+}
+function sortItems(a,b){return (a.date+(a.time||"99")).localeCompare(b.date+(b.time||"99"));}
+const motion=()=>matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth";
+// 點了某一天：那天那張在畫面下半截以下就捲上來，不用自己往下找
+function showDay(force){ const b=$("#dayblock"); if(!b) return; if(force||b.getBoundingClientRect().top>innerHeight*0.55) b.scrollIntoView({behavior:motion(),block:"start"}); }
+
+function doneAsk(it){ const rep=repOf(it), pt=plainText(it);
+  ask({op:"done",id:it.id},`「${pt}」${rep?"這次":""}做完了？`,rep?`會自動排下一次（${rep}）。`:"之後在電腦可以撤回。",`已打勾：${pt}`); }
+// 完成／改期／取消三大格；改期按下去才出日期框（能跳選擇器就直接跳）
+function actsEl(it){
+  const wrap=el("div","actbox"), rep=repOf(it), pt=plainText(it);
+  const big=el("div","big3");
+  const done=html("button","okb",UI.okbig); done.append(rep?"這次完成":"完成"); done.onclick=()=>doneAsk(it);
+  const mvb=html("button","mvb",UI.move); mvb.append("改期");
+  const cx=html("button","",UI.x); cx.append(rep?"以後不要":"取消");
+  cx.onclick=()=>ask({op:"cancel",id:it.id},rep?`以後都不要「${pt}」？`:`取消「${pt}」？`,rep?`以後${rep}都不再排；只跳過這次請按「完成」。`:"之後在電腦可以撤回。","已標取消");
+  big.append(done,mvb,cx); wrap.append(big);
+  const dp=el("div","datepick"); dp.hidden=true;
+  const dt=document.createElement("input"); dt.type="date"; dt.value=it.date; dt.setAttribute("aria-label","改到哪一天"); dt.id="move-"+it.id;
+  const go=btn("確定","primary",()=>{ if(!dt.value||dt.value===it.date){toast("先選新日期");return;} ask({op:"edit",id:it.id,date:dt.value,from:it.date},`「${pt}」改期？`,`${dayLabel(it.date)} → ${dayLabel(dt.value)}${rep?`；以後${rep}都改成這天`:""}`,`改期 ${it.date.slice(5)} → ${dt.value.slice(5)}`);});
+  dp.append(dt,go); wrap.append(dp);
+  mvb.onclick=()=>{ dp.hidden=false; dt.focus(); try{dt.showPicker();}catch{} };
+  return wrap;
+}
+function repOf(it){return {year:"每年",month:"每月",week:"每週"}[it.repeat]||"";}  // willy 0.22.2 起：一條代表下一次
+function repNote(it){const r=repOf(it); return r?`；以後${r}都改成這天`:"";}
+function opLabel(p){return {done:"打勾",edit:"改期",cancel:"取消",add:"新增",statement:"記一筆",entity:"新客戶",reopen:"撤回"}[p.op]||p.op;}
+// 詳情抽屜：清單、月曆、甘特圖點一件都開這個
+function openItem(it){
+  if(Date.now()-dragLock<400) return;
+  const e=it.date, closed=isClosed(it), canAct=!closed&&!it.pendingAdd;
+  sheet(sh=>{ const d=el("div","detail"), top=el("div","dtop"), tx=el("div"); tx.style.minWidth="0";
+    tx.append(el("div","t",plainText(it))); if((it.entities||[]).length) tx.append(el("div","who",it.entities.join("、")));
+    top.append(tileEl(it),tx); d.append(top);
+    const facts=el("div","facts"), fact=(icon,t,c)=>{const f=html("span","fact"+(c?" "+c:""),icon); f.append(t); facts.append(f);};
+    fact(UI.cal,it.start&&it.start<e?`${md(it.start)}～${md(e)}`:dayLabel(e).replace(/（.*）/,""),!closed&&e<todayStr()?"bad":"");
+    if(it.time) fact(UI.clock,clockLabel(it.time));
+    if(repOf(it)) fact(UI.repeat,repOf(it));
+    facts.append(el("span","fact soft",actOf(it)||KINDS[it.kind]||it.kind));
+    if(it.source==="inferred") facts.append(el("span","fact soft","推測的"));
+    if(it.status==="done"||it.pendDone) facts.append(el("span","fact","已完成")); else if(it.status==="cancelled"||it.pendCancel) facts.append(el("span","fact","已取消"));
+    pendingFor(it.id).forEach(p=>facts.append(el("span","fact "+(p.state&&p.state!=="retry"?"bad":"pend"),p.state==="rejected"?`沒套用：${p.reason||"willy 拒絕"}`:p.state==="conflict"?`兩邊都改了：${p.reason||"回電腦處理"}`:`待${opLabel(p)}`)));
+    if((S.data.status.conflicts||[]).some(c=>c.id===it.id)) facts.append(el("span","fact bad","兩邊都改了，回電腦處理"));
+    if(it.pendingAdd) facts.append(el("span","fact pend","待記入"));
+    d.append(facts);
+    if(canAct) d.append(actsEl(it));
+    sh.append(d);
+    if(canAct){ // 工期很少用：收在一顆小按鈕後面，按了才出日期框
+      const f1=el("div","field"); f1.hidden=true; const st=document.createElement("input"); st.type="date"; st.id="start-"+it.id; st.value=it.start||""; st.max=e;
+      const lb=el("label",null,"工期開始日"); lb.htmlFor=st.id; f1.append(lb); const rw=el("div","inline");
+      rw.append(st, btn("設定","small",()=>{ if(!st.value||st.value===it.start){toast("先選開始日");return;} if(st.value>e){toast("開始不能晚於結束");return;} ask({op:"edit",id:it.id,start:st.value,from_start:it.start||null},`「${plainText(it)}」工期從 ${dayLabel(st.value)} 起？`,`到 ${dayLabel(e)}，會畫成長條`,`工期從 ${st.value.slice(5)} 起`); })); f1.append(rw);
+      const op=btn(it.start?"改工期":"＋ 加工期","small ghost",()=>{op.remove(); f1.hidden=false; st.focus();}); op.style.alignSelf="flex-start"; sh.append(op,f1); }
+    const f=el("div","foot"); if(S.tab!=="month") f.append(btn("看月曆","ghost",()=>{closeSheet();S.selectedDay=e;S.monthCursor=e.slice(0,7);S.tab="month";render();})); f.append(btn("關閉","",closeSheet)); sh.append(f); });
+}
+
+const SELF_ONLY=":self"; // 篩選「自己的事」：只列沒掛實體的
+function agendaBase(){ let list=effective().filter(i=>S.showDone||i.status==="open"); const f=S.clientFilterAgenda;
+  if(f===SELF_ONLY) list=list.filter(i=>!(i.entities||[]).length); else if(f) list=list.filter(i=>(i.entities||[]).includes(f)); return list; }
+function renderAgenda(v,view){
+  const row=el("div","filters");
+  const groups=entityPickGroups({v:"",label:"所有對象"},{v:SELF_ONLY,label:"自己的事"});
+  if(!groups.some(g=>g.items.some(i=>i.v===S.clientFilterAgenda))) S.clientFilterAgenda=""; // 選過的對象不在新名單裡：回到全部
+  const sel=picker({id:"who-filter",value:S.clientFilterAgenda,groups,label:"看誰的事",onChange:v=>{S.clientFilterAgenda=v;render();}});
+  const tg=btn("已完成","toggle",()=>{S.showDone=!S.showDone;render();}); tg.setAttribute("aria-pressed",String(S.showDone));
+  row.append(sel,tg); v.append(row);
+  return view==="month"?renderMonth(v):renderGantt(v);
+}
+function spanOf(it){return {s:it.start&&it.start<it.date?it.start:it.date,e:it.date};}
+function renderMonth(v){
+  const now=todayStr().slice(0,7), cur=S.monthCursor||now; S.monthCursor=cur;
+  const [y,m]=cur.split("-").map(Number); const firstDow=new Date(y,m-1,1).getDay(), days=new Date(y,m,0).getDate();
+  const blk=el("section","block mblock");
+  const head=el("div","mhead"), nav=el("div","mnav");
+  const pv=btn("‹","small",()=>{S.monthCursor=shiftMonth(cur,-1);render();}), nx=btn("›","small",()=>{S.monthCursor=shiftMonth(cur,1);render();});
+  pv.setAttribute("aria-label","上個月"); nx.setAttribute("aria-label","下個月");
+  nav.append(pv); if(cur!==now) nav.append(btn("本月","small",()=>{S.monthCursor=now;render();})); nav.append(nx);
+  head.append(el("div","mtitle",`${y} 年 ${m} 月`),nav); blk.append(head);
+  const byDay={};
+  agendaBase().forEach(it=>{const {s,e}=spanOf(it); for(let d=s; d<=e; d=addDays(1,d)){ if(d.slice(0,7)===cur) (byDay[d]??=[]).push(it); if(dayDiff(s,d)>400) break; }});
+  const grid=el("div","mgrid"); WD.forEach(w=>grid.append(el("div","wdh",w)));
+  for(let i=0;i<firstDow;i++) grid.append(el("div","cell pad"));
+  const t=todayStr(), sel=S.selectedDay&&S.selectedDay.slice(0,7)===cur?S.selectedDay:(cur===now?t:null); // 沒點過就先看今天
+  for(let d=1; d<=days; d++){ const ds=`${cur}-${String(d).padStart(2,"0")}`; const has=byDay[ds]||[];
+    const c=el("button","cell"+(ds===t?" today":"")+(ds===sel?" sel":"")+(ds<t&&has.some(i=>i.status==="open")?" over":""));
+    c.setAttribute("aria-label",`${m}/${d}，${has.length} 件`); c.append(el("span","dn",String(d)));
+    const dots=el("div","dots"); has.slice(0,4).forEach(it=>{const s=el("span","dot"); s.style.background=KCOLOR[it.kind]||"var(--muted)"; if(it.status==="open"&&!it.pendDone&&!it.pendCancel&&pastToday(it)) s.classList.add("past"); dots.append(s);}); c.append(dots);
+    c.onclick=()=>{S.selectedDay=ds;render();}; grid.append(c); }
+  blk.append(grid); v.append(blk);
+  if(!sel) return;
+  const arr=(byDay[sel]||[]).sort(sortItems), sec=el("section","block");
+  sec.append(blockHead(dayPlain(sel),arr.filter(i=>!isClosed(i)).length));
+  if(!arr.length) sec.append(emptyEl("coffee","這天沒有日程")); else sec.append(timeline(arr));
+  v.append(sec);
+}
+// 種類 → 形狀（currentColor 上色；推測時 CSS 把描邊改虛線）
+const MARK={
+  meeting:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="currentColor" stroke-width="1"/><circle cx="8" cy="8" r="2.2" fill="var(--surface)"/></svg>',
+  promise:'<svg viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>',
+  deadline:'<svg viewBox="0 0 16 16"><path d="M4 15V1.5h8.5L10.5 5l2 3.5H5.5V15Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>',
+  reminder:'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="var(--surface)" stroke="currentColor" stroke-width="2.6"/></svg>',
+  period:'<svg viewBox="0 0 16 16"><rect x="1" y="5" width="14" height="6" rx="3" fill="currentColor"/></svg>'};
+function legendEl(){ const d=el("details","lg"), l=el("div","legend"); d.append(el("summary",null,"圖例"));
+  Object.entries(KINDS).forEach(([k,v])=>{const s=el("span"); s.style.color=KCOLOR[k]; s.innerHTML=MARK[k]+`<span style="color:var(--muted)">${v}</span>`; l.append(s);});
+  l.append(el("span",null,"虛線＝推測"), el("span",null,"紅＝逾期"), el("span",null,"拖動＝改期")); d.append(l); return d; }
+let dragLock=0;
+// 水平拖曳，一天一格；move(d,dayW) 畫中間狀態，drop(d) 放開後送變動
+function drag(handle,tr,N,move,drop){
+  handle.addEventListener("pointerdown",e=>{ if(e.pointerType==="mouse"&&e.button!==0) return; e.stopPropagation(); e.preventDefault();
+    const dayW=tr.getBoundingClientRect().width/N, x0=e.clientX; let d=0;
+    try{handle.setPointerCapture(e.pointerId);}catch{} handle.classList.add("dragging");
+    const mv=ev=>{const nd=Math.round((ev.clientX-x0)/dayW); if(nd!==d){d=nd; move(d,dayW);}};
+    const up=()=>{handle.removeEventListener("pointermove",mv);handle.removeEventListener("pointerup",up);handle.removeEventListener("pointercancel",up);handle.classList.remove("dragging"); dragLock=Date.now(); if(d) drop(d); else move(0,dayW);};
+    handle.addEventListener("pointermove",mv); handle.addEventListener("pointerup",up); handle.addEventListener("pointercancel",up); });
+}
+function trackBg(from,N){ // 週末淺色、每天一條細線、週一的線深一點
+  const w=100/N, stops=[], mon=[];
+  for(let i=0;i<N;i++){const dow=new Date(addDays(i,from)+"T00:00").getDay();
+    stops.push(`${dow===0||dow===6?"var(--weekend)":"transparent"} ${i*w}% ${(i+1)*w}%`);
+    if(dow===1&&i){const x=i*w; mon.push(`transparent calc(${x}% - .75px), var(--gmon) calc(${x}% - .75px) calc(${x}% + .75px), transparent calc(${x}% + .75px)`);}}
+  return [mon.length?`linear-gradient(to right, ${mon.join(", ")})`:null, `repeating-linear-gradient(to right, transparent 0 calc(${w}% - 1px), var(--gday) calc(${w}% - 1px) ${w}%)`, `linear-gradient(to right, ${stops.join(", ")})`].filter(Boolean).join(", "); }
+// 甘特圖範圍：選的長度記在手機；平移位置不記，預設起點＝今天往前約範圍的 1/7
+const G_RANGES=[[7,"1 週"],[14,"2 週"],[30,"1 個月"],[90,"3 個月"]];
+try{S.ganttN=+localStorage.getItem("ganttRange");}catch{} if(!G_RANGES.some(([n])=>n===S.ganttN)) S.ganttN=14;
+S.ganttFrom=null;
+// 甘特圖收起來的那幾塊記在手機，下次打開還是收著
+try{S.gFold=new Set(JSON.parse(localStorage.getItem("ganttFold")||"[]"));}catch{S.gFold=new Set();}
+function saveFold(){try{localStorage.setItem("ganttFold",JSON.stringify([...S.gFold]));}catch{}}
+const ganttHome=N=>addDays(-Math.max(1,Math.round(N/7)));
+let axisRO=null;
+// 軸標籤依實際寬度排：每天放得下就每天標，不然每 2 天，再不然只標週一；今天與每月 1 號優先，重疊的不畫
+function paintTicks(at,from,N,ti){
+  if(!at.isConnected) return; at.querySelectorAll(".tick").forEach(x=>x.remove());
+  const W=at.getBoundingClientRect().width; if(!W) return; const dw=W/N, used={m:[],d:[]};
+  const put=(row,text,cls,x,center)=>{ const tk=el("span","tick"+(row==="m"?" m":"")+(cls?" "+cls:""),text); at.append(tk); const w=tk.offsetWidth;
+    const l=Math.max(0,Math.min(W-w,center?x-w/2:x));
+    if(used[row].some(([a,b])=>l<b+3&&l+w>a-3)){tk.remove();return false;} used[row].push([l,l+w]); tk.style.left=l+"px"; return true; };
+  const probe=el("span","tick","28"); at.append(probe); const need=probe.offsetWidth+3; probe.remove();
+  const step=dw>=need?1:2*dw>=need?2:7;
+  const days=[...Array(N)].map((_,i)=>new Date(addDays(i,from)+"T00:00")), mon0=days.findIndex(d=>d.getDay()===1);
+  days.forEach((d,i)=>{ if(d.getDate()===1) put("m",`${d.getMonth()+1}月`,null,i*dw); });
+  if(days[0].getDate()!==1) put("m",`${days[0].getMonth()+1}月`,null,0);
+  if(ti>=0&&ti<N) put("d",String(days[ti].getDate()),"today",(ti+0.5)*dw,true);
+  days.forEach((d,i)=>{ if(i===ti) return; if(step===7?d.getDay()!==1:(i-mon0)%step!==0) return; put("d",String(d.getDate()),null,(i+0.5)*dw,true); });
+}
+function renderGantt(v){
+  const N=S.ganttN, from=S.ganttFrom||ganttHome(N), toD=addDays(N-1,from), t=todayStr(), ti=dayDiff(from,t), inR=ti>=0&&ti<N;
+  // 今天在畫面內時，起點以前就逾期、還開著的也收進來，釘在左邊界（使用者 2026-10-26）
+  const all=agendaBase().filter(it=>{const {s,e}=spanOf(it); return e>=from&&s<=toD||inR&&e<from&&it.status==="open"&&!it.pendDone&&!it.pendCancel;});
+  const sw=seg([["client","依對象"],["kind","依種類"]],S.ganttGroup||"client",k=>{S.ganttGroup=k;render();},"分組");
+  const rg=seg(G_RANGES,N,n=>{S.ganttN=n;S.ganttFrom=null;try{localStorage.setItem("ganttRange",String(n));}catch{} render();},"看多長");
+  const pv=html("button","nav",UI.left), nx=html("button","nav",UI.right);
+  pv.onclick=()=>{S.ganttFrom=addDays(-N,from);render();}; nx.onclick=()=>{S.ganttFrom=addDays(N,from);render();};
+  pv.setAttribute("aria-label",`往前 ${N} 天`); nx.setAttribute("aria-label",`往後 ${N} 天`);
+  const sec=el("section","gwrap"); sec.style.setProperty("--gbg",trackBg(from,N)); if(N>=60) sec.style.setProperty("--gday","color-mix(in srgb,var(--hair) 45%,transparent)"); // 3 個月每天約 2～4px，線淡一點才不糊
+  const band=()=>{ const b=el("span","tband"); b.style.left=(ti/N*100)+"%"; b.style.width=(1/N*100)+"%"; return b; };
+  const gax=el("div","gaxis"), axis=el("div","grow axis"); axis.append(el("div","glabel"));
+  const at=el("div","gtrack"); if(inR) at.append(band());
+  axis.append(at); gax.append(axis);
+  if(axisRO) axisRO.disconnect(); axisRO=new ResizeObserver(()=>paintTicks(at,from,N,ti)); axisRO.observe(at);
+  const grp=S.ganttGroup||"client";
+  const SELF="自己的事";
+  const groups=new Map();
+  all.forEach(it=>{const keys=grp==="kind"?[KINDS[it.kind]||it.kind]:((it.entities&&it.entities.length)?it.entities:[SELF]); keys.forEach(k=>{if(!groups.has(k))groups.set(k,[]);groups.get(k).push(it);});});
+  const order=[...groups.keys()].sort((a,b)=>{if((a===SELF)!==(b===SELF)) return a===SELF?1:-1; // 自己的事固定最後
+    const fa=Math.min(...groups.get(a).map(i=>i.status==="open"?dayDiff(from,spanOf(i).s):99)),fb=Math.min(...groups.get(b).map(i=>i.status==="open"?dayDiff(from,spanOf(i).s):99));return fa-fb||a.localeCompare(b);});
+  const blocks=[], pct=i=>i/N*100;
+  order.forEach(key=>{ const arr=groups.get(key).sort((a,b)=>(spanOf(a).s+a.date).localeCompare(spanOf(b).s+b.date));
+    // 一個對象（或種類）一段，標題是淡色分隔帶；收起來時右邊畫一條迷你時間軸，看得到大概哪幾天有事
+    const folded=S.gFold.has(key), gb=el("div","gblock"+(folded?" folded":"")+(blocks.length%2?" alt":"")), nOpen=arr.filter(i=>!isClosed(i)).length;
+    const hd=el("button","gfold"); hd.setAttribute("aria-expanded",String(!folded)); hd.setAttribute("aria-label",`${key}，${nOpen} 件待辦，${folded?"展開":"收起"}`);
+    const nm=html("div","gname",UI.chev); nm.append(el("span",null,key), el("b","gn"+(nOpen?"":" zero"),String(nOpen))); hd.append(nm);
+    if(folded){ const mt=el("div","gtrack"); mt.setAttribute("aria-hidden","true"); if(inR) mt.append(band());
+      arr.forEach(it=>{ const {s,e}=spanOf(it), closed=isClosed(it), late=!closed&&e<t; if(s>toD||e<from&&!late) return;
+        const k=KCOLOR[it.kind]||"var(--muted)", si=Math.max(0,dayDiff(from,s)), ei=e<from?0:Math.min(N-1,dayDiff(from,e));
+        if((it.kind==="period"||it.start)&&ei>si){ const b=el("span","mbar"); b.style.setProperty("--k",k); b.style.left=pct(si)+"%"; b.style.width=pct(ei-si+1)+"%"; mt.append(b); }
+        else { const d=el("span","mdot"+(late?" late":"")+(closed?" closed":"")); d.style.setProperty("--k",k); d.style.left=pct(ei+0.5)+"%"; mt.append(d); } });
+      hd.append(mt); }
+    hd.onclick=()=>{ folded?S.gFold.delete(key):S.gFold.add(key); saveFold(); render(); };
+    gb.append(hd); blocks.push(gb);
+    if(folded) return;
+    arr.forEach(it=>{
+      const {s,e}=spanOf(it); const closed=isClosed(it); const late=!closed&&e<t, past=!closed&&pastToday(it); const pend=pendingFor(it.id).length||it.pendingAdd;
+      const r=el("button","grow"+(late?" late":"")+(past?" past":"")+(closed?" closed":"")+(it.source==="inferred"?" inferred":"")+(pend?" pend":"")); r.style.setProperty("--k",KCOLOR[it.kind]||"var(--muted)");
+      const pin=e<from, act=actOf(it), canDrag=!closed&&!it.pendingAdd&&!pin; // 釘住的不給拖：圖在邊界、日期在畫面外，拖了對不上；改期點列用抽屜
+      // 每列只留事情本身；時間、種類、狀態點開詳情才看（逾期仍標紅、推測仍是虛線）
+      const lab=el("div","glabel"); lab.append(el("div","gt",plainText(it))); r.append(lab);
+      const tr=el("div","gtrack"); if(inR) tr.append(band());
+      // 跨出範圍的截在邊界；被截的那端不放拖把（拖了會從看不到的真日期起算）
+      const si=Math.max(0,dayDiff(from,s)), ei=pin?0:Math.min(N-1,dayDiff(from,e)), tEnd=Math.min(ti+1,N);
+      if(pin) tr.append(el("span","gpin"));
+      if((it.kind==="period"||it.start)&&pin){ const ov=el("span","gover"); ov.style.left="0%"; ov.style.width=pct(tEnd)+"%"; tr.append(ov); }
+      else if(it.kind==="period"||it.start){ const bar=el("span","gbar"+(late?" run":"")+(s<from?" cl":"")+(e>toD?" cr":"")); bar.style.left=pct(si)+"%"; bar.style.width=(pct(ei-si+1))+"%"; tr.append(bar);
+        if(late&&tEnd>ei+1){ const ov=el("span","gover"); ov.style.left=pct(ei+1)+"%"; ov.style.width=pct(tEnd-ei-1)+"%"; tr.append(ov); }
+        if(canDrag){ const hs=el("span","ghandle"), he=el("span","ghandle"); hs.style.left=pct(si)+"%"; he.style.left=pct(ei+1)+"%"; if(s>=from) tr.append(hs); if(e<=toD) tr.append(he);
+          drag(bar,tr,N,(d,w)=>{bar.style.left=`calc(${pct(si)}% + ${d*w}px)`;hs.style.left=`calc(${pct(si)}% + ${d*w}px)`;he.style.left=`calc(${pct(ei+1)}% + ${d*w}px)`;},
+            d=>ask({op:"edit",id:it.id,start:addDays(d,s),date:addDays(d,e),from:e,from_start:s},`「${plainText(it)}」整段移 ${d>0?"後":"前"} ${Math.abs(d)} 天？`,`${s.slice(5)}～${e.slice(5)} → ${addDays(d,s).slice(5)}～${addDays(d,e).slice(5)}${repNote(it)}`,`整段移 ${d>0?"後":"前"} ${Math.abs(d)} 天`,render));
+          drag(he,tr,N,(d,w)=>{he.style.left=`calc(${pct(ei+1)}% + ${d*w}px)`;bar.style.width=`calc(${pct(ei-si+1)}% + ${d*w}px)`;},
+            d=>{const ne=addDays(d,e); if(ne<s){toast("結束不能早於開始");render();return;} ask({op:"edit",id:it.id,date:ne,from:e},`「${plainText(it)}」結束日改到 ${dayLabel(ne)}？`,`原本 ${dayLabel(e)}${repNote(it)}`,`結束改到 ${ne.slice(5)}`,render);});
+          drag(hs,tr,N,(d,w)=>{hs.style.left=`calc(${pct(si)}% + ${d*w}px)`;bar.style.left=`calc(${pct(si)}% + ${d*w}px)`;bar.style.width=`calc(${pct(ei-si+1)}% - ${d*w}px)`;},
+            d=>{const ns=addDays(d,s); if(ns>e){toast("開始不能晚於結束");render();return;} ask({op:"edit",id:it.id,start:ns,from_start:s},`「${plainText(it)}」開始日改到 ${dayLabel(ns)}？`,`原本 ${dayLabel(s)}${repNote(it)}`,`開始改到 ${ns.slice(5)}`,render);}); } }
+      else {
+        if(it.lead_days&&!closed&&!pin){ const ls=Math.max(0,dayDiff(from,addDays(-it.lead_days,e))); const ld=el("span","glead"); ld.style.left=pct(ls)+"%"; ld.style.width=pct(ei+0.5-ls)+"%"; ld.title=`提前 ${it.lead_days} 天提醒`; tr.append(ld); }
+        if(late){ const ln=el("span","glate"); ln.style.left=pct(ei+0.5)+"%"; ln.style.width=pct(Math.min(ti+0.5,N)-(ei+0.5))+"%"; tr.append(ln); }
+        const mk=el("span","gmark"+(act?" act":"")); if(act){ mk.innerHTML=svgI(ICON[act]); } else mk.innerHTML=MARK[it.kind]||MARK.reminder; mk.style.left=pct(ei+0.5)+"%"; tr.append(mk);
+        if(canDrag) drag(mk,tr,N,(d,w)=>{mk.style.left=`calc(${pct(ei+0.5)}% + ${d*w}px)`;}, d=>{const nd=addDays(d,e); ask({op:"edit",id:it.id,date:nd,from:e},`「${plainText(it)}」改期？`,`${dayLabel(e)} → ${dayLabel(nd)}${repNote(it)}`,`改期 ${e.slice(5)} → ${nd.slice(5)}`,render);}); }
+      r.append(tr); r.setAttribute("aria-label",`${plainText(it)}，${dayLabel(e)}`);
+      r.onclick=()=>openItem(it);
+      gb.append(r); }); });
+  const ctl=el("section","gctl"), top=el("div","gtop");
+  top.append(pv, el("h2","range",`${md(from)}～${md(toD)}`), nx, el("span","sp"));
+  if(S.ganttFrom) top.append(btn("回到今天","link",()=>{S.ganttFrom=null;render();})); // 已在含今天的那段就不顯示
+  rg.classList.add("full");
+  const opts=el("div","gopts"); opts.append(el("span","glab","分組"), sw, el("span","sp"));
+  if(order.length>1){ const allF=order.every(k=>S.gFold.has(k));
+    opts.append(btn(allF?"全部展開":"全部收起","link",()=>{ order.forEach(k=>allF?S.gFold.delete(k):S.gFold.add(k)); saveFold(); render(); })); }
+  ctl.append(top, rg, opts);
+  const big=el("section","block gbig"); big.append(gax);
+  if(!all.length) big.append(emptyEl("think","這段期間沒有日程"));
+  blocks.forEach(b=>big.append(b));
+  sec.append(ctl, big, legendEl()); v.append(sec); paintTicks(at,from,N,ti);
+}
+
+// ---------- 抽屜：新增／確認（記一筆、客戶分頁、新客戶 v13 拿掉：C001 2026-10-26 說手機只要甘特圖、月曆、今日提醒） ----------
+let sheetEl=null;
+// 表單抽屜有草稿時：點背景不關、提示按取消；取消要按兩次才丟（測試 ⚠️1）
+function guardCancel(hasDraft){
+  const b=btn("取消","ghost",()=>{ if(hasDraft()&&b.textContent==="取消"){ b.textContent="確定丟掉？"; b.classList.add("warn"); setTimeout(()=>{b.textContent="取消";b.classList.remove("warn");},3000); return; } closeSheet(); });
+  queueMicrotask(()=>{ if(sheetEl) sheetEl[0].onclick=()=>{ if(hasDraft()){ toast("還沒送出；要丟掉請按「取消」"); return; } closeSheet(); }; });
+  return b; }
+function sheet(build){ closeSheet(); const sc=el("div","scrim"); sc.onclick=closeSheet;
+  const sh=el("div","sheet"); sh.setAttribute("role","dialog"); sh.setAttribute("aria-modal","true");
+  sheetEl=[sc,sh]; build(sh); // 先設引用再 build，build 裡才能改 scrim 的行為
+  document.body.append(sc,sh); }
+function closeSheet(){ if(sheetEl){sheetEl.forEach(e=>e.remove()); sheetEl=null;} }
+
+// 「跟誰有關」的選項：agenda.entities（{id,name,type}）依 ENT_TYPES 分組；沒 type 的舊資料當客戶；沒有名單就用客戶卡
+function entityGroups(){
+  const ents=S.data.agenda.entities, by=new Map(ENT_TYPES.map(t=>[t,[]]));
+  if(Array.isArray(ents)&&ents.length) ents.forEach(e=>{ const t=e.type||"客戶"; if(by.has(t)&&e.name) by.get(t).push(e.name); });
+  else S.data.clients.clients.forEach(c=>by.get("客戶").push(c.name));
+  return [...by].filter(([,n])=>n.length); }
+// 下拉選單（取代原生 select，電腦上原生的很醜）：按鈕顯示目前選的；點開是浮出的清單，分組小標、選到的打勾；名單超過 8 個多一格搜尋
+function picker({id,value,groups,onChange,label}){
+  const all=groups.flatMap(g=>g.items), w=el("div","pick"), b=el("button","pickbtn"), txt=el("span");
+  b.id=id; b.type="button"; b.setAttribute("aria-haspopup","listbox"); b.setAttribute("aria-expanded","false"); if(label) b.setAttribute("aria-label",label);
+  b.append(txt); b.insertAdjacentHTML("beforeend",UI.chev);
+  let cur=value; const show=()=>{ txt.textContent=(all.find(i=>i.v===cur)||all[0]).label; }; show();
+  const panel=el("div","pickpanel"); panel.hidden=true; panel.setAttribute("role","listbox");
+  const close=()=>{ panel.hidden=true; w.classList.remove("open"); b.setAttribute("aria-expanded","false"); };
+  const build=q=>{ panel.querySelectorAll(".pgh,.popt").forEach(x=>x.remove()); let n=0;
+    groups.forEach(g=>{ const its=g.items.filter(i=>!q||i.label.includes(q)); if(!its.length) return;
+      if(g.label) panel.append(el("div","pgh",g.label));
+      its.forEach(i=>{ const o=el("button","popt"); o.type="button"; o.setAttribute("role","option"); o.setAttribute("aria-selected",String(i.v===cur));
+        o.append(el("span",null,i.label)); o.insertAdjacentHTML("beforeend",UI.check);
+        o.onclick=()=>{ cur=i.v; show(); close(); onChange(cur); }; panel.append(o); n++; }); });
+    if(!n) panel.append(el("div","pgh","找不到")); };
+  if(all.length>8){ const q=document.createElement("input"); q.id=id+"-q"; q.placeholder="搜尋名字"; q.setAttribute("aria-label","搜尋名字"); q.oninput=()=>build(q.value.trim()); panel.append(q); }
+  build("");
+  b.onclick=ev=>{ ev.stopPropagation(); const opening=panel.hidden; closePickers();
+    if(opening){ panel.hidden=false; w.classList.add("open"); b.setAttribute("aria-expanded","true"); const q=panel.querySelector("input"); if(q) q.focus(); } };
+  w.addEventListener("pickclose",close);
+  w.append(b,panel); return w;
+}
+function closePickers(except){ document.querySelectorAll(".pick.open").forEach(p=>{ if(p!==except) p.dispatchEvent(new Event("pickclose")); }); }
+document.addEventListener("pointerdown",ev=>{ const p=ev.target.closest&&ev.target.closest(".pick"); closePickers(p); });
+document.addEventListener("keydown",ev=>{ if(ev.key==="Escape") closePickers(); });
+// 對象清單：最前面放固定的幾項，後面照 ENT_TYPES 分組
+function entityPickGroups(...head){ return [{label:null,items:head}, ...entityGroups().map(([t,names])=>({label:t,items:names.map(n=>({v:n,label:n}))}))]; }
+function openAdd(){
+  sheet(sh=>{
+    sh.append(el("h3",null,"新增"));
+    let act="拜訪";
+    const grid=el("div","acts-grid");
+    const withStart=document.createElement("input"); withStart.type="checkbox"; withStart.id="add-withstart";
+    const start=document.createElement("input"); start.type="date"; start.id="add-start"; const startF=el("div","field"); const sl=el("label",null,"開始日"); sl.htmlFor=start.id; startF.append(sl,start);
+    const paint=()=>{ grid.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.a===act))); const k=ACTS[act].kind;
+      if(k==="period") withStart.checked=true; startF.hidden=!withStart.checked; };
+    Object.entries(ACTS).forEach(([a,c])=>{const b=el("button"); const ic=el("span","ico"); ic.innerHTML=svgI(ICON[a]); b.append(ic,a); b.dataset.a=a; b.onclick=()=>{act=a;paint();}; grid.append(b);});
+    const date=document.createElement("input"); date.type="date"; date.id="add-date"; date.value=todayStr(); date.setAttribute("aria-label","日期");
+    const time=document.createElement("input"); time.type="time"; time.id="add-time"; time.setAttribute("aria-label","時間（可不填）");
+    const text=document.createElement("input"); text.id="add-text"; text.placeholder="要做什麼"; text.setAttribute("aria-label","要做什麼");
+    let whoV=""; const who=picker({id:"add-who",value:"",groups:entityPickGroups({v:"",label:"自己的事"}),onChange:v=>{whoV=v;}});
+    const dt=el("div","inline"); dt.append(date,time);
+    const chk=el("label","check-row"); chk.append(withStart, document.createTextNode("有工期")); withStart.onchange=paint;
+    [[null,grid],[null,text],["對象",who,"add-who"],["日期",dt],[null,chk],[null,startF]].forEach(([l,x,id])=>{const f=el("div","field"); if(l){const lb=el("label",null,l); if(id) lb.htmlFor=id; f.append(lb);} f.append(x); sh.append(f);});
+    paint();
+    const foot=el("div","foot");
+    foot.append(guardCancel(()=>text.value.trim()), btn("新增","primary",()=>{ if(!text.value.trim()){toast("寫一句話");return;}
+      const ch={op:"add",kind:ACTS[act].kind,date:date.value,time:time.value||null,text:`${act}｜${text.value.trim()}`,entities:whoV?[whoV]:[]};
+      if(withStart.checked){ if(!start.value){toast("填開始日");return;} if(start.value>date.value){toast("開始不能晚於結束");return;} ch.start=start.value; }
+      if(ch.kind==="period"&&!whoV){toast("期間要選一個對象（客戶、團隊或公司）");return;}
+      queueChange(ch,"已送出新增，等電腦記入"); closeSheet(); }));
+    sh.append(foot);
+  });
+}
+// 所有會寫回的按鈕都先確認（使用者裁示 2026-10-25）；onCancel 用來把拖曳放回原位
+function confirmSheet(title,hint,fn,onCancel){ sheet(sh=>{ sh.append(el("h3",null,title), el("p","hint",hint));
+  const no=()=>{closeSheet(); if(onCancel) onCancel();};
+  const foot=el("div","foot"); foot.append(btn("不要","ghost",no), btn("確定","primary",()=>{closeSheet();fn();})); sh.append(foot);
+  sheetEl[0].onclick=no; }); }
+function ask(change,title,hint,msg,onCancel){ confirmSheet(title,hint,()=>queueChange(change,msg),onCancel); }
+
+// 待記入清單：每筆的狀態與原因；被拒的可以移除（口述文字留在 Drive 的變動檔裡，不會丟）
+function openPendingSheet(){
+  sheet(sh=>{
+    sh.append(el("h3",null,"待記入"), el("p","hint","電腦收到後會自己消失。"));
+    if(!S.pending.length) sh.append(emptyEl("coffee","沒有待記入"));
+    const box=el("div","block rows"); box.style.padding="4px 6px";
+    S.pending.forEach(p=>{ const c=el("div","row"); c.style.cssText="grid-template-columns:minmax(0,1fr);cursor:default";
+      const target=p.id?S.data.agenda.items.find(i=>i.id===p.id):null;
+      const main=el("div","rmain");
+      main.append(el("div","t",`${opLabel(p)}：${p.text?p.text.slice(0,60):target?plainText(target):p.entity||""}`));
+      const st=p.failed?"還沒寫到 Drive（重新讀取時再試）":p.state==="rejected"?`willy 拒絕：${p.reason||"（沒給原因）"}`:p.state==="conflict"?`兩邊都改了：${p.reason||"回電腦處理"}`:p.state==="retry"?"電腦稍後重試":"等電腦套用";
+      main.append(el("div","who",`${localStamp(p.at)}・${st}`));
+      { const a=el("div","acts one"); // 每筆都能移除：v13 前範例模式留下的舊殘留沒有 sample 標記，只能手動清（2026-10-26 演練）
+        if(p.failed&&S.mcp) a.append(btn("再寫一次","small primary",async()=>{ try{ await call("create_file",{title:`${CHANGE_PREFIX}${p.at.replace(/[-:.]/g,"").slice(0,15)}-${p.cid}.json`,textContent:JSON.stringify(p,null,2),contentMimeType:"application/json",disableConversionToGoogleType:true}); delete p.failed; savePending(); toast("已寫到 Drive"); openPendingSheet(); }catch(e){ toast("還是失敗："+errText(e)); } }));
+        a.append(btn("移除","small",()=>confirmSheet("移除這筆待記入？","只是手機不再顯示；變動檔若已在 Drive 不會刪。",()=>{S.pending=S.pending.filter(x=>x!==p); savePending(); render(); openPendingSheet();}))); main.append(a); }
+      c.append(main); box.append(c); });
+    if(S.pending.length) sh.append(box);
+    const f=el("div","foot"); f.append(btn("關閉","",closeSheet)); sh.append(f);
+  });
+}
+function localStamp(iso){ const d=new Date(iso); const z=n=>String(n).padStart(2,"0"); return isNaN(d)?iso:`${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; } // 存的是 UTC，顯示本地（交貨測試 D-3）
+let toastT=null;
+// 做成了的（已打勾、已更新…）前面加個綠勾
+function toast(msg){ let t=$(".toast"); if(!t){t=el("div","toast");t.setAttribute("role","status");document.body.append(t);}
+  const ok=/^已/.test(msg); t.className="toast"+(ok?"":" plain"); t.innerHTML=ok?UI.check:""; t.append(msg); clearTimeout(toastT); toastT=setTimeout(()=>t.remove(),2600); }
+
+// ---------- 寫回：只在 Drive 新增變動檔；範例模式只記在手機 ----------
+async function queueChange(change,msg){
+  // base_fp＝那一條的指紋（sync.py 用它判衝突，契約 G1）；base_file_fp 只是整檔版本，參考用
+  const cid=uid("c-"); const target=change.id?S.data.agenda.items.find(i=>i.id===change.id):null;
+  const body={schema:"willy-change/1",cid,...change,by:"手機",at:change.at||new Date().toISOString(),base_fp:target&&target.fp||null,base_file_fp:S.data.agenda.fp||null};
+  if(body.op==="add") body.id=uid("tmp-");
+  if(body.next_meeting) body.nm_id=uid("tmp-");
+  if(S.sample) body.sample=true; // 範例上的操作不會寫到 Drive，讀到真資料時丟掉
+  S.pending.push(body); savePending(); applyPending(body);
+  render(); toast(msg);
+  if(S.sample||!S.mcp) return;
+  try{ await call("create_file",{title:`${CHANGE_PREFIX}${body.at.replace(/[-:.]/g,"").slice(0,15)}-${cid}.json`,textContent:JSON.stringify(body,null,2),contentMimeType:"application/json",disableConversionToGoogleType:true}); }
+  catch(e){ toast("寫到 Drive 失敗："+errText(e)+"，先留在手機"); body.failed=true; savePending(); }
+}
+
+// ---------- 讀取：Drive → 失敗就範例 ----------
+function errText(e){return e&&e.code?`${e.code}${e.message?"："+e.message:""}`:String(e&&e.message||e);}
+async function call(tool,input){const r=await S.mcp.callTool(SERVER,tool,input,{cache:false});return r.payload!==undefined?r.payload:r;}
+function findFiles(p){const out=[],seen=new Set();(function w(v){if(!v||typeof v!=="object")return;if(Array.isArray(v)){v.forEach(w);return;}
+  if(typeof v.id==="string"&&(v.title||v.name)&&!seen.has(v.id)){seen.add(v.id);out.push({id:v.id,title:v.title||v.name});}Object.values(v).forEach(w);})(p);return out;}
+function decode(p){const c=[];(function w(v){if(typeof v==="string")c.push(v);else if(v&&typeof v==="object")Object.values(v).forEach(w);})(p);c.sort((a,b)=>b.length-a.length);
+  for(const s of c){try{return JSON.parse(s);}catch{}try{const bin=atob(s.replace(/\s/g,""));return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin,ch=>ch.charCodeAt(0))));}catch{}}throw new Error("解不出內容");}
+// 查詢不加 trashed 欄位：連接器不支援（2026-10-25 實測 tool_error）
+async function readJson(title){const s=await call("search_files",{query:`title = '${title}'`,pageSize:3,excludeContentSnippets:true});const f=findFiles(s).find(x=>x.title===title);if(!f)return null;return decode(await call("download_file_content",{fileId:f.id}));}
+
+async function load(manual,auto){
+  const keep=auto&&!S.sample; // 自動重讀失敗不要把真資料換成範例，也不跳提示
+  if(!S.mcp){ try{S.mcp=await window.claude?.use?.("mcp");}catch{S.mcp=null;} }
+  if(!S.mcp){ S.sample=true; render(); if(manual) toast("這個檢視不能用連接器，顯示範例"); return; }
+  try{
+    const [agenda,status,clients]=await Promise.all([readJson(F_AGENDA),readJson(F_STATUS),readJson(F_CLIENTS)]);
+    if(!agenda&&keep) return;
+    if(!agenda){ S.sample=true; render(); if(manual) toast("Drive 上還沒有 willy-agenda.json，顯示範例"); return; }
+    S.data={agenda,status:status||{applied:[],results:{},conflicts:[]},clients:clients||{clients:[]}};
+    // status.results[cid]={state: applied|rejected|conflict|retry, reason, ids}（契約 G4）；applied 清掉，其餘留著並標原因
+    const applied=new Set(S.data.status.applied||[]); const res=S.data.status.results||{};
+    S.pending=S.pending.filter(p=>{const r=res[p.cid]; if(p.sample) return false; if(applied.has(p.cid)||(r&&r.state==="applied")) return false; if(r){p.state=r.state;p.reason=r.reason||"";} return true;}); savePending();
+    S.pending.forEach(applyPending);
+    S.sample=false; render(); if(manual) toast("已更新");
+  }catch(e){ if(keep) return; S.sample=true; render(); toast("讀 Drive 失敗："+errText(e)); }
+}
+
+// 切分頁：記住每頁捲到哪，回來接著看，不每次硬跳回最上面（手機上一跳到頂，瀏覽器工具列會伸縮，底部列就跟著上下跳）；
+// 再點一次目前這頁才捲回最上面
+const tabScroll={};
+document.querySelectorAll("nav.tabs button[data-tab]").forEach(b=>b.onclick=()=>{ const t=b.dataset.tab;
+  if(t===S.tab){ window.scrollTo({top:0,behavior:motion()}); return; }
+  tabScroll[S.tab]=window.scrollY; S.tab=t; render(); window.scrollTo({top:tabScroll[t]||0,behavior:"instant"}); });
+$("#add").onclick=openAdd;
+$("#refresh").onclick=async()=>{ const r=$("#refresh"); if(r.classList.contains("spin")) return; r.classList.add("spin"); try{ await load(true); } finally{ r.classList.remove("spin"); } };
+const td=new Date(); $("#today").textContent=`${td.getMonth()+1} 月 ${td.getDate()} 日 週${WD[td.getDay()]}`;
+S.data=sampleData(); S.pending.forEach(applyPending); render(); load(false);
+// 自動重讀：切回頁面、開著每 5 分；抽屜開著或正在拖曳就等下一輪，不打斷操作
+let lastLoad=Date.now(), hiddenAt=0, loading=false;
+async function autoLoad(force){
+  if(loading||document.hidden||sheetEl||document.querySelector(".dragging")) return;
+  if(!force&&Date.now()-hiddenAt<60e3) return; // 離開超過 1 分才重讀（交貨測試 D-2）
+  loading=true; try{ await load(false,true); } finally{ loading=false; lastLoad=Date.now(); }
+}
+document.addEventListener("visibilitychange",()=>{ if(document.hidden) hiddenAt=Date.now(); else autoLoad(false); });
+setInterval(()=>autoLoad(true),5*60e3);
+</script>
+
+</body></html>
