@@ -8,7 +8,7 @@ lead_days、created_turn、history（每筆 {date, change, by, turn}）；有 pr
 重渲染前比對 日程.md 有沒有被手改（_lib/renders，D-223）：改了條目就存她那份、待處理開一條 handedit；比對用改之前的資料
 與上次寫的那天重算她看到的那份。
 只經 kb agenda 與 entities 寫；今天的日期集中在 _today（測試換掉它），逾期、今天、接下來的算法只看 open（D-129）。
-日程匯出（D-500）：寫日程或實體的路徑放開鎖之後 export（_mutate、refresh_md、entities 存檔後；render 不叫，T-1）：設定了
+日程匯出（D-500）：寫日程或實體的路徑放開鎖之後 export（_mutate、entities 存檔後；render 不叫，T-1）：設定了
 agenda_export_dir 就在匯出自己的鎖裡重讀 agenda.json 與實體，把 willy-agenda/1 寫到 <夾>/willy-agenda.json（T-3；
 exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.log（source agenda_export），每次結果記在 .system/agenda_export.json。
 重複（D-501）：repeat {every year|month|week, from 錨點}，一條永遠代表「下一次」。會議、提醒過了就移到下一次（load 在記憶體移，
@@ -365,7 +365,7 @@ def _edit_fn(vault, aid, turn_id, by, card, new):
     def fn(data):
         it = _find(data, aid)
         if it.get("kind") == "period" and "entities" in new and len(new["entities"]) != 1:
-            raise AgendaRefused("期間只掛一個實體")  # 同 add 的規矩，甘特圖只畫得了一個（B-468）
+            raise AgendaRefused("期間只掛一個實體")  # 同 add 的規矩，期間只掛一個實體（B-468）
         fp = None
         if card:
             if (it.get("origin") or {}).get("card") != card:
@@ -450,7 +450,7 @@ def _status_fn(aid, status, turn_id, by):
         if it.get("kind") == "period":
             if status == "open":
                 it["ended"] = None
-            elif status == "done" and not it.get("ended"):  # 甘特圖與過去區照 ended 畫（確認後裁定 7b）
+            elif status == "done" and not it.get("ended"):  # 過去區照 ended 畫（確認後裁定 7b）
                 it["ended"] = _today()
                 change = f"ended {it['ended']}；{change}"
         _log(it, change, by, turn_id)
@@ -546,13 +546,6 @@ def close_periods(vault, entity_name, date, turn_id, by="program"):
             _log(it, f"ended {date}；status open → done", by, turn_id)
         return hits, bool(hits)
     return _mutate(vault, turn_id, fn)
-
-
-def refresh_md(vault, turn_id=None):
-    """實體狀態變了（擱置段在甘特圖上）：有 agenda.json 才重渲染 md，沒有就不建檔。"""
-    if _path(vault).exists():
-        render(vault, turn_id)
-        safe_export(vault)
 
 
 # ---------- 給 cards.todo、開場、plan ----------
@@ -767,11 +760,6 @@ def _past_row(it, now, cutoff):
     return ref, f"- {ref} {KIND_TEXT.get(it.get('kind'), it.get('kind'))} {it.get('text')}{_entities_suffix(it)}{label}"
 
 
-def _chart_text(text):
-    text = " ".join(str(text).split())
-    return text.replace(":", "：").replace(";", "；").replace("#", "＃")
-
-
 def _pauses(histories, name, now):
     """某個實體 progress_history 裡每段擱置 [(開始, 結束)]：到下一筆歷程的日期為止，還在擱置就到今天。"""
     hist = sorted(histories.get(name) or [], key=lambda h: str(h.get("date")))
@@ -790,54 +778,8 @@ def _histories(vault):
         return {e.get("name"): e.get("progress_history") or [] for e in entities.load(vault)["entities"]
                 if e.get("status") == "active" and e.get("progress_history")}
     except ValueError as e:
-        ledger.log_error(vault, f"日程甘特圖讀不到實體清單：{e}", source="agenda")
+        ledger.log_error(vault, f"日程讀不到實體清單：{e}", source="agenda")
         return {}
-
-
-def _gantt(vault, items, now, cutoff):
-    sections = {}  # 實體名稱或 None → {"bars": [], "marks": []}
-
-    def slot(it):
-        names = it.get("entities") or []
-        return sections.setdefault(names[0] if names else None, {"bars": [], "marks": []})
-    for it in items:
-        status, kind, d = it.get("status"), it.get("kind"), it.get("date")
-        if status == "cancelled" or not isinstance(d, str):
-            continue
-        text = _chart_text(it.get("text"))
-        if kind == "period":
-            start = it.get("start")
-            if not start or (status == "done" and (it.get("ended") or d) < cutoff):
-                continue
-            if status == "done":
-                rows = [(start, f"{text} :done, {start}, {it.get('ended') or d}")]
-            else:
-                rows = [(start, f"{text} :active, {start}, {d}")]
-                if d < now:
-                    rows.append((start, f"逾預計結束 :crit, {d}, {now}"))
-            slot(it)["bars"].append((start, d, rows))
-            continue
-        if status == "open" and kind in PASSING and d < cutoff:
-            continue
-        if status == "done" and d < cutoff:
-            continue
-        tag = "crit, " if status == "open" and kind in TRACKED and d < now else ""
-        slot(it)["marks"].append((_order(it), f"{text} :{tag}milestone, {d}, 0d"))
-    if not sections:
-        return []
-    histories = _histories(vault)
-    lines = ["```mermaid", "gantt", "  dateFormat YYYY-MM-DD", "  axisFormat %m/%d"]
-    for name in sorted((n for n in sections if n is not None), key=str) + ([None] if None in sections else []):
-        sec = sections[name]
-        lines.append(f"  section {_chart_text(name) if name else '其他'}")
-        for _start, _end, rows in sorted(sec["bars"], key=lambda b: (b[0], b[1])):
-            lines.extend(f"  {row}" for _s, row in rows)
-        if sec["bars"] and name is not None:
-            for begin, end in _pauses(histories, name, now):
-                lines.append(f"  擱置 :done, {begin}, {end if end > begin else '1d'}")
-        lines.extend(f"  {row}" for _o, row in sorted(sec["marks"], key=lambda m: m[0]))
-    lines.append("```")
-    return lines
 
 
 def render_text(vault, data, today=None):
@@ -868,9 +810,6 @@ def render_text(vault, data, today=None):
         return f"## {title}\n" + "\n".join(lines or [NO_ITEMS])
     blocks = [block("逾期", [_line(i) for i in overdue]), block("今天", [_line(i) for i in today_]),
               block(f"接下來 {window} 天", [_line(i) for i in soon]), block("之後", [_line(i) for i in later])]
-    chart = _gantt(vault, items, now, cutoff)
-    if chart:
-        blocks.append("## 時程圖\n" + "\n".join(chart))
     blocks.append(block(f"過去 {past_days} 天", [line for _d, line in past]))
     from kb._lib import renders
     return HEADER + "\n" + "\n\n".join(blocks) + "\n" + renders.carried_section(vault, MD_POSIX)

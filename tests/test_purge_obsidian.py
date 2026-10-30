@@ -139,7 +139,7 @@ class ObsidianTraces(unittest.TestCase):
         renders.add_carried(V, "系統/日程.md", [{"kind": "added", "text": f"問一下{DIARY}的事", "orig": None},
                                               {"kind": "added", "text": "跟廠商約時間", "orig": None},
                                               {"kind": "changed", "text": "改過的", "orig": f"原本提到{DIARY}"}])
-        agenda.refresh_md(V, t)
+        agenda.render(V, t)
         self.assertIn(DIARY, (Path(V) / "系統" / "日程.md").read_text(encoding="utf-8"))
         self.run_purge()
         left = [c["text"] for c in renders.carried(V, "系統/日程.md")]

@@ -9,7 +9,7 @@ kb asks 每筆出一題，她在那段刪掉一行或 kb renders drop 就是不�
 重新產生的那支先 check：沒檔、沒紀錄（第一次跑這版的知識庫）、跟紀錄一樣都不算手改；不一樣就 keep 把她那份存到
 .system/handedits/<時間>-<檔名>，寫完新的再 record。renders.json 讀不到當沒有紀錄、寫不了只記 log：手改偵測不能擋住重新產生。
 diff 把她那份跟程式那份比：一行一個條目的清單（lines 是 [(那行, 編號)]），分打勾、刪掉、改日期、其他；
-ignore_sections 的段與 ``` 圍起來的圖不比（整理時要問的問題、甘特圖每次都會變）。
+ignore_sections 的段與 ``` 圍起來的圖不比（整理時要問的問題每次都會變）。
 """
 import contextlib
 import hashlib
