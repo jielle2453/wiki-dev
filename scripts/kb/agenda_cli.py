@@ -53,6 +53,7 @@ def add_arguments(sub):
     status_parsers = [subs.add_parser(name, help=text, description=f"把一條日程{text}。") for name, text in helps.items()]
     for p in status_parsers:
         p.add_argument("id", help="日程編號（a-…）")
+    status_parsers[1].add_argument("--check", action="store_true", help="只算取消了會怎樣（--json 回 effects 與 refuse），什麼都不寫")
     rc = subs.add_parser("recheck", help="原檔新版看過了", description="製卡者看過出處卡的新版：不用改，或記下新版的寫法等客戶選。")
     rc.add_argument("id", help="日程編號（a-…）")
     rc.add_argument("--propose-date", help="新版寫的日期 YYYY-MM-DD（只收客戶說過或改過的條目）")
@@ -379,6 +380,9 @@ def run(args):
             return _list(vault, args, as_json)
         if command == "export":
             return _export(vault, args, as_json)
+        if getattr(args, "check", False):  # 先算後果、什麼都不寫（也不開回合），Obsidian 的確認框用（#22，D-256）
+            from kb._lib import check
+            return check.emit(check.agenda_cancel(vault, args.id), as_json)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
         if command == "render":

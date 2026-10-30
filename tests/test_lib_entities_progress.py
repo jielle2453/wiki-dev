@@ -1,5 +1,5 @@
 """_lib/entities 的事類狀態（日程第 3 點，D-126、D-127）：schema 1→2 遷移、set_progress（結案連帶結束期間、非事類拒絕、
-同狀態只加歷程、擱置畫進甘特圖）、asked_evidence、suggest_close 的記與不重記、rename／merge 連日程、名稱擋四種 shell 字元。"""
+同狀態只加歷程、擱置記進歷程）、asked_evidence、suggest_close 的記與不重記、rename／merge 連日程、名稱擋四種 shell 字元。"""
 import json
 import shutil
 import unittest
@@ -103,10 +103,15 @@ class Progress(Base):
         self.assertTrue(got["reopened"])
         self.assertEqual(agenda.load(self.V)["items"][0]["status"], "done")
 
-    def test_paused_adds_a_pause_bar_to_the_chart(self):
+    def test_paused_is_not_drawn_in_agenda_md(self):
+        """裁定 44：日程.md 不再有時程圖，擱置只記在實體歷程裡（首頁時間軸讀歷程畫）。"""
         self.period()
         entities.set_progress(self.V, "信義王", "paused", self.t)
-        self.assertIn("  擱置 :done, ", (self.V / "系統" / "日程.md").read_text(encoding="utf-8"))
+        md = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
+        self.assertNotIn("擱置 :done", md)
+        self.assertNotIn("mermaid", md)
+        (ent,) = [e for e in entities.load(self.V)["entities"] if e["name"] == "信義王"]
+        self.assertEqual(ent["progress_history"][-1]["progress"], "paused")
 
     def test_bad_progress_value(self):
         with self.assertRaises(ValueError):

@@ -286,7 +286,7 @@ class IngestHandOff(unittest.TestCase):
 class RepoClaudeMd(unittest.TestCase):
     def test_commands_row_has_no_manage_command(self):
         """commands/ 列不寫 manage 指令，免得跟 skill 撞名。"""
-        lines = (ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()
+        lines = "\n".join(m.read_text(encoding="utf-8") for m in sorted((ROOT / "ops").glob("map-*.md"))).splitlines()  # 地圖搬到 ops/
         self.assertIn(COMMANDS_ROW, lines)
 
 

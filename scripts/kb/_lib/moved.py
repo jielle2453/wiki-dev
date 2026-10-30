@@ -10,7 +10,7 @@ apply：做 (a)(b)，總目錄與受影響的綜合卡快取重寫，最後寫 v
 import os
 from pathlib import Path
 
-from kb._lib import cards, config, env, paths, turn
+from kb._lib import cards, config, env, obsidian, paths, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib import vault as vault_lib
@@ -146,9 +146,10 @@ def _relinks(vault, raw):
 
 
 def check(vault):
-    """要補什麼（只讀）：{"state","from","to","sources_rewritten","cards_relinked","missing_sources","old_copy","env","passwords_missing"}。"""
+    """要補什麼（只讀）：{"state","from","to","sources_rewritten","cards_relinked","missing_sources","old_copy","env","passwords_missing","obsidian_reopen"}。"""
     st = state(vault)
-    out = dict(st, sources_rewritten=[], cards_relinked=0, missing_sources=[], old_copy=None, env=[], passwords_missing=[])
+    out = dict(st, sources_rewritten=[], cards_relinked=0, missing_sources=[], old_copy=None, env=[], passwords_missing=[],
+               obsidian_reopen=False)
     if st["state"] in ("same", "first"):
         return out
     bases = _old_bases(vault, st)
@@ -160,6 +161,8 @@ def check(vault):
     out["missing_sources"] = _missing(vault, raw)
     out["cards_relinked"] = _relinks(vault, raw)
     out["old_copy"] = _old_copy(vault, bases)
+    # Obsidian（#22）：她用過 Obsidian（知識庫裡有 .obsidian/）而新位置 Obsidian 還沒登記：要重新打開（kb obsidian open）
+    out["obsidian_reopen"] = (Path(vault) / ".obsidian").is_dir() and not obsidian.vault_registered(vault)
     if st["state"] == "new_machine":
         out["env"] = _env_problems(vault)
         out["passwords_missing"] = _passwords_missing(vault)

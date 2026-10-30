@@ -112,7 +112,7 @@ class Diff(Base):
 
 
 class Renderers(unittest.TestCase):
-    """五個重新產生的地方（D-223）：待處理、日程、裁示有 JSON 真相 → 存她那份、開 handedit；總目錄、工作日誌 → 只存。"""
+    """五個重新產生的地方（D-223、D-263）：待處理、日程、裁示有 JSON 真相 → 存她那份、認得出的照做（不再開 handedit，#22）；總目錄、工作日誌 → 只存。"""
 
     def setUp(self):
         from tests import _entities as E
@@ -141,10 +141,12 @@ class Renderers(unittest.TestCase):
         lines = [ln.replace("- ", "- [x] ", 1) if "甲.pdf" in ln else ln for ln in lines if "乙.pdf" not in ln]
         md.write_text("\n".join(lines) + "\n", encoding="utf-8")
         pending.add(self.V, "unreadable", ["f-33333333"], "「丙.pdf」讀不到", "檔案壞了", self.t)
-        (item,) = self.handedits()
-        self.assertEqual([c["id"] for c in item["data"]["diff"]["checked"]], [a])
-        self.assertEqual([c["id"] for c in item["data"]["diff"]["removed"]], [b])
-        self.assertTrue((self.V / item["data"]["saved"]).is_file())
+        # #22（D-263 修訂 D-223）：認得出的直接照做，不再開 handedit；她那份照舊存
+        items = {i["id"]: i for i in pending.load(self.V)["items"]}
+        self.assertEqual((items[a]["status"], items[a]["how"]), ("done", "在待處理.md 打勾"))
+        self.assertEqual(items[b]["status"], "dismissed")
+        self.assertEqual(self.handedits(), [])
+        self.assertEqual(len(self.saved_files()), 1)
         self.assertIn("丙.pdf", md.read_text(encoding="utf-8"), "新的照寫")
         self.assertNotIn("[x]", md.read_text(encoding="utf-8"))
 
@@ -163,9 +165,12 @@ class Renderers(unittest.TestCase):
         self.assertIn("- 2030-01-10（週四）承諾 給報價", text)
         md.write_text(text.replace("- 2030-01-10（週四）", "- 2030-01-12（週六）"), encoding="utf-8")
         agenda.add(self.V, "會議", "2030-02-01", "丈量", ["信義王"], self.t)
-        (item,) = self.handedits()
-        self.assertEqual(item["data"]["file"], "系統/日程.md")
-        self.assertEqual([c["id"] for c in item["data"]["diff"]["changed_date"]], [it["id"]])
+        # #22（D-263 修訂 D-223）：改日期直接照做（歷程 by hand），不再開 handedit；她那份照舊存
+        now = agenda.get(self.V, it["id"])
+        self.assertEqual(now["date"], "2030-01-12")
+        self.assertEqual(now["history"][-1]["by"], "hand")
+        self.assertEqual(self.handedits(), [])
+        self.assertTrue(any(n.endswith("日程.md") for n in self.saved_files()))
 
     def test_rulings_removed(self):
         from kb._lib import rulings
@@ -174,8 +179,11 @@ class Renderers(unittest.TestCase):
         md.write_text("\n".join(ln for ln in md.read_text(encoding="utf-8").splitlines() if "報價以我說的為準" not in ln)
                       + "\n", encoding="utf-8")
         rulings.add(self.V, "口述為準", ["大安陳"], [], "工期以我說的為準", self.t)
-        (item,) = self.handedits()
-        self.assertEqual([c["id"] for c in item["data"]["diff"]["removed"]], [r["id"]])
+        # #22（D-263 修訂 D-223）：刪掉一行 = 收回，不再開 handedit；她那份照舊存
+        data = {x["id"]: x for x in rulings.load(self.V)["rulings"]}
+        self.assertEqual(data[r["id"]]["status"], "revoked")
+        self.assertEqual(self.handedits(), [])
+        self.assertTrue(any(n.endswith("裁示.md") for n in self.saved_files()))
 
     def test_index_only_saved(self):
         from kb._lib import cards

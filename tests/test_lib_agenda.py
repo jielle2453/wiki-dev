@@ -267,13 +267,13 @@ class Status(Base):
             agenda.set_status(self.V, got["id"], "weird", self.t)
 
     def test_done_period_without_ended_fills_today_and_reopen_clears_it(self):
-        """確認後裁定 7(b)：期間條目 done 時 ended 是空的就填今天，甘特圖與過去區照 ended 畫。"""
+        """確認後裁定 7(b)：期間條目 done 時 ended 是空的就填今天，過去區照 ended 畫。"""
         got, _ = self.add(kind="期間", start="2026-09-01", date="2026-11-30", text="施工")
         out = agenda.set_status(self.V, got["id"], "done", self.t)
         self.assertEqual((out["status"], out["ended"]), ("done", TODAY))
         agenda.render(self.V, today=TODAY)
         md = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn(f"施工 :done, 2026-09-01, {TODAY}\n", md)
+        self.assertIn(f"- {TODAY} 期間 施工", md)
         self.assertEqual(agenda.set_status(self.V, got["id"], "open", self.t)["ended"], None)
 
     def test_done_period_keeps_an_ended_it_already_has_and_other_kinds_get_none(self):
@@ -563,33 +563,16 @@ class Render(Base):
         for head in ("## 逾期", "## 今天", "## 接下來 7 天", "## 之後", "## 過去 30 天"):
             self.assertIn(head, got)
         self.assertNotIn("時程圖", got)
+        self.assertNotIn("mermaid", got)
         self.assertEqual(got.count("（沒有）"), 5)
         self.assertIn("## 逾期\n（沒有）", got)
 
-    def test_overdue_period_gets_extra_bar_and_pause_bar_when_paused(self):
-        put(self.V, [item(kind="period", start="2026-09-01", date="2026-10-10", text="施工", entities=["信義王"])])
-        agenda.render(self.V, today=TODAY)
-        got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn("  施工 :active, 2026-09-01, 2026-10-10\n  逾預計結束 :crit, 2026-10-10, 2026-10-21\n", got)
-
-    def test_done_period_draws_until_ended(self):
+    def test_done_period_listed_in_past_until_ended(self):
         put(self.V, [item(kind="period", start="2026-09-01", date="2026-11-30", ended="2026-10-15", status="done",
                           text="施工", entities=["信義王"])])
         agenda.render(self.V, today=TODAY)
         got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn("  施工 :done, 2026-09-01, 2026-10-15\n", got)
         self.assertIn("- 2026-10-15 期間 施工（信義王）完成", got)
-
-    def test_current_pause_is_drawn_to_today_at_least_a_day(self):
-        data = json.loads((FIX / "entities.json").read_text(encoding="utf-8"))
-        data["entities"][0]["progress"] = "paused"
-        data["entities"][0]["progress_history"] = [{"date": TODAY, "progress": "paused", "source": "confirmed",
-                                                    "evidence": [], "note": ""}]
-        (self.V / ".system" / "entities.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        put(self.V, [item(kind="period", start="2026-09-01", date="2026-11-30", text="施工", entities=["信義王"])])
-        agenda.render(self.V, today=TODAY)
-        got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn(f"  擱置 :done, {TODAY}, 1d\n", got)
 
     def test_unchanged_content_is_not_rewritten_or_backed_up(self):
         shutil.copy2(FIX / "agenda.json", self.V / ".system" / "agenda.json")
@@ -606,12 +589,6 @@ class Render(Base):
         put(self.V, [item()])
         agenda.render(self.V, t2, today=TODAY)
         self.assertEqual([r["path"] for r in turn.entries(self.V, t2)], [agenda.MD_POSIX])
-
-    def test_text_newlines_are_flattened_in_chart(self):
-        put(self.V, [item(text="一行\n二行", date="2026-10-25")])
-        agenda.render(self.V, today=TODAY)
-        got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn("  一行 二行 :milestone, 2026-10-25, 0d\n", got)
 
 
 if __name__ == "__main__":

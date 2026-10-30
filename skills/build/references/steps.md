@@ -1,6 +1,6 @@
 # 建置的每一步
 
-步名對照（`kb build done|redo <步>` 用左邊的）：env 環境、setup 訪談、inventory 盤點、sample 抽樣、cards 全量整理、names 確認名字、synthesis 綜合卡、adopt 收舊 wiki、tags 標籤、finish 交付報告。跟她說話只用中文的步名。
+步名對照（`kb build done|redo <步>` 用左邊的）：env 環境、setup 訪談、inventory 盤點、sample 抽樣、cards 全量整理、names 確認名字、synthesis 綜合卡、adopt 收舊 wiki、tags 標籤、obsidian Obsidian、finish 交付報告。跟她說話只用中文的步名。
 
 每一步都是：先講要做什麼、問好不好 → 說好才做 → 做完跑 `kb build done <步>` → 講下一步、問要不要繼續（D-194）。
 
@@ -72,6 +72,17 @@
 - 要的話：`kb profile show --json` 看第一節的型別與第八節已有的欄；`kb entity list --json` 找各型別 `has_card` 的實體（綜合卡在 `<型別夾>/<名稱>/<名稱>.md`，型別夾前面有編號，例：`01 案子/信義王/信義王.md`），一個型別讀一輪它們的綜合卡（超過 `build status` 給的 `tag_suggest_cards_max` 張就挑那麼多張讀），提出最常出現的幾類條件、每類的詞與各有幾張（例：工種：水電 3、木作 2、磁磚 1），之前記著的字典外那幾行也併進來，一欄一行列給她。只用卡上寫得到的，不自己編條件。
 - 她刪、改名、說好之後，一欄一個指令：`kb profile add 標籤 型別=<型別> 欄名=<欄> 詞=<詞、詞…>`，一張卡能同時有好幾個詞的加 `可多選=✓`。
 - 加完程式會把那個型別的綜合卡標成要補標籤；接著 `kb cards dispatch --json` 做到 `done`（原因只有補標籤的只改檔頭的標籤行，內文不動），補完再 `kb build done tags`；被擋照那句講。
+
+## Obsidian
+
+這一步沒有前提，她不用 Obsidian 也能建完（D-259）：問一句、她說不用就直接 `kb build done obsidian`。沒登記資料夾的建置也走這一步。
+
+- 先問她平常會不會用 Obsidian 看這些資料（首頁會把手上的事、待辦、要她確認的放在一起，也能用一個框找檔）；不用就跳過。
+- 跑 `kb obsidian status --json`，三項講白話：`installed` 這台電腦有沒有裝 Obsidian、`registered` 這個知識庫 Obsidian 登記了沒、`plugin` 首頁外掛放了沒（`kb init` 會放，沒放好 `open` 會補）。
+- 沒裝：請她到 obsidian.md 下載安裝，裝好再說一次；不替她裝。
+- 裝了：先說一聲「Obsidian 第一次打開會問要不要信任這個資料夾的外掛，請按『信任』」，她說好才跑 `kb obsidian open`；它會替她把知識庫加進 Obsidian 並打開，她不用自己挑資料夾（選到上一層資料夾外掛和設定都讀不到）。
+- 被擋「先關掉 Obsidian 再說一次」：Obsidian 開著的時候加不進去，請她關掉再說一次；其他被擋照印的那句講。
+- 打開後請她看一眼：首頁出現了、左邊檔案樹看得到她的資料夾；做完或她說不用，跑 `kb build done obsidian`。
 
 ## 交付報告
 

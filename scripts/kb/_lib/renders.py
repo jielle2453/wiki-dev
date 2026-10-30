@@ -1,16 +1,20 @@
 """程式產生的 md 有沒有被手改（lint 第 4 點，D-223）：.system/renders.json（schema 1）記每份 md 最後一次程式寫進去的指紋。
 
 {"schema_version": 1, "files": {"系統/待處理.md": "<sha256>"}, "history": {...}, "dates": {"系統/日程.md": "2026-10-20"}, "saved": [...],
- "asks": [...]}
+ "asks": [...], "carried": {"系統/日程.md": [{"id","kind","text","orig","at"}]}}
 history 是同一份 md 程式以前寫過的指紋（退回換回舊版時對得上，不算手改）；dates 是寫的那天（日程照當天分段，重算她看到的那份要用同一天）；saved 是留下她那份的紀錄（{file, saved, at}，最多 SAVED_MAX 筆），
 健檢報告數這個月總目錄、工作日誌被手改了幾次；asks 是待處理.md「整理時要問你的」那段（健檢與 kb asks --all 算好記下）。
+carried（Obsidian 首頁，#22，D-263；選填鍵）是她在程式產生的頁上寫、程式認不出的字：重新產生時放在那頁最底下「你加的（還沒處理）」，
+kb asks 每筆出一題，她在那段刪掉一行或 kb renders drop 就是不用了。
 重新產生的那支先 check：沒檔、沒紀錄（第一次跑這版的知識庫）、跟紀錄一樣都不算手改；不一樣就 keep 把她那份存到
 .system/handedits/<時間>-<檔名>，寫完新的再 record。renders.json 讀不到當沒有紀錄、寫不了只記 log：手改偵測不能擋住重新產生。
 diff 把她那份跟程式那份比：一行一個條目的清單（lines 是 [(那行, 編號)]），分打勾、刪掉、改日期、其他；
-ignore_sections 的段與 ``` 圍起來的圖不比（整理時要問的問題、甘特圖每次都會變）。
+ignore_sections 的段與 ``` 圍起來的圖不比（整理時要問的問題每次都會變）。
 """
+import contextlib
 import hashlib
 import re
+import secrets
 from datetime import date, datetime
 from pathlib import Path
 
@@ -27,6 +31,21 @@ _BOX = re.compile(r"^-\s*\[\s?\]\s*")
 _DATE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}|\d{1,2}-\d{1,2}")
 _WEEKDAY = re.compile(r"（週[一二三四五六日]）")
 _COUNT = re.compile(r"（\d+）$")  # 日程每行日期後面的星期，改日期時跟著變
+
+
+CARRIED_TITLE = "你加的（還沒處理）"
+CARRIED_NOTE = "這段是你在這頁寫、我還沒看懂的；在首頁或對話裡回我，或刪掉這行就是不用了。"
+CARRIED_MAX = 100
+_SUPPRESS = set()  # 正在照她的手改套用的頁：重新產生時不再當成手改（kb renders apply 自己處理，避免套用到一半又被偵測一次）
+
+
+@contextlib.contextmanager
+def suppressed(rel):
+    _SUPPRESS.add(rel)
+    try:
+        yield
+    finally:
+        _SUPPRESS.discard(rel)
 
 
 def fingerprint(text):
@@ -56,13 +75,18 @@ def load(vault):
             "dates": _str_map(data.get("dates")),
             "saved": [s for s in data.get("saved") or [] if isinstance(s, dict)] if isinstance(data.get("saved"), list) else [],
             "asks": [q for q in data.get("asks") if isinstance(q, str)] if isinstance(data.get("asks"), list) else [],
+            "carried": {k: [c for c in v if isinstance(c, dict) and isinstance(c.get("id"), str) and isinstance(c.get("text"), str)]
+                        for k, v in data.get("carried").items() if isinstance(k, str) and isinstance(v, list)}
+                       if isinstance(data.get("carried"), dict) else {},
             "bases": {k: {"text": v["text"], "lines": [x for x in v["lines"] if isinstance(x, list) and len(x) == 2]}
                       for k, v in data.get("bases").items() if isinstance(v, dict) and isinstance(v.get("text"), str)
                       and isinstance(v.get("lines"), list)} if isinstance(data.get("bases"), dict) else {}}
 
 
-def check(vault, rel):
-    """她手改過就回她那份的文字，否則 None（沒檔、讀不了、沒紀錄、跟紀錄一樣）。"""
+def check(vault, rel, raw=False):
+    """她手改過就回她那份的文字，否則 None（沒檔、讀不了、沒紀錄、跟紀錄一樣）。正在套用的頁（suppressed）回 None，raw=True 照看。"""
+    if rel in _SUPPRESS and not raw:
+        return None
     p = Path(vault) / rel
     try:
         if not p.is_file():
@@ -118,6 +142,81 @@ def record(vault, rel, text, day=None, turn_id=None, lines=None):
     _edit(vault, change)
 
 
+# ---------- 你加的（還沒處理）----------
+
+def carried(vault, rel):
+    """這頁還沒處理的字 [{"id","kind":"added|changed","text","orig","at"}]。"""
+    return list(load(vault)["carried"].get(rel) or [])
+
+
+def carried_all(vault):
+    """{頁: [條目]}，只列有東西的頁。"""
+    return {k: list(v) for k, v in load(vault)["carried"].items() if v}
+
+
+def carried_line(item):
+    """那段裡的一行（不含開頭的「- 」）。"""
+    if item.get("kind") == "changed" and item.get("orig"):
+        return f"原本「{item['orig']}」→ 你改成「{item['text']}」"
+    return item["text"]
+
+
+def carried_section(vault, rel):
+    """這頁最底下「你加的（還沒處理）」那段的文字（含前面的空行），沒有東西回空字串。"""
+    items = carried(vault, rel)
+    if not items:
+        return ""
+    body = "".join(f"- {carried_line(c)}\n" for c in items)
+    return f"\n## {CARRIED_TITLE}\n{CARRIED_NOTE}\n" + body
+
+
+def carried_lines_in(text):
+    """她那份頁面裡「你加的」那段的每一行（去掉開頭的「- 」）；說明那句不算。"""
+    out, inside = [], False
+    for raw in str(text).splitlines():
+        line = raw.rstrip()
+        if line.startswith("## "):
+            inside = line[3:].startswith(CARRIED_TITLE)
+            continue
+        if inside and line.startswith("- "):
+            out.append(line[2:])
+    return out
+
+
+def add_carried(vault, rel, new, drop_ids=()):
+    """加幾筆、拿掉幾筆（編號）；回 (實際加的, 實際拿掉的)。文字先遮值；同頁同文字不重複。"""
+    done = {"added": [], "dropped": []}
+
+    def change(data):
+        items = data["carried"].setdefault(rel, [])
+        keep = [c for c in items if c["id"] not in set(drop_ids)]
+        done["dropped"] = [c for c in items if c["id"] in set(drop_ids)]
+        have = {(c.get("kind"), c["text"], c.get("orig")) for c in keep}
+        for n in new:
+            text = masked(vault, n["text"]).strip()
+            orig = masked(vault, n["orig"]).strip() if n.get("orig") else None
+            if not text or (n.get("kind"), text, orig) in have or len(keep) >= CARRIED_MAX:
+                continue
+            item = {"id": "c-" + secrets.token_hex(4), "kind": n.get("kind") or "added", "text": text, "orig": orig,
+                    "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+            keep.append(item)
+            done["added"].append(item)
+            have.add((item["kind"], text, orig))
+        data["carried"][rel] = keep
+    _edit(vault, change)
+    return done["added"], done["dropped"]
+
+
+def drop_carried(vault, cid):
+    """kb renders drop：回 (頁, 條目) 或 (None, None)。"""
+    for rel, items in carried_all(vault).items():
+        hit = next((c for c in items if c["id"] == cid), None)
+        if hit is not None:
+            add_carried(vault, rel, [], drop_ids=[cid])
+            return rel, hit
+    return None, None
+
+
 def stored_asks(vault):
     """上一次健檢或 kb asks --all 算好的「整理時要問你的」問句（待處理.md 那段用）。"""
     got = load(vault).get("asks")
@@ -166,6 +265,7 @@ def saved(vault):
 # ---------- 她改了什麼 ----------
 
 def _lines(text, ignore_sections):
+    ignore_sections = tuple(ignore_sections) + (CARRIED_TITLE,)  # 「你加的」那段另外處理（kb renders apply），不當條目比
     out, skip, fence = [], False, False
     for raw in str(text).splitlines():
         line = raw.rstrip()

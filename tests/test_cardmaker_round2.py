@@ -17,7 +17,7 @@ SID = "sid-r2"
 AGENT = "a0204e72"
 KB = f'python "{ROOT}/scripts/kb.py"'
 DENY = "製卡助手不能做這件事"
-SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent 或 --session"
+SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent、--session 或 --via"
 
 
 def guard_out(data):

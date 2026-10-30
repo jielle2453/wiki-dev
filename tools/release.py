@@ -4,8 +4,8 @@
   python tools/release.py publish <tag> --public <公開 repo 的本機 clone> (--for <vault_id>… | --all | --none) [--wait 15]
   python tools/release.py rollout <版本> --public <clone> (--for <vault_id>… | --all | --none)
 
-build：從 tag 用 git archive 取檔，照 D-213 要放的清單（含 agents/）打 zip 到 dist/（.gitignore 有），位元組可重現；最後檢查：
-zip 裡只有清單上的、plugin.json 與 hooks/hooks.json 引用的路徑都在、版本號等於 tag、CHANGELOG 最新一段有「給客戶的一句話」、
+build：從 tag 用 git archive 取檔，照 D-213 要放的清單（含 agents/、obsidian/）打 zip 到 dist/（.gitignore 有），位元組可重現；最後檢查：
+zip 裡只有清單上的、plugin.json 與 hooks/hooks.json 引用的路徑都在、版本號等於 tag、obsidian/ 三個檔都在且 manifest.json 的版號等於 tag、CHANGELOG 最新一段有「給客戶的一句話」、
 config/skeleton_history.json 有這一版且跟 tag 裡的骨架一致；小修（D-217，前兩位跟上一個 tag 相同）不准動骨架檔、各 schema 版本常數、
 _lib/migrate.py；每個 .py 照 Python 3.10 的語法 parse 得過；打好的 zip 解開跑它自己的 kb selftest --json（開發機的 Python，D-230）。
 問題一次全列；zip 先寫暫存名，全部過了才改成正式名（有問題不留、也不動先前打好的同名 zip）。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
@@ -33,13 +33,14 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-ALLOW_DIRS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents")
+ALLOW_DIRS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents", "obsidian")
 ALLOW_FILES = ("README.md", "CHANGELOG.md", "LICENSE")
 PLUGIN_NAME = "wiki-with-willy"
 POLL_SECONDS = 30
 FETCH_SECONDS = 15
 GITKEEP = ".gitkeep"
 ZIP_STAMP = (1980, 1, 1, 0, 0, 0)  # 固定時間：同一個 tag 打兩次的 sha256 一樣
+OBSIDIAN_FILES = ("manifest.json", "main.js", "styles.css")  # Obsidian 首頁外掛（#22，D-258）
 MANIFEST_KEYS = ("commands", "agents", "skills", "hooks", "outputStyles", "mcpServers", "lspServers")
 SCHEMA_LINE = re.compile(r"^\s*(\w*(?:SCHEMA|TEMPLATE_VERSION)\w*)\s*=\s*(.+?)\s*$", re.MULTILINE)
 SCHEMA_LITERAL = re.compile(r"""["']schema_version["']\s*:\s*(\d+)""")  # 寫在字面裡的格式版本（env.py、turn.py…）
@@ -274,6 +275,7 @@ def problems(files, version, previous=None):
             for ref in ([value] if isinstance(value, str) else value if isinstance(value, list) else []):
                 if isinstance(ref, str) and not _exists(files, ref[2:] if ref.startswith("./") else ref):
                     out.append(f"plugin.json 的 {key} 引用的路徑不在 zip 裡：{ref}")
+    out += _obsidian_problems(files, version)
     hooks = _json_of(files, "hooks/hooks.json", out)
     for text in _strings(hooks) if hooks is not None else []:
         for ref in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s\"']+)", text):
@@ -283,6 +285,16 @@ def problems(files, version, previous=None):
     out += _history_problems(files, version)
     if previous is not None:
         out += _patch_problems(files, previous)
+    return out
+
+
+def _obsidian_problems(files, version):
+    """obsidian/ 的三個檔都在，manifest.json 是合法 JSON 而且版號等於 tag（外掛跟 plugin 同一版，D-258）。"""
+    out = [f"obsidian/{name} 不在 zip 裡" for name in OBSIDIAN_FILES if f"obsidian/{name}" not in files]
+    if "obsidian/manifest.json" in files:
+        manifest = _json_of(files, "obsidian/manifest.json", out)
+        if isinstance(manifest, dict) and manifest.get("version") != version:
+            out.append(f"obsidian/manifest.json 的版本是 {manifest.get('version')}，tag 是 {version}")
     return out
 
 

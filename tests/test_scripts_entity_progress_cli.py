@@ -1,5 +1,5 @@
 """kb entity progress／suggest-close 黑箱（日程第 4 點，驗收 8、9、10b、16）：句子一字不差、結案連帶結束期間、
-事類才有狀態、擱置畫進甘特圖、rename／merge 連日程、revert 退回、終端機程式段、list 多一欄。"""
+事類才有狀態、擱置記進歷程、rename／merge 連日程、revert 退回、終端機程式段、list 多一欄。"""
 import json
 import shutil
 import unittest
@@ -59,12 +59,12 @@ class Progress(Base):
         self.assertEqual((e["progress"], len(e["progress_history"])), ("ongoing", 1))
         self.assertEqual(entities.asked_evidence(self.V, e), [self.f1])
 
-    def test_paused_sentence_and_chart(self):
+    def test_paused_sentence(self):
         self.period()
         self.assertEqual(self.kb("progress", "大安陳", "擱置"), ["已記成擱置：大安陳"])
         self.assertEqual(self.get("大安陳")["progress"], "paused")
         self.kb("progress", "信義王", "擱置")
-        self.assertIn("  擱置 :done, ", (self.V / "系統" / "日程.md").read_text(encoding="utf-8"))
+        self.assertNotIn("mermaid", (self.V / "系統" / "日程.md").read_text(encoding="utf-8"))
 
     def test_resume_from_paused_and_reopen_note(self):
         self.kb("progress", "大安陳", "擱置")

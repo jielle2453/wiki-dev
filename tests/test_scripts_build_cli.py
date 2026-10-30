@@ -93,7 +93,7 @@ class StatusStart(Base):
     def test_done_wrong_step_and_redo(self):
         self.start()
         self.assertEqual(self.refused("build", "done", "sample"), "現在是「訪談」這一步，不是「抽樣」")
-        self.assertEqual(self.ok("build", "done", "setup"), "建置：訪談 做完了，下一步 交付報告")  # 沒登記資料夾（D-044）
+        self.assertEqual(self.ok("build", "done", "setup"), "建置：訪談 做完了，下一步 Obsidian")  # 沒登記資料夾（D-044）
         self.assertEqual(self.ok("build", "redo", "setup"), "建置：回到「訪談」")
         self.assertEqual(self.refused("build", "redo", "finish"), "還沒做到「交付報告」，不能重做")
         self.assertEqual(self.refused("build", "redo", "sample"), "這次建置沒有「抽樣」這一步")

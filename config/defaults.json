@@ -72,7 +72,7 @@
   "relocate_sample_max": 40,
   "_why_relocate_sample_max": "kb folders relocate 從清冊抽幾份到新位置比對（D-177）：大小相同才算指紋，40 份夠看出整理過還是貼錯夾，大的夾也幾秒內比完",
   "agenda_past_days": 30,
-  "_why_agenda_past_days": "系統/日程.md 過去區與甘特圖往回看幾天（D-105）：再久的已過去、完成、取消都在 agenda.json 裡，不佔清單",
+  "_why_agenda_past_days": "系統/日程.md 過去區往回看幾天（D-105）：再久的已過去、完成、取消都在 agenda.json 裡，不佔清單",
   "agenda_export_dir": "",
   "_why_agenda_export_dir": "每次寫日程就把一份 willy-agenda.json 放到這個資料夾（D-500），手機頁面與通知程式讀它；空字串不匯出。用 kb agenda export --set／--off 改，不手改",
   "adopt_chunk_chars": 12000,
@@ -124,5 +124,13 @@
   "inbox_remind_days": 7,
   "_why_inbox_remind_days": "收件匣最上層最舊一份放超過幾天，開場提醒一句（D-045）；份數少但放太久的也要提，免得收件匣變成長期堆放的地方",
   "inbox_remind_every_days": 7,
-  "_why_inbox_remind_every_days": "同一台電腦收件匣的提醒最多幾天一次（D-045）；每次開對話都講會煩，一週講一次她還記得要整理"
+  "_why_inbox_remind_every_days": "同一台電腦收件匣的提醒最多幾天一次（D-045）；每次開對話都講會煩，一週講一次她還記得要整理",
+  "home_timeline_days": 60,
+  "_why_home_timeline_days": "Obsidian 首頁時間軸往後畫幾天（D-252）；兩個月夠看到下一輪施工與交屋，再長 bar 擠在一起看不清",
+  "home_recent_max": 20,
+  "_why_home_recent_max": "Obsidian 首頁「最近」那一列最多幾筆（她開過的加最近放進來的）；一排看得完、不用捲",
+  "find_results_max": 50,
+  "_why_find_results_max": "kb find 一次最多回幾份檔（D-257）；下拉框看不了更多，要再縮小她會加字",
+  "find_recent_days": 30,
+  "_why_find_recent_days": "kb find 的時間詞「最近」是往前幾天（D-257）；跟日程過去區同一個月的尺度"
 }
