@@ -44,9 +44,10 @@ class RulesCore(unittest.TestCase):
                                "刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
 
     def test_r01_free_area_read_only_when_asked(self):
-        """彈性區（#21，D-511）：R-01 句尾補彈性區平常不讀；夾名照 areas.FREE_DIR。"""
+        """彈性區（#21，D-511、裁定 12）：R-01 句尾補彈性區平常不讀、別處找不到也不翻、Word 走 kb convert；夾名照 areas.FREE_DIR。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-01 "))
-        self.assertTrue(line.endswith(f"{FREE_DIR}是客戶自己的：平常不讀不搜，她問到或指名才讀，寫用檔案工具；"
+        self.assertTrue(line.endswith(f"{FREE_DIR}是客戶自己的：平常不讀不搜，別處找不到也不去翻、說沒有並問要不要看{FREE_DIR}；"
+                                      f"她說到{FREE_DIR}或指名那份才讀，Word、Excel 這類用 kb convert 讀，寫用檔案工具；"
                                       "卡、成品、客戶原檔的副本不放這裡。"), line)
 
     def test_r07_restore_and_upgrade_after_yes(self):
