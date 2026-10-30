@@ -72,7 +72,7 @@ class Body(unittest.TestCase):
 
     def test_discriminates(self):
         part = self.section("## 分辨", "## 原則")
-        for want in ("新做", "改她原本的檔", "轉格式", "存成檔", "草稿", "定稿", "範本", "第七節"):
+        for want in ("新做", "轉格式", "存成檔", "草稿", "定稿", "範本", "第七節"):
             with self.subTest(want=want):
                 self.assertIn(want, part)
         for want in ("answer", "note", "ingest", "manage", "做不到"):
@@ -87,7 +87,7 @@ class Body(unittest.TestCase):
             with self.subTest(principle=ln[:12]):
                 self.assertRegex(ln, r"[DIBR]-\d{2,3}|實作回報裁定")
                 self.assertGreater(len(ln), 40, "要帶一句理由")
-        for code in ("D-163", "D-165", "D-166", "D-010", "D-170", "D-159", "D-169", "D-164", "R-09"):
+        for code in ("D-163", "D-165", "D-166", "D-170", "D-159", "D-169", "D-164", "R-09"):
             with self.subTest(code=code):
                 self.assertIn(code, part)
         self.assertIn("工作區用檔案工具寫", part, "實作回報裁定 1：明寫，免得模型照 R-01 不敢寫")

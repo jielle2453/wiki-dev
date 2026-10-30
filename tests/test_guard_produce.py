@@ -181,6 +181,291 @@ class SecurityReview(Base):
 
 
 
+class OpenFile(Base):
+    """開檔與Office一起改（D-514、D-515）：開文件、資料夾、網址照讀判；導向照寫判；開程式照內層判；知識庫與來源裡的程式擋 run_file。"""
+
+    def setUp(self):
+        self.v, self.r = str(self.V), str(self.raw)
+
+    def ps(self, cmd):
+        return self.decide("PowerShell", cmd.replace("<V>", self.v).replace("<RAW>", self.r))
+
+    def bash(self, cmd):
+        return self.decide("Bash", cmd.replace("<V>", self.V.as_posix()).replace("<RAW>", self.raw.as_posix()))
+
+    def test_open_documents_pass(self):
+        for tool, cmd in (("PowerShell", "Start-Process '<V>\\AI 產出\\a.docx'"),
+                          ("PowerShell", "Invoke-Item '<V>\\AI 產出\\a.docx'"),
+                          ("PowerShell", "explorer '<V>\\AI 產出'"),
+                          ("PowerShell", "Start-Process 'AI 產出\\x.xlsx'"),
+                          ("PowerShell", "Start-Process '<V>\\系統\\客戶設定檔.md'"),
+                          ("PowerShell", "Start-Process '<RAW>\\客戶案件\\a.txt'"),
+                          ("PowerShell", "Start-Process 'https://example.com'"),
+                          ("PowerShell", "Start-Process '<V>\\AI 產出\\a.docx' -Verb Print -Wait"),
+                          ("Bash", 'cmd //c start "" "<V>/AI 產出/a.docx"'),
+                          ("Bash", 'start "<V>/AI 產出/a.docx"'),
+                          ("PowerShell", "explorer '<RAW>'")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual((d.decision, d.ledger_rows), ("pass", []))
+
+    def test_new_window_for_claude_pass(self):
+        """#18：開新視窗跑 claude。"""
+        for cmd in ("Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name 問答測試 --plugin-dir C:\\x'",
+                    "Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name t' -WorkingDirectory '<V>'"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.ps(cmd).decision, "pass")
+
+    def test_redirect_is_write(self):
+        for cmd, zone, code in (
+                ("Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<V>\\x.txt'", "Z8", "protected"),
+                ("Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardError '<V>\\AI 產出\\e.txt'", "Z3",
+                 "output_shell"),
+                ("Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<RAW>\\客戶案件\\o.txt'", "Z9",
+                 "readonly_source")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd)
+                self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", zone, code))
+
+    def test_program_judged_like_direct(self):
+        outer = self.ps("Start-Process powershell -ArgumentList '-Command','Remove-Item ''<V>\\系統\\x.md'''")
+        direct = self.ps("powershell -Command \"Remove-Item '<V>\\系統\\x.md'\"")
+        self.assertEqual(direct.decision, "deny")
+        self.assertEqual((outer.decision, outer.zone, outer.reason_code), (direct.decision, direct.zone, direct.reason_code))
+        self.assertEqual(self.ps("Start-Process cmd -ArgumentList '/c','del \"<V>\\AI 產出\\a.docx\"'").decision, "deny")
+        self.assertEqual(self.bash('start "" powershell -Command "Remove-Item \'<V>/系統/x.md\'"').decision, "deny")
+
+    def test_run_file_in_vault_or_source(self):
+        for tool, cmd, zone in (("PowerShell", "Start-Process '<V>\\AI 產出\\x.bat'", "Z3"),
+                                ("PowerShell", "Start-Process '<V>\\AI 產出\\x.ps1'", "Z3"),
+                                ("PowerShell", "Start-Process '<V>\\x.cmd'", "Z8"),
+                                ("PowerShell", "Start-Process '<V>\\AI 產出\\x.docm'", "Z3"),
+                                ("PowerShell", "Start-Process '<RAW>\\客戶案件\\run.exe'", "Z9"),
+                                ("PowerShell", "Invoke-Item '<V>\\AI 產出\\x.lnk'", "Z3"),
+                                ("PowerShell", "start '<V>\\AI 產出\\x.bat'", "Z3"),
+                                ("PowerShell", "ii '<V>\\AI 產出\\*'", "Z3"),
+                                ("PowerShell", "Start-Process '<V>\\AI 產出\\a.docx' -Verb RunAs", "Z3"),
+                                ("Bash", 'cmd //c start "" "<V>/AI 產出/x.bat"', "Z3")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual((d.decision, d.zone, d.reason_code, d.reason),
+                                 ("deny", zone, "run_file", guard.RUN_FILE[2]))
+                self.assertEqual(len(d.ledger_rows), 1)
+
+    def test_read_column_still_applies(self):
+        d = self.ps("Start-Process '<RAW>\\行政\\薪資\\s.xlsx'")
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10", "excluded"))
+        pw = self.raw / "客戶案件" / "密碼.txt"
+        pw.write_text("x", encoding="utf-8")
+        try:
+            self.assertEqual(self.ps("Start-Process '<RAW>\\客戶案件\\密碼.txt'").reason_code, "credential")
+            self.assertEqual(self.ps("explorer '<RAW>'").decision, "pass", "開夾不是讀整夾")
+            self.assertEqual(self.ps("explorer '<RAW>'; Get-ChildItem -Recurse '<RAW>' | Get-Content").decision, "deny",
+                             "同一個夾另一段真的讀，照走訪")
+        finally:
+            pw.unlink()
+
+    def test_unparsed_and_chains(self):
+        for cmd in ("Start-Process $f", "Start-Process powershell -ArgumentList $a", "Start-Process (Get-Item x)"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual((self.ps(cmd).decision, self.ps(cmd).reason_code), ("deny", "unparsed"))
+        d = self.ps("Start-Process '<V>\\AI 產出\\a.docx'; Remove-Item '<V>\\AI 產出\\b.docx'")
+        self.assertEqual(d.decision, "deny")
+        d = self.ps("cmd /c start '<V>\\AI 產出\\a.docx' '&' del '<V>\\系統\\x.md'")
+        self.assertEqual(d.decision, "deny")
+        d = self.ps("Get-ChildItem '<V>\\AI 產出' | Invoke-Item")
+        self.assertEqual((d.decision, d.reason_code), ("deny", "unparsed"), "要開的從管線前面來：看不出會開什麼")
+
+    def test_review_bypasses_denied(self):
+        """收尾 code-review high：殼字串裡的開檔、參數裡點名的腳本、cwd 推不出來、cmd 再認引號、open 的旗標。"""
+        bat = self.raw / "客戶案件" / "evil.bat"
+        bat.write_text("x", encoding="utf-8")
+        try:
+            for tool, cmd in (("PowerShell", "powershell -Command \"Start-Process '<RAW>\\客戶案件\\evil.bat'\""),
+                              ("Bash", "powershell -c \"Start-Process '<RAW>/客戶案件/evil.bat'\""),
+                              ("PowerShell", "pwsh -c \"saps '<RAW>\\客戶案件\\evil.bat'\""),
+                              ("PowerShell", "Start-Process cmd '/c','<RAW>\\客戶案件\\evil.bat'"),
+                              ("PowerShell", "Start-Process cmd -ArgumentList '/c <RAW>\\客戶案件\\evil.bat'"),
+                              ("PowerShell", "Start-Process wscript -ArgumentList '<RAW>\\客戶案件\\evil.wsf'"),
+                              ("PowerShell", "Start-Process powershell \"-c & '<RAW>\\客戶案件\\evil.bat'\""),
+                              ("PowerShell", "cd $env:X; Start-Process .\\evil.bat"),
+                              ("PowerShell", "cmd /c start '\"x.pdf\"' '<RAW>\\客戶案件\\evil.bat'"),
+                              ("Bash", "cd '<V>' && open -- sh -c 'rm -rf .'")):
+                with self.subTest(cmd=cmd):
+                    d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                    self.assertEqual(d.decision, "deny")
+        finally:
+            bat.unlink()
+        d = self.ps("Invoke-Item '<RAW>\\客戶案件\\a.txt','C:\\Windows\\notepad.exe'")
+        self.assertNotEqual(d.reason_code, "run_file", "文件目標不算程式檔")
+
+    def test_round1_fixes(self):
+        """測試第 1 輪裁定 9、10、11。"""
+        case = self.raw / "客戶案件"
+        pw = case / "深" / "密碼.txt"  # 測試報告 #1：密碼檔在子夾，萬用字元展開到夾、走訪才找得到
+        pw.parent.mkdir(exist_ok=True)
+        pw.write_text("x", encoding="utf-8")
+        self.addCleanup(shutil.rmtree, pw.parent, True)
+        try:  # 9：同句別段讀到的夾不給開夾豁免
+            for tool, cmd in (("Bash", "explorer <RAW>/客戶案件 ; grep -r x <RAW>/客戶案件/*"),
+                              ("PowerShell", "explorer '<RAW>\\客戶案件'; Get-ChildItem -Recurse '<RAW>\\客戶案件\\*' | Get-Content")):
+                with self.subTest(cmd=cmd):
+                    d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                    self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"))
+            self.assertEqual(self.bash("explorer <RAW>/客戶案件").decision, "pass")
+            d = self.ps("explorer '<RAW>'; Get-Content '<RAW>\\客戶案件\\a.txt'")
+            self.assertEqual(d.decision, "deny", "開的夾底下有別段讀的路徑：照一般規則（Z10b）")
+        finally:
+            pw.unlink()
+        w = case / "onlyw.wsf"  # 10
+        w.write_text("x", encoding="utf-8")
+        try:
+            d = self.ps("cd '<RAW>\\客戶案件'; Start-Process onlyw")
+            self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z9", "run_file"))
+        finally:
+            w.unlink()
+        for tool, cmd, zone in (("PowerShell", "C:\\Windows\\explorer.exe '<V>\\AI 產出\\x.bat'", "Z3"),  # 11
+                                ("PowerShell", 'C:\\Windows\\System32\\cmd.exe /c start "" "<V>\\AI 產出\\x.bat"', "Z3"),
+                                ("Bash", '/c/Windows/System32/cmd.exe //c start "" "<V>/AI 產出/x.bat"', "Z3"),
+                                ("PowerShell", "& '<V>\\AI 產出\\explorer.exe' '<V>\\AI 產出\\a.docx'", "Z3")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", zone, "run_file"))
+        self.assertEqual(self.ps("C:\\Windows\\explorer.exe '<V>\\AI 產出\\a.docx'").decision, "pass")
+        self.assertEqual(self.ps('C:\\Windows\\System32\\cmd.exe /c start "" "<V>\\AI 產出\\a.docx"').decision, "pass")
+
+    def test_com_open_still_denied(self):
+        d = self.ps("$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+                    "$w.Documents.Open('<V>\\AI 產出\\a.docx')")
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z3", "output_shell"))
+
+    def test_com_attach_pass(self):
+        """D-515：附著到開著的 Office 改，守門不表態。"""
+        for tool, cmd in (
+                ("PowerShell", "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+                               "$d=$w.Documents | Where-Object { $_.Name -eq 'a.docx' }; $d.Content.InsertAfter('x'); $d.Save()"),
+                ("PowerShell", "$x=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                               "$b=$x.Workbooks | Where-Object { $_.FullName -eq '<RAW>\\客戶案件\\a.xlsx' }; "
+                               "$b.Worksheets.Item(1).Range('A1').Value2 = '下週交'"),
+                ("Bash", "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); "
+                         "d=[x for x in w.Documents if x.FullName==r'<V>\\AI 產出\\a.docx'][0]; d.Content.InsertAfter('x')\""),
+                ("PowerShell", "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); "
+                               "$p.ActivePresentation.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'")):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual(d.decision, "pass")
+
+    def test_com_attach_fullname_compare(self):
+        """裁定 29：附著 Office、AI 產出的路徑只在比對右邊（-eq -like 系列、python ==）照讀；同句另開、另存、寫入、導向或路徑在比對外照擋。"""
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+        loop = word + "foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { $x.Content.InsertAfter('x'); $x.Save()"
+        cases = (
+            ("a", "PowerShell", loop + " } }", "pass"),
+            ("b", "PowerShell", word + "$d=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' }; "
+                                       "$d.Content.InsertAfter('x'); $d.Save()", "pass"),
+            ("c", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                "$b=$e.Workbooks | Where-Object { $_.FullName -ieq '<V>\\AI 產出\\a.xlsx' }; "
+                                "$b.Worksheets.Item(1).Range('A1').Value2 = '下週交'; $b.Save()", "pass"),
+            ("c", "PowerShell", "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); "
+                                "$q=$p.Presentations | Where-Object { $_.FullName -like '<V>\\AI 產出\\a.pptx' }; "
+                                "$q.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'; $q.Save()", "pass"),
+            ("d", "PowerShell", "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); "
+                                "d=[x for x in w.Documents if x.FullName == r'<V>\\AI 產出\\a.docx'][0]; d.Content.InsertAfter('x'); d.Save()\"",
+             "pass"),
+            ("e", "PowerShell", loop + "; $x.SaveAs('<V>\\AI 產出\\y.docx') } }", "deny"),
+            ("f", "PowerShell", loop + " } }; $w.Documents.Open('<V>\\AI 產出\\a.docx')", "deny"),
+            ("g", "PowerShell", "if ('<V>\\AI 產出\\a.docx' -eq $a) { Remove-Item '<V>\\AI 產出\\a.docx' }", "deny"),
+            ("沒附著", "PowerShell", "if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { $x.Save() }", "deny"),
+            ("左邊", "PowerShell", word + "foreach ($x in $w.Documents) { if ('<V>\\AI 產出\\a.docx' -eq $x.FullName) { $x.Save() } }", "deny"),
+            ("比對外", "PowerShell", word + "$f='<V>\\AI 產出\\a.docx'; $d=$w.Documents | Where-Object { $_.FullName -eq $f }; $d.Save()", "deny"),
+            ("SaveCopyAs", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                         "$b=$e.Workbooks | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.xlsx' }; $b.SaveCopyAs('C:\\x\\b.xlsx')", "deny"),
+            ("Export", "PowerShell", loop + "; $x.ExportAsFixedFormat('C:\\x\\a.pdf', 17) } }", "deny"),
+            ("Add", "PowerShell", loop + " } }; $w.Documents.Add()", "deny"),
+            ("寫入字", "PowerShell", loop + " } }; Copy-Item 'C:\\x\\b.docx' 'C:\\x\\c.docx'", "deny"),
+            ("導向", "PowerShell", loop + " } } > 'C:\\x\\log.txt'", "deny"),
+        )
+        gci = word + "Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | ForEach-Object { "
+        loop2 = word + "foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\a.docx') { "
+        cases += tuple(("review", "PowerShell", cmd, "deny") for cmd in (  # 收尾 API code review：比對拿到的物件拿去刪、搬、跑
+            gci + "$_.Delete() }",
+            gci + "$_.MoveTo('C:\\x\\a.docx') }",
+            gci + "& $_.FullName }",
+            gci + "$_.Attributes = 'Hidden' }",
+            word + "$f = Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.ps1' }; . $f.FullName",
+            loop2 + "$x.Close(); [System.IO.File]::Delete($x.FullName) } }",
+            loop2 + "$x.Close(); [IO.FileInfo]::new($x.FullName).Delete() } }",
+            loop2 + "$w.WordBasic.Kill($x.FullName) } }",
+            loop2 + "$w.Run('Evil') } }",
+            loop2 + "$w.Documents.OpenNoRepairDialog('<V>\\AI 產出\\b.docx') } }",
+            word + "$q=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' }; $q.Range().ExportFragment('C:\\x\\f.docx', 0)",
+            word + "Get-ChildItem '<V>' -Recurse | ? { $_.FullName -like '<V>\\AI 產出\\*' } | % { $_.Delete() }",
+            word + "foreach ($x in $w.Documents) { if ($x.FullName -like '<V>\\AI 產出\\*') { $x.Save() } }",
+            "# GetActiveObject('Word.Application')\nGet-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
+            "$null='GetActiveObject(\"Word.Application\")'; Get-ChildItem '<V>' -Recurse | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.docx' } | % { $_.Delete() }",
+        ))
+        cases += (  # 裁定 31：寫進文件的字不算寫入動詞；文件裡的 Add 不擋，開新檔的 Add 照擋
+            ("引號內 copy", "PowerShell", loop2 + "$x.Content.InsertAfter('請 copy 這段'); $x.Save() } }", "pass"),
+            ("引號內 zip", "PowerShell", loop2 + "$x.Content.InsertAfter('zip code'); $x.Save() } }", "pass"),
+            ("Tables.Add", "PowerShell", loop2 + "[void]$x.Tables.Add($x.Range(0,0), 2, 2); $x.Save() } }", "pass"),
+            ("Comments.Add", "PowerShell", loop2 + "[void]$x.Comments.Add($x.Paragraphs.Item(1).Range, '請確認'); $x.Save() } }", "pass"),
+            ("Workbooks.Add", "PowerShell", "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+                                            "$b=$e.Workbooks | Where-Object { $_.FullName -eq '<V>\\AI 產出\\a.xlsx' }; [void]$e.Workbooks.Add(); $b.Save()",
+             "deny"),
+            ("引號外 copy", "PowerShell", loop2 + "$x.Save() } }; copy 'C:\\x\\a' 'C:\\x\\b'", "deny"),
+        )
+        for name, tool, cmd, want in cases:
+            with self.subTest(case=name, cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual(d.decision, want, d)
+                if want == "deny" and name in "efg":
+                    self.assertEqual((d.zone, d.reason_code), ("Z3", "output_shell"))
+
+
+class OpenFileHook(unittest.TestCase):
+    """驗收 15、16：hook 對附著改不印 deny、不備份；製卡助手開檔照 agent_scope 擋。"""
+
+    SID = "sid-open"
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        from kb._lib import batches, turn
+        turn.start(self.V, self.SID, "第三段改成下週交")
+        batches.agent_start(self.V, self.SID, "agent-1")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_hook(self, cmd, **extra):
+        import json as _json
+        import subprocess as _sp
+        data = dict(payload("PowerShell", cmd, self.V), session_id=self.SID, **extra)
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT))
+        return _sp.run([sys.executable, str(ROOT / "hooks" / "guard.py")], input=_json.dumps(data, ensure_ascii=False),
+                       capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT), env=env)
+
+    def files_under(self, *parts):
+        root = self.V.joinpath(*parts)
+        return sorted(str(p) for p in root.rglob("*") if p.is_file()) if root.exists() else []
+
+    def test_attach_no_deny_no_backup(self):
+        before = (self.files_under(".system", "turns"), self.files_under(".system", "versions"))
+        r = self.run_hook("$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+                          "$d=$w.Documents | Where-Object { $_.Name -eq 'a.docx' }; $d.Content.InsertAfter('x'); $d.Save()")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('"deny"', r.stdout)
+        self.assertEqual((self.files_under(".system", "turns"), self.files_under(".system", "versions")), before)
+
+    def test_card_maker_open_denied(self):
+        from kb._lib import batches
+        import json as _json
+        r = self.run_hook(f"Start-Process '{self.V}\\AI 產出\\x.docx'", agent_id="agent-1", agent_type=batches.AGENT)
+        out = _json.loads(r.stdout)["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "deny")
+        rows = (self.V / ".system" / "ledger.tsv").read_text(encoding="utf-8")
+        self.assertIn("agent_scope", rows)
+
+
 class FreshVault(unittest.TestCase):
     """測試後修正裁定 12（H-1）：還沒有 .system/temp/office/ 的新庫，第一次寫工作區也放行；officeX、.. 照擋。"""
 
