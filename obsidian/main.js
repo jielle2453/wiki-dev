@@ -520,6 +520,7 @@ function layoutMonth(timeline, opts) {
     text: f.m.text || '',
     kind: f.m.kind || null,
     row: f.row,
+    rowKey: f.rowKey,
     color: colorOf(f.rowKey, f.m), // 0～7 或 null（淡灰），時間軸同一列同色（裁定 37）
     time: f.m.time || null,
     label: f.m.time ? `${f.m.time} ${f.m.text || ''}` : f.m.text || '', // 有時間的寫「14:00 丈量」
@@ -1215,6 +1216,17 @@ function splitCardRefs(text) {
   return out;
 }
 
+/** 一段文字裡所有〔f-…〕的位置：[{from, to, ref}]（offset 是這段文字在整份文件裡的起點）。 */
+function cardRefRanges(text, offset) {
+  const out = [];
+  const s = String(text == null ? '' : text);
+  const base = offset || 0;
+  const re = new RegExp(CARD_REF_RE.source, 'g');
+  let m;
+  while ((m = re.exec(s)) !== null) out.push({ from: base + m.index, to: base + m.index + m[0].length, ref: m[1] });
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // DOM 小幫手（只用 createElement／setAttribute／addEventListener／appendChild，方便測試用假 DOM）
 // ---------------------------------------------------------------------------------------------------------------
@@ -1478,6 +1490,11 @@ const ICON_SHAPES = {
     ['path', { d: 'M8 7.2V11M8 5v.1' }],
   ],
   chevron: [['path', { d: 'M6 3.5 10.5 8 6 12.5' }]],
+  // Obsidian（lucide）的 file-text，縮到 16 格：出處〔f-…〕的小檔案圖示（裁定 41）
+  'file-text': [
+    ['path', { d: 'M4 1.5h5.5l3 3v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1Z' }],
+    ['path', { d: 'M9.5 1.5v3h3M5.5 8h5M5.5 10.5h5' }],
+  ],
   dots: [
     ['circle', { cx: 3.5, cy: 8, r: 1 }],
     ['circle', { cx: 8, cy: 8, r: 1 }],
@@ -1638,7 +1655,6 @@ class HomeView extends ItemView {
     // 左欄＝日期、問候、搜尋框，右欄＝便條，兩欄上緣對齊（裁定 39、40）
     this.topLeftEl = h('div', { cls: 'wwh-topleft' }, this.topEl, this.searchEl);
     this.topRowEl = h('div', { cls: 'wwh-toprow' }, this.topLeftEl, this.noteEl);
-    this.claudeEl = h('div', { cls: 'wwh-others' });
     this.inputEl = h('input', {
       cls: 'wwh-search-input',
       attrs: { type: 'search', placeholder: '找檔案、人、案子，打完按 Enter（例：王先生 報價 上個月）' },
@@ -1689,7 +1705,6 @@ class HomeView extends ItemView {
     this.root.appendChild(this.topRowEl);
     this.root.appendChild(this.timelineEl);
     this.root.appendChild(this.colsEl);
-    this.root.appendChild(this.claudeEl);
     this.contentEl.addEventListener('mousedown', (e) => this.onPopOutside(e)); // 點框外關掉小框
     this.contentEl.addEventListener('keydown', (e) => {
       if (e && e.key === 'Escape') this.closePop();
@@ -1743,13 +1758,16 @@ class HomeView extends ItemView {
     if (this.noteTextEl.value !== n.text) this.noteTextEl.value = n.text;
   }
 
-  /** 待辦與要你確認的下面一行淡字：還有 N 件要跟 Claude 一起看＋對話圖示（點了複製「幫我看一下待處理」）；N = 移到這邊的題數加原本的小事，0 不寫。 */
+  /** 右欄「要你確認的」卡片正下方（在「還有 N 題」下面，收起時照樣顯示）一行淡字：還有 N 件要跟 Claude 一起看＋對話圖示（點了複製「幫我看一下待處理」）；N = 移到這邊的題數加原本的小事，0 不寫。 */
   renderClaude(el) {
     const home = this.plugin.home;
     const n = home ? asArray(home.claude).length + asArray(home.others).length : 0;
+    this.claudeEl = null;
     if (!n) return;
     const copy = () => this.plugin.copyReview();
-    el.appendChild(
+    this.claudeEl = h('div', { cls: 'wwh-others' });
+    el.appendChild(this.claudeEl);
+    this.claudeEl.appendChild(
       h(
         'div',
         { cls: 'wwh-others-line' },
@@ -1774,7 +1792,7 @@ class HomeView extends ItemView {
     const p = this.plugin;
     this.closePop();
     if (!p.runner) {
-      for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.claudeEl, this.drawerEl, this.bannerEl]) {
+      for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.drawerEl, this.bannerEl]) {
         el.classList.add('wwh-hidden');
       }
       if (!this.noKbEl) this.noKbEl = h('div', { cls: 'wwh-nokb', text: NO_KB_TEXT });
@@ -1782,7 +1800,7 @@ class HomeView extends ItemView {
       return;
     }
     if (this.noKbEl && this.noKbEl.parentNode) this.root.removeChild(this.noKbEl);
-    for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.claudeEl, this.drawerEl, this.bannerEl]) {
+    for (const el of [this.topRowEl, this.searchEl, this.recentEl, this.timelineEl, this.colsEl, this.drawerEl, this.bannerEl]) {
       el.classList.remove('wwh-hidden');
     }
     this.safe('提示', this.bannerEl, (el) => this.renderBanners(el));
@@ -1791,7 +1809,6 @@ class HomeView extends ItemView {
     this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     this.safe('待辦', this.leftEl, (el) => this.renderTodo(el));
     this.safe('要你確認的', this.rightEl, (el) => this.renderRight(el));
-    this.safe('跟 Claude 一起看', this.claudeEl, (el) => this.renderClaude(el));
     this.syncNote();
     this.safe('總覽', this.drawerEl, (el) => this.renderDrawer(el));
   }
@@ -2259,15 +2276,42 @@ class HomeView extends ItemView {
       ui.rowCollapsed[row.key] = !collapsed;
       this.safe('時間軸', this.timelineEl, (el) => this.renderTimeline(el));
     };
-    // 標題前一個小箭頭、點名字（整個標題列）收合；單雙數交替淡底
-    const name = h('span', { cls: 'wwh-row-name', text: row.label });
+    // 收合只靠名字前的小箭頭（裁定 41）；名字本身開右邊的總覽，「其他」那列不開；單雙數交替淡底
+    const openable = row.key !== OTHER_ROW_KEY && !!row.label;
+    const name = h('span', {
+      cls: ['wwh-row-name', openable ? 'is-link' : ''],
+      title: openable ? `開「${row.label}」的總覽` : null,
+      text: row.label,
+      on: {
+        click: (e) => {
+          if (!openable) return;
+          if (e && e.stopPropagation) e.stopPropagation();
+          this.plugin.openEntity(row.label);
+        },
+      },
+    });
+    const chev = h(
+      'span',
+      {
+        cls: 'wwh-fold-btn',
+        title: collapsed ? '展開' : '收起',
+        attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' },
+        on: {
+          click: (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            toggle();
+          },
+        },
+      },
+      h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+    );
     const left = h(
       'div',
       { cls: 'wwh-cell-left wwh-row-head' },
       h(
         'div',
-        { cls: 'wwh-fold', title: collapsed ? '展開' : '收起', attrs: { role: 'button', tabindex: '0', 'aria-expanded': collapsed ? 'false' : 'true' }, on: { click: toggle } },
-        h('span', { cls: ['wwh-chev', collapsed ? '' : 'is-open'] }, icon('chevron', 14, 2)),
+        { cls: 'wwh-fold' },
+        chev,
         this.tlColors.row(row.key) === null ? null : h('i', { cls: ['wwh-row-dot', toneCls(this.tlColors.row(row.key))] }),
         name,
         h('span', { cls: 'wwh-muted wwh-row-count', text: open ? `${open} 件` : '' }),
@@ -2276,7 +2320,7 @@ class HomeView extends ItemView {
           : null,
       ),
     );
-    const headLine = h('div', { cls: 'wwh-line wwh-head-line', on: { click: toggle } }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.slide(this.summary(row, todayN)) : null));
+    const headLine = h('div', { cls: 'wwh-line wwh-head-line' }, left, h('div', { cls: 'wwh-cell-track' }, collapsed ? this.slide(this.summary(row, todayN)) : null));
     const block = h('div', { cls: ['wwh-row', collapsed ? 'is-collapsed' : 'is-open', index % 2 ? 'is-alt' : ''] }, headLine);
     if (!collapsed) {
       const rows = h('div', { cls: 'wwh-rows' });
@@ -2531,6 +2575,24 @@ class HomeView extends ItemView {
     );
   }
 
+  /** 小框裡的案子名：點了開右邊總覽（「其他」那列不開）。 */
+  entityName(mk, cls) {
+    const openable = mk.rowKey !== OTHER_ROW_KEY && !!mk.row;
+    return h('span', {
+      cls: [cls, openable ? 'is-link' : ''],
+      text: mk.row,
+      title: openable ? `開「${mk.row}」的總覽` : null,
+      on: {
+        click: (e) => {
+          if (!openable) return;
+          if (e && e.stopPropagation) e.stopPropagation();
+          this.closePop();
+          this.plugin.openEntity(mk.row);
+        },
+      },
+    });
+  }
+
   /** 點月曆某天的日期或空白處：旁邊跳一個小框列那天所有的事（時間、事情、案子名，點一件開相關的卡），最下面「＋這天加一件」。 */
   openDayPop(anchor, day) {
     const p = this.plugin;
@@ -2544,7 +2606,7 @@ class HomeView extends ItemView {
         h('span', { cls: 'wwh-pop-time', text: mk.time || '' }),
         h('span', { cls: ['wwh-pop-dot', toneCls(mk.color)] }),
         h('span', { cls: 'wwh-pop-text', text: mk.text || '' }),
-        mk.row ? h('span', { cls: 'wwh-muted wwh-pop-row-name', text: mk.row }) : null,
+        mk.row ? this.entityName(mk, 'wwh-muted wwh-pop-row-name') : null,
       );
       row.addEventListener('click', () => {
         this.closePop();
@@ -2634,12 +2696,12 @@ class HomeView extends ItemView {
       bits.push(
         h('span', {
           cls: 'wwh-todo-entity wwh-link',
-          title: `開「${names[0]}」的綜合卡`,
+          title: `開「${names[0]}」的總覽`,
           text: names[0],
           on: {
             click: (e) => {
               if (e && e.stopPropagation) e.stopPropagation();
-              this.plugin.openSynthesis(names[0]);
+              this.plugin.openEntity(names[0]);
             },
           },
         }),
@@ -2694,7 +2756,11 @@ class HomeView extends ItemView {
         collapsed && list.length ? h('span', { cls: 'wwh-group-count', text: String(list.length) }) : null,
       ),
     );
-    if (!p.home || collapsed) return;
+    if (!p.home) return;
+    if (collapsed) {
+      this.renderClaude(el);
+      return;
+    }
     if (!list.length) sure.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
     const shown = ui.confirmAll ? list : list.slice(0, CONFIRM_SHOWN);
     for (const c of shown) sure.appendChild(this.confirmCard(c));
@@ -2713,6 +2779,7 @@ class HomeView extends ItemView {
         }),
       );
     }
+    this.renderClaude(el);
   }
 
   /** 一題一張卡：題目在上；左邊是答案（要填的字後面有「…」，點了在卡上展開），右邊淡淡的「先放著」和一個對話圖示（點了複製「關於「題目」：」）。 */
@@ -2948,6 +3015,7 @@ class WikiWithWillyPlugin extends Plugin {
     this.addRibbonIcon('home', '開啟首頁', () => this.activateHome());
     this.addCommand({ id: 'open-home', name: '開啟首頁', callback: () => this.activateHome() });
     this.registerMarkdownPostProcessor((el) => this.linkifyCardRefs(el));
+    if (this.registerEditorExtension) this.registerEditorExtension(this.cardRefExtension());
 
     const ws = this.app.workspace;
     this.registerEvent(ws.on('file-open', (file) => this.onFileOpen(file)));
@@ -3297,7 +3365,7 @@ class WikiWithWillyPlugin extends Plugin {
   openEntity(name) {
     const d = this.ui.drawer;
     d.open = true;
-    d.stack.push(name);
+    if (d.stack[d.stack.length - 1] !== name) d.stack.push(name);
     d.data = null;
     d.error = null;
     this.loadDrawer(true);
@@ -3579,17 +3647,107 @@ class WikiWithWillyPlugin extends Plugin {
     const now = Date.now();
     if (!this.cardIndex || (!this.cardIndex.has(id) && now - this.cardIndexAt > 10000)) {
       const map = new Map();
+      const titles = new Map();
       for (const f of this.app.vault.getMarkdownFiles()) {
         if (!String(f.path).startsWith('檔案索引/')) continue;
         const cache = this.app.metadataCache.getFileCache(f);
         const fm = cache && cache.frontmatter;
         const cid = fm && (fm['編號'] || fm.id);
-        if (typeof cid === 'string') map.set(cid, f.path);
+        if (typeof cid === 'string') {
+          map.set(cid, f.path);
+          const t = fm['標題'] || fm.title;
+          if (typeof t === 'string' && t.trim()) titles.set(cid, t.trim());
+        }
       }
+      this.cardTitles = titles;
       this.cardIndex = map;
       this.cardIndexAt = now;
     }
     return this.cardIndex.get(id) || null;
+  }
+
+  cardTitleOf(id) {
+    this.cardPathOf(id);
+    return (this.cardTitles && this.cardTitles.get(id)) || null;
+  }
+
+  /** 出處的小檔案圖示（裁定 41）：跟字同高、淡色，滑過去提示那張卡的標題，點了開那張卡；檔案裡存的字不變。 */
+  cardRefIcon(ref, target) {
+    const title = this.cardTitleOf(ref) || String(target).replace(/^.*\//, '').replace(/\.md$/, '');
+    const a = dom.doc().createElement('a');
+    a.className = 'wwh-cardref';
+    a.setAttribute('href', target);
+    a.setAttribute('data-href', target);
+    a.setAttribute('title', title);
+    a.setAttribute('aria-label', `出處：${title}`);
+    a.appendChild(icon('file-text', 14, 1.4));
+    a.addEventListener('click', (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      this.openPathInVault(target);
+    });
+    return a;
+  }
+
+  /** 編輯模式（Live Preview）的裝飾：把〔f-…〕換成同一個小圖示；游標進到那段、找不到卡、原始碼模式都顯示原字。回 CodeMirror 的 extension（讀不到 CM 回 []）。 */
+  cardRefExtension() {
+    let view;
+    let state;
+    try {
+      view = require('@codemirror/view');
+      state = require('@codemirror/state');
+    } catch (e) {
+      return [];
+    }
+    if (!view || !state || !view.ViewPlugin || !view.Decoration || !view.WidgetType) return [];
+    const plugin = this;
+    class RefWidget extends view.WidgetType {
+      constructor(ref, target) {
+        super();
+        this.ref = ref;
+        this.target = target;
+      }
+
+      eq(other) {
+        return other.ref === this.ref && other.target === this.target;
+      }
+
+      toDOM() {
+        return plugin.cardRefIcon(this.ref, this.target);
+      }
+
+      ignoreEvent() {
+        return false;
+      }
+    }
+    const build = (v) => {
+      const lp = obsidian.editorLivePreviewField;
+      if (lp && v.state.field && v.state.field(lp, false) === false) return view.Decoration.none; // 原始碼模式不改
+      const sel = v.state.selection.ranges;
+      const marks = [];
+      for (const r of v.visibleRanges) {
+        const text = v.state.doc.sliceString(r.from, r.to);
+        for (const x of cardRefRanges(text, r.from)) {
+          if (sel.some((q) => q.from <= x.to && q.to >= x.from)) continue; // 游標進到那段：顯示原字照常改
+          const target = plugin.cardPathOf(x.ref);
+          if (!target) continue;
+          marks.push(view.Decoration.replace({ widget: new RefWidget(x.ref, target) }).range(x.from, x.to));
+        }
+      }
+      return view.Decoration.set(marks, true);
+    };
+    return view.ViewPlugin.fromClass(
+      class {
+        constructor(v) {
+          this.decorations = build(v);
+        }
+
+        update(u) {
+          if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = build(u.view);
+        }
+      },
+      { decorations: (v) => v.decorations },
+    );
   }
 
   linkifyCardRefs(el) {
@@ -3614,19 +3772,10 @@ class WikiWithWillyPlugin extends Plugin {
         }
         const target = this.cardPathOf(part.ref);
         if (!target) {
-          frag.appendChild(doc.createTextNode(`〔${part.ref}〕`));
+          frag.appendChild(doc.createTextNode(`〔${part.ref}〕`)); // 找不到那張卡的照舊顯示原字
           continue;
         }
-        const a = doc.createElement('a');
-        a.className = 'internal-link wwh-cardref';
-        a.setAttribute('href', target);
-        a.setAttribute('data-href', target);
-        a.textContent = `〔${part.ref}〕`;
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
-          this.openPathInVault(target);
-        });
-        frag.appendChild(a);
+        frag.appendChild(this.cardRefIcon(part.ref, target));
       }
       parent.replaceChild(frag, node);
     }
@@ -3691,6 +3840,7 @@ module.exports.lib = {
   summarizeApply,
   hasCarriedSection,
   splitCardRefs,
+  cardRefRanges,
   rowDefaultCollapsed,
   isDueToday,
   openMarksOnly,

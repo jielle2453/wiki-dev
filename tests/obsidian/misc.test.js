@@ -73,6 +73,120 @@ test('出處編號對到檔案索引裡的卡（讀檔頭的編號）', () => {
   assert.strictEqual(plugin.cardPathOf('f-ffffffff'), null);
 });
 
+// ---- 裁定 41：出處〔f-…〕顯示成小檔案圖示 ----
+
+function makeRefPlugin() {
+  const files = [{ path: '檔案索引/報價-1a2b3c4d.md' }, { path: '檔案索引/合約-5e6f7a8b.md' }];
+  const fms = { '檔案索引/報價-1a2b3c4d.md': { 編號: 'f-1a2b3c4d', 標題: '信義王報價' }, '檔案索引/合約-5e6f7a8b.md': { 編號: 'f-5e6f7a8b' } };
+  const app = {
+    vault: { adapter: { getBasePath: () => '/v' }, getMarkdownFiles: () => files },
+    metadataCache: { getFileCache: (f) => ({ frontmatter: fms[f.path] }) },
+  };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  const opened = [];
+  plugin.openPathInVault = (r) => opened.push(r);
+  return { plugin, opened };
+}
+
+test('出處（裁定 41）：小檔案圖示——file-text、滑過提示那張卡的標題（沒標題用檔名），點了開那張卡；存的字不變', () => {
+  const { plugin, opened } = makeRefPlugin();
+  assert.strictEqual(plugin.cardTitleOf('f-1a2b3c4d'), '信義王報價');
+  const a = plugin.cardRefIcon('f-1a2b3c4d', plugin.cardPathOf('f-1a2b3c4d'));
+  assert.ok(a.classList.contains('wwh-cardref'));
+  assert.strictEqual(a.attrs.title, '信義王報價');
+  assert.strictEqual(a.attrs['aria-label'], '出處：信義王報價');
+  assert.strictEqual(byTag(a, 'svg').length, 1, '小圖示');
+  assert.strictEqual(a.textContent, '', '畫面上不寫〔f-…〕');
+  let stopped = 0;
+  a.fire('click', { stopPropagation: () => stopped++ });
+  assert.deepStrictEqual(opened, ['檔案索引/報價-1a2b3c4d.md']);
+  const b = plugin.cardRefIcon('f-5e6f7a8b', plugin.cardPathOf('f-5e6f7a8b'));
+  assert.strictEqual(b.attrs.title, '合約-5e6f7a8b', '沒標題用檔名');
+  assert.strictEqual(plugin.cardTitleOf('f-ffffffff'), null);
+  assert.ok(lib.icon('file-text', 14), 'file-text 圖示有定義');
+  assert.deepStrictEqual(lib.splitCardRefs('水電〔f-1a2b3c4d〕'), [{ text: '水電' }, { ref: 'f-1a2b3c4d' }], '檔案裡存的字照舊是〔f-…〕');
+});
+
+test('出處（裁定 41）：閱讀模式後處理——找得到卡換成圖示、找不到卡照舊顯示原字、連結與程式碼裡不動', () => {
+  const { plugin } = makeRefPlugin();
+  const { FakeEl, FakeText } = require('./helpers/fakedom');
+  const para = new FakeEl('p');
+  const t = new FakeText('水電完工〔f-1a2b3c4d〕，另見〔f-ffffffff〕');
+  para.appendChild(t);
+  const code = new FakeEl('code');
+  const ct = new FakeText('〔f-1a2b3c4d〕');
+  code.appendChild(ct);
+  const root = new FakeEl('div');
+  root.appendChild(para);
+  root.appendChild(code);
+  para.replaceChild = function (frag, node) {
+    const i = this.children.indexOf(node);
+    this.children.splice(i, 1, ...frag.children);
+    for (const k of frag.children) k.parentNode = this;
+  };
+  code.closest = () => code;
+  t.parentNode.closest = () => null;
+  root.ownerDocument = { createTreeWalker: () => { const list = [t, ct]; return { nextNode: () => list.shift() || null }; }, createDocumentFragment: () => globalThis.document.createDocumentFragment(), createTextNode: (x) => globalThis.document.createTextNode(x), createElement: (x) => globalThis.document.createElement(x) };
+  plugin.linkifyCardRefs(root);
+  const kinds = para.children.map((c) => (c.nodeType === 3 ? c.nodeValue : c.className));
+  assert.deepStrictEqual(kinds, ['水電完工', 'wwh-cardref', '，另見', '〔f-ffffffff〕'], '找不到那張卡的照舊顯示原字');
+  assert.strictEqual(code.textContent, '〔f-1a2b3c4d〕', '程式碼裡不動');
+});
+
+test('出處（裁定 41）：編輯模式——cardRefRanges 找位置；裝飾把找得到的〔f-…〕換成小圖示，游標進到那段、找不到卡、原始碼模式顯示原字', () => {
+  assert.deepStrictEqual(lib.cardRefRanges('a〔f-1a2b3c4d〕b〔s-11223344〕〔f-5e6f7a8b〕', 10), [
+    { from: 11, to: 23, ref: 'f-1a2b3c4d' },
+    { from: 36, to: 48, ref: 'f-5e6f7a8b' },
+  ]);
+  assert.deepStrictEqual(lib.cardRefRanges('沒有', 0), []);
+  const Module = require('node:module');
+  const fakeView = {
+    WidgetType: class {},
+    Decoration: { none: [], replace: (o) => ({ range: (from, to) => ({ from, to, widget: o.widget }) }), set: (arr) => arr },
+    ViewPlugin: { fromClass: (cls, spec) => ({ cls, spec }) },
+  };
+  const orig = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === '@codemirror/view') return fakeView;
+    if (request === '@codemirror/state') return {};
+    return orig.call(this, request, parent, isMain);
+  };
+  let ext;
+  const { plugin } = makeRefPlugin();
+  try {
+    ext = plugin.cardRefExtension();
+  } finally {
+    Module._load = orig;
+  }
+  const text = '水電〔f-1a2b3c4d〕完工〔f-ffffffff〕';
+  const viewOf2 = (cursor, live) => ({
+    state: {
+      doc: { sliceString: (a, b) => text.slice(a, b) },
+      selection: { ranges: [{ from: cursor, to: cursor }] },
+      field: () => live,
+    },
+    visibleRanges: [{ from: 0, to: text.length }],
+  });
+  const decos = (v) => new ext.cls(v).decorations;
+  const got = decos(viewOf2(0, true));
+  assert.strictEqual(got.length, 1, '找不到卡的那個不換');
+  assert.deepStrictEqual([got[0].from, got[0].to], [2, 14]);
+  const dom = got[0].widget.toDOM();
+  assert.ok(dom.classList.contains('wwh-cardref') && byTag(dom, 'svg').length === 1);
+  assert.ok(got[0].widget.eq(new (got[0].widget.constructor)('f-1a2b3c4d', '檔案索引/報價-1a2b3c4d.md')));
+  assert.strictEqual(decos(viewOf2(5, true)).length, 0, '游標進到那段顯示原字照常改');
+  assert.strictEqual(decos(viewOf2(0, false)).length, 0, '原始碼模式不改');
+  assert.strictEqual(typeof ext.spec.decorations, 'function');
+  // 讀不到 CodeMirror 就不加（不能讓外掛載入失敗）
+  assert.deepStrictEqual(plugin.cardRefExtension(), []);
+});
+
+test('出處（裁定 41）：小圖示的樣式——跟字同高、淡色', () => {
+  const css = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '..', 'obsidian', 'styles.css'), 'utf8');
+  assert.match(css, /\.wwh-cardref \{[^}]*color: var\(--text-faint\)/);
+  assert.match(css, /\.wwh-cardref \.wwh-ico \{[^}]*height: 1em/);
+});
+
 function makeDrawerPlugin(lookups) {
   const calls = [];
   const app = { vault: { adapter: { getBasePath: () => '/v' } }, workspace: { getLeavesOfType: () => [] } };

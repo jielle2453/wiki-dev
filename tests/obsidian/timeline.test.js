@@ -438,13 +438,13 @@ test('待辦（裁定 30）：標題、案子·種類·推測一行淡小字、�
   assert.strictEqual(byTag(first, 'button').length, 0);
 });
 
-test('待辦（裁定 32）：「＋新增日程」在待辦標題旁；點日期改日期時間；點標題開相關的卡；點案子開綜合卡', () => {
+test('待辦（裁定 32、41）：「＋新增日程」在待辦標題旁；點日期改日期時間；點標題開相關的卡；點案子名開右邊總覽', () => {
   const calls = [];
   const { view } = viewOf(null, {
     addAgendaForm: () => calls.push('add'),
     editDateForm: (it) => calls.push('edit:' + it.id),
     openItem: (it) => calls.push('line:' + it.id),
-    openSynthesis: (n) => calls.push('card:' + n),
+    openEntity: (n) => calls.push('entity:' + n),
   });
   const add = byClass(view.leftEl, 'wwh-add-btn')[0];
   assert.strictEqual(add.textContent, '＋新增日程');
@@ -453,7 +453,7 @@ test('待辦（裁定 32）：「＋新增日程」在待辦標題旁；點日�
   byClass(row, 'wwh-todo-when')[0].fire('click');
   byClass(row, 'wwh-todo-text')[0].fire('click');
   byClass(row, 'wwh-todo-entity')[0].fire('click', { stopPropagation() {} });
-  assert.deepStrictEqual(calls, ['add', 'edit:a-late', 'line:a-late', 'card:信義王']);
+  assert.deepStrictEqual(calls, ['add', 'edit:a-late', 'line:a-late', 'entity:信義王']);
 });
 
 test('要你確認的（裁定 30）：答案是淡的文字選項，不是按鈕；點了照 argv 做', () => {
@@ -484,18 +484,37 @@ test('時間軸（裁定 30）：做完的不畫；只有過期、今天的記�
   assert.strictEqual(lib.openMarksOnly({ rows: [{ key: 'x', marks: [mark({ status: 'done' })] }] }).rows.length, 0, '整塊都做完了就不畫那一塊');
 });
 
-test('時間軸（裁定 32）：點名字收合（單雙數交替淡底）；點一件開相關的卡', () => {
+test('時間軸（裁定 41）：收合只靠名字前的小箭頭，名字本身開右邊總覽（「其他」那列不開）；點一件開相關的卡', () => {
   const calls = [];
-  const { view, plugin } = viewOf(null, { openItem: (it) => calls.push('item:' + it.id) });
+  const { view, plugin } = viewOf(null, { openItem: (it) => calls.push('item:' + it.id), openEntity: (n) => calls.push('entity:' + n) });
   const rows = byClass(view.timelineEl, 'wwh-row');
   assert.deepStrictEqual(rows.map((r) => r.classList.contains('is-alt')), [false, true, false], '單雙數交替淡底');
-  assert.strictEqual(byClass(view.timelineEl, 'wwh-row-link').length, 0, '名字不再是連結');
-  byClass(rows[0], 'wwh-fold')[0].fire('click'); // 名字在標題列裡，點到名字就是點到標題列
-  assert.strictEqual(plugin.ui.rowCollapsed['e-1a2b3c4d'], true, '點名字收合');
+  assert.strictEqual(byClass(view.timelineEl, 'wwh-row-link').length, 0);
+  // 名字 → 總覽，不收合
+  byClass(rows[0], 'wwh-row-name')[0].fire('click');
+  assert.deepStrictEqual(calls, ['entity:信義王']);
+  assert.ok(byClass(rows[0], 'wwh-row-name')[0].classList.contains('is-link'));
+  assert.strictEqual(plugin.ui.rowCollapsed['e-1a2b3c4d'], undefined, '名字不收合');
+  // 整條標題列、整個左欄的空白處也不收合
+  byClass(rows[0], 'wwh-head-line')[0].fire('click');
+  byClass(rows[0], 'wwh-fold')[0].fire('click');
+  assert.strictEqual(plugin.ui.rowCollapsed['e-1a2b3c4d'], undefined);
+  // 小箭頭收合
+  const btn = byClass(rows[0], 'wwh-fold-btn')[0];
+  assert.strictEqual(btn.attrs.role, 'button');
+  assert.strictEqual(btn.attrs['aria-expanded'], 'true');
+  assert.strictEqual(byClass(btn, 'wwh-chev').length, 1);
+  btn.fire('click');
+  assert.strictEqual(plugin.ui.rowCollapsed['e-1a2b3c4d'], true, '點小箭頭收合');
   plugin.ui.rowCollapsed['e-1a2b3c4d'] = false;
   view.render();
+  // 「其他」那列：名字不開
+  const other = byClass(view.timelineEl, 'wwh-row')[2];
+  byClass(other, 'wwh-row-name')[0].fire('click');
+  assert.deepStrictEqual(calls, ['entity:信義王'], '其他不開');
+  assert.ok(!byClass(other, 'wwh-row-name')[0].classList.contains('is-link'));
   byClass(byClass(view.timelineEl, 'wwh-row')[0], 'wwh-mark-label')[0].fire('click');
-  assert.match(calls[0], /^item:a-/, '開的是日程那一件');
+  assert.match(calls[1], /^item:a-/, '開的是日程那一件');
 });
 
 test('點日程那件（裁定 32）：kb 給的 card 在就開那張卡；沒有才開日程.md 那一行', async () => {
@@ -745,27 +764,73 @@ test('要你確認的（裁定 37）：對話圖示——message-circle、滑過
   assert.strictEqual(lib.chatPhrase({}), '關於這題：');
 });
 
-test('最下面一行（裁定 39）：待辦與要你確認的下面「還有 N 件要跟 Claude 一起看」加對話圖示，點了複製「幫我看一下待處理」；N = 移到這邊的題數加小事；0 不寫', () => {
+test('最下面一行（裁定 41）：移到右欄「要你確認的」卡片正下方（在「還有 N 題」下面），收起時照樣顯示；N = 移到這邊的題數加小事；0 不寫；點了複製「幫我看一下待處理」', () => {
   const copied = [];
   const raw = sample();
+  raw.confirm = [1, 2, 3, 4, 5].map((n) => ({ key: `k${n}`, text: `第 ${n} 題`, results: [{ label: '好', argv: ['x'], fill: null }] }));
   raw.claude = [{ key: 'x1', kind: 'draft', text: '草稿還在等' }, { key: 'x2', kind: 'batch', text: '要整理 30 份' }];
   raw.others = [{ id: 'p-1', text: '有一份檔不見了' }];
-  const { view } = viewOf(raw, { copyReview: () => copied.push('x') });
+  const { view, plugin } = viewOf(raw, { copyReview: () => copied.push('x') });
   assert.strictEqual(byClass(view.root, 'wwh-block-others').length + byClass(view.root, 'wwh-other').length, 0, '舊的區塊沒了');
-  const kids = Array.from(view.root.children);
-  assert.ok(kids.indexOf(view.colsEl) < kids.indexOf(view.claudeEl), '兩欄下面');
-  assert.ok(kids.indexOf(view.noteEl) < 0, '便條不在最底下了');
+  assert.ok(!Array.from(view.root.children).includes(view.claudeEl), '不在兩欄下面了');
+  const kids = Array.from(view.rightEl.children);
+  const sure = byClass(view.rightEl, 'wwh-block-confirm')[0];
+  assert.ok(kids.indexOf(view.claudeEl) === kids.indexOf(sure) + 1, '右欄、要你確認的卡片正下方');
+  assert.ok(byClass(sure, 'wwh-confirm-more').length === 1, '「還有 N 題」在上面');
   const line = byClass(view.claudeEl, 'wwh-others-line')[0];
   assert.strictEqual(line.textContent, '還有 3 件要跟 Claude 一起看');
-  assert.ok(!line.textContent.includes('小事'), '「另外有 N 件小事」拿掉');
   const btn = byClass(line, 'wwh-chat-btn')[0];
   assert.strictEqual(btn.attrs.title, '跟 Claude 說');
   btn.fire('click');
   assert.deepStrictEqual(copied, ['x']);
+  // 收起時照樣顯示
+  byClass(view.rightEl, 'is-confirm')[0].fire('click');
+  assert.strictEqual(plugin.ui.confirmCollapsed, true);
+  assert.strictEqual(byClass(view.rightEl, 'wwh-confirm').length, 0);
+  assert.strictEqual(byClass(view.rightEl, 'wwh-others-line')[0].textContent, '還有 3 件要跟 Claude 一起看');
+  // 0 件不寫
   raw.claude = [];
   raw.others = [];
-  assert.strictEqual(byClass(viewOf(raw).view.claudeEl, 'wwh-others-line').length, 0, '0 件不寫');
+  assert.strictEqual(byClass(viewOf(raw).view.rightEl, 'wwh-others-line').length, 0, '0 件不寫');
   assert.strictEqual(lib.REVIEW_PHRASE, '幫我看一下待處理');
+});
+
+test('案子名稱開總覽（裁定 41）：月曆點日期小框裡的案子名開右邊總覽，「其他」那列的不開；點事情本身照舊開卡', () => {
+  const calls = [];
+  const raw = monthRaw();
+  raw.timeline.rows.push({ key: '_other', label: '其他', type: null, progress: null, pauses: [], links: [], marks: [mark({ id: 'o1', shape: 'point', kind: 'reminder', start: null, end: '2026-10-20', text: '繳費', children: [] })] });
+  const { view } = viewOf(raw, { openEntity: (n) => calls.push('entity:' + n), openItem: (it) => calls.push('item:' + it.id) });
+  view.setMode('month');
+  const dayEl = byClass(view.timelineEl, 'wwh-day').find((d) => !d.classList.contains('is-out') && byClass(d, 'wwh-day-num')[0].textContent === '20');
+  dayEl.fire('click');
+  const names = byClass(view.pop, 'wwh-pop-row-name');
+  const mine = names.find((n) => n.textContent === '信義王');
+  assert.ok(mine.classList.contains('is-link'));
+  mine.fire('click');
+  assert.deepStrictEqual(calls, ['entity:信義王']);
+  assert.strictEqual(view.pop, null, '開總覽就關小框');
+  dayEl.fire('click');
+  const other = byClass(view.pop, 'wwh-pop-row-name').find((n) => n.textContent === '其他');
+  assert.ok(!other.classList.contains('is-link'));
+  other.fire('click');
+  assert.deepStrictEqual(calls, ['entity:信義王'], '其他不開');
+  byClass(view.pop, 'wwh-pop-row')[0].fire('click');
+  assert.match(calls[1], /^item:/, '點事情本身開卡');
+});
+
+test('案子名稱開總覽（裁定 41）：openEntity 開右邊抽屜；同一個名字已經在最上面不重疊', () => {
+  const { plugin } = viewOf();
+  const real = lib.HomeView; // 只確認 plugin 的行為，不叫 kb
+  assert.ok(real);
+  const calls = [];
+  const fake = { ui: lib.defaultUi(), loadDrawer: (x) => calls.push(x) };
+  env.Plugin.prototype.openEntity.call(fake, '信義王');
+  env.Plugin.prototype.openEntity.call(fake, '信義王');
+  assert.strictEqual(fake.ui.drawer.open, true);
+  assert.deepStrictEqual(fake.ui.drawer.stack, ['信義王']);
+  env.Plugin.prototype.openEntity.call(fake, '中山林');
+  assert.deepStrictEqual(fake.ui.drawer.stack, ['信義王', '中山林']);
+  assert.ok(plugin);
 });
 
 test('要你確認的（裁定 37）：整區可以收合（標題前小箭頭，收起時標題旁寫題數）；先顯示 3 題，其餘「還有 N 題」點了展開', () => {
@@ -1694,4 +1759,13 @@ test('推測的日程（裁定 39）：actions.infer——對、改到某天、�
   assert.deepStrictEqual(lib.actions.infer(it, 'date', '2026-12-01').args, ['agenda', 'edit', 'a-7', '--date', '2026-12-01']);
   assert.deepStrictEqual(lib.actions.infer(it, 'cancel').args, ['agenda', 'cancel', 'a-7']);
   assert.strictEqual(typeof lib.actions.infer(it, 'cancel').undo, 'function');
+});
+
+test('顏色與間距（裁定 41）：要你確認的卡與推測小框——題目主文字色、答案淡灰（滑過才變主色）、題目與答案之間多 8px；小框的「開相關的卡」紫色', () => {
+  assert.match(CSS, /\.wwh-confirm-text \{[^}]*color: var\(--text-normal\)/);
+  assert.match(CSS, /\.wwh-answer \{[^}]*color: var\(--text-muted\)/);
+  assert.match(CSS, /\.wwh-answer:hover \{[^}]*color: var\(--text-normal\)/);
+  assert.match(CSS, /\.wwh-confirm-foot \{[^}]*margin-top: 8px/);
+  assert.match(CSS, /\.wwh-infer-pop \.wwh-confirm-buttons \{[^}]*margin-top: 8px/);
+  assert.match(CSS, /\.wwh-infer-pop \.wwh-pop-open \{[^}]*color: var\(--text-accent\)/);
 });

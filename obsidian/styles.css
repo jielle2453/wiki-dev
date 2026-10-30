@@ -712,7 +712,6 @@
 
 .wwh-head-line {
   min-height: 48px;
-  cursor: pointer;
 }
 
 .wwh-head-line .wwh-cell-track {
@@ -739,7 +738,28 @@
   box-shadow: none;
   color: var(--text-normal);
   text-align: left;
+}
+
+/* 收合只靠名字前的小箭頭（裁定 41）：點的範圍放大一點 */
+.wwh-fold-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  margin: -10px 0 -10px -4px;
+  padding: 0 4px;
   cursor: pointer;
+}
+
+.wwh-row-name.is-link,
+.wwh-todo-entity,
+.wwh-pop-row-name.is-link {
+  cursor: pointer;
+}
+
+.wwh-row-name.is-link:hover,
+.wwh-pop-row-name.is-link:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
 }
 
 .wwh-row-name {
@@ -1399,12 +1419,14 @@
 }
 
 .wwh-confirm-text {
+  color: var(--text-normal); /* 題目照主文字色，答案改淡灰（裁定 41） */
   font-size: 15px;
   font-weight: 500;
   line-height: 1.5;
 }
 
 .wwh-confirm-foot {
+  margin-top: 8px; /* 題目與答案之間多留約 8px（裁定 41） */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1419,9 +1441,9 @@
   gap: 8px 20px;
 }
 
-/* 點了就做的答案：主文字色、比之前大一點 */
+/* 點了就做的答案：淡灰，滑過才變主色（裁定 41，改掉 37 的主色） */
 .wwh-answer {
-  color: var(--text-normal);
+  color: var(--text-muted);
   font-size: 15px;
   cursor: pointer;
 }
@@ -1454,7 +1476,7 @@
 }
 
 .wwh-answer:hover {
-  color: var(--text-accent);
+  color: var(--text-normal);
   text-decoration: underline;
 }
 
@@ -1840,4 +1862,33 @@
   box-sizing: border-box;
   border: 1.5px solid var(--wwh-mark-c, var(--text-faint));
   background: transparent;
+}
+
+/* ---- 出處〔f-…〕的小檔案圖示（閱讀與編輯模式，裁定 41）：跟字同高、淡色 ---- */
+.wwh-cardref {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1px;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-decoration: none;
+  vertical-align: -0.125em;
+}
+
+.wwh-cardref:hover {
+  color: var(--text-accent);
+}
+
+.wwh-cardref .wwh-ico {
+  width: 1em;
+  height: 1em;
+}
+
+/* 推測的小框（裁定 41）：題目主色、答案淡灰（同確認卡），中間多 8px；「開相關的卡」紫色 */
+.wwh-infer-pop .wwh-confirm-buttons {
+  margin-top: 8px;
+}
+
+.wwh-infer-pop .wwh-pop-open {
+  color: var(--text-accent);
 }

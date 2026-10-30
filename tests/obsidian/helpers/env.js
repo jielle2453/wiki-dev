@@ -98,7 +98,7 @@ function makeFakeObsidian() {
 
   class MarkdownView {}
 
-  return { Plugin, ItemView, Modal, Menu, Notice, MarkdownView, notices };
+  return { Plugin, ItemView, Modal, Menu, Notice, MarkdownView, editorLivePreviewField: { name: 'editorLivePreviewField' }, notices };
 }
 
 /** 回 {lib, Plugin, fake, restore}：lib 是 main.js 匯出的純函式與類別。 */
