@@ -40,7 +40,7 @@ BACKUP_ZONES = ("Z1", "Z3", "Z5", "Z12")  # 綜合卡、AI 產出、檔案索引
 ERROR_REASON = "守門出錯，這次不放行。說「檢查」我看原因"
 AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent 或 --session"
-GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session")
+GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session", "--via")  # --via 只有 Obsidian 外掛自己帶（#22，D-255），模型帶的照 SELF_FLAGS 擋
 # card-maker 用得到的（agents/card-maker.md、carding.md）：(子命令, 子子命令)；子子命令 "" 是沒有子子命令的
 AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "skip"), ("convert", ""), ("version", ""),
                ("agenda", "add"), ("agenda", "edit"), ("agenda", "recheck"), ("agenda", "scanned"), ("agenda", "cancel"),

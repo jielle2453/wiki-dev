@@ -4,6 +4,7 @@
 全域 --turn <回合> --agent <agent_id>（放在子命令前、--help 不列）：守門替 card-maker 的 kb 呼叫插的（D-195）；
 有 --turn 時這次呼叫的備份都進那個回合、算對話裡（不寫程式段）；回合不存在、或不是這個對話（--agent 記的回合、
 這個 session 的目前回合或 job 回合）的 exit 3（第一輪修 S4）。--session <sid>：守門替主對話插的，每個單一 kb 呼叫都插（帶 --turn 與 selftest 除外）。
+--via obsidian（#22，D-255）：只有 Obsidian 外掛帶，這次呼叫永遠開自己的回合（不讀 current.json、不併進對話）；值只收 obsidian，其他 exit 3。
 """
 import argparse
 import importlib
@@ -12,6 +13,7 @@ import sys
 
 NO_SUCH_TURN = "回合不存在：{}"
 NOT_THIS_TURN = "這個回合不是這個對話的：{}"
+BAD_VIA = "--via 只收 obsidian"
 
 # 名稱: (模組, 一句說明)
 COMMANDS = {
@@ -74,6 +76,7 @@ def build_parser():
     parser.add_argument("--turn", help=argparse.SUPPRESS)
     parser.add_argument("--agent", help=argparse.SUPPRESS)
     parser.add_argument("--session", help=argparse.SUPPRESS)
+    parser.add_argument("--via", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", metavar="<子命令>", required=True)
     for name, (module_name, doc) in COMMANDS.items():
         sub = subparsers.add_parser(name, help=doc, description=doc)
@@ -114,6 +117,12 @@ def main(argv=None):
     if args.session is not None:
         from kb._lib import turn
         turn.SESSION = args.session
+    if args.via is not None:
+        from kb._lib import turn
+        if args.via != "obsidian":
+            print(BAD_VIA)
+            return 3
+        turn.VIA = args.via
     if args.turn is not None:
         from kb import guard
         from kb._lib import turn

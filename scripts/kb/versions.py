@@ -113,6 +113,7 @@ def turns(vault):
             "turn": d.name, "dir": d,
             "started": info.get("started", ""), "prompt_head": info.get("prompt_head", ""),
             "session_id": str(info.get("session_id") or ""),
+            "source": str(info.get("source") or ""),
             "reverted": (d / "reverted.json").is_file(),
             "reverted_turn": info.get("reverted_turn"),
             "remarks": info.get("remarks") or {},
@@ -145,9 +146,18 @@ def _side(t):
     return "self" if turn.SESSION and t["session_id"] == turn.SESSION else "other"
 
 
+def _obsidian(t):
+    return t.get("source") == "obsidian"
+
+
 def _in_range(t):
-    """退回看得到的回合（D-507）：終端機（沒有 --session）全部；對話裡跳過別的對話的。"""
-    return not turn.SESSION or _side(t) != "other"
+    """退回看得到的回合（D-507、D-255）：Obsidian 外掛叫的（--via obsidian）只看 Obsidian 的；對話裡（--session）跳過別的對話的
+    與 Obsidian 的；終端機（兩個都沒有）全部。"""
+    if turn.VIA:
+        return _obsidian(t)
+    if turn.SESSION:
+        return _side(t) != "other" and not _obsidian(t)
+    return True
 
 
 def _changed(t):
@@ -505,7 +515,7 @@ def _list(vault, n, as_json):
     if as_json:  # --json 照列全部，每筆帶 session（#20）
         print(json.dumps([{
             "turn": t["turn"], "started": t["started"], "prompt_head": t["prompt_head"], "session": _side(t),
-            "reverted": t["reverted"], "reverted_turn": t["reverted_turn"], "current": t["turn"] == current,
+            "source": t["source"], "reverted": t["reverted"], "reverted_turn": t["reverted_turn"], "current": t["turn"] == current,
             "counts": _counts(vault, t), "entries": t["entries"],
             "folders": [{k: f.get(k) for k in ("op", "from", "to")} for f in t["folders"]],
             "moves": [{k: m.get(k) for k in ("op", "kind", "from", "to")} for m in t["moves"]],
@@ -514,10 +524,11 @@ def _list(vault, n, as_json):
     if not all_turns:
         print("還沒有任何改動紀錄")
         return 0
-    others = sum(1 for t in all_turns if not _in_range(t) and _changed(t))
+    others = sum(1 for t in all_turns if not _in_range(t) and not _obsidian(t) and _changed(t))  # Obsidian 的自成一組，不算「另一個對話」
     for t in [t for t in all_turns if _in_range(t)][:n]:
         c = _counts(vault, t)
-        flags = ("（已退回）" if t["reverted"] else "") + ("（這一次）" if t["turn"] == current else "")
+        flags = (("（Obsidian）" if _obsidian(t) else "") + ("（已退回）" if t["reverted"] else "")
+                 + ("（這一次）" if t["turn"] == current else ""))
         outputs = "" if c["outputs"] is None else f"、成品 {c['outputs']}"
         print(f"{_describe(t)}{flags}｜修改 {c['modify']}、新增 {c['create']}、刪除 {c['delete']}{outputs}")
         for line in _folder_lines(t["folders"]):
@@ -730,6 +741,8 @@ def _acting_turn(vault, target_turn):
       turn.start(sid, inherit=目前回合) 開新回合接著這句，繼承問、note、approved，記 journal_turn，
       換掉 turns/<sid>.json 與 current.json；Stop 收原回合那一行。連續退回每次再開一個，journal_turn 一路繼承。"""
     rt = turn.current(vault)
+    if turn.VIA:
+        return rt  # Obsidian 外掛叫的：這次呼叫自己的回合就是動作回合，不動 current.json（D-255）
     if not rt.get("session_id") or rt.get("done"):
         return turn.start(vault, None, f"退回 {target_turn}")
     if rt["turn"] == target_turn:
@@ -740,7 +753,7 @@ def _acting_turn(vault, target_turn):
 def _seal(vault, conversation):
     """終端機跑的（不在對話裡）做完後再 start(None) 一次，把動作回合封起來（第二輪裁定 (ii)）：
     之後的指令進新回合，下一次退回只退那些，不會連這次退回一起撤掉。對話裡的不封，同一句的寫入要記在同一個回合。"""
-    if not conversation:
+    if not conversation and not turn.VIA:
         turn.start(vault, None, "")
 
 
