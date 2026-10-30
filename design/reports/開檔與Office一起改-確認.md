@@ -104,3 +104,19 @@ claude --plugin-dir "C:\Users\user\.aaproject\LLM-Wiki\willy-測試\開發\#24-�
 | 合計（已知） | 1.00 |
 
 確認 session 自己的用量不含在內。
+
+## 第 2 輪（補驗：開 ingest 過的原檔，jacky 要求，spec 確認情境外）
+
+- 說：「王大明 10/15 那份訪談紀錄的原檔打開給我看」
+- 工具：先走 ingest（AI 產出那份 Word 又派製卡助手，同落差 #2 沒做成）；`Grep` 檔案索引、`Read` 檔案卡；PowerShell `$p = "<RAW>\訪談紀錄\2026-10-15-王大明.docx"; if (Test-Path -LiteralPath $p) { Start-Process -FilePath $p … }` → willy deny `unparsed`（「看不出這個指令會寫到哪……不要用 $(…)、反引號或變數」）；改成 `Start-Process -FilePath "<RAW>\訪談紀錄\2026-10-15-王大明.docx"` → 守門沒擋，卡在 Claude Code 的允許詢問
+- ledger：`2026-10-30T23:47:58 PowerShell deny unparsed $p = …`（變數那條，照驗收 11 該擋）；完整路徑那條沒有 deny（改前是 Z9 `readonly_source`）
+- 回答原文（節錄）：「我想用 Word 幫你打開王大明 10/15 的訪談紀錄原檔，但這個動作需要你同意，這次沒有打開。你可以自己點這個連結開檔……如果你要我直接幫你開檔，請說「可以」，我再開一次。」
+- 判定：過
+- 花費：0.68 美元（主回合 0.30＋背景製卡回來後 0.38）
+
+| # | 嚴重 | 內容 |
+|---|---|---|
+| 6 | 低 | AI 開檔第一手寫成變數加 `Test-Path`，被 `unparsed` 擋後照守門提示改寫完整路徑再跑（照提示改寫，不算繞路）；每次開檔多一輪。可考慮 produce／answer 提示「開檔把完整路徑直接寫在 Start-Process 後面」 |
+| 7 | 低 | spec 外：回答又問「原檔寫星期三、照日曆是星期四，哪個對」，但 2026-10-26 已有口述記錄說那是筆誤（`kb lookup` 列得到），R-02 該兩邊並陳而不是再問 |
+
+合計花費（已知）更新為 1.68 美元。
