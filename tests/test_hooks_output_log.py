@@ -207,6 +207,88 @@ class CardCheck(unittest.TestCase):
         self.blocked(r, "檔頭「編號」的格式不對")
         self.assertFalse((self.V / ".system" / "hook-errors.log").exists())
 
+    def test_z5_write_recorded_not_listed(self):
+        """D-270 驗收 2：Z5 寫的檔案卡記進基準、不算她改；她改了之後 Claude 再寫也不列。"""
+        from kb._lib import card_base
+        r = self.write(self.text)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.assertIn(rel, card_base.load(self.V))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        self.assertEqual([e["path"] for e in card_base.edits(self.V)["edits"]], [rel])
+        card_base.done(self.V, [rel])
+        turn.start(self.V, SID, "再更新")
+        r = self.write(self.text.replace("紀錄", "Claude 改的紀錄"))  # 沒有她沒處理的手改：不出聲
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_write_over_unprocessed_hand_edit_notices_and_keeps_pending(self):
+        """裁定 2：她改了還沒處理、Claude 又寫這張卡：回一句（不擋）、她那段留成待處理，--done 才消。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("第一次", "第二次"))  # Claude 的版本把她改的蓋掉了
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (line,) = r.stdout.splitlines()
+        out = json.loads(line)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("這張卡她在 Obsidian 改過還沒處理：", out["reason"])
+        self.assertIn("她改的紀錄", out["reason"])
+        self.assertIn(f"kb cards edits --done {rel}", out["reason"])
+        self.assertTrue(self.path.read_text(encoding="utf-8").count("第二次"))  # 寫入已發生
+        (item,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(item["path"], rel)
+        self.assertTrue(any("她改的紀錄" in h["after"] for h in item["hunks"]), item["hunks"])
+        self.assertEqual(card_base.load(self.V)[rel]["pending"]["after"].count("她改的紀錄"), 1)
+        card_base.done(self.V, [rel])
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_blocked_new_card_is_claudes_not_hers(self):
+        from kb._lib import card_base
+        self.write(self.text.replace("標題: 大安陳會議一", "標題: "))  # 裁定 5 #2：擋回也記基準
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_blocked_write_still_recorded_as_base(self):
+        """裁定 5 #2：Claude 把卡寫成有錯的版本被擋回、沒修好：那是 Claude 寫的，下次不能當成她改的。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("標題: 大安陳會議一", "標題: ").replace("紀錄", "Claude 第二版紀錄"))
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z5_blocked_write_keeps_her_pending_edit(self):
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("標題: 大安陳會議一", "標題: "))
+        (line,) = r.stdout.splitlines()
+        self.assertTrue(json.loads(line)["reason"].startswith("檔頭有錯："))
+        (item,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(item["path"], rel)
+        self.assertTrue(any("她改的紀錄" in h["after"] for h in item["hunks"]))
+
+    def test_z5_done_then_rewrite_same_turn_no_false_notice(self):
+        """裁定 5 #3：--done 之後同一回合 Claude 再寫那張卡，不出反向的假通知。"""
+        from kb._lib import card_base
+        self.write(self.text)
+        rel = self.path.relative_to(self.V).as_posix()
+        self.path.write_text(self.text.replace("紀錄", "她改的紀錄"), encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新卡")
+        r = self.write(self.text.replace("第一次", "第二次"))
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
+        card_base.done(self.V, [rel], turn.current(self.V, SID)["turn"])
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        r = self.write(self.text.replace("第一次", "第三次").replace("紀錄", "她改的紀錄"))
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
     def test_edit_tool_checked_too(self):
         self.write(self.text)
         self.path.write_text(self.text.replace("出處: 客戶原檔", "出處: 對話收件"), encoding="utf-8")
@@ -279,6 +361,78 @@ class SynthesisCheck(unittest.TestCase):
         front = cards.parse_front((self.V / item["path"]).read_text(encoding="utf-8"))
         self.assertEqual(len(front["檔案卡"]), 2)
         self.assertEqual(front["相關實體"], ["信義王"])
+
+    def test_z1_write_recorded_not_listed(self):
+        """D-270 驗收 2：Z1 寫的綜合卡記進基準；她在「現況」加一句才列；Claude 再寫不列。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text =self.E.synthesis_text(empty, "王宅")
+        r = self.write(item["path"], text)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertIn(item["path"], card_base.load(self.V))
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+        (self.V / item["path"]).write_text(
+            (self.V / item["path"]).read_text(encoding="utf-8") + "- 交屋延到 12 月\n", encoding="utf-8", newline="\n")
+        (got,) = card_base.edits(self.V)["edits"]
+        self.assertEqual((got["path"], got["kind"]), (item["path"], "synthesis"))
+        card_base.done(self.V, [item["path"]])
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(item["path"], text + "- Claude 加的\n")  # 沒有沒處理的手改：不出聲
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z1_write_over_unprocessed_hand_edit_notices_and_keeps_pending(self):
+        """裁定 2：她在綜合卡「現況」加了一句還沒處理、Claude 又寫這張卡：回一句（不擋）、她那段留成待處理。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text = self.E.synthesis_text(empty, "王宅")
+        self.write(item["path"], text)
+        rel = item["path"]
+        (self.V / rel).write_text((self.V / rel).read_text(encoding="utf-8") + "- 交屋延到 12 月\n",
+                                  encoding="utf-8", newline="\n")
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(rel, text + "- Claude 加的\n")  # 蓋掉了她加的那句
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (line,) = r.stdout.splitlines()
+        out = json.loads(line)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("交屋延到 12 月", out["reason"])
+        self.assertIn(f"kb cards edits --done {rel}", out["reason"])
+        (got,) = card_base.edits(self.V)["edits"]
+        self.assertEqual((got["path"], got["kind"]), (rel, "synthesis"))
+        self.assertIn({"before": "", "after": "- 交屋延到 12 月"}, got["hunks"])
+        card_base.done(self.V, [rel])
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
+
+    def test_z1_blocked_write_still_recorded_as_base(self):
+        """裁定 5 #2：Z1 驗證沒過（含紀事少了）的寫入也記基準，下次不被當成她改。"""
+        from kb._lib import card_base
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅", "信義王"])
+        item = self.new_item()
+        lines = item["header"].splitlines()
+        start = lines.index("檔案卡:")
+        empty = "\n".join(lines[:start] + ["檔案卡:", "相關實體: []", "---"]) + "\n"
+        text = self.E.synthesis_text(empty, "王宅")
+        rel = item["path"]
+        self.write(rel, text)
+        turn.start(self.V, SID, "更新綜合卡")
+        r = self.write(rel, text.replace("## 現況", "## 近況"))  # 驗證沒過
+        self.assertEqual(json.loads(r.stdout.splitlines()[0])["decision"], "block")
+        self.assertEqual(card_base.edits(self.V)["edits"], [])
 
     def test_block_sentences(self):
         self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])

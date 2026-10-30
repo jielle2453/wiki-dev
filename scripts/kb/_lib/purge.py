@@ -29,7 +29,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-from kb._lib import agenda, cards, entities, findings, inventory, journal, ledger, pending, rulings, synthesis, turn
+from kb._lib import agenda, card_base, cards, entities, findings, inventory, journal, ledger, pending, rulings, synthesis, turn
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 from kb._lib.paths import long_path, normalize
@@ -1339,6 +1339,10 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     derived = sorted(set(derived) | recorded(vault, alias, spec, "words"))  # exclude 那一刻記下的（T-33：那時清冊還有檔名）
     gone = set(gone) | recorded(vault, alias, spec, "gone")
     _current_state(vault, ids, turn_id, counts)
+    try:
+        card_base.scrub(vault, lambda text: words(text) != text)  # 手改卡的基準存卡全文，提到那夾的洗掉（D-270 裁定 5 #6）
+    except (OSError, ValueError):
+        counts["left"]["state"] += 1
     _lint_files(vault, ids, derived_masker(words, derived), turn_id, counts, plain=word_masker(mask, ids, ()), derived=derived,
                 gone=gone, folder=(alias, spec))
     record(vault, alias, spec, "findings", counts["finding_ids"], turn_id)

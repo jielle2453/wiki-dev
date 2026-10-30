@@ -348,7 +348,7 @@ class OpeningIngestHint(unittest.TestCase):
         self.assertEqual(self.hint_lines(lines), [])
         after = {p.relative_to(self.V).as_posix(): p.stat().st_mtime_ns
                  for p in (self.V / ".system").rglob("*") if p.is_file()}
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
         (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 1}), encoding="utf-8")
         self.assertIn(UNSORTED_HINT.format(n=1), self.status())
 
@@ -446,7 +446,7 @@ class OpeningEntityDrift(unittest.TestCase):
         i = lines.index("變動：實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
+        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
@@ -1254,3 +1254,82 @@ class InboxLine(unittest.TestCase):
         self.files(10)
         lines = self.session.status_lines(self.V, "startup", "sid")
         self.assertTrue(any(ln.startswith("收件匣：10 份") for ln in lines), lines)
+
+
+class OpeningCardEdits(unittest.TestCase):
+    """手改卡跟著更新（D-270 驗收 7）：有她改過的卡開場多一行，沒有就沒有；比對超過時限 more 為 true、開場照出。"""
+
+    CARD = "檔案索引/公司行政/報稅時程表-647d76ee.md"
+    TEXT = "---\n編號: f-647d76ee\n標題: 報稅時程表\n卡型: 表單\n---\n# 報稅時程表\n\n- 總價 5.5 萬〔第 1 段〕\n"
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        p = self.V / self.CARD
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(self.TEXT, encoding="utf-8", newline="\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lines(self):
+        r = run(payload(self.V))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        return ctx.split("\n\n", 1)[0].split("\n")
+
+    def edit_lines(self, lines):
+        return [ln for ln in lines if "kb cards edits" in ln]
+
+    def hand_edit(self, n=1):
+        (self.V / self.CARD).write_text(self.TEXT.replace("5.5 萬", "6 萬"), encoding="utf-8", newline="\n")
+
+    def test_first_open_silent_then_baseline_exists(self):
+        """驗收 1：沒有 card_base.json 的庫開場不報手改，開完每張卡都有基準。"""
+        self.assertEqual(self.edit_lines(self.lines()), [])
+        base = json.loads((self.V / ".system" / "card_base.json").read_text(encoding="utf-8"))
+        self.assertIn(self.CARD, base["cards"])
+
+    def test_line_when_edited(self):
+        self.lines()  # 第一次開：補基準
+        self.hand_edit()
+        got = self.edit_lines(self.lines())
+        self.assertEqual(got, ["你在 Obsidian 改了 1 張卡（kb cards edits）：先照 note skill 處理完再回答。"])
+
+    def test_no_line_after_done(self):
+        self.lines()
+        self.hand_edit()
+        r = subprocess.run([sys.executable, str(KB), "cards", "edits", "--done", self.CARD], capture_output=True,
+                           text=True, encoding="utf-8", cwd=str(self.V), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.edit_lines(self.lines()), [])
+
+    def test_over_time_budget_still_prints_opening_and_says_maybe_more(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("session_hook_edits", HOOK)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        run(payload(self.V))  # 補基準
+        self.hand_edit()
+        mod._START = time.monotonic() - 1000  # 假時鐘：時限早就過了
+        lines = mod.status_lines(self.V, "startup")
+        self.assertIn("kb.py", lines[0])
+        self.assertEqual(self.edit_lines(lines),  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
+                         ["可能有你改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答。"])
+        log = (self.V / ".system" / "hook-errors.log")
+        self.assertFalse(log.exists() and "card_base" in log.read_text(encoding="utf-8"))
+
+    def test_more_wording(self):
+        """時限內沒比完、已經找到的先講，加「可能還有」。"""
+        import importlib.util
+        from kb._lib import card_base
+        spec = importlib.util.spec_from_file_location("session_hook_more", HOOK)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        run(payload(self.V))
+        orig = card_base.edits
+        card_base.edits = lambda vault, deadline=None, persist=True: {"edits": [{"path": self.CARD}] * 2, "more": True}
+        try:
+            self.assertEqual(mod.line_card_edits(self.V),
+                             "你在 Obsidian 改了 2 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答。")
+        finally:
+            card_base.edits = orig

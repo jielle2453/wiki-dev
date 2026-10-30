@@ -961,6 +961,8 @@ def _delete_card(vault, rel, turn_id, undo=None):
     if undo is not None:
         undo.file(rel)
     os.remove(Path(vault) / rel)
+    from kb._lib import card_base
+    card_base.forget(vault, rel)
     folder = rel.rpartition("/")[0]
     if _rmdir_if_empty(vault, folder, undo):
         return 0
@@ -1068,10 +1070,15 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
             _agenda_snapshot(vault, undo)
             _knowledge_snapshot(vault, undo)
             if loc:
+                from kb._lib import card_base
                 text = (Path(vault) / loc).read_text(encoding="utf-8")
                 text = synthesis.replace_title(synthesis.replace_front(text, _card_fields(prof, entry)), old_name,
                                                entry["name"])
+                synced = card_base.in_sync(vault, loc)  # 她有沒處理的手改就不換基準（D-270）
                 moved = _move_card(vault, loc, target, text, turn_id, changed, undo)
+                fake = "---\n---\n"  # replace_title 認得檔頭之後的第一個「# 舊名」
+                card_base.rekey(vault, loc, target, synced, lambda body: synthesis.replace_title(
+                    fake + body, old_name, entry["name"])[len(fake):])  # 她有沒處理的手改：基準的標題也換，程式換的字不算她的
             touched = retarget_cards(vault, {key(old_name): new_name}, turn_id, undo) if old_name != new_name else []
             changed += [{"path": rel, "action": "modify"} for rel, _names in touched]
             if key(old_name) != key(new_name):

@@ -185,6 +185,25 @@ class Purge(unittest.TestCase):
         self.assertIn("那一版因為不讀的夾清掉了，退不回", out.getvalue())
         self.assertEqual(hits(V, SECRET), [])
 
+    def test_card_base_is_scrubbed(self):
+        """手改卡 D-270 裁定 5 #6：card_base.json 存卡全文（含 pending），purge 後不能留著那夾的內容。"""
+        from kb._lib import card_base
+        V = self.V
+        syn = Path(V) / self.syn_rel  # 綜合卡的現況照規則引用那張卡的編號
+        syn.write_text(syn.read_text(encoding="utf-8").replace("f-00000000", self.fid), encoding="utf-8", newline="\n")
+        card_base.edits(V)  # 綜合卡（舊版提到 SECRET）與那張檔案卡都有基準
+        self.assertIn(SECRET, (Path(V) / ".system" / "card_base.json").read_text(encoding="utf-8"))
+        turn.start(V, None, "不要讀私人那夾")
+        self.assertEqual(self.exclude()[0], 0)
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(V))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(hits(V, SECRET), [])
+        self.assertEqual(hits(V, "王家心情"), [])
+        recs = card_base.load(V)
+        self.assertNotIn(self.card_rel, recs)
+        self.assertEqual(recs[self.syn_rel]["body"], card_base.body_of((Path(V) / self.syn_rel).read_text(encoding="utf-8")))
+
     def test_snapshots_are_all_deleted_and_counted(self):
         """備份還原與換電腦第 8 點、驗收 14：快照是整包 zip、裡面有那夾的卡，purge 整包全刪；客戶自己放在外面的備份不碰。"""
         from kb._lib import backup

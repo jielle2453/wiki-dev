@@ -150,6 +150,9 @@ UNSORTED_LINE = "還有 {n} 份沒整理完"
 MOVED_LINE = "{n} 張卡要跟著搬"
 FIX_LINE = "{n} 張綜合卡要改寫"  # 健檢標的（lint 題）：檔與綜合卡分開講，「份」只數檔
 LEFT_HEAD = "還有 "
+CARD_EDITS_LINE = "你在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答。"  # D-270
+CARD_EDITS_MAYBE = "可能有你改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答。"  # 時限內一張都沒比到
+CARD_EDITS_MORE = "你在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答。"
 UNSORTED_BUDGET = 6  # 秒，從 hook 開始算；SessionStart 逾時 10 秒，留給讀 core.md 與其他行
 _UNSORTED = {}  # vault → 還沒整理的份數或 None（出錯、超時）；line_changes 被叫兩次，log 只記一行
 
@@ -223,6 +226,22 @@ def line_ingest_hint(vault, session_id=None):
 
     hint = INGEST_HINT.format(n=config.get(vault, "ingest_auto_max"))
     return hint[len(HINT_HEAD):] if line.startswith(LEFT_HEAD) else hint
+
+
+def line_card_edits(vault):
+    """她手改了卡，系統跟著更新（D-270）：比卡內文跟基準（card_base.edits），有改過的才印；時限跟 UNSORTED_BUDGET 同一套，
+    比不完就說可能還有、不卡住開場。沒有基準的卡這裡順手補上（第一次開不報）。時限內一張都沒比到也說一句「可能有」（裁定 5 #5）。
+    先 kb upgrade --finish 轉格式的庫、卡要跟著搬的庫先不比（位置還沒補好，基準會對不上）。"""
+    state = _upgrade_state(vault)
+    if (state and state["finish"]) or line_moved(vault):
+        return None
+    from kb._lib import card_base
+
+    got = card_base.edits(vault, deadline=_START + UNSORTED_BUDGET)
+    n = len(got["edits"])
+    if not n:
+        return CARD_EDITS_MAYBE if got["more"] else None
+    return (CARD_EDITS_MORE if got["more"] else CARD_EDITS_LINE).format(n=n)
 
 
 def line_missing_sources(vault):
@@ -419,7 +438,7 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_missing_sources, line_profile, line_tags, line_agenda, line_inbox,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_card_edits, line_missing_sources, line_profile, line_tags, line_agenda, line_inbox,
                line_backup,
                line_health,
                lambda v: line_compact(v, source)):

@@ -970,6 +970,8 @@ def remove_card(vault, rel, turn_id):
     from kb._lib import turn
     turn.backup(vault, rel, turn_id, action="delete")
     os.remove(Path(vault) / rel)
+    from kb._lib import card_base
+    card_base.forget(vault, rel)
     prune_dirs(vault, rel)
 
 
@@ -1088,6 +1090,8 @@ def sync(vault, sources, turn_id, undo=None):
             undo.file(old)
         os.remove(Path(vault) / old)
         prune_dirs(vault, old)
+        from kb._lib import card_base
+        card_base.rekey(vault, old, new, synced=False)  # 搬的只換檔頭，內文位元組不動：紀錄原樣換鍵
         moved.append({"from": old, "to": new})
         changed += [{"path": old, "action": "delete"}, {"path": new, "action": "create"}]
     if inventory.follow_redo(vault, shas, turn_id, undo):
