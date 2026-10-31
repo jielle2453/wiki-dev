@@ -17,19 +17,19 @@
 | 清冊與來源 | 登記來源、不讀、清冊、搬、改名、刪、purge（manage） | 24 |
 | 整理成卡 | 檔案卡、綜合卡、實體、card-maker（ingest） | 34 |
 | 設定與知識 | 客戶設定檔、型別、偏好、口述、裁示、別名、糾正（note） | 20 |
-| 日程 | 日程、事類狀態、從卡抽日期、逾期 | 13 |
-| 回答 | 查資料、數字、出處、推算（answer） | 4 |
-| 做文件 | kb office、草稿與定稿、範本（produce） | 6 |
-| 守門與密碼 | 守門、憑證檔、密碼、遮值、留痕 | 15 |
+| 日程 | 日程、事類狀態、從卡抽日期、逾期 | 14 |
+| 回答 | 查資料、數字、出處、推算（answer） | 5 |
+| 做文件 | kb office、草稿與定稿、範本（produce） | 8 |
+| 守門與密碼 | 守門、憑證檔、密碼、遮值、留痕 | 18 |
 | 回合與日誌 | 回合備份、退回、大改動攔截、工作日誌 | 19 |
 | 建置 | build：環境、訪談、抽樣、建置報告 | 3 |
 | 備份與搬家 | backup、restore、moved、清理、換電腦、換帳號 | 10 |
 | 升級與發行 | 安裝、升級、小修、發行程式、名單 | 11 |
-| 健檢與待處理 | lint、待處理、回答末尾怎麼問 | 10 |
+| 健檢與待處理 | lint、待處理、回答末尾怎麼問 | 11 |
 | hooks | hooks/ 與 hooks.json（橫跨多題） | 0 |
-| 核心規則與開場 | rules/core.md、開場注入、總資料夾 CLAUDE.md、AI 怎麼說話（橫跨多題） | 3 |
-| 架構與共通 | 總資料夾的分區、kb 指令入口、共用程式庫、Windows 邊角 | 3 |
-| 流程與文件 | repo 自己：流程、文件、命名、測試、排題順序 | 11 |
+| 核心規則與開場 | rules/core.md、開場注入、總資料夾 CLAUDE.md、AI 怎麼說話（橫跨多題） | 4 |
+| 架構與共通 | 總資料夾的分區、kb 指令入口、共用程式庫、Windows 邊角 | 4 |
+| 流程與文件 | repo 自己：流程、文件、命名、測試、排題順序 | 12 |
 | 延伸 | 還沒有程式的想法：新來源、新輸出、團隊、Mac 等 | 23 |
 
 **清冊與來源**
@@ -138,6 +138,7 @@
 - B-607（要做、低）重複日程：10 月說「這個月不繳」，下一次是 11/10，done 跳過的是…
 - B-499（要做、低）結案問句依據是空的時候印「（依據：）」（main 原本就這樣）…
 - B-510（要做、低）日程把原檔明寫的工期標成〔推測〕…
+- B-652（要做、低）「下週三」多問一次日期…
 
 **回答**
 
@@ -145,6 +146,7 @@
 - B-092（延後、－）多視窗共用 current.json 時 A 的 cards todo 可能把…
 - B-493（要做、中）過期推算的舊數字還在別處：綜合卡「推算」那行照 S-17 寫「688 萬…（依據…
 - B-497（要做、低）`findings.rename_entity` 不改 `findings-ar…
+- B-653（要做、中）剛做好、還沒整理成卡的成品 kb lookup 找不到…
 
 **做文件**
 
@@ -154,6 +156,8 @@
 - B-405（要做、低）修訂作者實跑寫成「AI」（規定「AI 助理」、第一輪是 Claude），驗修訂…
 - B-408（要做、低）produce 確認看到的：模型兩次叫 cards todo --json -…
 - B-411（要做、－）produce 會接走糾正句「那份報價寫錯了，總價是 128 萬」（run_e…
+- B-649（要做、中）kb office render 被中斷時 .system/temp/off…
+- B-654（要做、低）PowerShell 附著改 Word 時 Range(int,int) 報…
 
 **守門與密碼**
 
@@ -172,6 +176,9 @@
 - B-639（要做、低）製卡助手 Grep／Glob 起點判斷在 hook，建議收進 kb.guard.decide
 - B-643（要做、低）彈性區超過 5000 項時整庫 Grep 被擋
 - B-513（要做、中）PowerShell 用引號拼接（--v"ia"）繞過「kb 指令不能自己帶 --turn、--agent、--session、--via」
+- B-646（要做、高）守門：直譯器與編碼指令。powershell -EncodedCommand…
+- B-647（要做、低）包在殼字串裡的 start（bash -c "start …bat"、cmd…
+- B-650（要做、低）「開夾給她看、同句再讀夾裡一份檔」而子夾有密碼檔時 deny credent…
 
 **回合與日誌**
 
@@ -245,6 +252,7 @@
 - B-623（要做、低）標籤手改不合字典的待處理 tag_edit 要等下次每週健檢才關；她回答（加字典…
 - B-512（要做、低）三頁手改改成直接照做後，handedit 待處理只剩舊件，kb lint handedit 與 renders.handle_list 要拿掉或改列「你加的」
 - B-624（要做、低）lint 記的「補標籤」用卡的指紋，她之後手改那張卡指紋變了，那筆就失效、那張卡…
+- B-655（要做、低）同一則回答裡「哪一段 1／2」跟過期日程「1 完成了」撞號，客戶回「1」要多…
 
 **hooks**
 
@@ -254,12 +262,14 @@
 - B-033（延後、－）prompt_head 剝標籤的正規式對屬性值含 > 留殘渣
 - B-064（要做、中）AI 在工具之間寫英文自言自語給客戶看（「Step 1 is to write…
 - B-488（要做、低）中文工具過場句仍出現（同 B-064）
+- B-651（要做、低）被擋時回答沒分清是 Claude Code 的允許詢問還是 willy 守門…
 
 **架構與共通**
 
 - B-029（要做、－）io.FileLock：Windows 上鎖檔剛被持有者刪掉（待刪除）時 O_…
 - B-040（要做、－）Win32 邊角：名字結尾帶 . 或空白時 long_path 經 abspa…
 - B-419（要做、－）Claude Code 桌面版在使用者送出一句話時，會重讀它讀寫過的檔
+- B-656（要做、低）code-review 7～9：open_stage 一個 stage 叫兩…
 
 **流程與文件**
 
@@ -274,6 +284,7 @@
 - B-502（要做、低）`test_hooks_guard` 的 `test_garbage_stdin…
 - B-503（要做、低）確認 session 自己扮客戶時，只有人在它的視窗打字才換回合（peer 轉的…
 - B-645（要做、低）test_scripts_upgrade_cli 之後 test_lib_turn 兩個鎖測試紅（順序污染）
+- B-648（要做、低）main 本來就紅：test_skill_answer Round3::te…
 
 **延伸**
 
@@ -431,6 +442,17 @@
 | B-643 | 2026-10-30 | 要做 | 低 | 守門與密碼 | 從知識庫根整庫 Grep 時 `free_scan` 走訪彈性區找密碼檔名，超過 5000 項就整個擋（D-510 要走訪；上限是保守值） | 彈性區-測試.md code-review (3)（spec 裁定 10） |
 | B-644 | 2026-10-30 | 要做 | 低 | 回合與日誌 | `journal._TOP_RESERVED` 加的 FREE_DIR 被前面分支先接走，是死碼；地板句仍說「改了 N 個檔」沒分彈性區 | 彈性區-測試.md code-review (9)（spec 裁定 10） |
 | B-645 | 2026-10-30 | 要做 | 低 | 流程與文件 | 測試順序污染：`test_scripts_upgrade_cli` 排在前面時 `test_lib_turn` 兩個鎖測試（`test_held_lock_*`）紅，鎖等待變 30 秒；單獨跑綠，main 也有 | 彈性區-測試.md（spec 裁定 10） |
+| B-646 | 2026-10-31 | 要做 | 高 | 守門與密碼 | 守門：直譯器與編碼指令。`powershell -EncodedCommand／-enc` 不解碼就放行；python win32com 附著後 `Documents.Open`、`SaveAs2` 進 AI 產出、`open(…,"r+b").truncate(0)` 不被 `WRITE_CODE` 收；PowerShell 別名 `clc`、`epcsv`、`iwr -OutFile`、`([type]"System.IO.File")::Delete` 寫知識庫與原檔都放行（全名會擋）；順手收窄 FullName 比對豁免的左邊（測試 #10）。main 本來就有，要開 issue（待 jacky 看） | 開檔與Office一起改（spec 裁定 12、32～34） |
+| B-647 | 2026-10-31 | 要做 | 低 | 守門與密碼 | 包在殼字串裡的 `start`（`bash -c "start …bat"`、`cmd //c "start …"`）、`rundll32 url.dll,FileProtocolHandler <檔>`、Bash 跳脫空白 `start a\ b.docx <bat>`、大括號展開、`cmd /v:on` 的 `!X!` 開到執行檔會放行，跟 B-423 同一族；main 本來就放行 | 開檔與Office一起改（spec 裁定 8、11） |
+| B-648 | 2026-10-31 | 要做 | 低 | 流程與文件 | main 本來就紅：`test_skill_answer` Round3::test_33、`test_skill_manage` RepoClaudeMd（原始碼地圖拆到 ops/ 後沒跟上） | 開檔與Office一起改（spec 裁定 8） |
+| B-649 | 2026-10-31 | 要做 | 中 | 做文件 | `kb office render` 被中斷時 `.system/temp/office/<回合>/` 留同名唯讀檔，附著用檔名找會抓錯份；render 用 `New-Object -ComObject Word.Application` 做完 `Quit()`，客戶 Word 開著時會不會連她的一起關沒驗。要開 issue（待 jacky 看） | 開檔與Office一起改（spec 裁定 19） |
+| B-650 | 2026-10-31 | 要做 | 低 | 守門與密碼 | 「開夾給她看、同句再讀夾裡一份檔」而子夾有密碼檔時 deny `credential_inside`（寧可多擋，分兩句就過）；`cd $X ; cat *.txt` 的 $X 從句子外來時放行（main 本來就有） | 開檔與Office一起改（spec 裁定 16） |
+| B-651 | 2026-10-31 | 要做 | 低 | 核心規則與開場 | 被擋時回答沒分清是 Claude Code 的允許詢問還是 willy 守門擋；AI 第一手用 `$p` 變數開檔被 unparsed 擋，照理由句改寫才過，多一輪 | 開檔與Office一起改（spec 裁定 20、21） |
+| B-652 | 2026-10-31 | 要做 | 低 | 日程 | 「下週三」多問一次日期 | 開檔與Office一起改（spec 裁定 23） |
+| B-653 | 2026-10-31 | 要做 | 中 | 回答 | 剛做好、還沒整理成卡的成品 `kb lookup` 找不到 | 開檔與Office一起改（spec 裁定 26） |
+| B-654 | 2026-10-31 | 要做 | 低 | 做文件 | PowerShell 附著改 Word 時 `Range(int,int)` 報錯，AI 要改寫一次 | 開檔與Office一起改（spec 裁定 30） |
+| B-655 | 2026-10-31 | 要做 | 低 | 健檢與待處理 | 同一則回答裡「哪一段 1／2」跟過期日程「1 完成了」撞號，客戶回「1」要多問一輪 | 開檔與Office一起改（spec 裁定 35） |
+| B-656 | 2026-10-31 | 要做 | 低 | 架構與共通 | code-review 7～9：`open_stage` 一個 stage 叫兩次、遞迴內層後再 `_analyze`、引號處理（`raw_words` 與既有 split）兩套並存 | 開檔與Office一起改（spec 裁定 5） |
 | B-511 | 2026-10-30 | 做完 | 中 | 整理成卡 | 她在 Obsidian 手改綜合卡內文（D-256 准什麼都能改），下次 Claude 更新那張卡時「現況」照 S-22 改寫、檔頭整個換新（標籤行照 D-505 正本），她改的字可能不見、沒有提示；「紀事」只增，她加的會留、她刪的 hook 會要求補回。候選：更新前比對上次寫的版本，她改過的段先問或照她的寫；或 Obsidian 裡綜合卡內文唯讀、改要經對話。10-30 使用者選前者（A）：更新前比對上次寫的版本，她改過的段先問或照她的寫；#22 之後另開題做。10-31 擴大成 D-270：檔案卡也算，她改的算她說的、相關的跟著改，下次開對話時 Claude 先處理 | #22 實作回報待查 1 |
 | B-512 | 2026-10-30 | 要做 | 低 | 健檢與待處理 | #22 起日程、待處理、裁示重新產生時認出手改直接照做，`renders.handle_list` 沒人叫、handedit 待處理只剩升級前的舊件；`kb lint handedit` 與 lint 的 handedits 那項之後拿掉，或改成列「你加的（還沒處理）」 | #22 實作回報 |
 | B-513 | 2026-10-30 | 要做 | 中 | 守門與密碼 | `hooks/guard.py` 的 `_has_flag` 只認字面的旗標，`kb_args` 在 PowerShell 只剝整個 token 被引號包住的；`--v"ia" obsidian`（或 `--t"urn"`、`--s"ession"`）守門 allow、PowerShell 交給 python 的是 `--via`，模型做的事記成別的回合、對話退回挑不到。Bash 的 `{--via,x}`、`--via$X` 回 ask。候選：PowerShell 比對旗標前先去掉 token 裡的引號與反引號 | #22 測試第 1 輪 #1 |
@@ -536,6 +558,7 @@
 |---|---|---|---|---|---|---|
 | B-304 | 2026-10-11 | 不做 | － | － | 像素辦公室（歸哪：獨立 plugin，不進本架構） | llm-wiki 延後的想法 |
 | B-305 | 2026-10-11 | 不做 | － | － | 教練開關設定（歸哪：不做，見 D-007） | llm-wiki 延後的想法 |
+| B-657 | 2026-10-31 | 不做 | 低 | 守門與密碼 | 白名單 `.doc .xls .ppt .rtf`、8.3 短名、`.html .htm .svg` 開到巨集或 script：要過 Office 巨集信任或瀏覽器沙箱，照 D-514 接受；`_openable` 把 `C:x.pdf` 判成執行只是多擋 | 開檔與Office一起改（spec 裁定 13、27） |
 
 ## 做完的
 | # | 日期 | 狀態 | 嚴重 | 區域 | 事 | 來自 |
