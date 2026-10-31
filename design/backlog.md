@@ -445,7 +445,7 @@
 | B-646 | 2026-10-31 | 要做 | 高 | 守門與密碼 | 守門：直譯器與編碼指令。`powershell -EncodedCommand／-enc` 不解碼就放行；python win32com 附著後 `Documents.Open`、`SaveAs2` 進 AI 產出、`open(…,"r+b").truncate(0)` 不被 `WRITE_CODE` 收；PowerShell 別名 `clc`、`epcsv`、`iwr -OutFile`、`([type]"System.IO.File")::Delete` 寫知識庫與原檔都放行（全名會擋）；順手收窄 FullName 比對豁免的左邊（測試 #10）。main 本來就有，issue #25 | 開檔與Office一起改（spec 裁定 12、32～34） |
 | B-647 | 2026-10-31 | 要做 | 低 | 守門與密碼 | 包在殼字串裡的 `start`（`bash -c "start …bat"`、`cmd //c "start …"`）、`rundll32 url.dll,FileProtocolHandler <檔>`、Bash 跳脫空白 `start a\ b.docx <bat>`、大括號展開、`cmd /v:on` 的 `!X!` 開到執行檔會放行，跟 B-423 同一族；main 本來就放行 | 開檔與Office一起改（spec 裁定 8、11） |
 | B-648 | 2026-10-31 | 要做 | 低 | 流程與文件 | main 本來就紅：`test_skill_answer` Round3::test_33、`test_skill_manage` RepoClaudeMd（原始碼地圖拆到 ops/ 後沒跟上） | 開檔與Office一起改（spec 裁定 8） |
-| B-649 | 2026-10-31 | 要做 | 中 | 做文件 | `kb office render` 被中斷時 `.system/temp/office/<回合>/` 留同名唯讀檔，附著用檔名找會抓錯份；render 用 `New-Object -ComObject Word.Application` 做完 `Quit()`，客戶 Word 開著時會不會連她的一起關沒驗。issue #25 | 開檔與Office一起改（spec 裁定 19） |
+| B-649 | 2026-10-31 | 要做 | 中 | 做文件 | `kb office render` 被中斷時 `.system/temp/office/<回合>/` 留同名唯讀檔，附著用檔名找會抓錯份；render 用 `New-Object -ComObject Word.Application` 做完 `Quit()`，客戶 Word 開著時會不會連她的一起關沒驗。issue #26 | 開檔與Office一起改（spec 裁定 19） |
 | B-650 | 2026-10-31 | 要做 | 低 | 守門與密碼 | 「開夾給她看、同句再讀夾裡一份檔」而子夾有密碼檔時 deny `credential_inside`（寧可多擋，分兩句就過）；`cd $X ; cat *.txt` 的 $X 從句子外來時放行（main 本來就有） | 開檔與Office一起改（spec 裁定 16） |
 | B-651 | 2026-10-31 | 要做 | 低 | 核心規則與開場 | 被擋時回答沒分清是 Claude Code 的允許詢問還是 willy 守門擋；AI 第一手用 `$p` 變數開檔被 unparsed 擋，照理由句改寫才過，多一輪 | 開檔與Office一起改（spec 裁定 20、21） |
 | B-652 | 2026-10-31 | 要做 | 低 | 日程 | 「下週三」多問一次日期 | 開檔與Office一起改（spec 裁定 23） |
