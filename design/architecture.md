@@ -163,7 +163,7 @@ build 指令 `disable-model-invocation`：模型不代叫，客戶或服務人�
 |---|---|
 | 資料在本機、雲端同步、隨身碟 | ingest 讀哪份 reference、占位檔、路徑可攜 |
 | 從頭、既有資料夾、本來就有 wiki | build 走哪條路：從頭的 setup 後直接 finish，實體夾就是他的 raw（D-044） |
-| 單人、共用夾、多人、多 session | collab 旗標、擁有者欄位、共用夾提醒 |
+| 單人、共用夾、多人、多 session | collab 旗標、擁有者欄位、共用夾提醒；多人用 git 共用一個知識庫（D-285） |
 | Office、Google 文件、掃描、舊格式、加密 | 轉換器、環境檢查項、事先告知讀不到的；加密檔客戶授權才解，密碼進憑證管理員（D-050） |
 | M365 桌面、網頁版、LibreOffice、無 | produce 的 Office 能力與降級 |
 | 哪一行 | 實體型別表（先猜再改）與建議段落組（訪談一句），住客戶設定檔 |
