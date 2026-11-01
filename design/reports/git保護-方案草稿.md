@@ -47,6 +47,7 @@
 不照：
 - **大檔**（界線待定，見第八節）：git 歷史刪不掉單一檔的舊版，大檔每改一次多一整份。改成 willy 在它被刪、被蓋前另外留上一版一份（沿用現在的備份程式，只剩這個用途）。
 - 密碼與憑證樣式的檔（`credentials.py` 那套）、Office 暫存 `~$`、`.git` 本身。
+- Obsidian 一直在寫的：`.obsidian/workspace*.json`、`.obsidian/cache`、`.obsidian/plugins/wiki-with-willy/data.json`（最近開過的）——每句都變，拍了只是雜訊（11-01 Obsidian 那題）。改回時使用者正在 Obsidian 打同一頁，AI 說一聲是哪一頁。
 
 缺口：大檔被 AI 用自己的方法刪掉，事後才發現就來不及留。所以大檔的刪、蓋，守門照 D-306 現在的規則擋（叫 AI 改用 `kb source-edit trash`）。
 
