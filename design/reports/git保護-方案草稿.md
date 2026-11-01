@@ -39,7 +39,7 @@
 - 上一句答完 → 這句動檔前：**使用者自己動的**（Finder、Obsidian 手改、搬檔）→ 丙的偵測與 D-311 用這段。
 - 這句動檔前 → 答完：**AI 這句做的** → 退回與日誌用這段。
 
-這段可以取代丙的 `detected.jsonl` 與甲的 `shell_writes.jsonl`（甲靠記下放行的指令來分誰動的）。
+這段可以取代丙的 `detected.jsonl`（甲的 `shell_writes.jsonl` 11-01 已拿掉，丙的兩次比對就分得出誰動的）。
 
 ## 四、照哪些、不照哪些
 
@@ -73,7 +73,7 @@
 | D-292 進 git 分類 | 丙類「回合、回合備份、快照」換成保護紀錄，仍不進共用 git |
 | D-301 大檔 | 共用 git 的界線（95 MB）跟保護的界線可以不同，要對齊 |
 | D-308、D-311 偵測 | 用第三節的兩段比對 |
-| 放寬甲 spec | 守門與 U1～U6、`shell_writes.jsonl` 大改；`trash`、`move` 等指令留著（AI 用 kb 也行，不強制） |
+| 放寬甲 spec | 守門與 U1～U6 大改；`trash`、`move` 等指令留著（AI 用 kb 也行，不強制） |
 | 放寬丙 spec | `detected.jsonl`、`versions items/undo` 改建在保護紀錄上 |
 | 放寬乙 spec | 幾乎不變（說法） |
 | B-527 | 要補量 git 的速度 |
