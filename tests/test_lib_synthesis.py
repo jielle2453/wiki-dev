@@ -121,9 +121,9 @@ class RenderCache(Base):
         self.assertEqual([x.split(" ", 2)[2] for x in front["檔案卡"]], ["信義王報價"])
         self.assertEqual(front["相關實體"], ["王宅"])
         unchanged = [ln for ln in before if not ln.startswith(("檔案卡:", "相關實體:"))]
-        head = after[:after.index(synthesis.FILE_BEGIN)]  # 最後一段「相關檔」是另一件事（FileSection 測）
-        self.assertEqual([ln for ln in head if not ln.startswith(("檔案卡:", "相關實體:", "  - "))],
-                         unchanged + [""])
+        i, j = after.index(synthesis.FILE_BEGIN), after.index(synthesis.FILE_END)  # 「相關檔」那段是另一件事（FileSection 測）
+        rest = after[:i] + after[j + 2:]  # D-523：插在紀事前面，連同後面的空行
+        self.assertEqual([ln for ln in rest if not ln.startswith(("檔案卡:", "相關實體:", "  - "))], unchanged)
         rows = {r["path"]: r for r in turn.entries(self.V, self.t)}
         self.assertEqual(rows[XINYI_REL]["by"], "program")
         self.assertEqual(turn.modified_synthesis_count(self.V, self.t), 0)
@@ -264,13 +264,12 @@ class Buckets(Base):
                          [[4, 2]])  # 沒有結束記號算到檔尾（同 _span）
 
     def test_marker_counts_only_as_whole_line(self):
-        """裁定 14：行中間的記號字串不算相關檔；render 照樣把真的那段接在最後，那行與後面的段一字不動。"""
+        """裁定 14：行中間的記號字串不算相關檔；render 照樣把真的那段插在紀事前面（D-523），那行與後面的段一字不動。"""
         inline = "- 2026-10-30 備註 " + synthesis.FILE_BEGIN + " x〔f-00000001〕"
         text = "---\na: 1\n---\n# x\n\n## 紀事\n" + inline + "\n- 2026-10-01 甲\n\n## 時程\n未知\n"
         self.assertIsNone(synthesis._span(text))
         got = synthesis.with_file_section(text, self.FILES.rstrip("\n"))
-        self.assertTrue(got.startswith(text.rstrip("\n")))
-        self.assertTrue(got.endswith(self.FILES))
+        self.assertEqual(got, text.replace("\n## 紀事\n", "\n" + self.FILES + "\n## 紀事\n"))
         self.assertEqual(synthesis._span(got)[0], got.index("\n" + synthesis.FILE_BEGIN + "\n") + 1)
 
     def test_marker_line_with_unicode_spaces(self):
@@ -482,7 +481,7 @@ class FileSection(Base):
         synthesis.render_cache(self.V, None, self.t)
         text = self.card()
         self.assertIn(synthesis.FILE_BEGIN + "\n## 相關檔\n", text)
-        self.assertTrue(text.rstrip().endswith(synthesis.FILE_END))
+        self.assertIn(synthesis.FILE_END + "\n\n## 紀事\n", text)  # D-523：插在紀事前面
         self.assertIn(f"[[{main}|信義王報價]]（2026-10-01）", text)
         self.assertIn(f"[[{other}|信義王估價]]（2026-09-12）", text)
         self.assertNotIn("[!note]- 其他", text)
@@ -512,9 +511,10 @@ class FileSection(Base):
         E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
         synthesis.render_cache(self.V, ["信義王"], self.t)
         text = self.card()
-        i = text.index(synthesis.FILE_BEGIN)
+        i, j = synthesis._span(text)
         self.assertIn("整理到", synthesis.validate(self.V, XINYI_REL)[1])  # 只差整理到（AI 的事），這段本身不挑
-        (self.V / XINYI_REL).write_text(text[:i].rstrip() + "\n", encoding="utf-8", newline="\n")  # AI 把段拿掉再寫
+        (self.V / XINYI_REL).write_text(text[:i].rstrip() + "\n\n" + text[j:].lstrip(), encoding="utf-8",
+                                        newline="\n")  # AI 把段拿掉再寫
         self.assertIn("整理到", synthesis.validate(self.V, XINYI_REL)[1])
         synthesis.render_cache(self.V, ["信義王"], self.t)
         self.assertEqual(self.card(), text)
@@ -655,11 +655,31 @@ class Layout(Base):
         with self.assertRaises(ValueError):
             synthesis.migrate_layout(self.old(self.NOW, self.EVENTS, synthesis.FILE_BEGIN + "\n## 相關檔\n- x\n"))
 
-    def test_insert_events_before_unclosed_files(self):
-        """review：沒有紀事段、相關檔沒結束記號時，紀事段補在相關檔前面（補在檔尾會被算進那段）。"""
+    def test_unclosed_files_stop_at_events(self):
+        """review：相關檔沒結束記號時算到「## 紀事」之前（沒有紀事才到檔尾）：紀事照樣補在最後，render 換那段不會刪掉紀事。"""
         files = synthesis.FILE_BEGIN + "\n## 相關檔\n- x\n"
         new, _a, _d = synthesis.insert_events(self.old(self.NOW, files), [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
-        self.assertEqual(new, self.old(self.NOW, "## 紀事\n- 2026-10-25 開會〔f-00000001〕\n", files))
+        self.assertEqual(new, self.old(self.NOW, files, "## 紀事\n- 2026-10-25 開會〔f-00000001〕"))
+        span = synthesis._span(new)
+        self.assertEqual(new[span[1]:].lstrip("\n")[:5], "## 紀事")
+        got = synthesis.with_file_section(new, self.FILES)
+        self.assertTrue(got.endswith("## 紀事\n- 2026-10-25 開會〔f-00000001〕\n"))
+        self.assertIn(self.FILES, got)
+        lines = new.split("\n")
+        self.assertEqual(synthesis._file_lines(lines)[1], lines.index("## 紀事"))
+
+    def test_events_heading_with_unicode_space(self):
+        """review：「## 紀事」後面接全形空白也認得（同 _events_span 的 rstrip），相關檔插在它前面。"""
+        text = self.old(self.NOW, "## 紀事\u3000\n- 2026-10-20 甲〔f-00000001〕\n")
+        got = synthesis.with_file_section(text, self.FILES)
+        self.assertLess(got.index(synthesis.FILE_BEGIN), got.index("## 紀事"))
+
+    def test_migrate_layout_crlf_without_final_newline(self):
+        """review：全 CRLF、檔尾沒換行、最後一行被搬到中間：每行都還是 CRLF，跑第二次不變。"""
+        text = self.old(self.NOW, self.EVENTS, self.FILES).replace("\n", "\r\n").rstrip("\r\n")
+        new = synthesis.migrate_layout(text)
+        self.assertNotIn("\n", new.replace("\r\n", ""))
+        self.assertEqual(synthesis.migrate_layout(new), new)
 
     def test_migrate_layout_mixed_eol_keeps_file_bytes(self):
         """review：CRLF 卡、相關檔是 LF（混用）：每行照原本的換行，相關檔那段一個位元組都不變。"""

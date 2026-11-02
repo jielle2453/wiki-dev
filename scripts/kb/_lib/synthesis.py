@@ -718,13 +718,19 @@ def file_section(mounts_of_it):
 
 
 def _span(text):
-    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到結尾。
-    記號要自己佔一整行才算（裁定 14：紀事或內文中間出現同一串字不算）。"""
+    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到「## 紀事」之前，沒有紀事到結尾
+    （D-523：紀事在相關檔下面，不能被算進那段）。記號要自己佔一整行才算（裁定 14：紀事或內文中間出現同一串字不算）。"""
     begin = _mark_line(FILE_BEGIN).search(text)
     if begin is None:
         return None
     end = _mark_line(FILE_END).search(text, begin.end())
-    return (begin.start(), end.end()) if end else (begin.start(), len(text))
+    if end:
+        return begin.start(), end.end()
+    ev = _EVENTS_HEAD.search(text, begin.end())
+    return begin.start(), (ev.start() if ev else len(text))
+
+
+_EVENTS_HEAD = re.compile(r"(?m)^## 紀事[^\S\r\n]*(?=\r?$)")  # 同 _events_span 的 rstrip：行尾全形空白也算
 
 
 def _mark_line(mark):
@@ -739,7 +745,7 @@ def with_file_section(text, section):
     if span is None:
         if not section:
             return text
-        ev = re.search(r"(?m)^## 紀事[ \t]*\r?$", text)
+        ev = _EVENTS_HEAD.search(text)
         if ev is not None:
             return text[:ev.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[ev.start():]
         return text.rstrip("\n") + "\n\n" + section + "\n"
@@ -1133,11 +1139,15 @@ def _events_span(lines, start=0):
 
 
 def _file_lines(lines, start=0):
-    """「相關檔」那段的 (開始記號索引, 結束記號下一行)；沒結束記號算到檔尾（同 _span）；沒有回 None。"""
+    """「相關檔」那段的 (開始記號索引, 結束記號下一行)；沒結束記號算到「## 紀事」之前、沒有紀事到檔尾（同 _span）；
+    沒有回 None。"""
     i = next((n for n in range(start, len(lines)) if lines[n].strip() == FILE_BEGIN), None)
     if i is None:
         return None
-    return i, next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), len(lines))
+    end = next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), None)
+    if end is None:
+        end = next((n for n in range(i + 1, len(lines)) if lines[n].rstrip() == "## 紀事"), len(lines))
+    return i, end
 
 
 def _all_crlf(text):
@@ -1236,14 +1246,10 @@ def insert_events(text, events):
         return text, added, dup
     if span is None:
         block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
-        fb = next((i for i in range(start, len(lines)) if lines[i].strip() == FILE_BEGIN), None)
-        if fb is not None and not any(l.strip() == FILE_END for l in lines[fb + 1:]):
-            head, tail = lines[:fb], [""] + lines[fb:]  # 沒收尾的相關檔算到檔尾，補在檔尾會被算進那段
-        else:
-            head, tail = list(lines), []
+        head = list(lines)  # 相關檔沒結束記號時那段只到「## 紀事」之前（_span），補在最後不會被算進去
         while head and not head[-1].strip():
             head.pop()
-        return _join(head + [""] + block + tail, True, crlf), added, dup
+        return _join(head + [""] + block, True, crlf), added, dup
     sec = lines[span[0] + 1:span[1]]
     for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
         at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
@@ -1317,8 +1323,8 @@ def migrate_layout(text):
     for b in order:
         body = body + ([cr] if body else []) + b
     out = head + body
-    if cr and out and not out[-1].endswith("\r"):
-        out[-1] += "\r"
+    if cr:  # 全 CRLF：檔尾沒換行的最後一行搬到中間也要帶 \r
+        out = [l if l.endswith("\r") else l + "\r" for l in out]
     return bom + "\n".join(out) + "\n"
 
 

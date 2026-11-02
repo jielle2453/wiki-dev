@@ -246,7 +246,6 @@ SYNTHESIS_MIGRATIONS = [{"from": "1", "to": "2", "fn": _synthesis_v2}]  # D-523�
 def _synthesis_cards(vault):
     """[(rel, 範本版本)]：active、有綜合卡的實體（客戶自己不算）；讀不懂、檔頭沒有範本版本的卡範本版本是那個例外
     （讀不懂但那行已是現行版本的不算例外，不在遷移範圍）。實體清單讀不了回 None。"""
-    import re
     from kb._lib import synthesis
     try:
         data = entities.load(vault)
@@ -264,13 +263,32 @@ def _synthesis_cards(vault):
             version = synthesis.read_front(p.read_text(encoding="utf-8")).get("範本版本")
             version = ValueError("檔頭沒有範本版本") if version is None else str(version)
         except (OSError, UnicodeDecodeError, ValueError) as err:
-            try:
-                m = re.search(b"(?m)^" + "範本版本".encode("utf-8") + rb"[ \t]*:[ \t]*(\S+)", p.read_bytes())
-            except OSError:
-                m = None
-            version = synthesis.TEMPLATE_VERSION if m and m.group(1).strip() == synthesis.TEMPLATE_VERSION.encode() else err
+            version = synthesis.TEMPLATE_VERSION if _header_version(p) == synthesis.TEMPLATE_VERSION else err
         out.append((rel, version))
     return out
+
+
+def _header_version(p):
+    """讀不懂的卡：只在檔頭（開頭 --- 到下一個 ---）找「範本版本:」那行的值（去引號）；找不到回 None。"""
+    try:
+        lines = p.read_bytes().split(b"\n")
+    except OSError:
+        return None
+    if not lines or lines[0].strip().lstrip(b"\xef\xbb\xbf") != b"---":
+        return None
+    key = "範本版本".encode("utf-8")
+    for line in lines[1:]:
+        if line.strip() == b"---":
+            return None
+        if line.startswith(key):
+            k, sep, v = line.partition(b":")
+            if sep and k.strip() == key:
+                v = v.strip().strip(b"\"'")
+                try:
+                    return v.decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+    return None
 
 
 def _synthesis_due(version):
@@ -283,8 +301,9 @@ def _migrate_synthesis(vault, turn_id, skipped):
     from kb._lib import card_base, synthesis, turn
     count = 0
     found = _synthesis_cards(vault)
-    if found is None:
-        skipped.append({"rel": entities.ENTITIES_POSIX, "why": "綜合卡版面沒遷成（實體清單讀不了）"})
+    if found is None:  # 實體清單自己的遷移已經列了就不重複
+        if not any(s.get("rel") == entities.ENTITIES_POSIX for s in skipped):
+            skipped.append({"rel": entities.ENTITIES_POSIX, "why": "綜合卡版面沒遷成（實體清單讀不了）"})
         return 0
     for rel, version in found:
         if isinstance(version, Exception):
@@ -295,7 +314,7 @@ def _migrate_synthesis(vault, turn_id, skipped):
             continue
         target = Path(vault) / rel
         try:
-            new = mig["fn"](target.read_text(encoding="utf-8"))
+            new = mig["fn"](target.read_bytes().decode("utf-8"))  # 不經 read_text 的換行轉換，CRLF、混用照原樣
             if str(synthesis.read_front(new).get("範本版本")) != str(mig["to"]):
                 raise ValueError("遷移後範本版本不對")
             turn.backup(vault, rel, turn_id, by="program")

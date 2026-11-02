@@ -296,6 +296,25 @@ class SynthesisLayout(unittest.TestCase):
         self.assertEqual(len(skipped), 1)
         self.assertIn("實體清單", skipped[0]["why"])
 
+    def test_crlf_card_kept_on_real_path(self):
+        """review：實際走 migrate.apply 時 CRLF 卡照樣是 CRLF（不經 read_text 的換行轉換）。"""
+        p = self.V / self.XINYI
+        p.write_bytes(self.text(self.XINYI).replace("\n", "\r\n").encode("utf-8"))
+        self.assertEqual(migrate.apply(self.V, self.turn)["cards"], 2)
+        raw = p.read_bytes().decode("utf-8")
+        self.assertIn("範本版本: 2\r\n", raw)
+        self.assertNotIn("\n", raw.replace("\r\n", ""))
+
+    def test_version_only_read_from_header(self):
+        """review：讀不懂的卡只看檔頭的範本版本（內文剛好有那行不算）；檔頭寫 "2" 有引號也算版本 2。"""
+        p = self.V / self.DAAN
+        no_ver = "\n".join(l for l in self.text(self.DAAN).split("\n") if not l.startswith("範本版本"))
+        p.write_bytes((no_ver + "\n範本版本: 2\n").encode("utf-8") + b"\xff\n")
+        self.assertEqual([s["rel"] for s in migrate.apply(self.V, self.turn)["skipped"]], [self.DAAN])
+        self.assertIn("範本版本: 2\n", self.text(self.XINYI))
+        p.write_bytes(self.text(self.XINYI).replace("範本版本: 2", '範本版本: "2"').encode("utf-8") + b"\xff\n")
+        self.assertNotIn(self.DAAN, [s["rel"] for s in migrate.apply(self.V, turn.start(self.V, None, "再")["turn"])["skipped"]])
+
     def test_broken_card_already_new_not_reported(self):
         """review：讀不懂但範本版本已是 2 的卡不在遷移範圍，不每次升級都報。"""
         p = self.V / self.DAAN
