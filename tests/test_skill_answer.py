@@ -194,6 +194,29 @@ class Round3(unittest.TestCase):
         self.assertEqual(len(cells), 4, cells)
 
 
+class DigOriginals(unittest.TestCase):
+    """#31（D-517）：卡上找不到先順著實體的卡讀原檔，原檔也沒有才說找不到；不改卡。"""
+    def setUp(self):
+        self.verify = REFS["verify.md"].read_text(encoding="utf-8")
+        self.find = REFS["find.md"].read_text(encoding="utf-8")
+
+    def test_verify_section_six(self):
+        part = self.verify[self.verify.index("## 六、"):self.verify.index("## 七、")]
+        line = next(ln for ln in part.splitlines() if "不直接說沒有" in ln)
+        for want in ("kb lookup", "kb convert", "各部分在哪", "Grep", "verify_max", "不翻整個資料夾",
+                     "設定檔說不抄進卡的種類"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+        self.assertIn("卡不改、不標重做", part)
+        self.assertIn("原檔也沒有才說找不到", part)
+        self.assertEqual(self.verify.count("設定檔說不抄進卡的種類"), 1)
+
+    def test_find_points_to_verify(self):
+        part = self.find[self.find.index("## 十、"):]
+        line = next(ln for ln in part.splitlines() if "只讀卡與綜合卡、不讀原檔" in ln)
+        self.assertIn("照 `verify.md` 第六節讀原檔", line)
+
+
 class References(unittest.TestCase):
     def test_exist_and_short(self):
         for name, p in REFS.items():
