@@ -1170,8 +1170,21 @@ def merge(vault, src_ref, dst_ref, turn_id):
     """kb entity merge：來源併進目標（同型別、都 active、都不是客戶自己）。目標別名加來源名稱與別名、目標綜合卡檔頭跟著改
     （之後是 synthesis_stale，測試後修正裁定 9）；檔案卡 實體 欄來源換目標（去重）；來源的綜合卡刪掉（夾裡有其他檔就擋）；
     來源 merged、merged_into 目標。會擋的先驗完；動手順序：刪來源卡 → 目標卡檔頭 → 檔案卡 → entities.json，中途出錯還原。
-    回 {"source","target","added","changed","target_card"}。"""
+    放寬甲（D-322 第 24 件）：型別不同先把來源換成目標的型別（同 rename --type，不拒絕）；來源夾裡還有別的檔也不擋，
+    卡刪完夾留著，檔由呼叫端（kb entity merge）照 source-edit move 搬進目標的夾（同名回 conflict、空了拿掉）。
+    回 {"source","target","added","changed","target_card","src_folder","dst_folder","retyped"}。"""
     prof = _profile(vault)
+    retyped = None
+    pre = load(vault)
+    s0, _h = find(pre, src_ref)
+    d0, _h = find(pre, dst_ref)
+    if (s0 and d0 and s0.get("id") != d0.get("id") and not is_self(s0) and not is_self(d0)
+            and s0.get("status") == "active" and d0.get("status") == "active"
+            and key(s0.get("type")) != key(d0.get("type"))):
+        loc0 = locate(vault, s0)
+        pre_folder = (loc0 or card_rel(s0, vault)).rpartition("/")[0]
+        got = rename(vault, s0["id"], s0["name"], d0["type"], turn_id)
+        retyped = {"from": s0["type"], "to": d0["type"], "moved_files": got["moved_files"], "changed": got["changed"]}
     with lock(vault):
         data = load(vault)
         src, _h1 = _need(data, src_ref)
@@ -1180,14 +1193,12 @@ def merge(vault, src_ref, dst_ref, turn_id):
             raise EntityRefused(f"「{src_ref}」跟「{dst_ref}」是同一個實體")
         _need_plain(src, "合併")
         _need_plain(dst, "合併")
-        if key(src.get("type")) != key(dst.get("type")):
-            raise EntityRefused(f"型別不同：先 kb entity rename {src['name']} --to {src['name']} --type {dst.get('type')}")
         loc = locate(vault, src)
         folder = (loc or card_rel(src, vault)).rpartition("/")[0]
-        if (Path(vault) / folder).is_dir():
-            others = _files_under(Path(vault) / folder, skip=(Path(vault) / loc) if loc else None)
-            if others:
-                raise EntityRefused(f"「{src['name']}」的夾裡還有 {len(others)} 個檔，先把檔搬到「{dst['name']}」再合併")
+        if retyped and not loc:  # 沒有綜合卡的實體：rename 沒搬夾，檔還在原型別的夾
+            folder = pre_folder
+        dst_loc = locate(vault, dst)
+        dst_folder = (dst_loc or card_rel(dst, vault)).rpartition("/")[0]
         before = mounts(vault, data)
         had_dst = {m["id"] for m in before.get(dst["name"], [])}
         added = [m["id"] for m in before.get(src["name"], []) if m["id"] not in had_dst]
@@ -1221,7 +1232,10 @@ def merge(vault, src_ref, dst_ref, turn_id):
         changed = _guarded(vault, act)
         target_card = bool(dst.get("card")) and locate(vault, dst) is not None
     _export_agenda(vault)
-    return {"source": src, "target": dst, "added": added, "changed": changed, "target_card": target_card}
+    if retyped:
+        changed = list(retyped["changed"]) + changed
+    return {"source": src, "target": dst, "added": added, "changed": changed, "target_card": target_card,
+            "src_folder": folder, "dst_folder": dst_folder, "retyped": retyped}
 
 
 def remove(vault, ref, turn_id):

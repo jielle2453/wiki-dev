@@ -227,15 +227,41 @@ class Merge(Base):
         self.assertEqual(entities.find(self.data(), "王宅")[0]["id"], E.XINYI)
         self.assertEqual(self.programs()[-1]["note"], "合併實體：王宅 併進 信義王")
 
-    def test_refusals(self):
+    def test_different_type_and_leftover_files(self):
+        """放寬甲 D-322 第 24 件：型別不同先換型別；舊夾的檔搬進目標的夾；舊夾空了拿掉；同名內容不同列 conflict、exit 3。"""
         data = self.data()["entities"]
         data.append(E.entity("e-33333333", "王先生", type_="業主"))
         E.put_entities(self.V, data)
-        self.assertEqual(self.kb("merge", "王先生", "--into", "信義王", code=3),
-                         ["型別不同：先 kb entity rename 王先生 --to 王先生 --type 案子"])
+        old = self.V / "業主" / "王先生"
+        old.mkdir(parents=True)
+        (old / "附件.txt").write_text("a", encoding="utf-8")
+        (old / "合約.txt").write_text("新的", encoding="utf-8")
+        (self.V / "案子" / "信義王" / "合約.txt").write_text("舊的", encoding="utf-8")
+        t = self.new_turn()
+        lines = self.kb("merge", "王先生", "--into", "信義王", "--json", code=3)
+        got = json.loads("\n".join(lines))
+        self.assertEqual([c["name"] for c in got["conflict"]], ["合約.txt"])
+        self.assertFalse(got["conflict"][0]["same_content"])
+        self.assertEqual(self.get("e-33333333")["status"], "merged")
+        self.assertTrue((self.V / "案子" / "信義王" / "附件.txt").is_file())
+        self.assertTrue((old / "合約.txt").is_file(), "同名的留在原夾")
+        self.assertFalse((old / "附件.txt").exists())
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((old / "附件.txt").is_file())
+        self.assertEqual(self.get("e-33333333")["status"], "active")
+
+    def test_leftover_folder_renamed_when_target_has_none(self):
+        shutil.rmtree(self.V / "案子" / "信義王")
+        data = self.data()["entities"]
+        for e in data:
+            if e["id"] == E.XINYI:
+                e["card"] = False
+        E.put_entities(self.V, data)
         (self.V / "案子" / "大安陳" / "附件.txt").write_text("x", encoding="utf-8")
-        self.assertEqual(self.kb("merge", "大安陳", "--into", "信義王", code=3),
-                         ["「大安陳」的夾裡還有 1 個檔，先把檔搬到「信義王」再合併"])
+        self.kb("merge", "大安陳", "--into", "信義王")
+        self.assertTrue((self.V / "案子" / "信義王" / "附件.txt").is_file())
+        self.assertFalse((self.V / "案子" / "大安陳").exists())
 
 
 class RemoveRebuild(Base):

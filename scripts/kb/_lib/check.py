@@ -93,19 +93,13 @@ def merge(vault, ref, into):
             raise entities.EntityRefused(f"「{ref}」跟「{into}」是同一個實體")
         entities._need_plain(src, "合併")
         entities._need_plain(dst, "合併")
-        if entities.key(src.get("type")) != entities.key(dst.get("type")):
-            raise entities.EntityRefused(f"型別不同：先 kb entity rename {src['name']} --to {src['name']} --type {dst.get('type')}")
         loc = entities.locate(vault, src)
-        folder = (loc or entities.card_rel(src, vault)).rpartition("/")[0]
-        from pathlib import Path
-        if (Path(vault) / folder).is_dir():
-            others = entities._files_under(Path(vault) / folder, skip=(Path(vault) / loc) if loc else None)
-            if others:
-                raise entities.EntityRefused(f"「{src['name']}」的夾裡還有 {len(others)} 個檔，先把檔搬到「{dst['name']}」再合併")
         mounted = len(entities.mounts(vault, data).get(src["name"], []))
     except (entities.EntityRefused, ValueError) as e:
         return _refused(e)
     follow = [f"{src['name']}記成{dst['name']}的別名"]
+    if entities.key(src.get("type")) != entities.key(dst.get("type")):
+        follow.append(f"型別先換成{dst.get('type')}")
     if mounted:
         follow.append(f"{mounted} 張檔案卡改掛{dst['name']}")
     if loc:

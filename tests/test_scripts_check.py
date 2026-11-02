@@ -100,11 +100,13 @@ class Merge(Base):
         got = self.check("entity", "merge", "林小姐室內設計", "--into", "信義王", code=3)
         self.assertTrue(got["refuse"])
 
-    def test_different_type_refused(self):
+    def test_different_type_not_refused(self):
+        """放寬甲：型別不同不拒絕，後果句多一句「型別先換成…」。"""
         from kb._lib import entities
         E.put_entities(self.V, entities.load(self.V)["entities"] + [E.entity("e-aaaa0002", "王先生", type_="業主")])
-        got = self.check("entity", "merge", "王先生", "--into", "信義王", code=3)
-        self.assertIn("型別不同", got["refuse"])
+        got = self.check("entity", "merge", "王先生", "--into", "信義王")
+        self.assertIsNone(got["refuse"])
+        self.assertIn("型別先換成案子", got["effects"][0])
 
 
 def entities_with_extra(V):
