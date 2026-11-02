@@ -158,6 +158,19 @@ class MarkSynced(Base):
         self.assertEqual(synthesis.validate(self.V, XINYI_REL, allow_stale=True),
                          (False, "「名稱」照 kb cards todo 給的檔頭抄"))
 
+    def test_synced_not_a_list_is_its_own_error(self):
+        """裁定 6：整理到寫成字串不算只差整理到：hook、--synced 照擋，cards todo 列 broken 不列 stale。"""
+        import re
+        good = E.synthesis_text(self.header(E.XINYI), "信義王")
+        E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
+        (self.V / XINYI_REL).write_text(re.sub(r"整理到:\n(  - .*\n)*", "整理到: 已整理\n", good), encoding="utf-8")
+        want = "整理到 照 kb cards todo 給的檔頭抄（一行一項）"
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL, allow_stale=True), (False, want))
+        b = self.buckets()
+        self.assertEqual([i["entity_id"] for i in b["synthesis_stale"]], [])
+        self.assertIn({"path": XINYI_REL, "reason": want}, b["synthesis_broken"])
+        self.assertEqual(synthesis.mark_synced(self.V, ["信義王"], self.t), ([], [{"name": "信義王", "reason": want}]))
+
     def test_mark_synced_four_fields_only(self):
         from datetime import date
         card = self.V / XINYI_REL
@@ -175,6 +188,15 @@ class MarkSynced(Base):
         self.assertEqual([l for l in after if not l.startswith(keys)], [l for l in before if not l.startswith(keys)])
         self.assertEqual({r["path"]: r["by"] for r in turn.entries(self.V, self.t)}[XINYI_REL], "program")
         self.assertEqual(synthesis.mark_synced(self.V, ["信義王"], self.t), ([], []))
+
+    def test_name_and_alias_counted_once(self):
+        """裁定 9：同一個實體名稱、別名各給一次只算一筆；寫了算一筆，都 skip 也只列一筆。"""
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        self.assertEqual(synthesis.mark_synced(self.V, ["信義王", "信義王宅"], self.t), ([XINYI_REL], []))
+        card = self.V / XINYI_REL
+        card.write_text(card.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8")
+        self.assertEqual(synthesis.mark_synced(self.V, ["信義王", "信義王宅"], self.t),
+                         ([], [{"name": "信義王", "reason": "範本版本該是 1"}]))
 
     def test_mark_synced_skips(self):
         card = self.V / XINYI_REL

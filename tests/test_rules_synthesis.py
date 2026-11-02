@@ -57,6 +57,10 @@ class SynthesisRules(unittest.TestCase):
         self.assertIn("待更新的照 S-24，不抄", self.rules["S-06"])
         for rel in ("agents/card-maker.md", "skills/ingest/references/carding.md"):
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8").count("--synced"), 1, rel)
+        row = next(l for l in (ROOT / "skills/ingest/references/commands.md").read_text(encoding="utf-8").splitlines()
+                   if "`entity render`" in l)
+        self.assertIn("改完待更新的綜合卡跑 `kb entity render <名稱> --synced`", row)  # 裁定 11
+        self.assertNotIn("平常不用 render", row)
 
 
 if __name__ == "__main__":

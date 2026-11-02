@@ -163,7 +163,9 @@ class RenderSynced(Base):
     def test_synced_needs_a_name(self):
         E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
         before = (self.V / self.CARD).read_text(encoding="utf-8")
-        self.kb("render", "--synced", code=2)
+        self.assertEqual(self.kb("render", "--synced", code=2), ["--synced 要給至少一個實體名稱"])
+        r = run_kb("entity", "render", "--synced", "--json", cwd=self.V)
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (2, {"error": "--synced 要給至少一個實體名稱"}))
         self.assertEqual((self.V / self.CARD).read_text(encoding="utf-8"), before)
 
     def test_skipped(self):

@@ -551,7 +551,7 @@ def run(args):
         if command == "list":
             return _list(vault, as_json, args.tag)
         if command == "render" and getattr(args, "synced", False) and not args.names:
-            print(SYNCED_NEEDS_NAME)
+            _out(as_json, [SYNCED_NEEDS_NAME], {"error": SYNCED_NEEDS_NAME})
             return 2
         if getattr(args, "check", False):  # 先算後果、什麼都不寫（也不開回合），Obsidian 的確認框用（#22，D-256）
             return _check(vault, args, as_json)

@@ -586,7 +586,9 @@ def problems(vault, rel, text, data, mounts, prof, know=None):
     know = know if know is not None else knowledge(vault)
     stmts, ruls, finds = basis(know, entry["name"], mounts)
     ms = mounts.get(entry["name"], [])
-    if not isinstance(have, list) or sorted(have) != sorted(synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds)):
+    if not isinstance(have, list):  # 不是清單是抄錯格式，不算只差整理到（裁定 6）
+        out.append(("synced_shape", "整理到 照 kb cards todo 給的檔頭抄（一行一項）"))
+    elif sorted(have) != sorted(synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds)):
         out.append((STALE_CODE, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"))
     day = front["更新日"]
     ok = isinstance(day, str) and bool(_DATE.match(day))
@@ -729,6 +731,20 @@ NO_ENTITY = "找不到這個實體"
 NO_CARD = "還沒有綜合卡"
 
 
+def _synced_card(vault, e, data, mounts, prof, know):
+    """mark_synced 的檢查：回 (相對路徑, 卡的內文, 不寫的原因)；原因是 None 才寫（合法綜合卡，只差整理到也算）。"""
+    rel = card_rel(e, vault) if e.get("type") else None
+    p = Path(vault) / rel if rel else None
+    if p is None or not p.is_file():
+        return rel, None, NO_CARD
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as err:
+        return rel, None, f"檔頭解析不了：{type(err).__name__}"
+    bad = [r for code, r in safe_problems(vault, rel, text, data, mounts, prof, know) if code != STALE_CODE]
+    return rel, text, (bad[0] if bad else None)
+
+
 def mark_synced(vault, names, turn_id):
     """AI 用 Edit 改完內文之後（D-518）：合法綜合卡（只差整理到也算）的 整理到（header_for 同一算法）、更新日（今天）、
     檔案卡、相關實體 換成現行的，其他檔頭行與內文不動；內容沒變不寫；寫前 turn.backup(by="program")。
@@ -748,21 +764,12 @@ def mark_synced(vault, names, turn_id):
             continue
         if e.get("id") in seen:
             continue
-        seen.add(e.get("id"))
-        rel = card_rel(e, vault) if e.get("type") else None
-        p = Path(vault) / rel if rel else None
-        if p is None or not p.is_file():
-            skipped.append({"name": name, "reason": NO_CARD})
+        rel, text, reason = _synced_card(vault, e, data, mounts, prof, know)
+        seen.add(e.get("id"))  # 檢查完才記：寫了或確定 skipped 的同一個實體再給一次只算一筆（裁定 9）
+        if reason:
+            skipped.append({"name": name, "reason": reason})
             continue
-        try:
-            text = p.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as err:
-            skipped.append({"name": name, "reason": f"檔頭解析不了：{type(err).__name__}"})
-            continue
-        bad = [r for code, r in safe_problems(vault, rel, text, data, mounts, prof, know) if code != STALE_CODE]
-        if bad:
-            skipped.append({"name": name, "reason": bad[0]})
-            continue
+        p = Path(vault) / rel
         ms = mounts.get(e["name"], [])
         stmts, ruls, finds = basis(know, e["name"], mounts)
         new = replace_front(text, {"整理到": synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds),

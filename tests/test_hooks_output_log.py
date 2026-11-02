@@ -447,6 +447,8 @@ class SynthesisCheck(unittest.TestCase):
             (rel, good.replace("範本版本: 1", "範本版本: 3"), "範本版本該是 1"),
             (rel, good.replace("更新日: ", "更新日: x"), "更新日要寫 YYYY-MM-DD"),
             (rel, good.replace("## 現況", "## 近況"), "正文要有 # 王宅 與 ## 現況"),
+            (rel, __import__("re").sub(r"整理到:\n(  - .*\n)*", "整理到: 已整理\n", good),
+             "整理到 照 kb cards todo 給的檔頭抄（一行一項）"),
             (rel, good.replace(self.E.WANG, "e-99999999"), "編號 e-99999999 不在實體清單"),
             (rel, good.replace(self.E.WANG, self.E.SELF), "這是你自己（關於你），不寫綜合卡"),
             (rel, good.replace("---\n", "", 1), "檔頭解析不了：第一行不是 ---"),
