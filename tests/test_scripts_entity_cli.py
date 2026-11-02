@@ -289,7 +289,7 @@ class EntityLog(Base):
         self.assertEqual(self.kb("log", "信義王", f"2026-10-30 甲 ## 現況 假的〔{f}〕", code=3)[0],
                          synthesis.EVENT_BREAK.format(f"2026-10-30 甲↵## 現況 假的〔{f}〕"))  # 拒絕句把換行印成 ↵
         self.assertEqual(self.p.read_text(encoding="utf-8"), before)
-        for ch in ("\r", "\n", " ", " ", "\u0085"):
+        for ch in ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e"):  # 同 ledger 的換行類
             with self.subTest(ch=repr(ch)), self.assertRaises(entities.EntityRefused) as cm:
                 synthesis.parse_event(f"2026-10-30 甲{ch}乙〔{f}〕", {f}, "信義王")
             self.assertTrue(str(cm.exception).startswith("一條不能換行"))
@@ -302,6 +302,15 @@ class EntityLog(Base):
         self.assertIn("整理到:\r\n", raw)
         self.assertIn(f"## 紀事\r\n- 2026-10-25 開會〔{self.fid}〕\r\n", raw)
         self.assertNotIn("\n", raw.replace("\r\n", ""))
+
+    def test_synced_mixed_eol_not_converted(self):
+        """review：只有幾行是 CRLF（其餘 LF）時不把整檔轉成 CRLF。"""
+        head, rest = self.p.read_text(encoding="utf-8").split("\n", 1)
+        self.p.write_bytes((head + "\r\n" + rest).encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", "--synced")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertLessEqual(raw.count("\r\n"), 1)
+        self.assertIn(f"## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n", raw)
 
     def test_pending_hand_edit_kept_and_program_line_not_hers(self):
         """review 1：她有沒處理的手改時，那段留成待處理，程式加的紀事不算進她改的。"""

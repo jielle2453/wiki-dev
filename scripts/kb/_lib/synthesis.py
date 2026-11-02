@@ -726,7 +726,8 @@ def _span(text):
 
 
 def _mark_line(mark):
-    return re.compile(r"(?m)^[ \t]*" + re.escape(mark) + r"[ \t]*(?=\r?$)")
+    """記號整行（前後只有空白，同 _file_lines 的 strip）；\r 不算空白，CRLF 也認。"""
+    return re.compile(r"(?m)^[^\S\r\n]*" + re.escape(mark) + r"[^\S\r\n]*(?=\r?$)")
 
 
 def with_file_section(text, section):
@@ -881,7 +882,7 @@ def mark_synced(vault, names, turn_id, keep_crlf=False):
             maps = _fix_maps(vault)
         if new != text:
             turn.backup(vault, rel, turn_id, by="program")
-            write_text_atomic(p, new.replace("\n", "\r\n") if keep_crlf and b"\r\n" in p.read_bytes() else new)
+            write_text_atomic(p, new.replace("\n", "\r\n") if keep_crlf and _all_crlf(p.read_bytes()) else new)
             written.append(rel)
         if need:
             _follow_fixes(vault, e, rel, new != text, *maps)
@@ -1131,6 +1132,13 @@ def _file_lines(lines, start=0):
     return i, next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), len(lines))
 
 
+def _all_crlf(text):
+    """每個換行都是 CRLF 才算 CRLF 檔（混用的照 LF 寫，不整檔轉）。text 可以是 str 或 bytes。"""
+    cr, lf = ("\r\n", "\n") if isinstance(text, str) else (b"\r\n", b"\n")
+    n = text.count(cr)
+    return n > 0 and n == text.count(lf)
+
+
 def _lines(text):
     """只照 \n 切行（Read 也是；splitlines 會在 U+2028、換頁字元這類字切開）；\r\n 當一個換行，檔尾換行不算一行。"""
     lines = str(text or "").replace("\r\n", "\n").split("\n")
@@ -1162,7 +1170,7 @@ CITE_FORMAT = "出處編號格式不對：〔{}〕（要寫成〔f-xxxxxxxx〕�
 NOT_BASIS = "〔{cite}〕不是{name}的依據（掛的檔案卡、口述、裁示、推算）"
 EVENT_BREAK = "一條不能換行：{}"
 EVENT_MARK = "一條不能有 <!-- 或 willy: 這種記號：{}"
-_BREAKS = ("\r", "\n", "\u2028", "\u2029", "\u0085")
+_BREAKS = ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e")  # 同 ledger 的換行類（tab 除外）
 
 
 def parse_event(line, allowed, name):
@@ -1204,7 +1212,7 @@ def _event_day(line):
 def insert_events(text, events):
     """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加。
     沒有紀事段就在「## 現況」那段之後補一段（S-08）。回 (新內文, 加了的行, 已經有的行)。"""
-    crlf = "\r\n" in text
+    crlf = _all_crlf(text)
     lines = _lines(text)
     start = _body_start(lines)
     span = _events_span(lines, start)

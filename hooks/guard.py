@@ -170,11 +170,15 @@ def split_global(tokens):
 
 
 def _positionals(tokens, sub, value_flags=("--vault",)):
-    """子子命令 sub 後面不是旗標、也不是旗標值的字（--vault x 的 x 不算）。"""
+    """子子命令 sub 後面不是旗標、也不是旗標值的字（--vault x 的 x 不算；-- 之後的都算）。"""
     rest = tokens[tokens.index(sub) + 1:] if sub in tokens else []
-    out, skip = [], False
+    out, skip, dash = [], False, False
     for t in rest:
-        if skip:
+        if dash:
+            out.append(t)
+        elif t == "--":
+            dash = True
+        elif skip:
             skip = False
         elif t.startswith("-"):
             skip = t in value_flags

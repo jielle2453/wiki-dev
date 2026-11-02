@@ -273,6 +273,13 @@ class Buckets(Base):
         self.assertTrue(got.endswith(self.FILES))
         self.assertEqual(synthesis._span(got)[0], got.index("\n" + synthesis.FILE_BEGIN + "\n") + 1)
 
+    def test_marker_line_with_unicode_spaces(self):
+        """review：記號行前後是全形空白、不斷行空白也算記號行（同 read_ranges 的 strip），兩邊認的是同一段。"""
+        files = self.FILES.replace(synthesis.FILE_BEGIN, "\u3000" + synthesis.FILE_BEGIN + "\xa0")
+        text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n" + files
+        self.assertEqual(synthesis._span(text)[0], text.index("\u3000"))
+        self.assertEqual(synthesis.read_ranges(text), [[4, 5]])
+
     def test_empty_events_section_gets_blank_line_before_files(self):
         """裁定 20：紀事段只有標題、下一行就是相關檔記號，新條跟記號之間空一行。"""
         text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n## 紀事\n" + self.FILES
