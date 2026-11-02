@@ -191,10 +191,11 @@ class CpBundledFlags(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decide(cmd), ("deny", "vault_move"))
 
-    def test_put_into_the_vault_root_is_still_the_old_sentence(self):
+    def test_put_into_the_vault_root_is_not_a_move(self):
+        """放寬甲：放東西進知識庫根不是搬家，也不是刪；沒有同名檔就放行（U1）。"""
         v = str(self.V).replace("\\", "/")
         decision, code = self.decide(f"cp -rt '{v}' a.txt")
-        self.assertEqual(decision, "deny")
+        self.assertEqual(decision, "pass")
         self.assertNotEqual(code, "vault_move")
 
     def test_capital_T_means_the_opposite_and_stays_a_normal_destination(self):

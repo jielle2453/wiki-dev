@@ -391,7 +391,7 @@ class Exclude(Base):
         self.exclude("../raw/行政/薪資", "--kind", "hidden", "--reason", "薪資個資")
         r = run_kb("guard", "decide", "--tool", "Read", "--path", str(self.raw / "行政" / "薪資" / "s.xlsx"), cwd=self.V)
         self.assertTrue(r.stdout.startswith("deny"), r.stdout)
-        self.assertIn("你說過不讀", r.stdout)
+        self.assertIn("使用者說過不讀", r.stdout)
         self.assertNotIn("密碼或金鑰", r.stdout)
 
     def test_whole_source_points_to_folders_remove(self):

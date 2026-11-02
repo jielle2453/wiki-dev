@@ -586,7 +586,8 @@ class Guard(Base):
     def test_14_guard_unchanged(self):
         turn.start(self.V, SID, "寫卡")
         self.assertEqual(self.decision(self.V / "01 案子/信義王/信義王.md"), "allow")
-        self.assertEqual(self.decision(self.V / "01 案子/亂放.md"), "deny")
+        self.assertEqual(self.decision(self.V / "01 案子/亂放.md"), "allow")  # 放寬甲：型別夾根放檔是使用者區（Z8），檔案工具寫放行
+        self.assertEqual(self.decision(self.V / "總目錄.md"), "deny")  # 知識庫根的總目錄是 willy 自己的檔
 
 
 if __name__ == "__main__":
