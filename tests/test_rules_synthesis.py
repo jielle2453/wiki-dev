@@ -65,7 +65,7 @@ class SynthesisRules(unittest.TestCase):
 
     def test_events_by_program(self):
         """D-521：S-21 照 read_ranges 平行讀、紀事不讀；S-22、S-24 紀事用 entity log；S-14、S-16 待更新的由程式加。"""
-        for word in ("read_ranges", "平行 Read", "紀事不讀"):
+        for word in ("read_ranges", "平行 Read", "紀事、相關檔不讀"):  # 相關檔：裁定 5
             self.assertIn(word, self.rules["S-21"])
         self.assertIn('kb entity log <名稱> "<行>"… --synced', self.rules["S-22"])
         self.assertIn("不用 Edit", self.rules["S-22"])
