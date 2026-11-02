@@ -232,6 +232,22 @@ class Round2(Base):
         self.assertNotIn(str(self.V).replace("\\", "/"), out)
         self.assertEqual(len(out.strip().splitlines()), 1, out)
 
+    def test_id_gives_open_location_and_card_path(self):
+        """放寬丙 9：kb lookup --id <編號> --json 回 open（這台原檔的位置）與卡路徑，給 Obsidian 外掛的開原檔連結用；只讀。"""
+        fid = self.quote
+        rel = next(c["path"] for c in lookup.lookup(self.V, "信義王")["cards"] if c["id"] == fid)
+        before = tree_hash(self.V)
+        got = json.loads(self.kb("--id", fid, "--json"))
+        self.assertEqual(got["id"], fid)
+        self.assertEqual(got["card_path"], rel)
+        self.assertTrue(got["open"]["path"].endswith("/信義王/報價_v2.pdf"), got)
+        self.assertEqual(tree_hash(self.V), before)
+        (self.raw / E.ESTIMATE).unlink()  # 這台找不到原檔：open 是 null，卡路徑還在
+        gone = json.loads(self.kb("--id", self.est, "--json"))
+        self.assertIsNone(gone["open"])
+        self.assertTrue(gone["card_path"])
+        self.assertIsNone(json.loads(self.kb("--id", "f-00000000", "--json"))["open"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,8 @@ def _marks(c):
 
 
 def add_arguments(sub):
-    sub.add_argument("name", help="實體名稱或別名（沒登記也可以，會列提到它的卡）")
+    sub.add_argument("name", nargs="?", default="", help="實體名稱或別名（沒登記也可以，會列提到它的卡）")
+    sub.add_argument("--id", help="清冊編號 f-…：只查這份原檔在這台的位置（Obsidian 外掛的開原檔連結用），回 open 與卡的路徑")
     sub.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -99,10 +100,36 @@ def _lines(got):
     return out
 
 
+def _by_id(vault, args):
+    """--id：{"id","open","card_path"}。open 同首頁的 open 物件（path 絕對路徑正斜線｜url｜None 在這台找不到），只讀。"""
+    from kb._lib import cards, home, inventory
+    from kb._lib import sources as sources_lib
+    fid = args.id.strip()
+    entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == fid and e.get("status") == "active"), None)
+    group = cards._scan_groups(vault)[0].get(fid)
+    got = {"id": fid, "open": home._open_target(vault, sources_lib.load(vault), entry) if entry else None,
+           "card_path": group[0]["path"] if group else None}
+    if getattr(args, "json", False):
+        print(json.dumps(got, ensure_ascii=False))
+    else:
+        target = got["open"] or {}
+        print(target.get("path") or target.get("url") or "這台電腦找不到這份原檔")
+    return 0
+
+
 def run(args):
     vault = find_vault(args)
     if vault is None:
         print(NOT_IN_VAULT)
+        return 3
+    if getattr(args, "id", None):
+        try:
+            return _by_id(vault, args)
+        except ValueError as e:
+            print(f"狀態檔讀不到：{e}")
+            return 3
+    if not args.name.strip():
+        print("要給實體名稱，或用 --id 查一份原檔的位置")
         return 3
     try:
         got = lookup_lib.lookup(vault, args.name.strip())

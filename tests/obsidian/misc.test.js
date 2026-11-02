@@ -434,3 +434,41 @@ test('要你確認的（裁定 34）：「先放著」的 argv 照跑；要填�
   await plugin.chooseResult({}, { label: '還沒，改到某天', argv: ['agenda', 'edit', 'a-1', '--date', '{新日期}'], fill: { name: '新日期', rule: 'YYYY-MM-DD' } }, '2026-11-20');
   assert.deepStrictEqual(calls[1], ['agenda', 'edit', 'a-1', '--date', '2026-11-20']);
 });
+
+function makeOpenPlugin(reply) {
+  const calls = [];
+  const toasts = [];
+  const opened = [];
+  const orig = [];
+  const app = { vault: { adapter: { getBasePath: () => '/v' } }, workspace: { getLeavesOfType: () => [], openLinkText: (p) => opened.push(p) } };
+  const plugin = new env.Plugin(app, { id: 'wiki-with-willy', version: '0.28.0' });
+  plugin.data = {};
+  plugin.runner = { run: async (args) => { calls.push(args); return { code: 0, stdout: JSON.stringify(reply), stderr: '' }; } };
+  plugin.toast = (t) => toasts.push(t);
+  plugin.recordOpened = async () => {};
+  plugin.openCtx = () => ({ platform: 'linux', toast: (t) => toasts.push(t), openPath: async (p) => { orig.push(p); return ''; }, openUrl: (u) => orig.push(u) });
+  return { plugin, calls, toasts, opened, orig };
+}
+
+test('開原檔連結（D-328）：協定處理器叫 kb lookup --id 查位置再開原檔', async () => {
+  const { plugin, calls, orig, opened } = makeOpenPlugin({ id: 'f-1', open: { path: '/data/報價.docx' }, card_path: '檔案索引/客戶/報價-1.md' });
+  assert.strictEqual(await plugin.openById('f-1'), true);
+  assert.deepStrictEqual(calls[0], ['lookup', '--id', 'f-1', '--json']);
+  assert.deepStrictEqual(orig, ['/data/報價.docx']);
+  assert.deepStrictEqual(opened, []);
+});
+
+test('開原檔連結（D-328）：這台找不到原檔，說一句、退一步開卡', async () => {
+  const { plugin, toasts, orig, opened } = makeOpenPlugin({ id: 'f-1', open: null, card_path: '檔案索引/客戶/報價-1.md' });
+  assert.strictEqual(await plugin.openById('f-1'), false);
+  assert.deepStrictEqual(toasts, ['這份沒有原檔可以開']);
+  assert.deepStrictEqual(orig, []);
+  assert.deepStrictEqual(opened, ['檔案索引/客戶/報價-1']);
+});
+
+test('開原檔連結（D-328）：onload 登記 wiki-with-willy-open 協定', () => {
+  const { plugin } = makeOpenPlugin({});
+  plugin.registerObsidianProtocolHandler('wiki-with-willy-open', () => {});
+  assert.ok(plugin.protocols['wiki-with-willy-open']);
+  assert.strictEqual(lib.OPEN_ACTION, 'wiki-with-willy-open');
+});

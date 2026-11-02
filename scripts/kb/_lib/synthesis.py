@@ -805,9 +805,13 @@ def render_cache(vault, entity_names, turn_id):
         if need and maps is None:
             maps = _fix_maps(vault)  # 寫之前讀：還算數的要照寫之前的指紋認
         if new != text:
+            from kb._lib import card_base
+            synced = card_base.in_sync(vault, rel)  # 她沒有沒處理的手改：程式改了內文，基準跟著換（D-270）
             turn.backup(vault, rel, turn_id, by="program")
             write_text_atomic(p, new)
             written.append(rel)
+            if synced and card_base.body_of(new) != card_base.body_of(text):
+                card_base.record_safe(vault, rel)
         if section and renders.load(vault)["files"].get(_file_key(rel)) != renders.fingerprint(section):
             renders.record(vault, _file_key(rel), section)
         if need:

@@ -126,7 +126,7 @@ class Rename(Base):
         self.assertTrue(rel.startswith("檔案索引/知識庫/師傅/陳師傅/"), rel)
         front = self.front(rel)
         self.assertEqual(front["原檔"], ["file://知識庫/師傅/陳師傅/報價.txt"])
-        self.assertIn("/師傅/陳師傅/報價.txt", urllib.parse.unquote(front["開原檔"]))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + front["編號"])  # 放寬丙 9
         self.assertIn("師傅/陳師傅", (self.V / "總目錄.md").read_text(encoding="utf-8"))
         self.assertEqual(profile.status(self.V)["unlisted"], [], "開場沒有「不在型別表」")
         self.assertEqual([(x["op"], x["from"], x["to"]) for x in turn.folders(self.V, self.turn)], [("move", "工班", "師傅")])

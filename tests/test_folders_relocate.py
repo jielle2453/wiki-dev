@@ -62,6 +62,7 @@ class Relocate(unittest.TestCase):
         self.assertIn("不讀的夾：大安陳 在新位置找到了", lines)
         self.assertEqual((json.dumps(self.sources()), self.inventory_text()), before)
         uris = re.findall(r'"uri": "([^"]+)"', self.inventory_text())
+        card_before = (Path(self.V) / self.card_rel).read_bytes()
         code, out = self.relocate()
         self.assertEqual(code, 0, out)
         self.assertTrue(out.splitlines()[0].startswith("已把「客戶案件」換到新位置："), out)
@@ -73,12 +74,12 @@ class Relocate(unittest.TestCase):
         self.assertEqual(src["excludes"][0]["spec"], "大安陳")
         self.assertEqual(sorted(re.findall(r'"uri": "([^"]+)"', self.inventory_text())), sorted(uris))
         front = cards.parse_front((Path(self.V) / self.card_rel).read_text(encoding="utf-8"))
-        self.assertEqual(front["開原檔"], cards.open_link(self.new / "內湖李" / "估價單.pdf"))
+        self.assertRegex(front["開原檔"], r"^obsidian://wiki-with-willy-open\?id=f-")
+        self.assertEqual((Path(self.V) / self.card_rel).read_bytes(), card_before, "放寬丙 9：換位置不重寫卡")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(versions._revert(self.V, None, False, False), 0)
         self.assertEqual(self.sources()["sources"][0]["spec"], "../raw/客戶案件")
-        front = cards.parse_front((Path(self.V) / self.card_rel).read_text(encoding="utf-8"))
-        self.assertEqual(front["開原檔"], cards.open_link(self.raw / "客戶案件" / "內湖李" / "估價單.pdf"))
+        self.assertEqual((Path(self.V) / self.card_rel).read_bytes(), card_before)
 
     def test_partial(self):
         shutil.copytree(self.raw / "客戶案件", self.new)

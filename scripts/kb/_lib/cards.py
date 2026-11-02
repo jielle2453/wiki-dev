@@ -155,13 +155,15 @@ def open_link(path):
     return "file:" + urllib.request.pathname2url(p)
 
 
+OPEN_PROTOCOL = "obsidian://wiki-with-willy-open?id="
+
+
 def entry_link(vault, sources, entry):
-    """開原檔：主位置的 file: 連結；link 條目是網址本身。"""
-    from kb._lib import inventory
+    """開原檔（放寬丙 9，D-328）：Obsidian 外掛連結 obsidian://wiki-with-willy-open?id=<清冊編號>，點了由外掛叫 kb 查這台的位置再開，
+    所以來源搬家、換電腦卡不用重寫；link 條目是網址本身。連結不帶 vault=（開的是目前這個知識庫；多個知識庫同時開的情形待 Obsidian 實跑確認）。"""
     if entry.get("kind") == "link":
         return entry["locations"][0].get("uri", "")
-    path = inventory.path_of(vault, sources, entry["locations"][0].get("uri", ""))
-    return open_link(path) if path is not None else ""
+    return OPEN_PROTOCOL + str(entry.get("id", ""))
 
 
 def safe_title(title, max_chars):

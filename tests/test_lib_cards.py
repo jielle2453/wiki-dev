@@ -113,7 +113,7 @@ class Header(Vault):
         self.assertEqual(front["範本版本"], "3")
         self.assertEqual((front["實體"], front["提到"], front["待補型別"]), ([], [], []))
         self.assertEqual(front["敏感資料種類"], [])
-        self.assertEqual(front["開原檔"], cards.open_link(self.raw / _cards.MEETING))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + e["id"])  # 放寬丙 9：外掛連結、只帶編號
         self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
         self.assertEqual(item["dir"], "檔案索引/客戶案件/大安陳")
         self.assertEqual(item["filename_pattern"], f"<標題>-{e['id'][2:]}.md")
@@ -387,6 +387,22 @@ class AfterTest(Vault):
         self.assertEqual(fixed, text)  # 只換了開原檔那一行，其他行原樣
         self.assertEqual(self.todo()["moved"], [])
         self.assertIn(rel, {e["path"] for e in turn.entries(self.V, t)})
+
+    def test_22_old_file_link_replaced_once_by_plugin_link(self):
+        """放寬丙 9（驗收 22）：開原檔是外掛連結、沒有 file:///；舊卡的 file:/// 經 sync 換一次，編號不變，再跑 sync 不再動。"""
+        p = self.card()
+        text = p.read_text(encoding="utf-8")
+        front = cards.parse_front(text)
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + front["編號"])
+        self.assertNotIn("file:///", text)
+        p.write_text(text.replace(front["開原檔"], "file:///D:/%E6%A1%88/a.docx"), encoding="utf-8")
+        t = turn.start(self.V, None, "換連結")["turn"]
+        got = cards.sync(self.V, self.sources(), t)
+        self.assertEqual(got["updated"], [p.relative_to(self.V).as_posix()])
+        self.assertEqual(p.read_text(encoding="utf-8"), text)
+        self.assertEqual(cards.sync(self.V, self.sources(), t)["updated"], [])
+        item = {"kind": "link", "locations": [{"uri": "https://example.com/a"}], "id": "f-1"}
+        self.assertEqual(cards.entry_link(self.V, self.sources(), item), "https://example.com/a")
 
     def test_20_duplicates_keep_valid_one(self):
         item = self.item()

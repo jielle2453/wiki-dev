@@ -152,7 +152,7 @@ class Sync(Base):
         self.assertTrue(new.is_file())
         front = cards.parse_front(new.read_text(encoding="utf-8"))
         self.assertEqual(front["原檔"], ["file://客戶案件/信義王/會議紀錄_1.docx"])
-        self.assertEqual(front["開原檔"], cards.open_link(dst))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + front["編號"])  # 放寬丙 9
         old_lines = [ln for ln in self.before.splitlines() if not ln.startswith(("  - ", "開原檔:"))]
         new_lines = [ln for ln in new.read_text(encoding="utf-8").splitlines() if not ln.startswith(("  - ", "開原檔:"))]
         self.assertEqual(old_lines, new_lines)
@@ -341,20 +341,19 @@ class Index(Base):
 class AfterTest(Base):
     """測試後修正裁定 19、20、29、30（報告 C2、C3、C9、C10）。"""
 
-    def test_19_source_relocated_sync_rewrites_link(self):
+    def test_19_source_relocated_card_needs_no_rewrite(self):
+        """放寬丙 9：開原檔是外掛連結、只帶編號；來源搬到別處，卡不用重寫（舊卡的 file:/// 換一次見 test_lib_cards 22）。"""
         item = self.item()
         card = _cards.write_card(self.V, item, "大安陳會議一")
         shutil.copytree(self.raw, self.tmp / "raw2")
         p = self.V / ".system" / "sources.json"
         p.write_text(p.read_text(encoding="utf-8").replace("../raw/客戶案件", "../raw2/客戶案件"), encoding="utf-8")
+        before = card.read_bytes()
         self.scan()
-        (moved,) = self.todo()["moved"]
-        self.assertEqual(moved["to"], "檔案索引/客戶案件/大安陳")
-        r = self.kb("cards", "sync")
-        self.assertEqual(r.stdout.strip(), "搬了 0 張卡、更新 1 張卡的原檔位置")
-        front = cards.parse_front(card.read_text(encoding="utf-8"))
-        self.assertEqual(front["開原檔"], cards.open_link(self.tmp / "raw2" / _cards.MEETING))
         self.assertEqual(self.todo()["moved"], [])
+        r = self.kb("cards", "sync")
+        self.assertEqual(r.stdout.strip(), "搬了 0 張卡、更新 0 張卡的原檔位置")
+        self.assertEqual(card.read_bytes(), before)
 
     def test_sync_rewrites_missing_or_broken_index(self):
         """放寬丙 6-3：總目錄.md 不見或壞了，kb cards sync 自己重寫（卡檔頭壞走 broken 桶，不在這裡）。"""
