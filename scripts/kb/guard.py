@@ -1809,8 +1809,10 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
         decision, code, reason = _verdict(zone, "read", alias)
         if decision == "deny":
             return deny(zone, code, reason)
-        if zone == "Z8" and p == vault_n:  # 知識庫本身要刪、要蓋：擋，教用 kb 搬家與還原的做法
-            return deny(zone, "delete", DELETE_REASON.format(name=_display_name(command, p)))
+        if zone == "Z8" and p == vault_n:  # 知識庫本身要刪：擋，教用 kb 搬家與還原的做法；cp x .、tar -C . 這類只是放東西進第一層，照使用者區規則（U1）
+            if _u5_words({"text": command, "code": ""}, ctx) == "delete":
+                return deny(zone, "delete", DELETE_REASON.format(name=_display_name(command, p)))
+            return None
         if _willy_shell_zone(zone, p, vault_n):  # willy 自己的檔：指令寫一律擋，教 AI 用對應的做法（放寬甲）
             return deny(zone, "willy", willy_reason(zone, p, vault_n, command))
         if zone == "Z11":

@@ -9,7 +9,9 @@ from kb import guard  # noqa: E402
 from kb._lib.paths import normalize as paths_normalize  # noqa: E402
 
 
-KB_WORDS = {"kb", "office", "copy", "output", "save", "source", "edit", "move"}
+KB_WORDS = {"kb", "office", "copy", "output", "save", "source", "edit", "move", "willy", "Edit", "Write", "MultiEdit", "folders",
+            "include", "trash", "replace", "name", "to", "profile", "apply", "selftest", "Word", "Excel", "Move", "Item", "Force",
+            "Copy", "Test", "Path", "os", "rename", "shutil", "rmdir", "hook", "errors", "log", "n", "mv", "cp", "check", "json"}
 
 
 class DecideBase(unittest.TestCase):
@@ -37,7 +39,7 @@ class DecideBase(unittest.TestCase):
                 # 理由句全中文、一句、沒有英文代碼（「AI 產出」是資料夾名，准）
                 self.assertTrue(d.reason, d)
                 # produce：指到 kb office copy、kb output save 的指令名准（理由要說可以怎麼做）
-                self.assertEqual(set(re.findall(r"[A-Za-z_]+", d.reason)) - {"AI", "PDF"} - KB_WORDS, set(), d.reason)
+                self.assertEqual(set(re.findall(r"[A-Za-z_]+", re.sub(r"「[^」]*」|<[^>]*>", "", d.reason))) - {"AI", "PDF"} - KB_WORDS, set(), d.reason)
                 self.assertEqual(len(d.ledger_rows), 1, d)
             if decision == "allow":
                 self.assertEqual(d.ledger_rows, [], d)
@@ -58,9 +60,9 @@ class FileToolsVault(DecideBase):
     def test_z2_entity_file_read_allow_write_deny(self):
         doc = self.V / "案子" / "信義王" / "合約.docx"
         self.expect("Read", doc, "allow", "Z2")
-        self.expect("Write", doc, "deny", "Z2", "entity_file")
-        self.expect("Edit", self.V / "案子" / "信義王" / "sub" / "備註.md", "deny", "Z2", "entity_file")
-        self.expect("NotebookEdit", self.V / "案子" / "信義王" / "分析.ipynb", "deny", "Z2", "entity_file")
+        self.expect("Write", doc, "allow", "Z2")
+        self.expect("Edit", self.V / "案子" / "信義王" / "sub" / "備註.md", "allow", "Z2")
+        self.expect("NotebookEdit", self.V / "案子" / "信義王" / "分析.ipynb", "allow", "Z2")
 
     def test_z3_ai_output_allow_both(self):
         p = self.V / "AI 產出" / "x.md"
@@ -71,7 +73,7 @@ class FileToolsVault(DecideBase):
     def test_z4_inbox_read_allow_write_deny(self):
         p = self.V / "收件匣" / "x.txt"
         self.expect("Read", p, "allow", "Z4")
-        self.expect("Write", p, "deny", "Z4", "inbox")
+        self.expect("Write", p, "allow", "Z4")
 
     def test_z5_index_allow_both(self):
         p = self.V / "檔案索引" / "x.md"
@@ -81,18 +83,20 @@ class FileToolsVault(DecideBase):
     def test_z6_system_render_read_allow_write_deny(self):
         p = self.V / "系統" / "待處理.md"
         self.expect("Read", p, "allow", "Z6")
-        self.expect("Write", p, "deny", "Z6", "system_render")
+        self.expect("Write", p, "deny", "Z6", "willy")
+        self.expect("Edit", self.V / "系統" / "客戶設定檔.md", "allow", "Z6")
 
     def test_z7_protected_read_allow_write_deny(self):
         for p in (self.V / ".claude" / "settings.json", self.V / "CLAUDE.md", self.V / ".system" / "sources.json",
                   self.V / ".system" / "ledger.tsv"):
             self.expect("Read", p, "allow", "Z7")
-            self.expect("Edit", p, "deny", "Z7", "protected")
+            self.expect("Edit", p, "deny", "Z7", "willy")
 
     def test_z8_other_first_level_read_allow_write_deny(self):
         self.expect("Read", self.V / "readme.txt", "allow", "Z8")
-        self.expect("Write", self.V / "readme.txt", "deny", "Z8")
-        self.expect("Write", self.V / "案子" / "備忘.txt", "deny")
+        self.expect("Write", self.V / "readme.txt", "allow", "Z8")
+        self.expect("Write", self.V / "案子" / "備忘.txt", "allow")
+        self.expect("Write", self.V / "總目錄.md", "deny", "Z8", "willy")
         self.expect("Grep", self.V, "allow", "Z8")
 
     def test_glob_without_path_uses_cwd(self):
@@ -100,7 +104,7 @@ class FileToolsVault(DecideBase):
         self.assertEqual((d.decision, d.zone), ("allow", "Z3"))
 
     def test_relative_path_joins_cwd(self):
-        self.expect("Write", "收件匣/x.txt", "deny", "Z4", "inbox")
+        self.expect("Write", "收件匣/x.txt", "allow", "Z4")
         self.expect("Read", "../raw/行政/薪資/s.xlsx", "deny", "Z10", "excluded")
 
 
@@ -110,15 +114,15 @@ class FileToolsSources(DecideBase):
         self.expect("Read", p, "allow", "Z9")
         self.expect("Glob", self.raw / "客戶案件", "allow", "Z9")
         self.expect("Grep", self.raw / "客戶案件", "allow", "Z9")
-        self.expect("Write", p, "deny", "Z9", "readonly_source")
-        self.expect("Edit", self.raw / "行政" / "請款" / "r.docx", "deny", "Z9", "readonly_source")
+        self.expect("Write", p, "allow", "Z9")
+        self.expect("Edit", self.raw / "行政" / "請款" / "r.docx", "allow", "Z9")
 
     def test_z10_excluded_deny_both_kinds(self):
         for p in (self.raw / "行政" / "薪資" / "s.xlsx", self.raw / "行政" / "舊檔" / "o.doc", self.raw / "行政" / "薪資"):
             self.expect("Read", p, "deny", "Z10", "excluded")
             self.expect("Write", p, "deny", "Z10", "excluded")
             self.expect("Glob", p, "deny", "Z10", "excluded")
-        self.assertIn("這個夾你說過不讀", self.decide("Read", self.raw / "行政" / "薪資" / "s.xlsx").reason)
+        self.assertIn("使用者說過不讀", self.decide("Read", self.raw / "行政" / "薪資" / "s.xlsx").reason)
 
     def test_z11_other_pass(self):
         self.expect("Read", "C:/Windows/notepad.exe", "pass", "Z11")
@@ -175,17 +179,17 @@ class Shell(DecideBase):
 
     def test_write_to_source_deny(self):
         p = str(self.raw).replace("\\", "/")
-        self.expect("Bash", f"echo hi > {p}/客戶案件/a.txt", "deny", "Z9", "readonly_source")
-        self.expect("PowerShell", "Set-Content " + p.replace("/", "\\") + "\\客戶案件\\a.txt 'x'", "deny", "Z9", "readonly_source")
-        self.expect("Bash", f"rm {p}/客戶案件/a.txt", "deny", "Z9", "readonly_source")
+        self.expect("Bash", f"echo hi > {p}/客戶案件/a.txt", "deny", "Z9", "content")
+        self.expect("PowerShell", "Set-Content " + p.replace("/", "\\") + "\\客戶案件\\a.txt 'x'", "deny", "Z9", "content")
+        self.expect("Bash", f"rm {p}/客戶案件/a.txt", "deny", "Z9", "delete")
 
     def test_write_to_vault_blocked_zones_deny(self):
         v = str(self.V).replace("\\", "/")
-        self.expect("Bash", f"echo hi > {v}/收件匣/x.txt", "deny", "Z4", "inbox")
-        self.expect("Bash", f"cp a {v}/案子/信義王/合約.docx", "deny", "Z2", "entity_file")
-        self.expect("Bash", f"echo x > {v}/系統/待處理.md", "deny", "Z6", "system_render")
-        self.expect("Bash", f"echo x > {v}/CLAUDE.md", "deny", "Z7", "protected")
-        self.expect("Bash", f"echo x >> {v}/.claude/settings.json", "deny", "Z7", "protected")
+        self.expect("Bash", f"echo hi > {v}/收件匣/x.txt", "pass")
+        self.expect("Bash", f"cp a {v}/案子/信義王/合約.docx", "deny", "Z2", "overwrite")
+        self.expect("Bash", f"echo x > {v}/系統/待處理.md", "deny", "Z6", "willy")
+        self.expect("Bash", f"echo x > {v}/CLAUDE.md", "deny", "Z7", "willy")
+        self.expect("Bash", f"echo x >> {v}/.claude/settings.json", "deny", "Z7", "willy")
 
     def test_read_source_is_pass(self):
         p = str(self.raw).replace("\\", "/")
@@ -193,13 +197,13 @@ class Shell(DecideBase):
         self.expect("Bash", f"cat {p}/客戶案件/a.txt", "pass")
 
     def test_shell_write_to_backed_up_zones_is_deny_shell_write(self):
-        """事務層：指令寫綜合卡、AI 產出、檔案索引都 deny shell_write（指令寫不經備份也不經登記，I-027、D-046 補）。"""
+        """放寬甲：指令寫綜合卡、檔案索引是 willy 自己的檔，deny willy（教用 Edit）；AI 產出是使用者區，新檔放行。"""
         v = str(self.V).replace("\\", "/")
-        d = self.expect("Bash", f"echo hi > {v}/案子/信義王/信義王.md", "deny", "Z1", "shell_write")
-        self.assertIn("用指令改的退不回來", d.reason)
-        self.expect("Bash", f'echo hi > "{v}/AI 產出/x.md"', "deny", "Z3", "output_shell")  # produce：AI 產出讀寫都擋
-        self.expect("Bash", f'sed -i s/a/b/ "{v}/檔案索引/x.md"', "deny", "Z5", "shell_write")
-        self.expect("PowerShell", f'Set-Content "{v}/檔案索引/x.md" x', "deny", "Z5", "shell_write")
+        d = self.expect("Bash", f"echo hi > {v}/案子/信義王/信義王.md", "deny", "Z1", "willy")
+        self.assertIn("用 Edit 或 Write 改", d.reason)
+        self.expect("Bash", f'echo hi > "{v}/AI 產出/x.md"', "pass")  # 使用者區：新檔 U1
+        self.expect("Bash", f'sed -i s/a/b/ "{v}/檔案索引/x.md"', "deny", "Z5", "willy")
+        self.expect("PowerShell", f'Set-Content "{v}/檔案索引/x.md" x', "deny", "Z5", "willy")
 
     def test_shell_read_of_backed_up_zones_still_pass(self):
         v = str(self.V).replace("\\", "/")
@@ -208,9 +212,9 @@ class Shell(DecideBase):
         self.expect("Bash", f'cat "{v}/檔案索引/x.md"', "pass")
 
     def test_write_without_parsable_path_deny_unparsed(self):
-        d = self.expect("Bash", "rm $X", "deny", code="unparsed")
-        self.assertEqual(d.ledger_rows[0]["reason_code"], "unparsed")
-        self.expect("Bash", "mkdir foo", "deny", code="unparsed")
+        d = self.expect("Bash", "rm $X", "deny", code="delete")  # U5：整句有刪的動詞
+        self.assertEqual(d.ledger_rows[0]["reason_code"], "delete")
+        self.expect("Bash", "mkdir foo", "pass")  # U5：mkdir 之類其餘放行
 
     def test_harmless_commands_pass(self):
         self.expect("Bash", "git status", "pass")
@@ -240,14 +244,14 @@ class ReviewGaps(DecideBase):
 
     def test_trailing_dot_spelling_still_denied(self):
         self.expect("Read", str(self.raw / "行政" / "薪資.") + "/s.xlsx", "deny", "Z10", "excluded")
-        self.expect("Write", str(self.raw / "客戶案件.") + "/a.txt", "deny", "Z9", "readonly_source")
+        self.expect("Write", str(self.raw / "客戶案件.") + "/a.txt", "allow", "Z9")
         self.expect("Bash", f"cat {self.raw}/行政/薪資./s.xlsx", "deny", "Z10", "excluded")
 
     def test_quoted_wrapper_write_denied(self):
         p = str(self.raw).replace("\\", "/")
-        self.expect("Bash", f'bash -c "rm {p}/客戶案件/a.txt"', "deny", "Z9", "readonly_source")
-        self.expect("PowerShell", f'powershell -c "Remove-Item {p}/客戶案件/a.txt"', "deny", "Z9", "readonly_source")
-        self.expect("Bash", f'bash -c "echo hi > {self.V}/收件匣/x.txt"', "deny", "Z4", "inbox")
+        self.expect("Bash", f'bash -c "rm {p}/客戶案件/a.txt"', "deny", "Z9", "delete")
+        self.expect("PowerShell", f'powershell -c "Remove-Item {p}/客戶案件/a.txt"', "deny", "Z9", "delete")
+        self.expect("Bash", f'bash -c "echo hi > {self.V}/收件匣/x.txt"', "pass")
 
     def test_cd_then_relative_read_of_excluded_denied(self):
         p = str(self.raw).replace("\\", "/")
@@ -262,8 +266,8 @@ class ReviewGaps(DecideBase):
 
     def test_powershell_alias_write_denied(self):
         p = str(self.raw).replace("/", "\\")
-        self.expect("PowerShell", f"ri {p}\\客戶案件\\a.txt", "deny", "Z9", "readonly_source")
-        self.expect("PowerShell", f"sc {p}\\客戶案件\\a.txt x", "deny", "Z9", "readonly_source")
+        self.expect("PowerShell", f"ri {p}\\客戶案件\\a.txt", "deny", "Z9", "delete")
+        self.expect("PowerShell", f"sc {p}\\客戶案件\\a.txt x", "deny", "Z9", "content")
 
     def test_ancestor_write_denied(self):
         self.expect("Bash", f"rm -rf {self.raw}", "deny", "Z10b", "excluded_inside")  # 上層含排除夾，S3 的 Z10b 先命中
@@ -272,7 +276,7 @@ class ReviewGaps(DecideBase):
 
     def test_python_c_write_reports_source_zone(self):
         p = str(self.raw).replace("\\", "/")
-        self.expect("Bash", f"python -c \"open('{p}/客戶案件/a.txt','w').write('x')\"", "deny", "Z9", "readonly_source")
+        self.expect("Bash", f"python -c \"open('{p}/客戶案件/a.txt','w').write('x')\"", "deny", code="code")
 
     def test_glob_tool_pattern_is_inspected(self):
         d = guard.decide({"tool_name": "Glob", "tool_input": {"pattern": f"{self.raw}/行政/薪資/*", "path": str(self.V)}, "cwd": str(self.V)})
@@ -353,13 +357,13 @@ class Round1(DecideBase):
 
     def test_28_b3_non_path_tokens(self):
         v = str(self.V).replace("\\", "/")
-        self.expect("Bash", f'sed -i s/a/b/ "{v}/AI 產出/x.md"', "deny", "Z3", "output_shell")  # produce：由 shell_write 改
-        self.expect("Bash", f'echo 2026/10/12 > "{v}/AI 產出/x.md"', "deny", "Z3", "output_shell")
-        self.expect("Bash", f"sed -i s/a/b/ {self.raw}/客戶案件/a.txt", "deny", "Z9", "readonly_source")
+        self.expect("Bash", f'sed -i s/a/b/ "{v}/AI 產出/x.md"', "pass")  # produce：由 shell_write 改
+        self.expect("Bash", f'echo 2026/10/12 > "{v}/AI 產出/x.md"', "pass")
+        self.expect("Bash", f"sed -i s/a/b/ {self.raw}/客戶案件/a.txt", "deny", "Z9", "content")
 
     def test_30_r1_z9_reason(self):
         d = self.decide("Write", self.raw / "客戶案件" / "a.txt")
-        self.assertEqual(d.reason, "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本")  # produce 改；密碼與守門 B-093 (e) 再改
+        self.assertEqual((d.decision, d.zone), ("allow", "Z9"), d)  # 放寬甲：Z9 檔案工具寫放行（hook 先備份）
 
 
 
@@ -383,9 +387,9 @@ class Round2(DecideBase):
 
     def test_34_nb_prefixed_verbs_still_write(self):
         r = str(self.raw).replace("\\", "/")
-        self.expect("Bash", f"\\rm -rf {r}/客戶案件", "deny", "Z9", "readonly_source")
-        self.expect("Bash", f"/bin/rm {r}/客戶案件/a.txt", "deny", "Z9", "readonly_source")
-        self.expect("PowerShell", "Microsoft.PowerShell.Management\\Remove-Item " + str(self.raw) + "\\客戶案件\\a.txt", "deny", "Z9", "readonly_source")
+        self.expect("Bash", f"\\rm -rf {r}/客戶案件", "deny", "Z9", "delete")
+        self.expect("Bash", f"/bin/rm {r}/客戶案件/a.txt", "deny", "Z9", "delete")
+        self.expect("PowerShell", "Microsoft.PowerShell.Management\\Remove-Item " + str(self.raw) + "\\客戶案件\\a.txt", "deny", "Z9", "delete")
         self.expect("Bash", "cat x.md", "pass")
         self.expect("Bash", "ls --rm", "pass")
 
@@ -429,11 +433,11 @@ class Credential(DecideBase):
                 d = self.decide(tool, p)
                 self.assertEqual((d.decision, d.zone, d.reason_code), ("allow", zone, ""), d)
         d = self.decide("Write", self.V / "收件匣" / "password.txt")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "inbox"), d)
+        self.assertEqual((d.decision, d.reason_code), ("allow", ""), d)  # 放寬甲：暫存區檔案工具寫放行
 
     def test_60_reason_mentions_customer_not_unswitchable(self):
         d = self.credential("Read", self.raw / "客戶案件" / ".env")
-        self.assertIn("客戶沒說", d.reason)
+        self.assertIn("使用者沒說過", d.reason)
         self.assertNotIn("關不掉", d.reason)
 
     def test_bash_cat_env_denied(self):
@@ -683,12 +687,13 @@ class CredentialRound1(unittest.TestCase):
         for cmd in ("ls . | tee /tmp/a", "grep -r X . | tee /tmp/h"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decide("Bash", cmd).decision, "pass")
-        for cmd in ("tar czf ../bak.tgz .", "echo x > CLAUDE.md", "rm -rf .", "echo x > 新檔.md"):
+        for cmd, code in (("echo x > CLAUDE.md", "willy"), ("rm -rf .", "delete")):
             with self.subTest(cmd=cmd):
                 d = self.decide("Bash", cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
-        d = self.decide("Bash", "echo x > 收件匣/x.md")
-        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z4", "inbox"), d)
+                self.assertEqual((d.decision, d.reason_code), ("deny", code), d)
+        for cmd in ("tar czf ../bak.tgz .", "echo x > 新檔.md", "echo x > 收件匣/x.md"):  # 放寬甲：使用者區新檔、只讀整個知識庫放行
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decide("Bash", cmd).decision, "pass")
 
     # 第五輪 V1：PowerShell 的 cmdlet 會展開引號裡的 *；Bash 不會
     def test_64_powershell_quoted_wildcards_expand(self):
@@ -736,13 +741,13 @@ class CredentialRound1(unittest.TestCase):
     def test_69_path_read_then_written_gets_write_column(self):
         a = (self.client / "a.txt").as_posix()
         d = self.decide("Bash", f'cat "{a}"; echo x > "{a}"')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"), d)
         d = self.decide("PowerShell", f'(Get-Content "{a}") -replace "a","b" | Set-Content "{a}"')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"), d)
         d = self.decide("Bash", "cat .system/sources.json && rm .system/sources.json")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "willy"), d)
         d = self.decide("PowerShell", '(Get-Content .system/sources.json) -replace "hidden","x" | Set-Content .system/sources.json')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "willy"), d)
         d = self.decide("Bash", "cat .system/sources.json")  # 只讀照舊
         self.assertEqual(d.decision, "pass", d)
 
@@ -787,8 +792,9 @@ class CredentialRound1(unittest.TestCase):
                           ("Bash", "tar -C . -xzf /tmp/a.tgz"), ("Bash", "tar czf ../bak.tgz ."), ("Bash", "tar -czf /tmp/b.tgz ."),
                           ("Bash", "cp /tmp/a 新檔.md")):
             with self.subTest(cmd=cmd):
-                d = self.decide(tool, cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
+                self.assertEqual(self.decide(tool, cmd).decision, "pass")  # 放寬甲：放東西進第一層、只讀整個知識庫放行（U1），只有 . 被刪才擋
+        d = self.decide("Bash", "rm -rf .")
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z8", "delete"), d)
         info = self.analyze("cp C:/tmp/zip/a.txt .", cwd=self.V)
         self.assertIn(paths_normalize(str(self.V), None), info["write_targets"], info)
 
@@ -800,7 +806,9 @@ class CredentialRound1(unittest.TestCase):
                           ("Bash", f'shred "{r}/a.txt"'), ("Bash", f'unlink "{r}/a.txt"'), ("Bash", f'sed -E -i s/a/b/ "{r}/a.txt"')):
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+                code = "delete" if ("-delete" in cmd or "shred" in cmd or "unlink" in cmd) else (
+                    "overwrite" if cmd.startswith("cp.exe") else "content")
+                self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z9", code), d)
 
     # 第八輪 Y2：管線先讀後刪
     def test_80_read_then_delete_in_pipeline_is_denied(self):
@@ -822,8 +830,8 @@ class CredentialRound1(unittest.TestCase):
 
     # 第九輪 Z1／驗收 83：寫入指令裡萬用字元的展開命中與前綴夾也套寫入欄（fixture 的來源在 ../raw/ 底下，spec 的 ../客戶* 對應 ../raw/客戶*）
     def test_83_wildcard_hits_and_prefix_get_write_column(self):
-        for cmd, code in (("rm -rf ../raw/客戶*", "readonly_source"), ("rm -rf .sys* /tmp/x", "protected"),
-                          ("cd ../raw/客戶* && rm a.txt", "readonly_source"), ("sed -i ../raw/客*/a.txt", "readonly_source")):
+        for cmd, code in (("rm -rf ../raw/客戶*", "excluded_inside"), ("rm -rf .sys* /tmp/x", "willy"),
+                          ("cd ../raw/客戶* && rm a.txt", "delete"), ("sed -i ../raw/客*/a.txt", "excluded_inside")):  # 前綴夾 ../raw 含排除夾先命中
             with self.subTest(cmd=cmd):
                 d = self.decide("Bash", cmd)
                 self.assertEqual((d.decision, d.reason_code), ("deny", code), d)
@@ -835,8 +843,7 @@ class CredentialRound1(unittest.TestCase):
         self.assertNotIn(d.reason_code, ("credential", "credential_inside", "credential_scan_limit", "unparsed"), d)
         for cmd in ("mv 收件匣 /tmp/", "tar czf /tmp/b.tgz 收件匣"):
             with self.subTest(cmd=cmd):
-                d = self.decide("Bash", cmd)
-                self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z4", "inbox"), d)
+                self.assertEqual(self.decide("Bash", cmd).decision, "pass")  # 放寬甲：搬、打包（U1）
 
     # 第九輪 Z3／驗收 85：寫入指令裡帶 $變數／%變數% 展不開的路徑一律 deny unparsed；讀取照舊不表態
     def test_85_unexpandable_variable_path_in_write_is_unparsed(self):
@@ -844,17 +851,17 @@ class CredentialRound1(unittest.TestCase):
         for cmd in (f'rm -rf "{r}/$X" /tmp/y', 'rm -rf "%RAW%/a" '):
             with self.subTest(cmd=cmd):
                 d = self.decide("Bash", cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "unparsed"), d)
+                self.assertEqual((d.decision, d.reason_code), ("deny", "delete"), d)  # 放寬甲 U5：看不出目標，整句有刪的動詞
         d = self.decide("Bash", f'cat "{r}/$X"')
         self.assertEqual(d.decision, "pass", d)
 
     # 第九輪裁定 3／驗收 88：寫入指令裡沒斜線的裸變數（$X、%X%、$f）也 deny unparsed，多擋接受（I-031）；讀取照舊
     def test_88_bare_variable_in_write_is_unparsed(self):
-        for tool, cmd in (("Bash", 'rm -rf "$X" /tmp/y'), ("PowerShell", "Remove-Item $f"), ("Bash", "echo $PASSWORD > /tmp/x"),
-                          ("Bash", "rm -rf %X% /tmp/y")):
+        for tool, cmd in (("Bash", 'rm -rf "$X" /tmp/y'), ("PowerShell", "Remove-Item $f"), ("Bash", "rm -rf %X% /tmp/y")):
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "unparsed"), d)
+                self.assertEqual((d.decision, d.reason_code), ("deny", "delete"), d)  # 放寬甲 U5：整句有刪的動詞
+        self.assertEqual(self.decide("Bash", "echo $PASSWORD > /tmp/x").decision, "pass")  # 目標明確在外面
         for tool, cmd in (("Bash", "echo $PASSWORD"), ("Bash", "cat $f"), ("PowerShell", "Get-Content $f")):
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
@@ -877,7 +884,7 @@ class CredentialRound1(unittest.TestCase):
         self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10", "excluded"), d)
         self._register("r2", "r3")
         d = self.decide("Bash", "rm -rf ../r{2,3}")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "excluded_inside"), d)  # 前綴夾 .. 含排除夾先命中
 
     # 第十一輪／驗收 94：含 { 的 token 或 Glob／Grep 樣式，一律先拿 { 之前的資料夾做區判斷（保底），展開只拿來多擋
     def test_94_brace_head_folder_is_always_a_candidate(self):
@@ -927,7 +934,7 @@ class CredentialRound1(unittest.TestCase):
     # 第十輪 A3／驗收 91：導向目標含萬用字元時前綴夾（與展開命中）套寫入欄
     def test_91_redirect_target_wildcard_gets_write_column(self):
         d = self.decide("Bash", "echo x > ../raw/客*/a.txt")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "excluded_inside"), d)  # 前綴夾 ../raw 含排除夾
 
     # 第十輪 A5／驗收 92：格式字串、單引號、PowerShell 自動變數不是展不開的路徑；裸 $X 仍是
     def test_92_format_strings_and_auto_variables_are_not_unparsed(self):
@@ -937,10 +944,10 @@ class CredentialRound1(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
                 self.assertEqual(d.decision, "pass", d)
-        d = self.decide("Bash", "awk '{print $1}' a.txt > /tmp/x")  # a.txt 是總資料夾第一層的新檔，擋的是 Z8，不是 unparsed
-        self.assertNotEqual(d.reason_code, "unparsed", d)
+        d = self.decide("Bash", "awk '{print $1}' a.txt > /tmp/x")  # 寫的是外面的 /tmp/x，放行
+        self.assertEqual(d.decision, "pass", d)
         d = self.decide("Bash", 'rm -rf "$X" /tmp/y')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "unparsed"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "delete"), d)
 
     # 第十輪 A6／驗收 93：單字 [、"Is this ok?"、網址裡的 ? 不是萬用字元，前綴夾不套寫入欄
     def test_93_lone_bracket_and_question_mark_are_not_wildcards(self):
@@ -958,8 +965,7 @@ class CredentialRound1(unittest.TestCase):
                 self.assertNotEqual(d.reason_code, "protected", d)
         for cmd in ("cp /tmp/a 新檔.md", "echo x > 新檔.md"):
             with self.subTest(cmd=cmd):
-                d = self.decide("Bash", cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
+                self.assertEqual(self.decide("Bash", cmd).decision, "pass")  # 放寬甲：第一層新檔（U1）
 
     # 第七輪 X1：mv 的來源也是寫入目標
     def test_75_move_source_is_a_write_target(self):
@@ -968,9 +974,9 @@ class CredentialRound1(unittest.TestCase):
                           ("Bash", f'mv "{self.client.as_posix()}" /tmp/x')):
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+                self.assertEqual(d.decision, "pass", d)  # 放寬甲：搬出來源（U1）放行，willy 自己的檔仍擋
         d = self.decide("Bash", "mv .system/sources.json /tmp/s.json")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "protected"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "willy"), d)
 
     # 第七輪 X2：-C／-t／-Destination 這些目標不再被當讀取
     def test_76_targets_of_extract_copy_sync_are_write_targets(self):
@@ -983,7 +989,7 @@ class CredentialRound1(unittest.TestCase):
                           ("Bash", f'zip -r /tmp/b.zip "{r}"')):  # 旗標黏值（7z -o"…"）cmdparse 抽不到，B-026
             with self.subTest(cmd=cmd):
                 d = self.decide(tool, cmd)
-                self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+                self.assertEqual(d.decision, "pass", d)  # 放寬甲：放進來源的新檔、搬出來源都是 U1，放行
 
     # 第七輪 X3：單字母 /x 只在開關式指令或 PowerShell 當旗標；Bash 的 grep -r X /c 裡 /c 是 C 槽根
     def test_77_slash_letter_is_a_switch_only_for_switch_commands(self):
@@ -1009,7 +1015,7 @@ class CredentialRound1(unittest.TestCase):
                 self.assertFalse(any(len(p) <= 3 for p in info["read_dirs"]), info)
         r = str(self.client).replace("\\", "/")
         d = self.decide("Bash", f'rm -rf "{r}"')  # 寫入目標本身不走訪（35 的案例照舊）
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "delete"), d)
 
     # 第三輪 P1、第四輪 D-081：總資料夾裡一張叫「門禁密碼」的卡不再擋整庫；含 V 的上層夾走訪時跳過 V
     def test_53_vault_card_named_password_does_not_block(self):
@@ -1134,7 +1140,7 @@ class CredentialRound1(unittest.TestCase):
         (self.client / ".env").write_text("K=1", encoding="utf-8")
         r = str(self.client).replace("\\", "/")
         d = self.decide("Bash", f'rm -rf "{r}"')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "readonly_source"), d)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "delete"), d)
         self.assertEqual(self.decide("Bash", f'ls "{r}/子夾不存在"').decision, "pass")
 
     def test_35_folder_read_without_credentials_still_pass(self):
@@ -1293,7 +1299,7 @@ class PythonCodeSlash(DecideBase):
 class VaultRootMove(DecideBase):
     """要做的事 10：AI 自己下指令搬或複製整個知識庫，守門理由句說搬家怎麼做（D-206）。"""
 
-    REASON = "整個知識庫要搬家，請關掉這個對話、用檔案總管剪下貼上，再到新位置開對話"
+    REASON = "整個知識庫要搬家：請使用者關掉這個對話、用檔案總管剪下貼上，再到新位置開對話。"
 
     def test_move_and_copy_of_root_get_move_reason(self):
         v = self.V.as_posix()
@@ -1333,7 +1339,7 @@ class VaultRootMove(DecideBase):
                 self.assertEqual((d.reason_code, d.reason), ("vault_move", self.REASON), d)
 
     def test_putting_something_into_the_root_is_not_a_move_of_it(self):
-        """目的地是知識庫根本身（放進去）不算搬家：舊的 Z8 protected 句。"""
+        """目的地是知識庫根本身（放進去）不算搬家；放寬甲：沒有同名檔就放行（U1）。"""
         v = self.V.as_posix()
         for tool, command in (
             ("Bash", f"cp a.txt '{v}'"),
@@ -1344,20 +1350,19 @@ class VaultRootMove(DecideBase):
         ):
             with self.subTest(command=command):
                 d = guard.decide({"tool_name": tool, "tool_input": {"command": command}, "cwd": str(self.V)})
-                self.assertEqual(d.decision, "deny", d)
                 self.assertNotEqual(d.reason, self.REASON, d)
+                self.assertEqual(d.decision, "pass", d)
 
     def test_move_inside_vault_keeps_old_reason(self):
         v = self.V.as_posix()
         d = guard.decide({"tool_name": "PowerShell", "tool_input": {"command": f"Move-Item -Path '{v}/案子' -Destination 'D:/x'"},
                           "cwd": str(self.V)})
-        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z8", "protected"), d)
-        self.assertNotEqual(d.reason, self.REASON)
+        self.assertEqual(d.decision, "pass", d)  # 放寬甲：搬型別夾到知識庫外（U1）
 
     def test_delete_of_root_keeps_old_reason(self):
         d = guard.decide({"tool_name": "PowerShell", "tool_input": {"command": f"Remove-Item -Recurse '{self.V.as_posix()}'"},
                           "cwd": str(self.V)})
-        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z8", "protected"), d)
+        self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z8", "delete"), d)
         self.assertNotEqual(d.reason, self.REASON)
 
 
