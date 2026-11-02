@@ -334,7 +334,96 @@ class RegistryFollows(Base):
         self.assertEqual(entry(self.V, self.fid)["status"], "active")
         self.assertTrue(Path(sources_lib.load(self.V).entries[0]["root"]).is_dir())
 
-    def test_source_root_into_vault_refused(self):
-        msg = self.refuse(se.plan_move, self.V, sources_lib.load(self.V), str(self.raw / "客戶案件"), self.V,
-                          dest=str(Path(self.V) / "案子"))
-        self.assertIn("kb folders remove", msg)
+
+class AbsorbSourceRoot(Base):
+    """放寬甲設計自定 (9)：整個登記來源根搬進知識庫或別的來源，不擋、不走 folders remove：檔搬過去、清冊位置換新的（編號不變）、
+    卡搬到新位置對應的夾（編號不變、不重做）、這筆來源登記拿掉、綜合卡與總目錄連結跟上；退回一起還原。"""
+
+    def aliases(self):
+        return [s["alias"] for s in json.loads((Path(self.V) / ".system/sources.json").read_text(encoding="utf-8"))["sources"]]
+
+    def cards_of(self, fid):
+        return [p for p in (Path(self.V) / "檔案索引").rglob("*.md")
+                if cards.parse_front(p.read_text(encoding="utf-8")).get("編號") == fid]
+
+    def absorb(self, dest):
+        before_ids = sorted(e["id"] for e in inv(self.V)["entries"])
+        p = se.plan_move(self.V, sources_lib.load(self.V), str(self.raw / "客戶案件"), self.V, dest=str(dest))
+        self.assertEqual(p["source_root"], "客戶案件")
+        got = se.do_move(self.V, p, self.t, "move")
+        return before_ids, got
+
+    def check_followed(self, before_ids, new_uri, new_card_dir):
+        self.assertFalse((self.raw / "客戶案件").exists())
+        self.assertNotIn("客戶案件", self.aliases())
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], [l["uri"] for l in e["locations"]]), ("active", [new_uri]))
+        self.assertTrue(set(before_ids) <= {x["id"] for x in inv(self.V)["entries"]})
+        found = self.cards_of(self.fid)  # 卡只有一張、編號沒變、搬到新位置對應的夾
+        self.assertEqual([p.parent.relative_to(self.V).as_posix() for p in found], [new_card_dir])
+        self.assertFalse((Path(self.V) / self.card_rel).exists())
+        front = cards.parse_front(found[0].read_text(encoding="utf-8"))
+        self.assertEqual(front["原檔"], [new_uri])
+        todo = cards.todo(self.V, sources_lib.load(self.V))  # 沒重做：不在 new／stale／moved
+        for bucket in ("new", "stale", "moved", "broken"):
+            self.assertNotIn(self.fid, [i.get("id") for i in todo[bucket]], bucket)
+        self.assertIn(new_card_dir + "/", (Path(self.V) / "總目錄.md").read_text(encoding="utf-8"))
+
+    def check_reverted(self):
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.raw / ESTIMATE).is_file())
+        self.assertIn("客戶案件", self.aliases())
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], e["locations"][0]["uri"]), ("active", "file://" + ESTIMATE))
+        self.assertEqual([p.relative_to(self.V).as_posix() for p in self.cards_of(self.fid)], [self.card_rel])
+
+    def test_into_vault(self):
+        before_ids, _got = self.absorb(Path(self.V) / "案子")
+        self.assertTrue((Path(self.V) / "案子" / "客戶案件" / "內湖李" / "估價單.pdf").is_file())
+        self.check_followed(before_ids, "file://知識庫/案子/客戶案件/內湖李/估價單.pdf", "檔案索引/知識庫/案子/客戶案件/內湖李")
+        self.assertEqual(len([e for e in inv(self.V)["entries"]
+                              if any(l["uri"].endswith("/估價單.pdf") for l in e["locations"])]), 1)
+        self.check_reverted()
+        self.assertFalse((Path(self.V) / "案子" / "客戶案件").exists())
+
+    def test_into_other_source(self):
+        before_ids, _got = self.absorb(self.raw / "公司行政")
+        self.assertTrue((self.raw / "公司行政" / "客戶案件" / "內湖李" / "估價單.pdf").is_file())
+        self.check_followed(before_ids, "file://公司行政/客戶案件/內湖李/估價單.pdf", "檔案索引/公司行政/客戶案件/內湖李")
+        self.check_reverted()
+        self.assertFalse((self.raw / "公司行政" / "客戶案件").exists())
+
+    def test_excludes_follow_into_vault_excludes(self):
+        lee = self.raw / "客戶案件" / "內湖李"
+        (lee / "私人").mkdir()
+        (lee / "私人" / "日記.txt").write_text("秘密", encoding="utf-8")
+        p = Path(self.V) / ".system/sources.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data["sources"][0]["excludes"].append({"spec": "內湖李/私人", "kind": "hidden", "reason": "", "added": "2026-10-22"})
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        before = json.loads(p.read_text(encoding="utf-8"))
+        self.absorb(Path(self.V) / "案子")
+        now = json.loads(p.read_text(encoding="utf-8"))
+        self.assertEqual([x["spec"] for x in now["vault_excludes"]], ["案子/客戶案件/內湖李/私人"])
+        self.assertTrue((Path(self.V) / "案子" / "客戶案件" / "內湖李" / "私人" / "日記.txt").is_file())
+        self.assertTrue(sources_lib.load(self.V).vault_excluded(
+            inventory.normalize(str(Path(self.V) / "案子" / "客戶案件" / "內湖李" / "私人" / "日記.txt"), None)))
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(p.read_text(encoding="utf-8")), before)
+        self.assertTrue((lee / "私人" / "日記.txt").is_file())
+
+    def test_source_root_plain_move_is_revertable(self):
+        """沒搬進登記的地方（搬去沒登記的夾）：登記位置換掉、退回把夾搬回、登記改回。"""
+        elsewhere = self.tmp / "別處"
+        elsewhere.mkdir()
+        sp = Path(self.V) / ".system/sources.json"
+        before = json.loads(sp.read_text(encoding="utf-8"))
+        p = se.plan_move(self.V, sources_lib.load(self.V), str(self.raw / "客戶案件"), self.V, dest=str(elsewhere))
+        se.do_move(self.V, p, self.t, "move")
+        self.assertTrue((elsewhere / "客戶案件" / "內湖李" / "估價單.pdf").is_file())
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.raw / ESTIMATE).is_file())
+        self.assertEqual(json.loads(sp.read_text(encoding="utf-8")), before)

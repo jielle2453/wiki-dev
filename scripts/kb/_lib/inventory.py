@@ -1285,6 +1285,34 @@ def entry_for(vault, uri, entries=None):
     return hits[-1] if hits else None
 
 
+def rebase_alias(vault, alias, new_prefix, turn_id):
+    """整個登記來源根搬進知識庫或別的來源、那筆登記拿掉之後（放寬甲）：位置在 file://<alias>/… 的條目一律換成
+    <new_prefix>/…（任何 status、編號不變）。有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。"""
+    from kb._lib import turn
+    p = _path(vault)
+    if not p.exists():
+        return []
+    with FileLock(p):
+        data = load(vault)
+        hits = []
+        for e in data["entries"]:
+            hit = False
+            for loc in e.get("locations") or []:
+                uri = loc.get("uri", "")
+                if not is_file_uri(uri):
+                    continue
+                a, rel = split_uri(uri)
+                if a.casefold() == str(alias).casefold():
+                    loc["uri"] = new_prefix.rstrip("/") + ("/" + rel if rel else "")
+                    hit = True
+            if hit:
+                hits.append(e["id"])
+        if hits:
+            turn.backup(vault, INVENTORY_POSIX, turn_id)
+            _write(vault, data["entries"])
+    return hits
+
+
 OUTSIDE = "outside"  # 清冊 status：搬到知識庫外沒登記的地方（桌面）；位置記成可攜 spec file://~/…，不掃描、卡留著（放寬甲）
 HOME_ALIAS = "~"
 

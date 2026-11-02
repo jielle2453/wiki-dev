@@ -165,11 +165,17 @@ class Refusals(Base):
         for src in (Path(self.V) / "案子" / "內湖李", Path(self.V) / "案子",
                     Path(self.V) / "案子" / "信義王" / "信義王.md", self._outside_file()):
             self.assertEqual(self.plan(str(src), dest=dest)["src"], str(src))
-        # 登記的來源根本身搬走：搬完自動換登記位置，所以要搬去的地方不能是知識庫或別的來源裡面（兩張卡）
+        # 登記的來源根本身搬走：搬完自動換登記位置；搬進知識庫或別的來源裡也不擋（設計自定 9：登記拿掉、卡跟著搬，見 test_versions_moves）
         away = self.tmp / "別處"
         away.mkdir()
-        self.assertEqual(self.plan(str(self.raw / "公司行政"), dest=str(away))["source_root"], "公司行政")
-        self.assertIn("kb folders remove", self.refuse(self.plan, str(self.raw / "公司行政"), dest=dest))
+        p = self.plan(str(self.raw / "公司行政"), dest=str(away))
+        self.assertEqual((p["source_root"], p["absorb"]), ("公司行政", False))
+        p = self.plan(str(self.raw / "公司行政"), dest=dest)
+        self.assertEqual((p["source_root"], p["absorb"]), ("公司行政", True))
+        p = self.plan(str(self.raw / "客戶案件"), dest=str(Path(self.V) / "案子"))
+        self.assertEqual((p["source_root"], p["absorb"]), ("客戶案件", True))
+        # 知識庫裡守門不查憑證樣式，裡面有網銀密碼.txt 的來源根不搬進知識庫（跟搬一般夾進知識庫同一關）
+        self.assert_refused("這個檔名像密碼或金鑰，不動。", str(self.raw / "公司行政"), dest=str(Path(self.V) / "案子"))
         self.assert_refused("這個檔名像密碼或金鑰，不動。", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), dest=dest)
         msg = self.refuse(self.plan, str(Path(self.V) / ".system" / "sources.json"), dest=dest)
         self.assertTrue(msg.startswith("「sources.json」是 willy 自己的檔：") and msg.endswith(guard.AI_TAIL), msg)

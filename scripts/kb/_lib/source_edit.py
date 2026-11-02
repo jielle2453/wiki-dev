@@ -403,8 +403,6 @@ def resolve_folder(vault, sources, target, cwd):
 
 # ---------- 給人看的 ----------
 
-SOURCE_ROOT_INTO_KB = ("「{alias}」是登記的來源夾，搬進知識庫或別的來源夾裡面，同一份檔會有兩張卡：先 kb folders remove {alias}，"
-                       "或搬到別的地方（搬完會自動換登記的位置）。")
 
 
 def folder_word(uri):
@@ -488,6 +486,13 @@ def _entries_under(vault, uri, folder):
                 out.append(e)
                 break
     return out
+
+
+def _entries_of_alias(vault, alias):
+    """位置在這個來源別名底下的條目（整個來源根搬走時用）。"""
+    a = alias.casefold()
+    return [e for e in inventory.load(vault)["entries"]
+            if any(inventory.split_uri(loc.get("uri", ""))[0].casefold() == a for loc in e.get("locations") or [])]
 
 
 def excludes_under(vault, path):
@@ -594,7 +599,8 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
     if _zone(vault, sources, dest_dir) == "Z9" and _credential(sources, dst):
         raise Refused(CREDENTIAL)
     moved_ex = excludes_under(vault, src) if folder else []
-    if moved_ex and dparts is not None:  # 夾裡有不讀的子夾，搬進知識庫就沒有排除守著了
+    source_root = next((s for s in sources.entries if folder and normalize(str(src), None) == s["root"]), None)
+    if moved_ex and dparts is not None and source_root is None:  # 夾裡有不讀的子夾，搬進知識庫就沒有排除守著了（來源根整個搬進去：排除跟著記進 vault_excludes）
         raise Refused(EXCLUDED.format(name=moved_ex[0][2].rpartition("/")[2]))
     if folder and dparts is not None and _parts(vault, src) is None and credential_inside(vault, src):
         raise Refused(CREDENTIAL)  # 同理：知識庫裡不查憑證樣式
@@ -602,11 +608,10 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
         cross_disk = _dev(src.parent) != _dev(dest_dir.parent if make_dir else dest_dir)
     except OSError as e:
         raise Refused(NOT_FOUND.format(target=target)) from e
-    source_root = next((s for s in sources.entries if folder and normalize(str(src), None) == s["root"]), None)
-    if source_root is not None:  # 登記的來源根本身搬（放寬甲）：搬完自動換登記的位置，不能搬進知識庫或別的來源裡
-        if dparts is not None or any(inside(normalize(str(dst), None), s["root"]) for s in sources.entries
-                                     if s is not source_root):
-            raise Refused(SOURCE_ROOT_INTO_KB.format(alias=source_root["alias"]))
+    # 登記的來源根本身搬（放寬甲）：搬到沒登記的地方，自動換登記的位置；搬進知識庫或別的來源裡（absorb），
+    # 這筆登記拿掉、清冊位置換成新位置、卡跟著搬、不重做（設計自定 9）
+    absorb = source_root is not None and (dparts is not None or any(
+        inside(normalize(str(dst), None), s["root"]) for s in sources.entries if s is not source_root))
     from_uri = uri_of(vault, sources, src)
     to_dir_uri = uri_of(vault, sources, dest_dir)
     outside = False
@@ -616,7 +621,8 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
         if to_dir_uri is None:  # 路徑解不開（家目錄外也記絕對路徑 file:///…，不拒絕）
             raise Refused(NOT_FOUND.format(target=str(dest)))
     existing = os.path.lexists(dst) and normalize(str(dst), None) != normalize(str(src), None)
-    inside_entries = _entries_under(vault, from_uri, folder) if from_uri else []
+    inside_entries = (_entries_of_alias(vault, source_root["alias"]) if source_root is not None
+                      else _entries_under(vault, from_uri, folder) if from_uri else [])
     card_ids = [e["id"] for e in inside_entries if e.get("status") == "active"]
     plan = {"src": str(src), "dst": str(dst), "dest_dir": str(dest_dir), "name": src.name, "new_name": name,
             "kind": "folder" if folder else "file", "from_uri": from_uri, "to_dir_uri": to_dir_uri,
@@ -626,7 +632,7 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
             "excludes": [rest for _s, _e, rest in moved_ex], "_moved_ex": moved_ex,
             "signs": [Path(f).name for f in _files_under(src) if Path(f).name.startswith("~$")][:SIGNS_MAX],
             "source_root": source_root["alias"] if source_root is not None else None,
-            "outside": outside, "make_dir": make_dir, "cross_disk": cross_disk, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
+            "absorb": absorb, "outside": outside, "make_dir": make_dir, "cross_disk": cross_disk, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
     plan["same_content"] = bool(existing and not folder and os.path.isfile(dst) and _same_content(src, dst))
     plan["existing_uri"] = uri_of(vault, sources, dst) if existing else None
     plan["dest_rel"] = _dest_rel(to_dir_uri)
@@ -845,7 +851,9 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
         raise Refused(EXISTS.format(name=plan["new_name"]))
     sp = Path(vault) / sources_lib.SOURCES_REL
     original = sp.read_bytes()
-    versions = _exclude_versions(vault, plan["_moved_ex"], dst) if plan["_moved_ex"] else None
+    # 來源根整個搬：不讀的子夾的 spec 是相對根的，跟著根走；搬進別處（absorb）的由 _follow_registry 一次記好
+    versions = (_exclude_versions(vault, plan["_moved_ex"], dst)
+                if plan["_moved_ex"] and not plan.get("source_root") else None)
     if versions:  # 新舊兩條都在：改名那一刻兩邊都不讀
         try:
             turn.backup(vault, sources_lib.SOURCES_REL, turn_id)
@@ -899,7 +907,12 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
         undo.file(turn.VERSIONS_REL.as_posix() + f"/{turn_id}/moves.jsonl")
         if made is not None:  # 資料夾帳：退回時先搬回檔、再拿掉空夾
             undo.folder(turn_id, "make", plan["make_dir"])
-        if plan["from_uri"] and to_uri and not plan.get("source_root"):  # 來源根搬走：別名沒變，沒有 uri 可記
+        if plan.get("source_root"):  # 來源根整個搬：別名會變或消失，搬動帳記絕對路徑（file:///…），退回照樣搬得回來
+            from_root = inventory.outside_uri(src)
+            to_root = to_uri if plan.get("absorb") else inventory.outside_uri(dst)
+            if from_root and to_root:
+                turn.record_move(vault, turn_id, op, "folder", from_root, to_root)
+        elif plan["from_uri"] and to_uri:
             turn.record_move(vault, turn_id, op, plan["kind"], plan["from_uri"], to_uri)
         if versions:
             undo.file(sources_lib.SOURCES_REL)
@@ -907,10 +920,15 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
             changed.append({"path": sources_lib.SOURCES_REL, "action": "modify"})
             sources = sources_lib.load(vault)
         undo.file(inventory.INVENTORY_POSIX)
-        hit = (inventory.move_locations(vault, plan["from_uri"], to_uri, turn_id, folder,
-                                        status=inventory.OUTSIDE if plan.get("outside") else None)
-               if plan["from_uri"] and to_uri else [])
-        roots = sorted({inventory.split_uri(u)[0] for u in (plan["from_uri"], to_uri) if u
+        if plan.get("absorb"):  # 這批條目的位置從來源 uri 換成新位置（編號不變）；來源登記已拿掉，不掃舊別名
+            hit = inventory.rebase_alias(vault, plan["source_root"], to_uri, turn_id) if to_uri else []
+            from_uri_for_roots = None
+        else:
+            hit = (inventory.move_locations(vault, plan["from_uri"], to_uri, turn_id, folder,
+                                            status=inventory.OUTSIDE if plan.get("outside") else None)
+                   if plan["from_uri"] and to_uri else [])
+            from_uri_for_roots = plan["from_uri"]
+        roots = sorted({inventory.split_uri(u)[0] for u in (from_uri_for_roots, to_uri) if u
                         and inventory.split_uri(u)[0] not in (inventory.HOME_ALIAS, "")})  # 知識庫外沒登記的地方不掃描
         report = inventory.scan(vault, sources, only_roots=roots) if roots else {"total": 0, "restored": [], "modified": [],
                                                                                  "added": [], "missing": [], "moved": [], "read_counts": {}}
@@ -974,6 +992,12 @@ def _follow_registry(vault, plan, turn_id, undo):
         if entry is not None:
             turn.backup(vault, sources_lib.SOURCES_REL, turn_id)
             undo.file(sources_lib.SOURCES_REL)
+            if plan.get("absorb"):  # 搬進知識庫或別的來源：這筆登記拿掉（卡留著），不讀的子夾記到新的主人
+                _carry_excludes(vault, raw, plan, entry)
+                raw["sources"] = [s for s in raw["sources"] if s is not entry]
+                write_json_atomic(Path(vault) / sources_lib.SOURCES_REL, raw)
+                changed.append({"path": sources_lib.SOURCES_REL, "action": "modify"})
+                return changed
             entry["spec"] = compress_spec(dst, vault, config.get(vault, "source_spec_max_up"))
             write_json_atomic(Path(vault) / sources_lib.SOURCES_REL, raw)
             changed.append({"path": sources_lib.SOURCES_REL, "action": "modify"})
@@ -996,6 +1020,26 @@ def _follow_registry(vault, plan, turn_id, undo):
     from kb import profile_cli  # lint.json、batches.json 裡指到舊夾的路徑跟著換（同型別夾改名）
     changed += profile_cli._follow_paths(vault, [(sparts[0], dparts[0])], turn_id, undo)
     return changed
+
+
+def _carry_excludes(vault, raw, plan, entry):
+    """來源根整個搬進別處：它底下不讀的子夾改記到新位置的主人——別的來源（spec 相對那個來源的根），或知識庫（sources.json 頂層
+    vault_excludes，spec 相對知識庫根）。改的是 raw（呼叫端寫）。"""
+    sources_now = sources_lib.Sources(vault, raw)
+    dst = Path(plan["dst"])
+    alias = str(entry.get("alias", "")).casefold()
+    for src_entry, ex, rest in plan["_moved_ex"]:
+        if str(src_entry.get("alias", "")).casefold() != alias:
+            continue
+        new_abs = os.path.join(str(dst), *rest.split("/"))
+        dest = _source_of(sources_now, new_abs)
+        if dest is not None and dest["alias"].casefold() != alias:
+            spec = os.path.relpath(_real(new_abs), _real(dest["root"])).replace("\\", "/")
+            owner = next(s for s in raw["sources"] if (s.get("id") or s.get("alias")) == (dest["id"] or dest["alias"]))
+            owner.setdefault("excludes", []).append(dict(ex, spec=spec))
+        elif _parts(vault, new_abs) is not None:
+            spec = os.path.relpath(_real(new_abs), _real(vault)).replace("\\", "/")
+            raw.setdefault("vault_excludes", []).append(dict(ex, spec=spec))
 
 
 def _synthesis_rels(vault, names):
