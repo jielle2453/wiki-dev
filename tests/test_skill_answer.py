@@ -278,6 +278,7 @@ class ReadRanges(unittest.TestCase):
         self.assertIn("`read_ranges`", find)
         self.assertIn("檔頭與紀事不讀", find)
         self.assertIn("才用 Grep 在那張卡撈紀事", find)
+        self.assertIn("取 `read_ranges`，照第一節的讀法讀、紀事不讀", find)  # 第九節照條件找也一樣
 
 
 if __name__ == "__main__":
