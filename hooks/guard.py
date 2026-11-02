@@ -169,6 +169,24 @@ def split_global(tokens):
     return head, cmd, sub
 
 
+def _positionals(tokens, sub, value_flags=("--vault",)):
+    """子子命令 sub 後面不是旗標、也不是旗標值的字（--vault x 的 x 不算；-- 之後的都算）。"""
+    rest = tokens[tokens.index(sub) + 1:] if sub in tokens else []
+    out, skip, dash = [], False, False
+    for t in rest:
+        if dash:
+            out.append(t)
+        elif t == "--":
+            dash = True
+        elif skip:
+            skip = False
+        elif t.startswith("-"):
+            skip = t in value_flags
+        else:
+            out.append(t)
+    return out
+
+
 def _flag_name(token):
     return token.split("=", 1)[0] if token.startswith("--") else None
 
@@ -213,6 +231,8 @@ def scope(payload, tool, d, agent_turn):
             return AGENT_DENY, None
         if (cmd, sub) == ("entity", "tag") and _has_flag(tokens, TAG_DENY):
             return AGENT_DENY, None
+        if (cmd, sub) == ("entity", "render") and not _positionals(tokens, sub):
+            return AGENT_DENY, None  # 不帶名稱是重寫全部綜合卡，製卡助手用不到（D-521 裁定 18）
         return None, with_turn(ti, agent_turn, payload.get("agent_id"))
     if tokens is None:
         return None, None

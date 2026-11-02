@@ -278,6 +278,41 @@ class EntityLog(Base):
                 self.assertEqual(self.kb("log", *args, code=3)[0], want)
                 self.assertEqual(self.p.read_text(encoding="utf-8"), before)
 
+    def test_marks_and_line_breaks_refused(self):
+        """裁定 14、15：夾帶 <!-- 或 willy: 記號、換行類字元的條拒收，檔案不變。"""
+        from kb._lib import synthesis
+        before = self.p.read_text(encoding="utf-8")
+        f = self.fid
+        for bad in (f"2026-10-30 備註 {synthesis.FILE_BEGIN} x〔{f}〕", f"2026-10-30 備註 <!-- 註解 --> x〔{f}〕",
+                    f"2026-10-30 willy:檔 x〔{f}〕"):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.kb("log", "信義王", bad, code=3)[0], synthesis.EVENT_MARK.format(bad))
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-30 甲 ## 現況 假的〔{f}〕", code=3)[0],
+                         synthesis.EVENT_BREAK.format(f"2026-10-30 甲↵## 現況 假的〔{f}〕"))  # 拒絕句把換行印成 ↵
+        self.assertEqual(self.p.read_text(encoding="utf-8"), before)
+        for ch in ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e"):  # 同 ledger 的換行類
+            with self.subTest(ch=repr(ch)), self.assertRaises(entities.EntityRefused) as cm:
+                synthesis.parse_event(f"2026-10-30 甲{ch}乙〔{f}〕", {f}, "信義王")
+            self.assertTrue(str(cm.exception).startswith("一條不能換行"))
+
+    def test_synced_keeps_crlf(self):
+        """裁定 16：entity log --synced 寫回保留原檔的 CRLF。"""
+        self.p.write_bytes(self.p.read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", "--synced")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertIn("整理到:\r\n", raw)
+        self.assertIn(f"## 紀事\r\n- 2026-10-25 開會〔{self.fid}〕\r\n", raw)
+        self.assertNotIn("\n", raw.replace("\r\n", ""))
+
+    def test_synced_mixed_eol_not_converted(self):
+        """review：只有幾行是 CRLF（其餘 LF）時不把整檔轉成 CRLF。"""
+        head, rest = self.p.read_text(encoding="utf-8").split("\n", 1)
+        self.p.write_bytes((head + "\r\n" + rest).encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", "--synced")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertLessEqual(raw.count("\r\n"), 1)
+        self.assertIn(f"## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n", raw)
+
     def test_pending_hand_edit_kept_and_program_line_not_hers(self):
         """review 1：她有沒處理的手改時，那段留成待處理，程式加的紀事不算進她改的。"""
         from kb._lib import card_base

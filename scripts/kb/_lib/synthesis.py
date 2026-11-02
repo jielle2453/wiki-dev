@@ -718,12 +718,18 @@ def file_section(mounts_of_it):
 
 
 def _span(text):
-    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到結尾。"""
-    i = text.find(FILE_BEGIN)
-    if i < 0:
+    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到結尾。
+    記號要自己佔一整行才算（裁定 14：紀事或內文中間出現同一串字不算）。"""
+    begin = _mark_line(FILE_BEGIN).search(text)
+    if begin is None:
         return None
-    j = text.find(FILE_END, i)
-    return (i, j + len(FILE_END)) if j >= 0 else (i, len(text))
+    end = _mark_line(FILE_END).search(text, begin.end())
+    return (begin.start(), end.end()) if end else (begin.start(), len(text))
+
+
+def _mark_line(mark):
+    """記號整行（前後只有空白，同 _file_lines 的 strip）；\r 不算空白，CRLF 也認。"""
+    return re.compile(r"(?m)^[^\S\r\n]*" + re.escape(mark) + r"[^\S\r\n]*(?=\r?$)")
 
 
 def with_file_section(text, section):
@@ -851,10 +857,11 @@ def _synced_card(vault, e, data, mounts, prof, know):
     return rel, text, (bad[0] if bad else None)
 
 
-def mark_synced(vault, names, turn_id):
+def mark_synced(vault, names, turn_id, keep_crlf=False):
     """AI 用 Edit 改完內文之後（D-518）：合法綜合卡（只差整理到也算）的 整理到（header_for 同一算法）、更新日（今天）、
     檔案卡、相關實體 換成現行的，其他檔頭行與內文不動；內容沒變不寫；寫前 turn.backup(by="program")。
-    名稱可以是別名。回 (寫了的相對路徑, skipped [{"name","reason"}])；找不到、沒卡、卡有別的錯的不寫、列進 skipped。"""
+    名稱可以是別名。回 (寫了的相對路徑, skipped [{"name","reason"}])；找不到、沒卡、卡有別的錯的不寫、列進 skipped。
+    keep_crlf：原檔是 CRLF 就照 CRLF 寫回（entity log 用，裁定 16）。"""
     from kb._lib import turn
     data = entities.load(vault)
     mounts = entities.mounts(vault, data)
@@ -885,7 +892,7 @@ def mark_synced(vault, names, turn_id):
             maps = _fix_maps(vault)
         if new != text:
             turn.backup(vault, rel, turn_id, by="program")
-            write_text_atomic(p, new)
+            write_text_atomic(p, new.replace("\n", "\r\n") if keep_crlf and _all_crlf(p.read_bytes()) else new)
             written.append(rel)
         if need:
             _follow_fixes(vault, e, rel, new != text, *maps)
@@ -1135,6 +1142,13 @@ def _file_lines(lines, start=0):
     return i, next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), len(lines))
 
 
+def _all_crlf(text):
+    """每個換行都是 CRLF 才算 CRLF 檔（混用的照 LF 寫，不整檔轉）。text 可以是 str 或 bytes。"""
+    cr, lf = ("\r\n", "\n") if isinstance(text, str) else (b"\r\n", b"\n")
+    n = text.count(cr)
+    return n > 0 and n == text.count(lf)
+
+
 def _lines(text):
     """只照 \n 切行（Read 也是；splitlines 會在 U+2028、換頁字元這類字切開）；\r\n 當一個換行，檔尾換行不算一行。"""
     lines = str(text or "").replace("\r\n", "\n").split("\n")
@@ -1164,11 +1178,18 @@ _CITE_ID = re.compile(r"^[fscr]-[0-9a-f]{8}$")
 EVENT_FORMAT = "紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：{}"
 CITE_FORMAT = "出處編號格式不對：〔{}〕（要寫成〔f-xxxxxxxx〕這樣）"
 NOT_BASIS = "〔{cite}〕不是{name}的依據（掛的檔案卡、口述、裁示、推算）"
+EVENT_BREAK = "一條不能換行：{}"
+EVENT_MARK = "一條不能有 <!-- 或 willy: 這種記號：{}"
+_BREAKS = ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e")  # 同 ledger 的換行類（tab 除外）
 
 
 def parse_event(line, allowed, name):
     """一條紀事（S-14 去掉開頭「- 」，不限一句）→ (日期, 正規化的行)；格式不對或出處不在 allowed 丟 EntityRefused。"""
     from kb._lib import agenda
+    if any(c in str(line) for c in _BREAKS):  # 裁定 15：寫成一行、讀回來會被拆成兩行（造出假的 ## 標題）
+        raise entities.EntityRefused(EVENT_BREAK.format("".join("↵" if c in _BREAKS else c for c in str(line))))
+    if "<!--" in str(line) or "willy:" in str(line):  # 裁定 14：程式的記號（相關檔）不准夾進紀事
+        raise entities.EntityRefused(EVENT_MARK.format(line))
     raw = str(line).strip()
     m = _EVENT.match(raw[2:].strip() if raw.startswith("- ") else raw)
     if m is None:
@@ -1201,7 +1222,7 @@ def _event_day(line):
 def insert_events(text, events):
     """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加。
     沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。"""
-    crlf = "\r\n" in text
+    crlf = _all_crlf(text)
     lines = _lines(text)
     start = _body_start(lines)
     span = _events_span(lines, start)
@@ -1227,6 +1248,8 @@ def insert_events(text, events):
         if at is None:
             at = max((i for i, l in enumerate(sec) if l.strip()), default=-1) + 1
         sec.insert(at, line)
+    if span[1] < len(lines) and sec and sec[-1].strip():  # 裁定 20：後面接相關檔記號或下一段時空一行
+        sec.append("")
     new = lines[:span[0] + 1] + sec + lines[span[1]:]
     return _join(new, text.endswith("\n"), crlf), added, dup
 
@@ -1326,7 +1349,7 @@ def add_events(vault, name, lines, turn_id, synced=False):
             from kb._lib import ledger
             ledger.log_error(vault, f"entity log 之後綜合卡驗不過 {rel}：{why}", source="synthesis")
     if synced:
-        got, skipped = mark_synced(vault, [e["name"]], turn_id)
+        got, skipped = mark_synced(vault, [e["name"]], turn_id, keep_crlf=True)
         out["synced"], out["synced_reason"] = not skipped, (skipped[0]["reason"] if skipped else None)
         out["written"] += [r for r in got if r not in out["written"]]
     return out

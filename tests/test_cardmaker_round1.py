@@ -141,11 +141,17 @@ class GuardScope(unittest.TestCase):
 
     def test_agent_entity_log_and_render(self):
         """D-521 驗收 6：card-maker 跑 entity log、entity render 放行（插回合）；自帶 --turn 照舊擋。"""
-        for allowed in ('entity log 甲 "2026-10-25 開會〔f-1〕" --synced', "entity render 甲 --synced"):
+        for allowed in ('entity log 甲 "2026-10-25 開會〔f-1〕" --synced', "entity render 甲 --synced",
+                        "entity render --synced -- -甲"):  # review：-- 後面的字是名稱
             with self.subTest(allowed=allowed):
                 out = self.call(f"{KB} {allowed}")
                 self.assertEqual(out["permissionDecision"], "allow", out)
                 self.assertIn(f"--turn {self.job} --agent {AGENT}", out["updatedInput"]["command"])
+        for cmd in (f"{KB} entity render", f"{KB} entity render --json", f"{KB} entity render --vault 甲",
+                    f"{KB} entity render --vault=甲 --synced"):  # 裁定 18：不帶名稱（重寫全部）擋
+            with self.subTest(cmd=cmd):
+                out = self.call(cmd)
+                self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]), ("deny", "製卡助手不能做這件事"))
         for cmd in (f"{KB} --turn 20990101-000000-xxxx entity log 甲 x", f"{KB} entity render 甲 --synced --turn=x"):
             with self.subTest(cmd=cmd):
                 out = self.call(cmd)

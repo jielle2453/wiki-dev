@@ -68,7 +68,7 @@ class SynthesisRules(unittest.TestCase):
         """D-521：S-21 照 read_ranges 平行讀、紀事不讀；S-22、S-24 紀事用 entity log；S-14、S-16 待更新的由程式加。"""
         for word in ("read_ranges", "平行 Read", "紀事、相關檔不讀"):  # 相關檔：裁定 5
             self.assertIn(word, self.rules["S-21"])
-        self.assertIn('kb entity log <名稱> "<條>"… --synced', self.rules["S-22"])
+        self.assertIn("kb entity log <名稱> '<條>'… --synced", self.rules["S-22"])  # 裁定 21：單引號
         self.assertIn("不用 Edit", self.rules["S-22"])
         for word in ("entity log … --synced", "kb entity render <名稱> --synced"):
             self.assertIn(word, self.rules["S-24"])
@@ -98,13 +98,23 @@ class SynthesisRules(unittest.TestCase):
         """D-521 裁定 10～12：指路卡紀事只由主對話加；第十三節被拒怎麼辦；purge 不是待更新流程；重排不動紀事。"""
         self.assertIn("由主對話照 carding.md 第十三節加紀事，綜合卡批次不加", self.rules["S-22"])
         self.assertIn("`purge_synthesis`，整張重寫", self.rules["S-16"])
-        self.assertIn("紀事要刪（同 S-16）", self.rules["S-23"])
+        self.assertIn("紀事要刪（`purge_synthesis`，整張重寫，同 S-16）", self.rules["S-23"])  # 裁定 19
         ref = ROOT / "skills" / "ingest" / "references"
         self.assertIn("重排紀事以外的段", (ref / "synthesis-batch.md").read_text(encoding="utf-8"))
         pointer = (ref / "carding.md").read_text(encoding="utf-8").split("`pointer_changed`", 1)[1].split("\n", 1)[0]
         for word in ("沒有綜合卡的不記、照常跑 `cards seen`", "照拒絕句改好再跑一次", "還是被拒就不跑 `cards seen`",
                      "跟她說那件還沒記到"):
             self.assertIn(word, pointer)
+
+    def test_synced_wording_and_single_quotes(self):
+        """D-521 裁定 17：S-24 照程式實際行為（--synced 不寫相關檔）；裁定 21：entity log 的例子用單引號包條文。"""
+        self.assertIn("相關實體換成現行的（相關檔那段程式另外寫）", self.rules["S-24"])
+        self.assertNotIn("（與相關檔那段）", self.text)
+        ref = ROOT / "skills" / "ingest" / "references"
+        for f in (ROOT / "rules" / "synthesis.md", ref / "synthesis-batch.md", ref / "commands.md", ref / "carding.md"):
+            for m in re.finditer(r"entity log [^`'\"\n]*(['\"])", f.read_text(encoding="utf-8")):
+                with self.subTest(file=f.name, at=m.group(0)):
+                    self.assertEqual(m.group(1), "'")
 
 if __name__ == "__main__":
     unittest.main()
