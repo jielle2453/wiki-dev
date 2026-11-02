@@ -107,6 +107,8 @@
   "_why_lint_background_days": "開場距上次背景健檢超過幾天就在背景跑一次（D-221、D-227）：一週查一次，能自己修的修掉、要她決定的進待處理；Claude 關著時不跑、不裝排程",
   "pending_set_aside_days": 30,
   "_why_pending_set_aside_days": "待處理放幾天沒動就由健檢收進先放著（D-226）：一個月沒回的多半是她不急，收起來不再每句問；不會自己關掉，有變化或快到期會再拿出來",
+  "ask_expire_days": 14,
+  "_why_ask_expire_days": "沒回的題超過幾天就關掉、照推測（放寬乙、D-334(8)）：kb asks 不再拿出來；逾期日程的那筆資料不動",
   "set_aside_wake_days": 1,
   "_why_set_aside_wake_days": "先放著的事離到期剩幾天就回到前面（D-226），回答末尾也照這個算有時間性的（D-225）：前一天提醒來得及準備",
   "lint_inferred_days": 30,

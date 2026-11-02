@@ -346,9 +346,9 @@ class ConflictCli(unittest.TestCase):
         self.add(self.a, self.b)
         got = json.loads(run_kb("asks", "--json", cwd=self.V).stdout)
         self.assertEqual([a for a in got["asks"] if "conflict" in a["kind"] and a["kind"] != "agenda_conflict"], [])
-        self.assertFalse([t for t in got["tell"] if "兩份寫法不同" in t], "lint 題：件數只由 others_line 講（D-225）")
-        self.assertGreaterEqual(got["others"], 1)
-        self.assertIsNotNone(got["others_line"])
+        self.assertFalse([t for t in got["tell"] if "兩份寫法不同" in t], "lint 題：不在 tell 裡（D-225）")
+        self.assertIsNotNone(got["later"], "放寬乙：無關的最急一題放 later，沒有 others_line")
+        self.assertNotIn("others_line", got)
 
     def test_revert(self):
         turn.start(self.V, None, "")

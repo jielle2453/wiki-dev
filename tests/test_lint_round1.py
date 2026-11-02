@@ -114,7 +114,8 @@ class T3PastDatesNotUrgent(Base):
 
 
 class T4UrgentCannotBeSetAside(Base):
-    def test_overdue_refused_with_answers(self):
+    def test_overdue_set_aside_accepted(self):
+        """放寬乙 D-322 第 6 件：逾期的也能先放著（原本 exit 3），先放著之後 asks 不再拿出來。"""
         past = (today() - dt.timedelta(days=3)).isoformat()
         item = {"id": "a-12345678", "kind": "promise", "date": past, "text": "給報價", "entities": ["大安陳"], "status": "open",
                 "source": "interview", "created_turn": "t", "history": []}
@@ -123,12 +124,8 @@ class T4UrgentCannotBeSetAside(Base):
         key = next(a["key"] for a in json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
                    if a["kind"] == "overdue")
         r = run_kb("asks", "set-aside", key, cwd=self.V)
-        self.assertEqual(r.returncode, 3)
-        self.assertEqual(r.stdout.splitlines()[0], "這件已經過了日期，沒辦法先放著：做完了、不用了，還是改到哪一天？")
-        got = json.loads(run_kb("asks", "set-aside", key, "--json", cwd=self.V).stdout)
-        self.assertEqual(got["refused"], "這件已經過了日期，沒辦法先放著：做完了、不用了，還是改到哪一天？")
-        self.assertEqual([x["label"] for x in got["ask"]["results"]], ["完成了", "不用了", "還沒，改到某天", "還沒，下次再問"])
-        self.assertIn(key, [a["key"] for a in json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn(key, [a["key"] for a in json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]])
 
 
 class T5StillUnreadable(Base):

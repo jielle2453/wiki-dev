@@ -78,13 +78,12 @@ class T27PendingSetAside(Base):
                                    {"dates": [(today() + dt.timedelta(days=1)).isoformat()]}, self.t)
         return pid
 
-    def test_pending_set_aside_refuses_urgent(self):
+    def test_pending_set_aside_accepts_urgent(self):
+        """放寬乙 D-322 第 6 件：有時間性的也收（原本 exit 3）。"""
         pid = self.urgent_item()
         r = run_kb("pending", "set-aside", pid, cwd=self.V)
-        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (3, "這件快到期了，沒辦法先放著：推測的日程放太久"))
-        self.assertIsNone(self.items("inferred:agenda")[0]["set_aside"])
-        got = json.loads(run_kb("pending", "set-aside", pid, "--json", cwd=self.V).stdout)
-        self.assertEqual(got["refused"], "這件快到期了，沒辦法先放著：推測的日程放太久")
+        self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "先放著了：推測的日程放太久；有變化或快到期會再拿出來"))
+        self.assertEqual(self.items("inferred:agenda")[0]["set_aside"]["by"], "customer")
 
     def test_asks_p_path_does_not_need_todo(self):
         pid = pending.add(self.V, "unreadable", ["f-11111111"], "「甲.pdf」讀不到", "檔案壞了", self.t)
