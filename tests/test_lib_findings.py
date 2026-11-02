@@ -161,20 +161,20 @@ class Synthesis(Base):
                                              "basis": [{"id": self.quote, "title": "信義王報價"},
                                                        {"id": self.est, "title": "信義王估價"}],
                                              "date": it["date"], "stale": False}])
-        front = cards.parse_front(item["header"])
+        front = cards.parse_front(E.stale_header(self.V, item))
         self.assertEqual(front["整理到"][0], f"{it['id']} -")
         self.assertEqual(front["整理到"], sorted(front["整理到"]))
-        self.write_synthesis(item["header"])
+        self.write_synthesis(E.stale_header(self.V, item))
         self.assertEqual(synthesis.validate(self.V, XINYI_REL), (True, ""))
 
     def test_replaces_removed_and_added(self):
         old, _ = self.add()
-        self.write_synthesis(self.stale_item()["header"])
+        self.write_synthesis(E.stale_header(self.V, self.stale_item()))
         new, _ = self.add(text="信義王報價合計 180 萬", replaces=old["id"])
         item = self.stale_item()
         self.assertEqual([(x["id"], x["source"]) for x in item["added"]], [(new["id"], "finding")])
         self.assertEqual(item["removed"], [{"id": old["id"], "text": old["text"], "date": old["date"], "source": "finding"}])
-        self.write_synthesis(item["header"])
+        self.write_synthesis(E.stale_header(self.V, item))
         findings.withdraw(self.V, new["id"], self.t)
         self.assertEqual([(x["id"], x["source"]) for x in self.stale_item()["removed"]], [(new["id"], "finding")])
 

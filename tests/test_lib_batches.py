@@ -621,5 +621,38 @@ class NameQuestion(unittest.TestCase):
                          "我要幫「王宅」（案子，掛了 3 份檔）整理一頁現況：名字這樣叫對嗎？它跟其他案子是同一件嗎？")
 
 
+class SectionRanges(unittest.TestCase):
+    """D-520：批次的 read 給行號範圍。"""
+
+    def setUp(self):
+        import tempfile
+        self.d = Path(tempfile.mkdtemp())
+        self.f = self.d / "r.md"
+        self.f.write_text("\n".join(['# 標題', '前言', '## 批次', 'a', 'b', '## 材料的欄位', 'c', '## 一、讀', 'd', '## 八、壞', 'e', 'f']) + "\n", encoding="utf-8")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_adjacent_merged_and_gap_kept(self):
+        self.assertEqual(batches.section_ranges(self.f, ("## 批次", "## 材料的欄位", "## 八、")), [[3, 5], [10, 3]])
+
+    def test_missing_head_or_none_reads_whole(self):
+        self.assertEqual(batches.section_ranges(self.f, ("## 批次", "## 九、")), [])
+        self.assertEqual(batches.section_ranges(self.f, None), [])
+        self.assertEqual(batches.section_ranges(self.d / "沒有.md", ("## 批次",)), [])
+
+    def test_real_read_lists_point_at_headings(self):
+        for kind in batches.READ:
+            for r in batches.read_list(kind):
+                lines = Path(r["path"]).read_text(encoding="utf-8").splitlines()
+                for start, _n in r["ranges"]:
+                    with self.subTest(kind=kind, start=start):
+                        self.assertTrue(lines[start - 1].startswith("## "))
+        syn = batches.read_list("synthesis")
+        self.assertEqual(syn[0]["ranges"], [])
+        self.assertTrue(syn[1]["ranges"])
+
+
 if __name__ == "__main__":
     unittest.main()

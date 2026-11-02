@@ -85,9 +85,60 @@ SAY_FAILED = "，{n} 份沒做成"
 DEFAULT_FAIL = "製卡助手沒做成"
 TWICE_FAIL = "製卡助手兩次沒做成：{}"
 CARDING = "skills/ingest/references/carding.md"
-READ = {"cards": [f"{CARDING} 批次、材料的欄位、一～七、九節"], "agenda": [f"{CARDING} 批次、材料的欄位、第九節"],
-        "synthesis": ["rules/synthesis.md", f"{CARDING} 批次、材料的欄位、第八節"],
-        "adopt": [f"{CARDING} 批次、第十二節"]}
+_HEADS = ("## 批次", "## 材料的欄位")
+# 先讀的規則：(相對 plugin 的路徑, 給人看的節名, 要讀的節標題開頭；None 是整份)。D-520：AI 照 ranges 用 Read 的 offset、limit 只讀那幾段
+READ = {"cards": [(CARDING, "批次、材料的欄位、一～七、九節",
+                   _HEADS + ("## 一、", "## 二、", "## 三、", "## 四、", "## 五、", "## 六、", "## 七、", "## 九、"))],
+        "agenda": [(CARDING, "批次、材料的欄位、第九節", _HEADS + ("## 九、",))],
+        "synthesis": [("rules/synthesis.md", "整份", None), (CARDING, "批次、材料的欄位、第八節", _HEADS + ("## 八、",))],
+        "adopt": [(CARDING, "批次、第十二節", ("## 批次", "## 十二、"))]}
+
+
+def section_ranges(path, heads):
+    """heads 每個標題開頭在檔裡那一節的 [起行（1 起算）, 行數]，到下一個「## 」之前；相鄰的併成一段、照行號排。
+    heads 是 None、檔讀不到、或有任何一個標題找不到，回 []（讀整份，不報錯；D-520）。"""
+    if heads is None:
+        return []
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    starts = [n for n, line in enumerate(lines) if line.startswith("## ")]
+    spans = []
+    for head in heads:
+        hit = next((n for n in starts if lines[n].startswith(head)), None)
+        if hit is None:
+            return []
+        end = next((n for n in starts if n > hit), len(lines))
+        spans.append([hit, end])
+    spans.sort()
+    merged = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [[a + 1, b - a] for a, b in merged]
+
+
+def read_list(kind):
+    """批次輸出的 read：[{"path": 絕對路徑, "what": 節名, "ranges": [[起行, 行數], …]}]。"""
+    root = plugin_root()
+    out = []
+    for rel, what, heads in READ[kind]:
+        path = root / rel
+        out.append({"path": path.as_posix(), "what": what, "ranges": section_ranges(path, heads)})
+    return out
+
+
+def read_text(read):
+    """read 清單的人讀版：「carding.md 第 7～27、110～117 行」；整份的只寫檔名。"""
+    parts = []
+    for r in read:
+        name = Path(r["path"]).name
+        rng = "、".join(f"{a}～{a + n - 1}" for a, n in r["ranges"])
+        parts.append(f"{name} 第 {rng} 行" if rng else name)
+    return "、".join(parts)
 HOLD_FACTOR = 3  # 過期但子代理沒停、last_seen 還新：認領到幾倍時間
 TOUCH_EVERY = 60  # 秒：同一批 last_seen 隔這麼久才再寫一次（子代理每個 kb 呼叫都會碰，不每次都寫檔）
 _REPORT_LINE = re.compile(r"^\s*-\s*(\S+?)\s*[：:]\s*(.+?)\s*$")
@@ -1014,8 +1065,7 @@ def dispatch_adopt(vault, session_id, turn_id):
 def _adopt_view(vault, b):
     d = (Path(vault) / ADOPT_POSIX).resolve()
     items = [{"name": n, "chunk": (d / n).as_posix()} for n in b.get("items") or [] if (d / n).is_file()]
-    root = plugin_root().as_posix()
-    return {"batch": b["batch"], "kind": ADOPT, "prefix": prefix(), "read": [f"{root}/{r}" for r in READ[ADOPT]],
+    return {"batch": b["batch"], "kind": ADOPT, "prefix": prefix(), "read": read_list(ADOPT),
             "items": items, "report": ADOPT_REPORT.replace("<批次>", b["batch"])}
 
 
@@ -1061,9 +1111,8 @@ def batch_view(vault, batch_id, agent_id=None):
                 found[k] = dict(item, bucket=bucket)
                 if bucket == "synthesis_new" and (base / item.get("path", "")).is_file() and item.get("path"):
                     found[k]["existing_card"] = item["path"]  # 目標已經有檔（別的批次剛寫過）：先 Read、紀事只增（A 段修）
-    root = plugin_root().as_posix()
     return {"batch": batch_id, "kind": b["kind"], "prefix": prefix(), "vault": base.as_posix(),
-            "read": [f"{root}/{r}" for r in READ[b["kind"]]],
+            "read": read_list(b["kind"]),
             "items": [_with_abs(base, found[k]) for k in want if k in found], "profile": out.get("profile"),
             "entities": out.get("entities")}
 

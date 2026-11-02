@@ -932,6 +932,17 @@ def buckets(vault, data, mounts, prof):
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}
 
 
+def body_line(text):
+    """綜合卡內文第一行的行號（1 起算）：檔頭結尾 --- 的下一行（D-520，AI 只讀內文用）；沒有檔頭回 1。"""
+    lines = str(text or "").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return 1
+    for n, line in enumerate(lines[1:], 2):
+        if line.strip() == "---":
+            return n + 1
+    return 1
+
+
 def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
     from kb._lib import cards, findings, rulings, statements
     front = cards.parse_front(text)
@@ -966,8 +977,7 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
         else:
             removed.append({"id": c, "path": groups[c][0]["path"] if c in groups else None, "title": titles.get(c),
                             "source": "card"})
-    return {"entity_id": e["id"], "name": e["name"], "path": rel,
-            "header": header_for(vault, e, ms, today, data, mounts, prof, know),
+    return {"entity_id": e["id"], "name": e["name"], "path": rel, "body_line": body_line(text),
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}

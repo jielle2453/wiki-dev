@@ -246,12 +246,16 @@ class Buckets(Base):
         (item,) = self.buckets()["synthesis_stale"]
         self.assertEqual([x["title"] for x in item["added"]], ["信義王會議"])
         self.assertEqual((item["changed"], item["removed"]), ([], []))
+        self.assertNotIn("header", item)  # D-520：檔頭程式管，不給
+        lines = card.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[item["body_line"] - 2], "---")
+        self.assertNotEqual(item["body_line"], 2)
         p = self.V / a
         p.write_text(p.read_text(encoding="utf-8").replace("實體: [信義王]", "實體: []"), encoding="utf-8")
         (item,) = self.buckets()["synthesis_stale"]
         self.assertEqual([(x["id"], x["title"]) for x in item["removed"]],
                          [(cards.parse_front(p.read_text(encoding="utf-8"))["編號"], "信義王報價")])
-        card.write_text(E.synthesis_text(item["header"], "信義王"), encoding="utf-8")
+        card.write_text(E.synthesis_text(E.stale_header(self.V, item), "信義王"), encoding="utf-8")
         self.assertEqual(self.buckets()["synthesis_stale"], [])
 
     def test_stale_changed_when_fingerprint_moves(self):
@@ -319,7 +323,7 @@ class Knowledge(Base):
         self.assertEqual((item["changed"], item["removed"]), ([], []))
         self.assertEqual(item["statements"], [{"id": s["id"], "text": "信義王改用系統櫃", "date": s["date"]}])
         self.assertEqual(item["rulings"], [])
-        front = cards.parse_front(item["header"])
+        front = cards.parse_front(E.stale_header(self.V, item))
         self.assertIn(f"{s['id']} -", front["整理到"])
         self.assertEqual(front["整理到"], sorted(front["整理到"]))
 
@@ -337,13 +341,13 @@ class Knowledge(Base):
 
     def test_superseded_is_removed_and_new_is_added(self):
         old, _r = self.statements.add(self.V, "王宅的聯絡人是王先生", ["信義王"], self.t)
-        self.write_synthesis(self.stale()["header"])
+        self.write_synthesis(E.stale_header(self.V, self.stale()))
         new, _r = self.statements.add(self.V, "聯絡人改成王太太", ["信義王"], self.t, replaces=old["id"])
         item = self.stale()
         self.assertEqual([(x["id"], x["source"]) for x in item["added"]], [(new["id"], "statement")])
         self.assertEqual(item["removed"], [{"id": old["id"], "text": "王宅的聯絡人是王先生", "date": old["date"],
                                             "source": "statement"}])
-        self.write_synthesis(item["header"])
+        self.write_synthesis(E.stale_header(self.V, item))
         self.statements.withdraw(self.V, new["id"], self.t)
         self.assertEqual([x["id"] for x in self.stale()["removed"]], [new["id"]])
 
@@ -353,13 +357,13 @@ class Knowledge(Base):
         self.assertEqual(item["added"], [{"id": r["id"], "kind": "ruled_out", "text": "這份報價是舊的，別信", "source": "ruling"}])
         self.assertEqual(item["rulings"], [{"id": r["id"], "kind": "ruled_out", "text": "這份報價是舊的，別信",
                                             "cards": [{"id": self.cid, "title": "信義王報價"}]}])
-        self.write_synthesis(item["header"])
+        self.write_synthesis(E.stale_header(self.V, item))
         self.rulings.remove(self.V, r["id"], self.t)
         self.assertEqual([(x["id"], x["source"]) for x in self.stale()["removed"]], [(r["id"], "ruling")])
 
     def test_ruling_recheck_does_not_make_it_stale(self):
         r = self.rulings.add(self.V, "不採用", [], [self.cid], "別信", turn_id=self.t)
-        self.write_synthesis(self.stale()["header"])
+        self.write_synthesis(E.stale_header(self.V, self.stale()))
         self.rulings.recheck(self.V, r["id"], self.t)
         self.assertEqual(self.buckets()["synthesis_stale"], [])
 

@@ -96,5 +96,14 @@ def to_v1(V, rel):
     p.write_text(text.replace("範本版本: 2", "範本版本: 1"), encoding="utf-8", newline="\n")
 
 
+def stale_header(vault, item):
+    """待更新綜合卡項目該有的檔頭（D-520 起項目不帶 header，測試照 header_for 自己算）。"""
+    from kb._lib import entities, synthesis
+    data = entities.load(vault)
+    mounts = entities.mounts(vault, data)
+    e, _hit = entities.find(data, item["entity_id"])
+    return synthesis.header_for(vault, e, mounts.get(e["name"], []), data=data, mounts=mounts)
+
+
 def synthesis_text(header, name, body="一句講這是什麼。\n\n## 現況\n- 一點〔f-00000000〕\n"):
     return header + f"# {name}\n\n{body}"

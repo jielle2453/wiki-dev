@@ -1,6 +1,7 @@
 """kb cards dispatch／batch／status／stop／unreadable 與全域 --turn 黑箱（card-maker，驗收 1、2、2b、6、9、12、13b、13c）：
 真的跑 CLI，成功與拒絕句一字不差。知識庫是 tests/fixtures/inventory 複本，補到 45 份待製卡。"""
 import json
+from pathlib import Path
 import shutil
 import unittest
 
@@ -92,7 +93,14 @@ class Batch(Base):
         b = self.js("cards", "dispatch")["batches"][2]["batch"]
         got = json.loads(self.ok("--turn", self.t, "--agent", "a0204e72", "cards", "batch", b, "--json"))
         self.assertEqual((got["batch"], got["kind"], got["prefix"]), (b, "cards", PREFIX))
-        self.assertEqual(got["read"], [f"{plugin_root().as_posix()}/skills/ingest/references/carding.md 批次、材料的欄位、一～七、九節"])
+        (read,) = got["read"]  # D-520：給行號範圍，AI 只讀那幾段
+        self.assertEqual((read["path"], read["what"]),
+                         (f"{plugin_root().as_posix()}/skills/ingest/references/carding.md", "批次、材料的欄位、一～七、九節"))
+        lines = Path(read["path"]).read_text(encoding="utf-8").splitlines()
+        self.assertTrue(read["ranges"])
+        for start, count in read["ranges"]:
+            self.assertTrue(lines[start - 1].startswith("## "), lines[start - 1])
+            self.assertGreater(count, 0)
         todo_new = {i["id"]: i for i in self.todo()["new"]}
         self.assertEqual(len(got["items"]), 5)
         for item in got["items"]:

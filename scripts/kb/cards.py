@@ -603,7 +603,7 @@ def _batch(vault, batch_id, agent, as_json):
     if as_json:
         print(json.dumps(got, ensure_ascii=False))
     else:
-        print(f"批次 {batch_id}：{batches.KIND_TEXT[got['kind']]} {len(got['items'])} 項；先讀 " + "、".join(got["read"]))
+        print(f"批次 {batch_id}：{batches.KIND_TEXT[got['kind']]} {len(got['items'])} 項；先讀 " + batches.read_text(got["read"]))
     return 0
 
 

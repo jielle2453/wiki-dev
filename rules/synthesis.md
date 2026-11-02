@@ -57,7 +57,7 @@
 
 ## 五、待更新
 
-- S-21 先 Read 舊綜合卡，再讀 `added`、`changed` 列的檔案卡；`source` 是 statement、ruling 的項目，內容就在項目的 `text`，照 S-30～S-32 寫。
+- S-21 先 Read 舊綜合卡的內文：從項目的 `body_line` 那行讀起（Read 的 offset），檔頭程式管、不用讀，要改標籤行才讀檔頭；再讀 `added`、`changed` 列的檔案卡；`source` 是 statement、ruling 的項目，內容就在項目的 `text`，照 S-30～S-32 寫。
 - S-22 改寫現況；紀事加這次的事（新報價、新會議）。
 - S-23 `removed` 的卡講的事：在現況裡拿掉或改寫成還有依據的說法；紀事不刪。例外：來源的夾排除成不想讓 AI 看到，那夾的卡的紀事要刪。
 - S-24 用 Edit 改現況、紀事加一行（要改標籤行也用 Edit 改那幾行），其他檔頭行與不改的段不動，不整張重寫；改完跑 `kb entity render <名稱> --synced`，由程式把整理到、更新日、檔案卡、相關實體換成現行的。指令回 skipped 就照 reason 改好再跑一次；還是 skipped 就停，回報那張沒更新好與原因。
