@@ -1212,10 +1212,11 @@ def _under(uri, base):
     return "/".join(parts[len(bparts):])
 
 
-def move_locations(vault, old_uri, new_uri, turn_id, folder=False):
+def move_locations(vault, old_uri, new_uri, turn_id, folder=False, status=None):
     """kb source-edit 搬了一份檔或一個夾之後（manage 第二版，B-095）：直接把條目的位置換成新的，不靠掃描照指紋認搬動
     （只在雲端的檔沒有指紋，掃描會認成新增加不見）。檔是位置相同的換掉；夾是在它底下的換前綴。任何 status 都換。
-    有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。"""
+    有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。
+    status 給了（outside：搬到知識庫外沒登記的地方）就把改到的條目記成那個狀態；沒給而條目本來是 outside，搬回登記的地方就回 active。"""
     from kb._lib import turn
     p = _path(vault)
     if not p.exists():
@@ -1238,6 +1239,10 @@ def move_locations(vault, old_uri, new_uri, turn_id, folder=False):
                         loc["uri"], hit = f"{new_uri}/{rest}", True
             if hit:
                 hits.append(e["id"])
+                if status:
+                    e["status"], e["missing_since"] = status, None
+                elif e.get("status") == OUTSIDE:
+                    e["status"], e["missing_since"] = "active", None
         if hits:
             turn.backup(vault, INVENTORY_POSIX, turn_id)
             _write(vault, data["entries"])
@@ -1279,11 +1284,30 @@ def entry_for(vault, uri, entries=None):
     return hits[-1] if hits else None
 
 
+OUTSIDE = "outside"  # 清冊 status：搬到知識庫外沒登記的地方（桌面）；位置記成可攜 spec file://~/…，不掃描、卡留著（放寬甲）
+HOME_ALIAS = "~"
+
+
+def outside_uri(path):
+    """沒登記的地方的清冊 uri：在使用者家目錄底下回 file://~/相對路徑（可攜 spec），不在回 None。"""
+    try:
+        home = os.path.realpath(os.path.expanduser("~"))
+        real = os.path.realpath(str(path))
+    except (OSError, ValueError):
+        return None
+    hn, rn = normalize(home, None), normalize(real, None)
+    if rn == hn or not inside(rn, hn):
+        return None
+    return "file://~/" + os.path.relpath(real, home).replace("\\", "/")
+
+
 def path_of(vault, sources, uri):
-    """uri 反查絕對路徑；別名對不到回 None。"""
+    """uri 反查絕對路徑；別名對不到回 None。file://~/… 是知識庫外沒登記的地方（outside），從家目錄起算。"""
     alias, rel = split_uri(uri)
     parts = [p for p in rel.split("/") if p]
     a = alias.casefold()
+    if a == HOME_ALIAS:
+        return Path(os.path.expanduser("~")).joinpath(*parts)
     if a == KNOWLEDGE.casefold():
         return Path(vault).joinpath(*parts)
     if a in (INBOX.casefold(), OUTPUT.casefold()):

@@ -250,8 +250,9 @@ def uri_of(vault, sources, path):
                 return inventory.make_uri(alias, "/".join(parts[1:])) if len(parts) > 1 else f"file://{alias}"
         return inventory.make_uri(inventory.KNOWLEDGE, "/".join(parts))
     src = _source_of(sources, path)
-    if src is None:
-        return None
+    if src is None:  # 本來就在知識庫外沒登記的地方的檔（outside）：清冊記的是可攜 spec
+        out = inventory.outside_uri(path)
+        return out if out and inventory.entry_for(vault, out) is not None else None
     rel = os.path.relpath(_real(path), _real(src["root"])).replace("\\", "/")
     return f"file://{src['alias']}" if rel == "." else inventory.make_uri(src["alias"], rel)
 
@@ -401,6 +402,10 @@ def resolve_folder(vault, sources, target, cwd):
 
 
 # ---------- 給人看的 ----------
+
+OUTSIDE_NOT_HOME = ("「{place}」不在這台電腦的使用者資料夾底下，也沒登記成來源：先 kb folders add 登記那個夾，"
+                    "或改放使用者資料夾底下（桌面、文件…）。")
+
 
 def folder_word(uri):
     """「從 A 搬到 B」的 A／B：uri 所在的夾名；在根上就是別名。"""
@@ -599,6 +604,12 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
         raise Refused(NOT_FOUND.format(target=target)) from e
     from_uri = uri_of(vault, sources, src)
     to_dir_uri = uri_of(vault, sources, dest_dir)
+    outside = False
+    if to_dir_uri is None and dparts is None and _source_of(sources, dest_dir) is None:
+        outside = True  # 搬到知識庫外沒登記的地方（桌面）：清冊記成 file://~/…，狀態 outside，不掃描、卡留著
+        to_dir_uri = inventory.outside_uri(dest_dir if not make_dir else Path(dest_dir).parent)
+        if to_dir_uri is None:
+            raise Refused(OUTSIDE_NOT_HOME.format(place=Path(dest_dir).name or str(dest_dir)))
     existing = os.path.lexists(dst) and normalize(str(dst), None) != normalize(str(src), None)
     inside_entries = _entries_under(vault, from_uri, folder) if from_uri else []
     card_ids = [e["id"] for e in inside_entries if e.get("status") == "active"]
@@ -609,7 +620,7 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
             "files": len(_files_under(src)), "cards": len(_cards_of(vault, card_ids)),
             "excludes": [rest for _s, _e, rest in moved_ex], "_moved_ex": moved_ex,
             "signs": [Path(f).name for f in _files_under(src) if Path(f).name.startswith("~$")][:SIGNS_MAX],
-            "make_dir": make_dir, "cross_disk": cross_disk, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
+            "outside": outside, "make_dir": make_dir, "cross_disk": cross_disk, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
     plan["same_content"] = bool(existing and not folder and os.path.isfile(dst) and _same_content(src, dst))
     plan["existing_uri"] = uri_of(vault, sources, dst) if existing else None
     plan["dest_rel"] = _dest_rel(to_dir_uri)
@@ -876,6 +887,8 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
     try:
         sources = sources_lib.load(vault)
         to_uri = uri_of(vault, sources, dst)
+        if to_uri is None and plan.get("outside"):  # 知識庫外沒登記的地方：可攜 spec（file://~/…）
+            to_uri = (plan["to_dir_uri"].rstrip("/") + "/" + plan["new_name"]) if plan.get("to_dir_uri") else None
         undo.file(turn.VERSIONS_REL.as_posix() + f"/{turn_id}/moves.jsonl")
         if made is not None:  # 資料夾帳：退回時先搬回檔、再拿掉空夾
             undo.folder(turn_id, "make", plan["make_dir"])
@@ -887,13 +900,21 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
             changed.append({"path": sources_lib.SOURCES_REL, "action": "modify"})
             sources = sources_lib.load(vault)
         undo.file(inventory.INVENTORY_POSIX)
-        hit = inventory.move_locations(vault, plan["from_uri"], to_uri, turn_id, folder) if plan["from_uri"] and to_uri else []
-        roots = sorted({inventory.split_uri(u)[0] for u in (plan["from_uri"], to_uri) if u})
-        report = inventory.scan(vault, sources, only_roots=roots)
-        if hit or inventory.has_changes(vault, report):
+        hit = (inventory.move_locations(vault, plan["from_uri"], to_uri, turn_id, folder,
+                                        status=inventory.OUTSIDE if plan.get("outside") else None)
+               if plan["from_uri"] and to_uri else [])
+        roots = sorted({inventory.split_uri(u)[0] for u in (plan["from_uri"], to_uri) if u
+                        and inventory.split_uri(u)[0] != inventory.HOME_ALIAS})  # 知識庫外沒登記的地方不掃描
+        report = inventory.scan(vault, sources, only_roots=roots) if roots else {"total": 0, "restored": [], "modified": [],
+                                                                                 "added": [], "missing": [], "moved": [], "read_counts": {}}
+        if plan.get("outside") and hit:  # 卡留著，只把位置欄與開原檔指到新位置
+            outc = cards.follow_outside(vault, sources, hit, turn_id, undo)
+            changed += [{"path": rel, "action": "modify"} for rel in outc]
+        if hit or (roots and inventory.has_changes(vault, report)):
             undo.file(pending.PENDING_POSIX)
             undo.file(pending.MD_POSIX)
-            inventory.apply(vault, report, turn_id)
+            if roots and inventory.has_changes(vault, report):
+                inventory.apply(vault, report, turn_id)
             changed.append({"path": inventory.INVENTORY_POSIX, "action": "modify"})
         got = cards.sync(vault, sources, turn_id, undo)
         if got["moved"] or got["updated"] or got["dropped"]:

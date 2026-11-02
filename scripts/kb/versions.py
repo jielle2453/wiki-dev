@@ -587,6 +587,8 @@ def _move_lines(rows):
 def _move_root(vault, sources, alias):
     """搬動帳的別名 → 根（磁碟上的大小寫）：知識庫、AI 產出、收件匣，或目前登記的來源；都不是回 None。"""
     a = str(alias).casefold()
+    if a == inventory.HOME_ALIAS:  # 搬到知識庫外沒登記的地方（outside）：file://~/…，從家目錄起算（放寬甲）
+        return Path(os.path.realpath(os.path.expanduser("~")))
     if a == inventory.KNOWLEDGE.casefold():
         return Path(os.path.realpath(str(vault)))
     for area in (inventory.INBOX, inventory.OUTPUT):
@@ -625,7 +627,7 @@ def _move_path(vault, sources, uri):
         return None, MOVE_BAD.format(uri=text)
     parts = os.path.relpath(real, real_root).split(os.sep)
     if alias.casefold() == inventory.KNOWLEDGE.casefold() and (
-            len(parts) < 3 or parts[0].startswith(".") or parts[0].casefold() in inventory.VAULT_RESERVED_DIRS):
+            parts[0].startswith(".") or parts[0].casefold() in inventory.VAULT_RESERVED_DIRS):
         return None, MOVE_BAD.format(uri=text)
     rn, fn = normalize(real_root, None), normalize(real, None)
     if fn == rn or not inside(fn, rn):
@@ -730,7 +732,8 @@ def _roll_back_source_moves(vault, done):
 
 def _rescan(vault, rows, turn_id):
     """搬回去之後對清冊掃一次那幾個根（大小、時間、不見照實）；有變才套用。"""
-    aliases = sorted({inventory.split_uri(u)[0] for m in rows for u in (m.get("from"), m.get("to")) if u})
+    aliases = sorted({inventory.split_uri(u)[0] for m in rows for u in (m.get("from"), m.get("to")) if u
+                      and inventory.split_uri(u)[0] != inventory.HOME_ALIAS})
     if not aliases:
         return
     report = inventory.scan(vault, sources_lib.load(vault), only_roots=aliases)

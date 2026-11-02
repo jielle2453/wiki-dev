@@ -1102,6 +1102,30 @@ def sync(vault, sources, turn_id, undo=None):
             "touched": touched}
 
 
+def follow_outside(vault, sources, ids, turn_id, undo=None):
+    """原檔搬到知識庫外沒登記的地方（outside）：卡留在原處，只把檔頭的 原檔 清單與 開原檔 換成新位置。回改到的卡路徑。"""
+    from kb._lib import inventory, turn
+    by_id = {e["id"]: e for e in inventory.load(vault)["entries"]}
+    groups, _broken = _scan_groups(vault)
+    changed = []
+    for fid in ids:
+        entry = by_id.get(fid)
+        if entry is None or not entry.get("locations"):
+            continue
+        for card in groups.get(fid) or []:
+            rel = card["path"]
+            text = rewrite_locations(_read(vault, rel), [loc["uri"] for loc in entry["locations"]],
+                                     entry_link(vault, sources, entry))
+            if text == _read(vault, rel):
+                continue
+            if undo is not None:
+                undo.file(rel)
+            turn.backup(vault, rel, turn_id)
+            write_text_atomic(Path(vault) / rel, text)
+            changed.append(rel)
+    return changed
+
+
 def rewrite_locations(text, uris, link):
     """只換檔頭的 原檔 清單與 開原檔 一行，其他行原樣（kb cards sync）。"""
     lines = text.splitlines(keepends=True)

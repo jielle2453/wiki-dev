@@ -12,7 +12,8 @@ from tests import _cards
 from tests.test_lib_source_edit import ESTIMATE, Base, entry, inv
 from kb import versions
 from kb._lib import source_edit as se
-from kb._lib import turn  # noqa: E402
+from kb._lib import cards, inventory, turn  # noqa: E402
+from kb._lib import sources as sources_lib  # noqa: E402
 
 ID_LIKE = re.compile(r"\b[aefsrcp]-[0-9a-f]{8}\b")
 
@@ -209,3 +210,66 @@ class TrashBackupRevert(Base):
         self.assertEqual(code, 3, out)
         self.assertEqual(out.strip(), "原本放「估價單.pdf」的「客戶案件」現在找不到：先請使用者把隨身碟或磁碟接上再改回。")
         self.assertFalse(src.exists())
+
+
+class OutsideMove(Base):
+    """放寬甲（spec 一.5、資料格式「清冊」）：搬到沒登記的地方（桌面）：清冊那份記成可攜 spec file://~/Desktop/…、狀態 outside；
+    不掃描、卡留著、卡上位置欄與開原檔指過去；versions revert 把檔搬回來、清冊改回原狀態。"""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.tmp / "home"
+        (self.home / "Desktop").mkdir(parents=True)
+        patcher = mock.patch.dict(os.environ, {"USERPROFILE": str(self.home), "HOME": str(self.home)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_move_to_desktop_marks_outside_and_card_stays(self):
+        desk = self.home / "Desktop"
+        before_card_front = cards.parse_front((Path(self.V) / self.card_rel).read_text(encoding="utf-8"))
+        self.move(self.fid, str(desk))
+        self.assertTrue((desk / "估價單.pdf").is_file())
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], [loc["uri"] for loc in e["locations"]]), ("outside", ["file://~/Desktop/估價單.pdf"]))
+        card = Path(self.V) / self.card_rel
+        self.assertTrue(card.is_file(), "卡留著")
+        front = cards.parse_front(card.read_text(encoding="utf-8"))
+        self.assertEqual(front["原檔"], ["file://~/Desktop/估價單.pdf"])
+        self.assertEqual(front["開原檔"], cards.open_link(desk / "估價單.pdf"))
+        self.assertNotEqual(front["原檔"], before_card_front["原檔"])
+        self.assertEqual(cards.todo(self.V, sources_lib.load(self.V))["moved"], [])
+        # 不掃描：再掃一次，狀態不被改成 missing
+        report = inventory.scan(self.V, sources_lib.load(self.V))
+        inventory.apply(self.V, report, turn.start(self.V, None, "")["turn"])
+        self.assertEqual(entry(self.V, self.fid)["status"], "outside")
+
+    def test_revert_moves_file_back_and_restores_entry(self):
+        desk = self.home / "Desktop"
+        before_card = (Path(self.V) / self.card_rel).read_bytes()
+        self.move(self.fid, str(desk))
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.raw / ESTIMATE).is_file())
+        self.assertFalse((desk / "估價單.pdf").exists())
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], e["locations"][0]["uri"]), ("active", "file://" + ESTIMATE))
+        self.assertEqual((Path(self.V) / self.card_rel).read_bytes(), before_card)
+
+    def test_move_back_from_desktop_makes_entry_active_again(self):
+        desk = self.home / "Desktop"
+        self.move(self.fid, str(desk))
+        t2 = turn.start(self.V, None, "")["turn"]
+        p = se.plan_move(self.V, sources_lib.load(self.V), str(desk / "估價單.pdf"), self.V,
+                         dest=str(self.raw / "客戶案件" / "大安陳"))
+        se.do_move(self.V, p, t2, "move")
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], e["locations"][0]["uri"]), ("active", "file://客戶案件/大安陳/估價單.pdf"))
+        self.assertTrue(list((Path(self.V) / "檔案索引/客戶案件/大安陳").glob("*.md")))
+
+    def test_outside_not_under_home_refused_with_ai_sentence(self):
+        elsewhere = self.tmp / "不在家目錄"
+        elsewhere.mkdir()
+        with mock.patch.dict(os.environ, {"USERPROFILE": str(self.home / "Desktop"), "HOME": str(self.home / "Desktop")}):
+            msg = self.refuse(self.plan, self.fid, dest=str(elsewhere))
+        self.assertIn("不在這台電腦的使用者資料夾底下", msg)
+        self.assertIn("kb folders add", msg)
