@@ -181,7 +181,7 @@ class Round2(unittest.TestCase):
             with self.subTest(want=want):
                 self.assertIn(want, line)
         sec = self.draft[self.draft.index("## md 本身就是成品的"):self.draft.index("## 放哪、叫什麼")]
-        for want in ("kb office check", "kb output save", "暫存區/筆記/", "先不要整理", "（草稿）.md", "--draft"):
+        for want in ("Write", "筆記/", "暫存區/筆記/", "不收 md", "先不要整理", "（草稿）.md", "drop-draft"):
             with self.subTest(want=want):
                 self.assertIn(want, sec)
 
