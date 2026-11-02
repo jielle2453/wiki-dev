@@ -82,14 +82,12 @@ class S2TodoMatchesConvert(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_type_folder_root_file_not_listed_and_every_new_passes_convert_gate(self):
-        """S2(c)：知識庫/案子/說明.txt 落在型別夾根（convert 拒「這不是要製卡的檔」），todo 一開始就不列；
-        todo 列的每一份，convert 都不會用這個理由拒絕（兩邊同一個判斷）。"""
+    def test_type_folder_root_file_listed_and_every_new_passes_convert_gate(self):
+        """放寬甲 四.1：知識庫/案子/說明.txt 落在型別夾根，現在也製卡（todo 列、convert 不拒）；
+        todo 列的每一份，convert 都不會用「這不是要製卡的檔」拒絕（兩邊同一個判斷）。"""
         data = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
         uris = [i["uri"] for i in data["new"]]
-        self.assertNotIn("file://知識庫/案子/說明.txt", uris)
-        self.assertTrue(any(e.get("status") == "active" and e["locations"][0]["uri"] == "file://知識庫/案子/說明.txt"
-                            for e in inventory.load(self.V)["entries"]), "清冊照記，只是不製卡")
+        self.assertIn("file://知識庫/案子/說明.txt", uris)
         for item in data["new"]:
             out = json.loads(run_kb("convert", item["id"], "--json", cwd=self.V).stdout)
             self.assertNotEqual(out.get("unreadable"), "這不是要製卡的檔", item["uri"])

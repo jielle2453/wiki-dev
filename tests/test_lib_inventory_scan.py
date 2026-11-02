@@ -156,6 +156,23 @@ class Scope(Base):
         self.assertEqual(len(r["added"]), 13)
         self.assertEqual(len(self.entries()), 13)
 
+    def test_vault_excludes_folder_is_not_walked(self):
+        """放寬甲 四.2：清冊走訪知識庫時跳過「知識庫」別名底下的不讀夾（sources.json 頂層 vault_excludes）。"""
+        mine = self.V / "我的夾"
+        (mine / "私人").mkdir(parents=True)
+        (mine / "a.txt").write_text("a", encoding="utf-8")
+        (mine / "私人" / "日記.txt").write_text("secret", encoding="utf-8")
+        (self.V / "案子" / "內部").mkdir(parents=True, exist_ok=True)
+        (self.V / "案子" / "內部" / "b.txt").write_text("b", encoding="utf-8")
+        sp = self.V / ".system" / "sources.json"
+        data = json.loads(sp.read_text(encoding="utf-8"))
+        data["vault_excludes"] = [{"spec": "我的夾/私人", "kind": "hidden"}, {"spec": "案子/內部", "kind": "unused"}]
+        sp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.full()
+        uris = {l["uri"] for e in self.entries() for l in e["locations"]}
+        self.assertIn("file://知識庫/我的夾/a.txt", uris)
+        self.assertFalse([u for u in uris if "私人" in u or "內部" in u], uris)
+
     def test_card_hidden_and_temp_files_are_not_in(self):
         self.full()
         uris = {l["uri"] for e in self.entries() for l in e["locations"]}

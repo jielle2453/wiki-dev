@@ -281,6 +281,20 @@ class Refuse(Base):
         self.refused(self.V / "系統" / "待處理.md", "讀不到：這不是要製卡的檔")
         self.refused(self.V / "案子" / "信義王" / "信義王.md", "讀不到：這不是要製卡的檔")
 
+    def test_vault_first_level_and_type_root_files_are_cards(self):
+        """放寬甲 四.1：第一層使用者的夾、型別夾根的檔不再回「這不是要製卡的檔」；總目錄與 CLAUDE.md 照舊。"""
+        (self.V / "我的夾").mkdir()
+        (self.V / "我的夾" / "清單.txt").write_text("a list", encoding="utf-8")
+        (self.V / "案子" / "清單.txt").write_text("root file", encoding="utf-8")
+        self.scan()
+        for p in (self.V / "我的夾" / "清單.txt", self.V / "案子" / "清單.txt"):
+            r = self.kb("convert", str(p))
+            self.assertNotIn("這不是要製卡的檔", r.stdout, r.stdout)
+        for f in self.temp.glob("*"):  # 成功轉出來的暫存檔清掉（refused 會檢查暫存夾是空的）
+            f.unlink()
+        self.refused(self.V / "總目錄.md", "讀不到：這不是要製卡的檔")
+        self.refused(self.V / "CLAUDE.md", "讀不到：這不是要製卡的檔")
+
     def test_unknown_id(self):
         self.refused("f-00000000", "讀不到：清冊沒有 f-00000000")
 

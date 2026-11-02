@@ -667,14 +667,15 @@ def roots(vault, sources):
             skip.append(vault_n)
         out.append({"alias": src["alias"], "path": src["root"], "origin": "client_file", "kind": "source",
                     "skip": skip, "credential": True})
-    out.append({"alias": KNOWLEDGE, "path": vault_s, "origin": "client_file", "kind": "knowledge", "skip": [],
+    vskip = [ex["root"] for ex in getattr(sources, "vault_excludes", [])]  # 知識庫裡使用者的不讀夾（放寬甲 四.2）
+    out.append({"alias": KNOWLEDGE, "path": vault_s, "origin": "client_file", "kind": "knowledge", "skip": vskip,
                 "credential": False})
     for alias, origin in ((INBOX, "intake"), (OUTPUT, "ai_output")):
         area = os.path.join(vault_s, alias)
         if _is_link(area):
             errors.append({"path": f"file://{alias}", "error": f"{alias} 是連結，不掃"})
         elif os.path.isdir(long_path(area)):
-            out.append({"alias": alias, "path": area, "origin": origin, "kind": "area", "skip": [], "credential": False})
+            out.append({"alias": alias, "path": area, "origin": origin, "kind": "area", "skip": vskip, "credential": False})
     return out, missing, errors
 
 
@@ -723,7 +724,10 @@ def _iter_root(root, stopper):
             continue
         if not stat_lib.S_ISDIR(st.st_mode):
             continue
-        for rel, fst, err in walk(os.path.join(base, name), (), stopper):
+        skip = {_fs_key(x) for x in root.get("skip") or []}
+        if skip and _fs_key(f"{str(base).replace(chr(92), '/').rstrip('/')}/{name}") in skip:
+            continue
+        for rel, fst, err in walk(os.path.join(base, name), root.get("skip") or (), stopper):
             full = f"{name}/{rel}" if rel else name
             if err is None and _is_card(full, base):
                 continue  # 綜合卡是 AI 筆記，不入冊
