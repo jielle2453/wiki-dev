@@ -93,7 +93,7 @@ class Skeleton(unittest.TestCase):
                       "她提到這一區或答應要看才讀，Word、Excel 這類用 kb convert 讀、讀不到就照實說，寫用檔案工具；"
                       "卡、成品、客戶原檔的副本不放這裡。", r01)
         sk = (ROOT / "skeleton" / "CLAUDE.md").read_text(encoding="utf-8")
-        self.assertIn("第一層有六區：", sk)
+        self.assertIn("第一層有五區：", sk)
         self.assertIn(f"- {FREE_DIR}：客戶自己的空間；平常不讀，別處找不到也不去翻（有檔才問要不要看），客戶提到這一區或答應要看才讀。", sk)
 
     def test_2_name_written_only_in_areas(self):

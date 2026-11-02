@@ -319,7 +319,7 @@ def opening_preferences_chars():
         shutil.rmtree(tmp, ignore_errors=True)
     core = read(CORE)
     block = ctx[ctx.index(core) + len(core):]
-    assert block.startswith("\n客戶偏好（只管怎麼回答、怎麼做東西給客戶；跟上面的核心規則或守門衝突時，照核心規則）：\n") and block.count("\n- ") == PREFERENCE_MAX, block[:80]
+    assert block.startswith("\n客戶偏好（跟上面的核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓）：\n") and block.count("\n- ") == PREFERENCE_MAX, block[:80]
     assert "\n做文件時：\n" in block and "\n每日議題：\n" in block, block
     return len(block)
 

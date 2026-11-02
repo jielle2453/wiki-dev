@@ -40,7 +40,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 COMPACT_LINE = "對話剛摺疊，規則已重新帶入；做到一半的事以工作日誌為準。"
-ERROR_LINE = "【wiki-with-willy】開場程式出錯（{}），詳見 .system/hook-errors.log；這個對話不改任何檔。"
+ERROR_LINE = "【wiki-with-willy】開場有一段出錯（{}），已記在 .system/hook-errors.log；其他照常做，跑 kb selftest 看原因。"  # D-322 第 7 件：非致命，其他照常
+ERROR_LINE_FATAL = "【wiki-with-willy】開場程式出錯（{}），詳見 .system/hook-errors.log；跑 kb selftest 看原因，修好之前不改任何檔。"  # 只有 kb 前綴行或讀 core.md 失敗
 
 
 def line_kb(vault):
@@ -150,9 +151,9 @@ UNSORTED_LINE = "還有 {n} 份沒整理完"
 MOVED_LINE = "{n} 張卡要跟著搬"
 FIX_LINE = "{n} 張綜合卡要改寫"  # 健檢標的（lint 題）：檔與綜合卡分開講，「份」只數檔
 LEFT_HEAD = "還有 "
-CARD_EDITS_LINE = "你在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答。"  # D-270
-CARD_EDITS_MAYBE = "可能有你改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答。"  # 時限內一張都沒比到
-CARD_EDITS_MORE = "你在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答。"
+CARD_EDITS_LINE = "客戶在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # D-270
+CARD_EDITS_MAYBE = "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # 時限內一張都沒比到
+CARD_EDITS_MORE = "客戶在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"
 UNSORTED_BUDGET = 6  # 秒，從 hook 開始算；SessionStart 逾時 10 秒，留給讀 core.md 與其他行
 _UNSORTED = {}  # vault → 還沒整理的份數或 None（出錯、超時）；line_changes 被叫兩次，log 只記一行
 
@@ -292,7 +293,7 @@ def line_profile(vault):
     return head
 
 
-TAGS_EDITED = "綜合卡上的標籤你改了 {n} 張（{names}）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她"
+TAGS_EDITED = "客戶在 Obsidian 改了 {n} 張綜合卡的標籤（{names}）：跑 kb entity tag --from-card 記進去，說一聲記了什麼；不在字典的直接加進字典。"
 TAGS_EDITED_SHOWN = 3
 
 
@@ -310,7 +311,7 @@ def line_tags(vault):
     return TAGS_EDITED.format(n=len(edits), names=names)
 
 
-AGENDA_OVERDUE_HINT = "（回答末尾跑 kb asks 照著問）"
+AGENDA_OVERDUE_HINT = "（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）"
 
 
 def line_agenda(vault):
@@ -459,8 +460,8 @@ def read_core():
     return (paths.plugin_root() / "rules" / "core.md").read_text(encoding="utf-8")
 
 
-# 加框（測試後修正裁定 15）：偏好只管回答與成品，跟核心規則或守門衝突時照核心規則
-PREFERENCES_HEAD = "客戶偏好（只管怎麼回答、怎麼做東西給客戶；跟上面的核心規則或守門衝突時，照核心規則）："
+# D-322 第 1 件（放寬乙）：偏好跟核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓
+PREFERENCES_HEAD = "客戶偏好（跟上面的核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓）："
 
 
 def preferences_block(vault):
@@ -515,15 +516,21 @@ def main():
         return
     if vault is None:
         return
-    try:
-        context = "\n".join(status_lines(vault, payload.get("source"), payload.get("session_id"))) + "\n\n" + read_core()
+    try:  # 致命：kb 前綴行、讀 core.md 失敗才印「不改任何檔」那句（D-322 第 7 件）
+        kb_line = line_kb(vault)
+        core = read_core()
+    except BaseException as e:  # noqa: BLE001
+        _log(e, payload)
+        emit(ERROR_LINE_FATAL.format(type(e).__name__))
+        return
+    try:  # 其他各行已各自 try；這裡再出錯只記 log、印非致命那句，其他照常
+        context = "\n".join(status_lines(vault, payload.get("source"), payload.get("session_id"))) + "\n\n" + core
         block = preferences_block(vault)
         if block:
             context += "\n" + block
-    except BaseException as e:  # noqa: BLE001  找到知識庫之後出錯：記 log，再明講一行
+    except BaseException as e:  # noqa: BLE001
         _log(e, payload)
-        emit(ERROR_LINE.format(type(e).__name__))
-        return
+        context = kb_line + "\n" + ERROR_LINE.format(type(e).__name__) + "\n\n" + core
     emit(context)
 
 
