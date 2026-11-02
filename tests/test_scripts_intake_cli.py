@@ -23,7 +23,7 @@ SID = "sid-intake"
 FIX = Path(__file__).resolve().parent / "fixtures" / "intake"
 ID_PATTERN = re.compile(r"[aefsrcp]-[0-9a-f]{8}")
 NEXT = "接著整理：kb cards dispatch --json"
-IMAGE_MISS = "這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"
+IMAGE_MISS = "這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"
 PASTE = "第一條 甲方委託乙方裝修。\n第二條 工期 30 天，逾期每日罰 1,000 元。\n\n  （以下空白）"
 
 
@@ -103,9 +103,43 @@ class NoFolders(Base):
         (e,) = self.entries()
         self.assertEqual(e["intake"]["original_name"], "IMG_2034.jpg")
         other = self.outside("IMG_2035.jpg", b"\xff\xd8 photo two")
-        self.assertEqual(self.ok(str(other), "--title", "王先生合約")[0],
-                         "收進收件匣了：收件匣/王先生合約 (2).jpg（原本叫 IMG_2035.jpg）")
-        self.assertEqual(self.inbox_files(), ["王先生合約 (2).jpg", "王先生合約.jpg"])
+        # 放寬甲：同名不再加 (2)，內容不一樣回 conflict，--title 另取名
+        r = self.kb(str(other), "--title", "王先生合約", "--json")
+        self.assertEqual(r.returncode, 3, r.stdout)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["conflict"], [{"name": "王先生合約.jpg", "dest": "收件匣", "same_content": False,
+                                              "existing": "file://收件匣/王先生合約.jpg"}])
+        self.assertIn("--replace", data["refused"])
+        self.assertEqual(self.inbox_files(), ["王先生合約.jpg"])
+        self.assertEqual(self.ok(str(other), "--title", "王先生合約_二")[0],
+                         "收進收件匣了：收件匣/王先生合約_二.jpg（原本叫 IMG_2035.jpg）")
+        third = self.outside("IMG_2036.jpg", b"\xff\xd8 photo three")
+        r = self.kb(str(third), "--title", "王先生合約", "--replace")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.V / "收件匣" / "王先生合約.jpg").read_bytes(), b"\xff\xd8 photo three")
+
+    def test_to_folder_conflict_and_have(self):
+        """驗收 16：--to 收進使用者的夾；內容改過再收 -> conflict 沒有 (2)；--replace 覆蓋；一樣的 -> 這份收過了。"""
+        mine = self.V / "我的夾"
+        mine.mkdir()
+        src = self.outside("a.txt", b"one")
+        out = self.ok(str(src), "--to", str(mine))
+        self.assertEqual(out[0], "收進「我的夾」了：我的夾/a.txt（原檔沒動）")
+        self.assertEqual((mine / "a.txt").read_bytes(), b"one")
+        (e,) = self.entries()
+        self.assertEqual(e["locations"][0]["uri"], "file://知識庫/我的夾/a.txt")
+        src.write_bytes(b"two")
+        r = self.kb(str(src), "--to", str(mine))
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertEqual(sorted(p.name for p in mine.iterdir()), ["a.txt"])
+        r = self.kb(str(src), "--to", str(mine), "--replace")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((mine / "a.txt").read_bytes(), b"two")
+        out = self.ok(str(src), "--to", str(mine))
+        self.assertTrue(out[0].startswith("這份收過了"), out)
+        r = self.kb(str(src), "--to", str(self.V / "檔案索引"))
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("willy 自己的檔", r.stdout)
 
     def test_already_in_inbox_and_in_vault(self):
         self.ok(str(self.outside("a.txt", b"a")))
@@ -233,7 +267,7 @@ class Periodic(Base):
         mine.write_bytes(b"mine")
         _cards.scan_apply(self.V)
         self.assertEqual(self.refused(str(a), "--from", "公司系統", "--name", "客戶李小姐"),
-                         ["收件匣/公司系統/ 裡已經有同名的檔，不是 公司系統 交的；請先改名或搬走"])
+                         ["「公司系統」已經有「客戶李小姐.md」（內容不一樣）：一樣的話不用搬；要取代加 --replace（原本那份先進資源回收筒）；要另取名換一個 --name。"])
         self.assertEqual(mine.read_bytes(), b"mine")
 
     def test_from_without_name_goes_to_top_and_is_recorded(self):
@@ -348,7 +382,7 @@ class Pasted(Base):
         self.use("desktop.jsonl")
         turn.set_done(self.V, SID)
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
 
     def test_r8_2_save_from_previous_message(self):
         """裁定 8 #2：AI 問過要不要存、她回「存起來」：從上一則取。"""
@@ -387,7 +421,7 @@ class Pasted(Base):
     def test_r6_1_without_session_pasted_is_refused(self):
         self.use("desktop.jsonl")
         r = run("intake", "--pasted", "text:1", "--title", "x", cwd=self.V, extra_env=self.env)
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "這段我拿不到原文；請把它存成檔，再拖進對話"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"))
 
     def test_r6_1_two_conversations_each_read_their_own(self):
         """裁定 6 #1：兩個對話開同一個知識庫，A 的 --pasted 讀 A 的紀錄，不是 current.json 那個（B 最後說話）。"""
@@ -407,14 +441,14 @@ class Pasted(Base):
     def test_6_no_transcript(self):
         turn.start(self.V, SID, "存起來")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
+                         ["這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"])
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
         self.use("vscode.jsonl")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
+                         ["這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"])
         self.assertEqual(self.refused("--pasted", "text:2", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
         self.assertEqual([p.name for p in (self.V / "收件匣").iterdir() if not p.name.startswith(".")], [])
 
 

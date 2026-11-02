@@ -24,7 +24,8 @@ def add_arguments(sub):
     subs = sub.add_subparsers(dest="output_command", metavar="<子子命令>", required=True)
     sv = subs.add_parser("save", help="把做好的檔放進 AI 產出", description="工作區的檔用搬的、知識庫外的用複製的；先備份、登記，退回時成品先留著、要刪再刪。")
     sv.add_argument("file", help="工作區或知識庫外的檔")
-    sv.add_argument("--to", required=True, help="放到哪：AI 產出/<型別>/<檔名>")
+    sv.add_argument("--to", required=True, help="放到哪：<夾>/<檔名>（使用者的任何夾；AI 產出底下也行）")
+    sv.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
     sv.add_argument("--from", dest="source", help="改自哪份原檔（卡編號、uri 或路徑）")
     sv.add_argument("--draft", help="定稿前的草稿（AI 產出裡的（草稿）.md），收起來")
     sv.add_argument("--link", help="這份是哪個線上文件下載回來的（https://claude.ai/…）")
@@ -51,10 +52,10 @@ def _shown(rel):
 
 def _save(vault, args, as_json, conversation, turn_id):
     res = output.save(vault, args.file, args.to, turn_id, os.getcwd(), from_=args.source, draft=args.draft,
-                      link=args.link)
+                      link=args.link, replace=args.replace)
     extra = (f"，改自「{res['from_label']}」" if res["from"] else "") + ("，草稿收起來了" if res["draft"] else "")
     line = SAVED.format(shown=_shown(res["path"]), extra=extra)
-    changed = [{"path": res["path"], "action": "create"}] + (
+    changed = ([{"path": res["path"], "action": "create"}] if res["in_vault"] else []) + (
         [{"path": res["draft"], "action": "delete"}] if res["draft"] else [])
     journal_cli.record_program_or_warn(vault, line.split("（說")[0], changed + [
         {"path": inventory.INVENTORY_POSIX, "action": "modify"}], "output save", conversation)
@@ -113,7 +114,10 @@ def run(args):
         turn_id = turn.current(vault)["turn"]
         return HANDLERS[args.output_command](vault, args, as_json, conversation, turn_id)
     except output.Refused as e:
-        _out(as_json, str(e), {"ok": False, "message": str(e)})
+        payload = {"ok": False, "message": str(e)}
+        if isinstance(e, output.Conflict):
+            payload.update(refused=str(e), conflict=e.rows)
+        _out(as_json, str(e), payload)
         return 3
     except TimeoutError:
         _out(as_json, LOCK_BUSY, {"ok": False, "message": LOCK_BUSY})

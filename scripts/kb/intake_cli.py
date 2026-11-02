@@ -37,6 +37,8 @@ def add_arguments(sub):
     sub.add_argument("--title", help="檔名（原檔名看不出內容、貼的東西沒有檔名時給；副檔名程式加）")
     sub.add_argument("--from", dest="source", help="程式或 skill 交來的：來源名（例：公司系統）")
     sub.add_argument("--name", help="定期同步的項目名（要配 --from）：存 收件匣/<來源>/<項目>，再交就覆蓋")
+    sub.add_argument("--to", help="直接收進使用者的夾（路徑或 uri）；沒給收進收件匣")
+    sub.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
     sub.add_argument("--pasted", help="list 列這一則與上一則貼的圖與文字；image:<n>、text:<n>（上一則加 prev:）存那一項（要給 --title）")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -101,21 +103,29 @@ def _item_line(i):
 
 def _receive(vault, args, turn_id):
     if args.pasted:
-        return [intake.receive_pasted(vault, args.pasted, args.title, turn_id, _transcript(vault))], False
+        return [intake.receive_pasted(vault, args.pasted, args.title, turn_id, _transcript(vault), to=args.to,
+                                      replace=args.replace)], False
     got, refused = [], False
     many = len(args.paths) > 1
     for raw in args.paths:  # 一份出錯不擋其他份：已經收好的照樣記日誌、touched
+        rows = None
         try:
             got.append(intake.receive(vault, raw, turn_id, os.getcwd(), title=args.title, from_=args.source,
-                                      name=args.name))
+                                      name=args.name, to=args.to, replace=args.replace))
             continue
+        except intake.Conflict as e:
+            why = str(e)
+            rows = e.rows
         except intake.Refused as e:
             why = str(e)
         except OSError as e:
             why = _os_error(vault, e)
         if many:  # 多份時 AI 不用靠順序對（收件匣裁定 6）
             why = f"{Path(raw).name}：{why}"
-        got.append({"path": raw, "id": None, "result": "refused", "said": why})
+        item = {"path": raw, "id": None, "result": "refused", "said": why, "in_vault": False}
+        if rows:
+            item.update(result="conflict", conflict=rows)
+        got.append(item)
         refused = True
     return got, refused
 
@@ -152,6 +162,10 @@ def run(args):
         conversation = journal_cli.in_conversation(vault)
         turn_id = _turn(vault)["turn"]
         items, refused = _receive(vault, args, turn_id)
+    except intake.Conflict as e:
+        item = {"path": None, "id": None, "result": "conflict", "said": str(e), "conflict": e.rows}
+        _out(as_json, [str(e)], {"items": [item], "next": None, "refused": str(e), "conflict": e.rows})
+        return 3
     except intake.Refused as e:
         return _refused(as_json, str(e))
     except ValueError as e:
@@ -164,9 +178,13 @@ def run(args):
             _touch(vault, turn_id, [i["id"] for i in wrote])
         journal_cli.record_program_or_warn(
             vault, "；".join(i["said"] for i in wrote),
-            [{"path": i["path"], "action": "create" if i["result"] == "new" else "modify"} for i in wrote]
+            [{"path": i["path"], "action": "create" if i["result"] == "new" else "modify"} for i in wrote if i.get("in_vault", True)]
             + [{"path": inventory.INVENTORY_POSIX, "action": "modify"}], "intake", conversation)
     nxt = DISPATCH if wrote and conversation else None
     lines = [i["said"] for i in items] + ([NEXT] if nxt else [])
-    _out(as_json, lines, {"items": items, "next": nxt})
+    payload = {"items": items, "next": nxt}
+    conflicts = [c for i in items for c in i.get("conflict") or []]
+    if conflicts:
+        payload.update(refused=conflicts and next(i["said"] for i in items if i.get("conflict")), conflict=conflicts)
+    _out(as_json, lines, payload)
     return 3 if refused else 0

@@ -33,13 +33,15 @@ NAME_MAX = 255  # NTFS 一段名字的上限（UTF-16 字元）
 DEVICE_NAME = "這種名字 Windows 不收，換個名字"
 READING = "這份我已經在讀了：{where}"
 HAVE = "這份收過了：{where}"
-NO_IMAGE = "這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"  # 桌面版拖圖片檔等於貼圖，不叫她拖（裁定 8）
-NO_TEXT = "這段我拿不到原文；請把它存成檔，再拖進對話"
+NO_IMAGE = ("這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；"
+            "找不到才請使用者把原圖拖進來。")  # 桌面版拖圖片檔等於貼圖（裁定 8）；寫給 AI（放寬甲）
+NO_TEXT = ("這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；"
+           "找不到才請使用者把內容存成檔再拖進來。")
 NO_PREV = "找不到上一則；請把要存的再貼一次"
-NOT_FROM = "收件匣/{src}/ 裡已經有同名的檔，不是 {src} 交的；請先改名或搬走"
 NAME_NEEDS_FROM = "--name 要配 --from"
 PASTED_NEEDS_TITLE = "--pasted 要給 --title"
 NEW = "收進收件匣了：{rel}（原檔沒動）"
+NEW_TO = "收進「{place}」了：{rel}（原檔沒動）"
 NEW_TITLED = "收進收件匣了：{rel}（原本叫 {orig}）"
 NEW_PLAIN = "收進收件匣了：{rel}"
 UPDATED = "更新了：{rel}"
@@ -62,6 +64,14 @@ READ_CHUNK = 1 << 16
 
 class Refused(Exception):
     """拒絕：訊息就是給人看的那句。"""
+
+
+class Conflict(Refused):
+    """同名：帶 conflict 列（name、dest、same_content、existing），--json 與 CLI 結果用（放寬甲）。"""
+
+    def __init__(self, text, rows):
+        super().__init__(text)
+        self.rows = rows
 
 
 class NotInTranscript(Exception):
@@ -113,8 +123,8 @@ def _no_credential(rel):
         raise Refused(CREDENTIAL)
 
 
-def _item(path, entry_id, result, said):
-    return {"path": path, "id": entry_id, "result": result, "said": said}
+def _item(path, entry_id, result, said, in_vault=True):
+    return {"path": path, "id": entry_id, "result": result, "said": said, "in_vault": in_vault}
 
 
 def _where(uri):
@@ -139,20 +149,72 @@ def _same_content(vault, sources, digest):
     return None
 
 
-def _write_new(vault, rel, turn_id, put, meta):
-    """同名加 (2) → 備份 create → 放 → 登記。回 (rel, 條目)。"""
-    rel = output.free_rel(vault, rel)
-    target = Path(vault) / rel
-    turn.backup(vault, rel, turn_id, action="create")
+def _hold_conflict(vault, place, same, rename="加 --title <新名>"):
+    c = output.conflict(place, same, rename=rename)
+    return Conflict(str(c), c.rows)
+
+
+def _register(vault, place, turn_id, meta, fresh):
+    if place["kind"] == "outside":  # 沒登記的地方清冊不管
+        return None
+    return inventory.register_intake(vault, place["rel"] or place["bkey"], turn_id, meta, fresh=fresh, uri=place["uri"],
+                                     target=place["target"] if place["kind"] == "source" else None)
+
+
+def _sha_of_put(vault, put):
+    """貼的內容還沒落地：先寫到暫存檔算指紋，比同名檔用。"""
+    import secrets
+    tmp = Path(vault) / ".system" / "temp" / f"intake-{secrets.token_hex(4)}"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        put(tmp)
+        return inventory.sha256_of(tmp)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _write_new(vault, sources, place, turn_id, put, meta, replace=False, digest=None):
+    """備份（新收 create、--replace 覆蓋 modify）→ 放 → 登記。同名不再加 (2)：內容一樣回 None（呼叫端說「收過了」），
+    不一樣丟 Conflict；--replace 先備進回合再覆蓋。回 (place, 條目, 是不是覆蓋)。"""
+    target = place["target"]
+    existing = os.path.lexists(target)
+    if existing and not replace:
+        digest = digest or _sha_of_put(vault, put)
+        same = target.is_file() and inventory.sha256_of(target) == digest
+        if same:
+            return place, None, None
+        raise _hold_conflict(vault, place, False)
+    output.backup_before(vault, sources, place, turn_id, "modify" if existing else "create")
     target.parent.mkdir(parents=True, exist_ok=True)
     put(target)
-    return rel, inventory.register_intake(vault, rel, turn_id, meta, fresh=True)
+    return place, _register(vault, place, turn_id, meta, fresh=not existing), existing
+
+
+def _place(vault, sources, to, cwd, from_, fname):
+    """檔的落點：--to 的夾（任何准許的位置）；沒給放收件匣（from 是子夾）。"""
+    try:
+        if to:
+            return output.place_at(vault, sources, output.resolve_dest(vault, sources, to, cwd), fname)
+        base = Path(vault) / INBOX / from_ if from_ else Path(vault) / INBOX
+        return output.place_at(vault, sources, base, fname)
+    except output.Refused as e:
+        raise Refused(str(e)) from None
+
+
+def _said(place, rel_shown):
+    if place["legacy"] and rel_shown.split("/")[0].casefold() == INBOX.casefold():
+        return NEW.format(rel=rel_shown)
+    return NEW_TO.format(place=place["dest_rel"].rpartition("/")[2] or place["dest_rel"], rel=rel_shown)
 
 
 # ---------- 收檔 ----------
 
-def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None):
-    """收一份檔，回 {"path","id","result","said"}；拒絕丟 Refused。"""
+def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None, to=None, replace=False):
+    """收一份檔，回 {"path","id","result","said"}；拒絕丟 Refused，同名內容不一樣丟 Conflict。
+    --to（放寬甲）：收進使用者的夾（准許的位置照 source-edit，不收 willy 的區）；沒給照舊收件匣。"""
     from kb import guard
     from kb._lib import sources as sources_lib
     from kb._lib.paths import normalize
@@ -178,7 +240,7 @@ def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None):
     if zone == "Z9":
         uri = inventory.uri_of(vault, sources, path) or ""
         e = inventory.entry_for(vault, uri) if uri else None
-        return _item(_where(uri), e["id"] if e else None, "reading", READING.format(where=_where(uri)))
+        return _item(_where(uri), e["id"] if e else None, "reading", READING.format(where=_where(uri)), in_vault=False)
     ext = path.suffix
     meta = {}
     if from_:
@@ -186,47 +248,59 @@ def receive(vault, src, turn_id, cwd, title=None, from_=None, name=None):
         meta["from"] = from_
     if name:
         meta["name"] = name = check_name(name)
-        rel = f"{INBOX}/{from_}/{check_name(titled(name, ext))}"
+        fname = check_name(titled(name, ext))
     elif title:
-        rel = f"{INBOX}/{check_name(titled(check_name(title), ext))}"
+        fname = check_name(titled(check_name(title), ext))
     else:
-        rel = f"{INBOX}/{check_name(path.name)}"
-    _no_credential(rel)
+        fname = check_name(path.name)
+    place = _place(vault, sources, to, cwd, from_ if name else None, fname)
+    if place["rel"]:
+        _no_credential(place["rel"])
     digest = inventory.sha256_of(path)
     if name:
-        return _periodic(vault, path, rel, digest, turn_id, meta)
+        return _periodic(vault, sources, path, place, digest, turn_id, meta, replace)
     have = _same_content(vault, sources, digest)
     if have is not None:
         where = _where(have["locations"][0].get("uri", ""))
-        return _item(where, have["id"], "have", HAVE.format(where=where))
-    if title and rel.rsplit("/", 1)[1] != path.name:
+        return _item(where, have["id"], "have", HAVE.format(where=where), in_vault=False)
+    if title and fname != path.name:
         meta["original_name"] = path.name
-    rel, entry = _write_new(vault, rel, turn_id, lambda t: shutil.copy2(str(path), str(t)), meta)
-    said = (NEW_TITLED.format(rel=rel, orig=path.name) if meta.get("original_name") else NEW.format(rel=rel))
-    return _item(rel, entry["id"], "new", said)
+    place, entry, was = _write_new(vault, sources, place, turn_id, lambda t: shutil.copy2(str(path), str(t)), meta,
+                                   replace=replace, digest=digest)
+    shown = output.shown_path(place)
+    if was is None and entry is None and os.path.lexists(place["target"]) and not replace:
+        return _item(shown, None, "have", HAVE.format(where=shown), in_vault=place["kind"] == "vault")
+    if was:
+        return _item(shown, entry["id"] if entry else None, "updated", UPDATED.format(rel=shown), in_vault=place["kind"] == "vault")
+    said = (NEW_TITLED.format(rel=shown, orig=path.name) if meta.get("original_name") and place["legacy"]
+            else _said(place, shown))
+    return _item(shown, entry["id"] if entry else None, "new", said, in_vault=place["kind"] == "vault")
 
 
-def _periodic(vault, path, rel, digest, turn_id, meta):
-    """定期同步的（D-241）：同來源同項目覆蓋；那裡的檔不是這個來源交的拒絕。"""
-    target = Path(vault) / rel
+def _periodic(vault, sources, path, place, digest, turn_id, meta, replace=False):
+    """定期同步的（D-241）：同來源同項目覆蓋；那裡的檔不是這個來源交的回 conflict（放寬甲）。"""
+    target = place["target"]
+    shown = output.shown_path(place)
+    in_vault = place["kind"] == "vault"
     if os.path.lexists(target):
-        e = _entry_at(vault, rel)
+        e = inventory.entry_for(vault, place["uri"] or ("file://" + place["rel"])) if place["kind"] != "outside" else None
+        e = e if e and e.get("status") == "active" else None
         info = (e or {}).get("intake") or {}
         mine = (target.is_file() and str(info.get("from", "")).casefold() == meta["from"].casefold()
                 and str(info.get("name", "")).casefold() == meta["name"].casefold())
-        if not mine:
-            raise Refused(NOT_FROM.format(src=meta["from"]))
+        if not mine and not replace:
+            raise _hold_conflict(vault, place, target.is_file() and inventory.sha256_of(target) == digest, rename="換一個 --name")
         if inventory.sha256_of(target) == digest:
-            return _item(rel, e["id"], "same", SAME.format(rel=rel))
-        turn.backup(vault, rel, turn_id, action="modify")
+            return _item(shown, e["id"] if e else None, "same", SAME.format(rel=shown), in_vault=in_vault)
+        output.backup_before(vault, sources, place, turn_id, "modify")
         shutil.copy2(str(path), str(target))
-        entry = inventory.register_intake(vault, rel, turn_id, meta)
-        return _item(rel, entry["id"], "updated", UPDATED.format(rel=rel))
-    turn.backup(vault, rel, turn_id, action="create")
+        entry = _register(vault, place, turn_id, meta, fresh=False)
+        return _item(shown, entry["id"] if entry else None, "updated", UPDATED.format(rel=shown), in_vault=in_vault)
+    output.backup_before(vault, sources, place, turn_id, "create")
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(path), str(target))
-    entry = inventory.register_intake(vault, rel, turn_id, meta, fresh=True)
-    return _item(rel, entry["id"], "new", NEW_PLAIN.format(rel=rel))
+    entry = _register(vault, place, turn_id, meta, fresh=True)
+    return _item(shown, entry["id"] if entry else None, "new", NEW_PLAIN.format(rel=shown), in_vault=in_vault)
 
 
 # ---------- 對話紀錄 ----------
@@ -443,7 +517,7 @@ def pasted_list(transcript):
     return out
 
 
-def receive_pasted(vault, ref, title, turn_id, transcript):
+def receive_pasted(vault, ref, title, turn_id, transcript, to=None, replace=False):
     """存這一句（或 prev: 上一則）貼的第幾張圖或第幾段文字，回 {"path","id","result","said"}；拿不到丟 Refused。"""
     kind, n, prev = parse_ref(ref)
     miss = NO_IMAGE if kind == "image" else NO_TEXT
@@ -477,7 +551,14 @@ def receive_pasted(vault, ref, title, turn_id, transcript):
         meta = {"pasted": "text"}
         body = text.replace("\r\n", "\n").encode("utf-8")
         put = lambda t: t.write_bytes(body)  # noqa: E731
-    rel = f"{INBOX}/{check_name(titled(name, ext))}"
-    _no_credential(rel)
-    rel, entry = _write_new(vault, rel, turn_id, put, meta)
-    return _item(rel, entry["id"], "new", NEW_PLAIN.format(rel=rel))
+    from kb._lib import sources as sources_lib
+    sources = sources_lib.load(vault)
+    place = _place(vault, sources, to, os.getcwd(), None, check_name(titled(name, ext)))
+    if place["rel"]:
+        _no_credential(place["rel"])
+    place, entry, was = _write_new(vault, sources, place, turn_id, put, meta, replace=replace)
+    shown = output.shown_path(place)
+    if entry is None and was is None:
+        return _item(shown, None, "have", HAVE.format(where=shown), in_vault=place["kind"] == "vault")
+    return _item(shown, entry["id"] if entry else None, "updated" if was else "new",
+                 UPDATED.format(rel=shown) if was else NEW_PLAIN.format(rel=shown), in_vault=place["kind"] == "vault")

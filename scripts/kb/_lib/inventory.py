@@ -223,15 +223,15 @@ def _has_location(entry, key):
     return any(uri_key(loc.get("uri", "")) == key for loc in entry.get("locations", []))
 
 
-def register_output(vault, rel, turn_id, derived_from=None):
+def register_output(vault, rel, turn_id, derived_from=None, uri=None, target=None, backup_key=None):
     """同 location 有 status active 的條目：最後一筆指紋相同就不動，不同就追加一筆（位置大小時間跟著更新），回那一筆。
     沒有 active 條目：這回合 manifest 記 create 才新建；曾登記過（turn_reverted／deleted）又再改也新建；
     從沒登記過的既有檔（modify）不登記、回 None（第一輪 M2／M4）。
     derived_from（kb output save --from）：新建的條目記原檔的清冊編號；掃描補登記過的（unbacked）經程式再放一次就拿掉那欄。
     """
-    uri = "file://" + str(rel).replace("\\", "/")
+    uri = uri or "file://" + str(rel).replace("\\", "/")  # uri、target、backup_key：放在知識庫的別處或登記的來源裡時由呼叫端給（放寬甲）
     key = uri_key(uri)
-    target = Path(vault) / rel
+    target = target or Path(vault) / rel
     digest = sha256_of(target)
     now = _now()
     p = _path(vault)
@@ -256,7 +256,7 @@ def register_output(vault, rel, turn_id, derived_from=None):
                                   for loc in entry["locations"]]
             _write(vault, data["entries"])
             return entry
-        action = _manifest_action(vault, rel, turn_id)
+        action = _manifest_action(vault, backup_key or rel, turn_id)
         if not (action == "create" or (action == "modify" and same)):
             return None
         for old in same:  # 同位置後來有新成品：舊的非 active 條目改 superseded（第二輪 R2-3）
@@ -280,14 +280,14 @@ def register_output(vault, rel, turn_id, derived_from=None):
         return entry
 
 
-def register_intake(vault, rel, turn_id, meta, fresh=False):
+def register_intake(vault, rel, turn_id, meta, fresh=False, uri=None, target=None):
     """kb intake 收進收件匣的檔（收件匣第 2 點，D-242）：同位置有 active 條目就追加指紋（位置大小時間跟著更新，同 register_output），
     沒有就新建一筆 origin intake、created_turn 是這回合；同位置的舊非 active 條目改 superseded。
     fresh（新收的檔，呼叫端剛建）：一律新建；同位置還記著 active 的（檔在 kb 外被刪、掃描還沒記不見）也改 superseded，不接到舊條目上。
     選填欄 intake = meta（from、name、original_name、pasted、copy，沒有的不寫）加 received（第一次收進來的時間，覆蓋時不改）。回那一筆。"""
-    uri = "file://" + str(rel).replace("\\", "/")
+    uri = uri or "file://" + str(rel).replace("\\", "/")  # uri、target：放在知識庫的別處或登記的來源裡時由呼叫端給（放寬甲）
     key = uri_key(uri)
-    target = Path(vault) / rel
+    target = target or Path(vault) / rel
     digest = sha256_of(target)
     now = _now()
     info = {k: v for k, v in dict(meta or {}).items() if v not in (None, "", False)}

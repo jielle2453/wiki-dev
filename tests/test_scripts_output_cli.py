@@ -100,17 +100,35 @@ class Save(Base):
         self.assertTrue(outside.exists(), "知識庫外的檔用複製的")
         self.assertEqual((self.V / "AI 產出/簡報/提案.pptx").read_bytes(), b"pptx")
 
-    def test_same_name_gets_2(self):
+    def test_same_name_conflict_then_replace(self):
+        """放寬甲：同名不再加 (2)，回 conflict；--replace 先備進回合再覆蓋。"""
         self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx")
-        out = self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx")
-        self.assertEqual(out, "已放進 AI 產出\\報價\\a (2).xlsx（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）")
-        self.assertTrue((self.V / "AI 產出/報價/a (2).xlsx").is_file())
+        r = run_kb("output", "save", str(self.work()), "--to", "AI 產出/報價/a.xlsx", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 3, r.stdout)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["conflict"][0]["name"], "a.xlsx")
+        self.assertIn("--replace", data["refused"])
+        self.assertFalse((self.V / "AI 產出/報價/a (2).xlsx").exists())
+        out = self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx", "--replace")
+        self.assertTrue(out.startswith("已放進 AI 產出\\報價\\a.xlsx"), out)
+
+    def test_to_any_folder_registers_as_ai_output(self):
+        """驗收 17：--to 收任何使用者的夾，清冊有這份、出處類別 AI 產出。"""
+        (self.V / "我的夾").mkdir()
+        r = run_kb("output", "save", str(self.work()), "--to", "我的夾/報告.docx", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["path"], "我的夾/報告.docx")
+        self.assertTrue((self.V / "我的夾" / "報告.docx").is_file())
+        e = next(x for x in inventory.load(self.V)["entries"] if x["id"] == data["id"])
+        self.assertEqual((e["origin"], e["locations"][0]["uri"]), ("ai_output", "file://知識庫/我的夾/報告.docx"))
 
     def test_refusals_exact(self):
         src = self.work()
         before = sorted(p.relative_to(self.V).as_posix() for p in (self.V / "AI 產出").rglob("*"))
-        self.assertEqual(self.refused("save", str(src), "--to", "案子/a.xlsx"), "只能放進 AI 產出底下")
-        self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/../系統/a.xlsx"), "只能放進 AI 產出底下")
+        msg = self.refused("save", str(src), "--to", "AI 產出/../系統/a.xlsx")
+        self.assertTrue(msg.startswith("「a.xlsx」是 willy 自己的檔：") or msg.startswith("「系統」是 willy 自己的檔："), msg)
+        self.assertTrue(msg.endswith("不用跟使用者提這一步。"), msg)
         self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/a.md"), "md 檔用檔案工具寫就好")
         self.assertEqual(self.refused("save", str(self.ws / "沒有.xlsx"), "--to", "AI 產出/a.xlsx"),
                          f"找不到這個檔：{self.ws / '沒有.xlsx'}")

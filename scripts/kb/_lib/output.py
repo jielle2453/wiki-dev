@@ -18,7 +18,9 @@ from pathlib import Path
 from kb._lib import cards, credentials, inventory, turn
 
 OUTPUT = inventory.OUTPUT
-ONLY_OUTPUT = "只能放進 AI 產出底下"
+ONLY_OUTPUT = "只能放進 AI 產出底下"  # output_rel（草稿判斷）還在用
+NEEDS_FILE_NAME = "--to 要寫成 <夾>/<檔名>"
+LINK_IN_OUTPUT = "--link 的成品要放在 AI 產出底下"
 NO_MD = "md 檔用檔案工具寫就好"
 NOT_FOUND = "找不到這個檔：{path}"
 CREDENTIAL = "這個檔名像密碼或金鑰，不放"
@@ -86,17 +88,87 @@ def _draft_rel(vault, raw, cwd):
     return rel
 
 
-def free_rel(vault, rel):
-    """同名加「 (2)」「 (3)」…"""
-    p = Path(vault) / rel
-    if not p.exists():
-        return rel
-    stem, suffix = Path(rel).stem, Path(rel).suffix
-    parent = rel.rsplit("/", 1)[0]
-    n = 2
-    while (Path(vault) / parent / f"{stem} ({n}){suffix}").exists():
-        n += 1
-    return f"{parent}/{stem} ({n}){suffix}"
+class Conflict(Refused):
+    """同名：帶 conflict 列（name、dest、same_content、existing），--json 與 results 用（放寬甲）。"""
+
+    def __init__(self, text, rows):
+        super().__init__(text)
+        self.rows = rows
+
+
+def conflict(place, same, rename="加 --name <新名>"):
+    """目的地已有同名檔：回 Conflict（句子與列同 source-edit 的格式；rename 是「要另取名怎麼做」那一小段）。"""
+    from kb._lib import source_edit as se
+    row = {"name": place["name"], "dest": place["dest_rel"], "same_content": bool(same), "existing": place["uri_shown"]}
+    text = se.CONFLICT.format(dest=place["dest_rel"].rpartition("/")[2] or place["dest_rel"], name=place["name"],
+                              same="一樣" if same else "不一樣").replace("加 --name <新名>", rename)
+    return Conflict(text, [row])
+
+
+def resolve_dest(vault, sources, raw, cwd):
+    """--to 給的夾（路徑、uri、別名/相對路徑、知識庫相對、cwd 相對）→ 絕對路徑，可以還不存在（存檔時才建）。"""
+    from kb._lib import source_edit as se
+    text = str(raw).strip()
+    if text.startswith("file://"):
+        from kb._lib import inventory as inv
+        got = inv.path_of(vault, sources, text)
+        if got is not None:
+            return Path(got)
+    if os.path.isabs(text):
+        return Path(os.path.abspath(text))
+    alias = se._alias_form(vault, sources, text)
+    if alias is not None:
+        return Path(alias)
+    first = text.replace("\\", "/").split("/", 1)[0]
+    if first and (Path(vault) / first).exists() and not (Path(cwd) / first).exists():
+        return Path(os.path.abspath(Path(vault) / text))
+    return Path(os.path.abspath(Path(cwd) / text))
+
+
+def place_at(vault, sources, dest_dir, name):
+    """放到 dest_dir/name 的位置資訊：kind（vault｜source｜outside）、target、rel（知識庫相對，source 與 outside 是 None）、
+    uri（清冊的位置，收件匣與 AI 產出照舊給 None 讓清冊自己組）、bkey（回合備份的鍵）、dest_rel（conflict 的 dest）、uri_shown。
+    不收 willy 的區與不讀的夾（source_edit.check_to 同一套）；檔名像密碼的在登記的來源裡拒絕。"""
+    from kb._lib import source_edit as se
+    se_dest = Path(dest_dir)
+    try:
+        se.check_to(vault, sources, se_dest, str(dest_dir), make=True)
+    except se.Refused as e:
+        raise Refused(str(e)) from None
+    target = se_dest / name
+    parts = se._parts(vault, target)
+    uri = se.uri_of(vault, sources, target)
+    dest_uri = se.uri_of(vault, sources, se_dest)
+    if parts is not None:
+        rel = "/".join(parts)
+        legacy = parts[0].casefold() in (inventory.INBOX.casefold(), OUTPUT.casefold())
+        kind, bkey = "vault", rel
+    elif uri:
+        if se._credential(sources, target):
+            raise Refused(CREDENTIAL)
+        alias, urel = inventory.split_uri(uri)
+        rel, legacy, kind, bkey = None, False, "source", f"_src/{alias}/{urel}"
+    else:
+        rel, legacy, kind, bkey = None, False, "outside", None
+    return {"kind": kind, "target": target, "rel": rel, "uri": None if legacy else uri, "bkey": bkey, "name": name,
+            "dest_rel": se._dest_rel(dest_uri), "uri_shown": uri, "legacy": legacy}
+
+
+def backup_before(vault, sources, place, turn_id, action):
+    """寫之前把位置備進回合：知識庫裡 turn.backup；登記的來源 turn.backup_source；沒登記的地方沒有備份。"""
+    if place["kind"] == "vault":
+        turn.backup(vault, place["rel"], turn_id, action=action)
+    elif place["kind"] == "source":
+        turn.backup_source(vault, place["target"], None, turn_id, sources)
+
+
+def shown_path(place):
+    """給人看與記日誌的位置：知識庫裡是相對路徑，來源是 別名/相對路徑，沒登記的是絕對路徑。"""
+    if place["kind"] == "vault":
+        return place["rel"]
+    if place["kind"] == "source":
+        return place["uri_shown"][len("file://"):]
+    return str(place["target"])
 
 
 def check_url(url):
@@ -177,14 +249,21 @@ def _drop(vault, rel, turn_id):
         inventory.set_status(vault, ids, "deleted")
 
 
-def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None):
-    """回 {"path", "id", "mode", "from", "from_label", "draft", "link"}。驗完才動檔。"""
-    rel = output_rel(vault, to, cwd)
-    if ":" in rel:
+def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replace=False):
+    """回 {"path", "id", "mode", "from", "from_label", "draft", "link", "in_vault"}。驗完才動檔。
+    --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在 AI 產出以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
+    from kb._lib import sources as sources_lib
+    sources = sources_lib.load(vault)
+    text = str(to).replace("\\", "/")
+    parent_text, _sep, name = text.rpartition("/")
+    if not name or not parent_text:
+        raise Refused(NEEDS_FILE_NAME)
+    if ":" in name or _UNSAFE.search(name):
         raise Refused(COLON)
-    if Path(rel).suffix.lower() == ".md":
+    if Path(name).suffix.lower() == ".md":
         raise Refused(NO_MD)
-    if credentials.match_segment(rel.split("/")[1:]) is not None:
+    place = place_at(vault, sources, resolve_dest(vault, sources, parent_text, cwd), name)
+    if place["rel"] and credentials.match_segment(place["rel"].split("/")[1:]) is not None:
         raise Refused(CREDENTIAL)
     src = _abs(src, cwd)
     if not src.is_file():
@@ -195,24 +274,33 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None):
     if link:
         check_url(link)
         link_entry = _link_entry(vault, link)
+        if place["kind"] != "vault" or place["rel"].split("/")[0].casefold() != OUTPUT.casefold():
+            raise Refused(LINK_IN_OUTPUT)
     source = _source_entry(vault, from_, cwd) if from_ else None
-    rel = free_rel(vault, rel)
-    target = Path(vault) / rel
-    turn.backup(vault, rel, turn_id, action="create")
+    target = place["target"]
+    existing = os.path.lexists(target)
+    if existing and not replace:
+        raise conflict(place, target.is_file() and inventory.sha256_of(target) == inventory.sha256_of(src),
+                       rename="改 --to 的檔名")
+    backup_before(vault, sources, place, turn_id, "modify" if existing else "create")
     target.parent.mkdir(parents=True, exist_ok=True)
     if mode == "move":
         shutil.move(str(src), str(target))
     else:
         shutil.copy2(str(src), str(target))
     if link_entry is not None:
-        entry = inventory.attach_location(vault, link_entry["id"], rel, turn_id)
+        entry = inventory.attach_location(vault, link_entry["id"], place["rel"], turn_id)
+    elif place["kind"] == "outside":
+        entry = None  # 沒登記的地方清冊不管
     else:
-        entry = inventory.register_output(vault, rel, turn_id, derived_from=source["id"] if source else None)
+        entry = inventory.register_output(vault, place["rel"] or place["bkey"], turn_id,
+                                          derived_from=source["id"] if source else None, uri=place["uri"],
+                                          target=target if place["kind"] == "source" else None, backup_key=place["bkey"])
     if draft_rel:
         _drop(vault, draft_rel, turn_id)
-    return {"path": rel, "id": entry["id"] if entry else None, "mode": mode,
+    return {"path": shown_path(place), "id": entry["id"] if entry else None, "mode": mode,
             "from": source["id"] if source else None, "from_label": label_of(vault, source) if source else None,
-            "draft": draft_rel, "link": link}
+            "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault"}
 
 
 def link(vault, url, title, turn_id, type_=None, names=(), basis=()):
