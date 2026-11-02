@@ -327,7 +327,7 @@ class Absorb(Base):
     def test_batch_header_is_her_edit(self):
         self.edit("階段: 施工", "階段: 完工")
         (item,) = self.batch()
-        self.assertIn("階段: 完工", item["header"].splitlines())
+        self.assertIn("階段: 完工", E.stale_header(self.V, item).splitlines())
         self.assertEqual(item["tags_said"], ["階段"])
         self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "完工")
 
