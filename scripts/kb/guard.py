@@ -1547,7 +1547,12 @@ def _code_arg(plan):
     args = plan["args"]
     for i, w in enumerate(args):
         if w.lower() in cmdparse.CODE_FLAGS and i + 1 < len(args):
-            return " ".join(args[i + 1:]) if w.lower() in ("/c", "/k") else args[i + 1]
+            if w.lower() in ("/c", "/k"):  # cmd 的 /c 後面是整句指令：有空白的詞（路徑）要把引號補回去，不然拆成兩個詞看不出目標
+                rest = args[i + 1:]
+                if len(rest) == 1:  # cmd /c "整句指令"
+                    return rest[0]
+                return " ".join(f'"{x}"' if re.search(r"\s", x) else x for x in rest)
+            return args[i + 1]
     return ""
 
 
