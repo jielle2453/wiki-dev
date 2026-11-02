@@ -1116,6 +1116,19 @@ def _exclude_kind(src, key):
     return None
 
 
+def _vault_exclude_kind(sources, vault, alias, rel):
+    """知識庫別名的位置落進哪一條 vault_excludes：回 kind（hidden｜unused）或 None。"""
+    exs = getattr(sources, "vault_excludes", None)
+    if not exs:
+        return None
+    base = rel if alias.casefold() == KNOWLEDGE.casefold() else f"{alias}/{rel}"
+    key = _fs_key(f"{sources.vault}/{base}")
+    for ex in exs:
+        if inside(key, ex["root"]):
+            return ex.get("kind") or "hidden"
+    return None
+
+
 def reconcile(vault, sources, turn_id):
     """給 folders exclude／remove：active、missing、excluded 條目的每個位置對新登記表。
     - 落進 hidden 排除（審閱裁定 40）：位置直接拿掉、不留檔名；條目沒位置剩下就整筆刪。
@@ -1145,8 +1158,16 @@ def reconcile(vault, sources, turn_id):
                 alias, rel = split_uri(loc.get("uri", ""))
                 a = alias.casefold()
                 src = by_alias.get(a)
-                if a in RESERVED_CF or a in unresolved:
+                if a in unresolved:
                     keep.append(loc)
+                elif a in RESERVED_CF:  # 知識庫（含 AI 產出、收件匣）裡使用者設成不讀的夾（放寬甲：folders exclude 在知識庫裡）
+                    kind = _vault_exclude_kind(sources, vault, a, rel)
+                    if kind == "hidden":
+                        hidden += 1
+                    elif kind is None:
+                        keep.append(loc)
+                    else:
+                        dormant.append(loc)
                 elif src is None:
                     dormant.append(loc)
                 else:

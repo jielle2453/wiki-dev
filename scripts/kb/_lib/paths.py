@@ -7,6 +7,7 @@ C:/、c:/、C:\\、/c/（Git Bash）、相對 cwd、\\\\?\\ 與 \\\\.\\ 前綴�
 """
 import os
 import re
+import urllib.parse
 from pathlib import Path
 
 from kb._lib.io import read_json
@@ -18,6 +19,15 @@ _DRIVE_ABS = re.compile(r"^[a-zA-Z]:/")
 _DRIVE_REL = re.compile(r"^[a-zA-Z]:(?!/)(.*)$")
 _UNC_LOCAL = re.compile(r"^//(?:localhost|127\.0\.0\.1)/([a-zA-Z])\$(?:/(.*))?$", re.IGNORECASE)
 _ENV_VAR = re.compile(r"\$\{([^}]+)\}")
+
+
+def decode_uri(text):
+    """kb 所有收路徑或 uri 的參數共用（放寬甲）：多收 % 編碼的清冊 uri（file://別名/相對路徑，"→%22、$→%24、反引號→%60、
+    \\→%5C、%→%25）。是 file:// 開頭又有 % 的才解，其他原樣；解完還是 file:// 開頭。"""
+    text = str(text)
+    if text.startswith("file://") and "%" in text:
+        return "file://" + urllib.parse.unquote(text[len("file://"):])
+    return text
 
 
 def plugin_root():

@@ -27,7 +27,7 @@ from kb import guard
 from kb._lib import credentials, inventory, turn
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, write_json_atomic
-from kb._lib.paths import inside, normalize, resolve_spec
+from kb._lib.paths import decode_uri, inside, normalize, resolve_spec
 
 ID = re.compile(r"^(f|out)-[0-9a-f]+$")
 RECALL_ON_DATA_ACCESS = 0x400000
@@ -361,8 +361,8 @@ def _unread_dir(vault, sources, dest, parts):
 
 
 def resolve(vault, sources, target, cwd):
-    """目標三種寫法（同 kb convert）：清冊編號、uri、路徑。回 (條目或 None, 絕對路徑)；不存在丟 Refused。"""
-    text = str(target).strip()
+    """目標三種寫法（同 kb convert）：清冊編號、uri（% 編碼也收）、路徑。回 (條目或 None, 絕對路徑)；不存在丟 Refused。"""
+    text = decode_uri(str(target).strip())
     entry, path = None, None
     if ID.match(text):
         entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == text), None)
@@ -386,7 +386,7 @@ def resolve(vault, sources, target, cwd):
 
 
 def resolve_folder(vault, sources, target, cwd):
-    text = str(target).strip()
+    text = decode_uri(str(target).strip())
     if text.startswith("file://"):
         path = inventory.path_of(vault, sources, text)
     elif os.path.isabs(text):

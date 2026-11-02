@@ -15,7 +15,6 @@ from kb._lib import io as kio  # noqa: E402
 from kb._lib.paths import plugin_root  # noqa: E402
 
 CURLY = [chr(c) for c in range(0x2018, 0x2020)]
-KB_IN_VAULT = "知識庫裡的夾不能設成不讀；要不讓 AI 看到，先搬到登記的來源夾再設"
 CURLY_DENY = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令，這次沒放行：把指令裡的彎引號換成「」或直引號，或改用 Bash 再跑一次"
 
 
@@ -59,11 +58,18 @@ class ExcludeFindForm(Base):
         self.assertEqual(code, 0, out)
         self.assertEqual(self.excludes(), ["私人"])
 
-    def test_vault_folders_refused(self):
+    def test_vault_folders_can_be_excluded(self):
+        """放寬甲 D-322 第 23 件：知識庫裡使用者的夾可以設成不讀，記在 sources.json 頂層 vault_excludes。"""
         for target in ("知識庫/案子/信義王/私人", str(Path(self.V) / "案子" / "信義王" / "私人")):
             with self.subTest(target=target):
                 code, out = kb("folders", "exclude", target, "--kind", "hidden", "--vault", str(self.V))
-                self.assertEqual((code, out.strip()), (3, KB_IN_VAULT))
+                self.assertEqual(code, 0, out)
+                got = json.loads((Path(self.V) / ".system" / "sources.json").read_text(encoding="utf-8"))
+                self.assertEqual([x["spec"] for x in got["vault_excludes"]], ["案子/信義王/私人"])
+                code, out = kb("folders", "include", target, "--vault", str(self.V))
+                self.assertEqual(code, 0, out)
+                got = json.loads((Path(self.V) / ".system" / "sources.json").read_text(encoding="utf-8"))
+                self.assertEqual(got["vault_excludes"], [])
 
     def test_find_json_gives_ready_commands(self):
         (self.raw / "報價與合約" / "Q3$x").mkdir()
@@ -78,14 +84,32 @@ class ExcludeFindForm(Base):
         self.assertEqual(got["報價與合約/Q3$x/私人"]["exclude"]["hidden"],
                          "kb folders exclude '報價與合約/Q3$x/私人' --kind hidden")
         curly = got["報價與合約/a”; calc; “b/私人"]
-        self.assertIsNone(curly["exclude"])
-        self.assertIn("改名", curly["note"])
+        # 放寬甲：引號配不起來的名字改給 % 編碼的 uri，貼回去跑得動
+        self.assertEqual(curly["exclude"]["hidden"],
+                         'kb folders exclude "file://報價與合約/a%E2%80%9D; calc; %E2%80%9Cb/私人" --kind hidden')
         vault_one = got["知識庫/案子/信義王/私人"]
         self.assertTrue(vault_one["in_vault"])
-        self.assertIsNone(vault_one["exclude"])
-        self.assertEqual(vault_one["note"], KB_IN_VAULT)
+        self.assertEqual(vault_one["exclude"]["hidden"], "kb folders exclude 知識庫/案子/信義王/私人 --kind hidden")
         code, out = kb("folders", "find", "私人", "--vault", str(self.V))
-        self.assertIn("- 知識庫/案子/信義王/私人（知識庫裡的夾，不能設成不讀）", out)
+        self.assertIn("- 知識庫/案子/信義王/私人（知識庫裡的夾）", out)
+
+    def test_vault_hidden_exclude_then_guard_denies_read(self):
+        """放寬甲驗收 26：知識庫裡的夾設成不讀（hidden）後，守門擋讀、清冊裡那夾的檔拿掉。"""
+        d = Path(self.V) / "案子" / "信義王" / "私人"
+        (d / "秘密.txt").write_text("x", encoding="utf-8")
+        code, out = kb("folders", "exclude", "知識庫/案子/信義王/私人", "--kind", "hidden", "--vault", str(self.V))
+        self.assertEqual(code, 0, out)
+        code, out = kb("guard", "decide", "--tool", "Read", "--path", str(d / "秘密.txt"), "--cwd", str(self.V), "--json")
+        got = json.loads(out)
+        self.assertEqual((got["decision"], got["reason_code"]), ("deny", "excluded"))
+
+    def test_percent_encoded_uri_arg_is_accepted(self):
+        """放寬甲：名字有 $ 的夾，用 %24 的 uri 也解得開（paths.decode_uri）。"""
+        d = self.raw / "報價與合約" / "Q3$y"
+        (d / "私人").mkdir(parents=True)
+        code, out = kb("folders", "exclude", "file://報價與合約/Q3%24y/私人", "--kind", "unused", "--vault", str(self.V))
+        self.assertEqual(code, 0, out)
+        self.assertIn("報價與合約/Q3$y/私人", out)
 
 
 # ---------- 第 2 條：守門的彎引號 ----------

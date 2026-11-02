@@ -26,6 +26,7 @@ import hashlib
 import math
 import os
 import re
+import urllib.parse
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -104,6 +105,24 @@ def shell_arg(arg):
     if _SAFE.fullmatch(arg):
         return arg
     return '"' + _ESCAPE.sub(r"\\\1", arg) + '"'
+
+
+_URI_ENCODE = {'"': "%22", "$": "%24", "`": "%60", "\\": "%5C", "%": "%25"}
+
+
+def uri_arg(path):
+    """「別名/相對路徑」寫成 % 編碼的清冊 uri（file://別名/相對路徑；" $ ` \\ % 與彎引號編碼），kb 收路徑的參數都解得回來
+    （paths.decode_uri）。名字有這些字元時 kb 給的指令一律用這種寫法，不再叫使用者去改名（放寬甲）。"""
+    out = []
+    for ch in str(path).replace("\\", "/"):
+        out.append(_URI_ENCODE.get(ch) or (urllib.parse.quote(ch) if ch in CURLY_QUOTES else ch))
+    text = "".join(out)
+    return text if text.startswith("file://") else "file://" + text
+
+
+def path_arg(path):
+    """路徑參數：一般照 shell_arg；給不出來（引號配不起來）就改給 % 編碼的 uri。"""
+    return shell_arg(path) or shell_arg(uri_arg(path))
 
 
 def quote(arg):

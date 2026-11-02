@@ -50,6 +50,10 @@ class Sources:
             self.vault_excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
                                         "spec": ex.get("spec", ""), "purge": ex.get("purge")})
 
+    def exclude_owners(self):
+        """有排除可找的「來源」：登記的來源，加上知識庫（vault_excludes）當一個別名叫知識庫的假來源（purge 找排除用）。"""
+        return list(self.entries) + [{"id": "", "alias": VAULT_ALIAS, "root": self.vault, "excludes": self.vault_excludes}]
+
     def vault_excluded(self, path):
         """path（已 normalize、在知識庫裡）在知識庫的不讀夾底下嗎。"""
         return any(inside(path, ex["root"]) for ex in self.vault_excludes)
@@ -80,6 +84,13 @@ class Sources:
 
 def load(vault):
     return Sources(vault, load_raw(vault))
+
+
+def raw_owners(raw):
+    """sources.json 原始內容裡有排除的「來源」列：登記的來源加上知識庫的假列（excludes 就是頂層 vault_excludes 那個清單，
+    改了會跟著寫回；沒有那個清單時是空的、不會寫出新鍵）。"""
+    vex = raw.get("vault_excludes")
+    return list(raw["sources"]) + [{"alias": VAULT_ALIAS, "excludes": vex if isinstance(vex, list) else []}]
 
 
 def load_raw(vault):

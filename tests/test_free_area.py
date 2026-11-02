@@ -408,8 +408,7 @@ class Sources(FixtureVault):
         self.assertIn("保留字", r.stdout)
         (self.F / "x").mkdir()
         r = run_kb("folders", "exclude", f"{FREE_DIR}/x", "--kind", "unused", cwd=self.V)
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        self.assertIn("知識庫裡的夾不能設成不讀", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # 放寬甲：知識庫裡使用者的夾（含彈性區）可以設成不讀
 
 
 # ---------- 13 建置 ----------
