@@ -456,9 +456,36 @@ class SynthesisCheck(unittest.TestCase):
             with self.subTest(want=want):
                 self.blocked(self.write(path, text), want)
         self.E.write_card(self.V, self.E.DRAFT, "王宅會議", ["王宅"])
-        self.blocked(self.write(rel, good), "整理到不是現行的，重跑 kb cards todo 拿新檔頭")
+        r = self.write(rel, good)  # 只差整理到：不打回（D-518）
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.blocked(self.write(rel, good.replace("名稱: 王宅", "名稱: 王")), "「名稱」照 kb cards todo 給的檔頭抄")
         self.update(self.E.WANG, status="removed")
         self.blocked(self.write(rel, good), "這個實體已移除")
+
+    def test_stale_only_edit_passes_and_stays_listed(self):
+        """D-518 驗收 7、8：掛上新卡後用 Edit 改內文（整理到沒換）不打回、快取照重寫、照樣列待更新；紀事少了照樣打回。"""
+        from kb._lib import entities, synthesis
+        self.update(self.E.WANG, source="confirmed")
+        self.E.write_card(self.V, self.E.QUOTE, "王宅報價", ["王宅"])
+        self.E.write_card(self.V, self.E.ESTIMATE, "王宅估價", ["王宅"])
+        item = self.new_item()
+        rel = item["path"]
+        text =self.E.synthesis_text(item["header"], "王宅") + "\n## 紀事\n- 2026-10-01 報價〔f-00000000〕\n"
+        r = self.write(rel, text)
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.E.write_card(self.V, self.E.DRAFT, "王宅會議", ["王宅"])
+        turn.start(self.V, SID, "更新綜合卡")
+        old = (self.V / rel).read_text(encoding="utf-8")
+        r = write_via_tools(self.V, self.V / rel, old + "- 2026-10-02 開會〔f-11111111〕\n", tool="Edit")
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(len(cards.parse_front((self.V / rel).read_text(encoding="utf-8"))["檔案卡"]), 3)
+        data = entities.load(self.V)
+        stale = synthesis.buckets(self.V, data, entities.mounts(self.V, data), entities._profile(self.V))["synthesis_stale"]
+        self.assertIn(self.E.WANG, [i["entity_id"] for i in stale])
+        turn.start(self.V, SID, "又改")
+        cut = (self.V / rel).read_text(encoding="utf-8").replace("- 2026-10-01 報價〔f-00000000〕\n", "")
+        r = write_via_tools(self.V, self.V / rel, cut, tool="Edit")
+        self.assertIn("紀事少了 1 條", json.loads(r.stdout.splitlines()[0])["reason"])
 
     def test_file_card_rerenders_old_and_new_entities(self):
         xinyi = self.V / "案子" / "信義王" / "信義王.md"

@@ -169,7 +169,7 @@ def _check_synthesis(vault, rel, turn_id, payload):
 
     if not _entities_ok(vault):
         return
-    ok, reason = synthesis.validate(vault, rel)
+    ok, reason = synthesis.validate(vault, rel, allow_stale=True)  # 只差整理到不打回，之後跑 --synced（D-518）
     if not ok:
         _record_base(vault, rel, turn_id, notify=False)
         _block(SYNTHESIS_BLOCK.format(reason))

@@ -50,6 +50,14 @@ class SynthesisRules(unittest.TestCase):
         """conventions 二：rules/ 不寫理由，決策編號不出現。"""
         self.assertIsNone(re.search(r"\b[DI]-\d{3}\b", self.text))
 
+    def test_stale_edit_then_synced(self):
+        """D-518 驗收 10：S-24 用 Edit、不整張重寫、改完跑 --synced；S-06 說待更新的不抄；card-maker、carding 各有一處 --synced。"""
+        for word in ("Edit", "kb entity render <名稱> --synced", "不整張重寫"):
+            self.assertIn(word, self.rules["S-24"])
+        self.assertIn("待更新的照 S-24，不抄", self.rules["S-06"])
+        for rel in ("agents/card-maker.md", "skills/ingest/references/carding.md"):
+            self.assertEqual((ROOT / rel).read_text(encoding="utf-8").count("--synced"), 1, rel)
+
 
 if __name__ == "__main__":
     unittest.main()

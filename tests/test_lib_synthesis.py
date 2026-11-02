@@ -145,6 +145,47 @@ class RenderCache(Base):
         self.assertEqual(synthesis.render_cache(self.V, ["信義王"], self.t), [])
 
 
+class MarkSynced(Base):
+    """D-518：validate 的 allow_stale、mark_synced 換 整理到、更新日、檔案卡、相關實體 四欄。"""
+
+    def test_allow_stale_only_drops_stale(self):
+        good = E.synthesis_text(self.header(E.XINYI), "信義王")
+        (self.V / XINYI_REL).write_text(good, encoding="utf-8")
+        E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL), (False, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"))
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL, allow_stale=True), (True, ""))
+        (self.V / XINYI_REL).write_text(good.replace("名稱: 信義王", "名稱: 信義"), encoding="utf-8")
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL, allow_stale=True),
+                         (False, "「名稱」照 kb cards todo 給的檔頭抄"))
+
+    def test_mark_synced_four_fields_only(self):
+        from datetime import date
+        card = self.V / XINYI_REL
+        card.write_text(card.read_text(encoding="utf-8").replace("相關實體: []\n", "相關實體: []\n風格: [北歐]\n"),
+                        encoding="utf-8", newline="\n")
+        before = card.read_text(encoding="utf-8").splitlines()
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王", "王宅"])
+        written, skipped = synthesis.mark_synced(self.V, ["信義王宅"], self.t)
+        self.assertEqual((written, skipped), ([XINYI_REL], []))
+        after = card.read_text(encoding="utf-8").splitlines()
+        front = cards.parse_front("\n".join(after))
+        self.assertEqual((front["更新日"], front["相關實體"], len(front["檔案卡"])), (date.today().isoformat(), ["王宅"], 1))
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL), (True, ""))
+        keys = ("整理到:", "更新日:", "檔案卡:", "相關實體:", "  - ")
+        self.assertEqual([l for l in after if not l.startswith(keys)], [l for l in before if not l.startswith(keys)])
+        self.assertEqual({r["path"]: r["by"] for r in turn.entries(self.V, self.t)}[XINYI_REL], "program")
+        self.assertEqual(synthesis.mark_synced(self.V, ["信義王"], self.t), ([], []))
+
+    def test_mark_synced_skips(self):
+        card = self.V / XINYI_REL
+        card.write_text(card.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8")
+        before = card.read_text(encoding="utf-8")
+        self.assertEqual(synthesis.mark_synced(self.V, ["信義王", "王宅", "沒有"], self.t), ([], [
+            {"name": "信義王", "reason": "範本版本該是 1"}, {"name": "王宅", "reason": "還沒有綜合卡"},
+            {"name": "沒有", "reason": "找不到這個實體"}]))
+        self.assertEqual(card.read_text(encoding="utf-8"), before)
+
+
 class Buckets(Base):
     def test_threshold_one_and_two_and_confirm(self):
         self.update(E.WANG, source="inferred")

@@ -111,6 +111,74 @@ class ConfirmListRender(Base):
         self.assertEqual(self.kb("render"), ["重寫了 1 張綜合卡的檔頭"])
         self.assertEqual(self.kb("render"), ["重寫了 0 張綜合卡的檔頭"])
 
+    def test_render_named_only_rewrites_that_card_cache(self):
+        """D-518 驗收 6：給名稱只重寫那張的 檔案卡、相關實體 兩欄，整理到不動。"""
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王", "大安陳"])
+        daan = (self.V / "案子/大安陳/大安陳.md").read_text(encoding="utf-8")
+        self.assertEqual(self.kb("render", "信義王"), ["重寫了 1 張綜合卡的檔頭"])
+        front = self.front("案子/信義王/信義王.md")
+        self.assertEqual((len(front["檔案卡"]), front["整理到"]), (1, []))
+        self.assertEqual((self.V / "案子/大安陳/大安陳.md").read_text(encoding="utf-8"), daan)
+        r = run_kb("entity", "render", "--json", cwd=self.V)
+        self.assertEqual(json.loads(r.stdout), {"written": ["案子/大安陳/大安陳.md"], "skipped": []})
+
+
+class RenderSynced(Base):
+    """D-518 驗收 1～5：kb entity render <名稱> --synced 由程式換 整理到、更新日、檔案卡、相關實體，內文與其他檔頭行不動。"""
+    CARD = "案子/信義王/信義王.md"
+
+    def body_and_tags(self, rel):
+        text = (self.V / rel).read_text(encoding="utf-8")
+        head, _sep, body = text[4:].partition("\n---\n")
+        keep = [l for l in head.splitlines() if l.partition(":")[0] not in ("整理到", "更新日", "檔案卡", "相關實體")
+                and not l.startswith("  - ")]
+        return keep, body
+
+    def test_synced_rewrites_header_keeps_body(self):
+        from datetime import date
+        from kb._lib import synthesis
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        p = self.V / self.CARD
+        p.write_text(p.read_text(encoding="utf-8") + "- 2026-10-21 收到報價\n", encoding="utf-8", newline="\n")
+        before = self.body_and_tags(self.CARD)
+        self.assertEqual(synthesis.validate(self.V, self.CARD), (False, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"))
+        t = self.new_turn()
+        self.assertEqual(self.kb("render", "信義王", "--synced"), ["重寫了 1 張綜合卡的檔頭"])
+        self.assertEqual(synthesis.validate(self.V, self.CARD), (True, ""))
+        self.assertEqual(self.body_and_tags(self.CARD), before)
+        front = self.front(self.CARD)
+        self.assertEqual((front["更新日"], len(front["檔案卡"]), len(front["整理到"])), (date.today().isoformat(), 1, 1))
+        self.assertNotIn(E.XINYI, [i["entity_id"] for i in self.todo()["synthesis_stale"]])
+        self.assertEqual({r["path"]: r["by"] for r in turn.entries(self.V, t)}[self.CARD], "program")
+        mtime = p.stat().st_mtime_ns
+        self.assertEqual(self.kb("render", "信義王", "--synced"), ["重寫了 0 張綜合卡的檔頭"])
+        self.assertEqual(p.stat().st_mtime_ns, mtime)
+
+    def test_alias_same_as_name(self):
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        r = run_kb("entity", "render", "信義王宅", "--synced", "--json", cwd=self.V)
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, {"written": [self.CARD], "skipped": []}))
+        self.assertEqual(self.todo()["synthesis_stale"], [])
+
+    def test_synced_needs_a_name(self):
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        before = (self.V / self.CARD).read_text(encoding="utf-8")
+        self.kb("render", "--synced", code=2)
+        self.assertEqual((self.V / self.CARD).read_text(encoding="utf-8"), before)
+
+    def test_skipped(self):
+        p = self.V / "案子/大安陳/大安陳.md"
+        p.write_text(p.read_text(encoding="utf-8").replace("## 現況", "## 近況"), encoding="utf-8", newline="\n")
+        before = p.read_text(encoding="utf-8")
+        r = run_kb("entity", "render", "不存在", "王宅", "大安陳", "--synced", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"written": [], "skipped": [
+            {"name": "不存在", "reason": "找不到這個實體"}, {"name": "王宅", "reason": "還沒有綜合卡"},
+            {"name": "大安陳", "reason": "正文要有 # 大安陳 與 ## 現況"}]})
+        self.assertEqual(p.read_text(encoding="utf-8"), before)
+        self.assertEqual(self.kb("render", "不存在", "--synced", code=1),
+                         ["重寫了 0 張綜合卡的檔頭", "沒寫 不存在：找不到這個實體"])
+
 
 class Rename(Base):
     def test_moves_folder_card_and_client_file(self):

@@ -653,8 +653,8 @@ def safe_problems(vault, rel, text, data, mounts, prof, know=None):
         return [("parse", f"檔頭解析不了：{type(e).__name__}")]
 
 
-def validate(vault, rel, data=None, mounts=None, prof=None, know=None):
-    """PostToolUse 與測試用：回 (ok, reason)，只報第一個錯。"""
+def validate(vault, rel, data=None, mounts=None, prof=None, know=None, allow_stale=False):
+    """PostToolUse 與測試用：回 (ok, reason)，只報第一個錯。allow_stale：只差整理到算過（hook 用，D-518）。"""
     try:
         text = (Path(vault) / rel).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
@@ -667,6 +667,8 @@ def validate(vault, rel, data=None, mounts=None, prof=None, know=None):
     except Exception as e:  # noqa: BLE001
         return False, f"檔頭解析不了：{type(e).__name__}"
     found = safe_problems(vault, rel, text, data, mounts, prof, know)
+    if allow_stale:
+        found = [f for f in found if f[0] != STALE_CODE]
     return (False, found[0][1]) if found else (True, "")
 
 
@@ -721,6 +723,60 @@ def render_cache(vault, entity_names, turn_id):
         if need:
             _follow_fixes(vault, e, rel, new != text, *maps)
     return written
+
+
+NO_ENTITY = "找不到這個實體"
+NO_CARD = "還沒有綜合卡"
+
+
+def mark_synced(vault, names, turn_id):
+    """AI 用 Edit 改完內文之後（D-518）：合法綜合卡（只差整理到也算）的 整理到（header_for 同一算法）、更新日（今天）、
+    檔案卡、相關實體 換成現行的，其他檔頭行與內文不動；內容沒變不寫；寫前 turn.backup(by="program")。
+    名稱可以是別名。回 (寫了的相對路徑, skipped [{"name","reason"}])；找不到、沒卡、卡有別的錯的不寫、列進 skipped。"""
+    from kb._lib import turn
+    data = entities.load(vault)
+    mounts = entities.mounts(vault, data)
+    prof = entities._profile(vault)
+    know = knowledge(vault)
+    today = date.today().isoformat()
+    maps = None
+    written, skipped, seen = [], [], set()
+    for name in names:
+        e, _hit = entities.find(data, name)
+        if e is None:
+            skipped.append({"name": name, "reason": NO_ENTITY})
+            continue
+        if e.get("id") in seen:
+            continue
+        seen.add(e.get("id"))
+        rel = card_rel(e, vault) if e.get("type") else None
+        p = Path(vault) / rel if rel else None
+        if p is None or not p.is_file():
+            skipped.append({"name": name, "reason": NO_CARD})
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as err:
+            skipped.append({"name": name, "reason": f"檔頭解析不了：{type(err).__name__}"})
+            continue
+        bad = [r for code, r in safe_problems(vault, rel, text, data, mounts, prof, know) if code != STALE_CODE]
+        if bad:
+            skipped.append({"name": name, "reason": bad[0]})
+            continue
+        ms = mounts.get(e["name"], [])
+        stmts, ruls, finds = basis(know, e["name"], mounts)
+        new = replace_front(text, {"整理到": synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds),
+                                   "更新日": today, "檔案卡": card_lines(ms), "相關實體": related(data, mounts, e)})
+        need = new != text or bool(e.get("aliases"))
+        if need and maps is None:
+            maps = _fix_maps(vault)
+        if new != text:
+            turn.backup(vault, rel, turn_id, by="program")
+            write_text_atomic(p, new)
+            written.append(rel)
+        if need:
+            _follow_fixes(vault, e, rel, new != text, *maps)
+    return written, skipped
 
 
 def _fix_maps(vault):
