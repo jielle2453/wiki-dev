@@ -1095,6 +1095,21 @@ FREE_TAKEN = "型別夾不能叫" + FREE_DIR + "，那是你自己的區"
 CREATE_TAKEN = "「{rel}」已經有同名的檔，不能建成型別夾；先改名或搬走"
 
 
+def _adoptable_dir(v, name, homes):
+    """第一層裡使用者自己已有的、當這個型別夾用的夾：夾名等於型別名（不分大小寫），沒有就找「NN 型別名」；別的型別住著的不算。"""
+    exact, numbered = None, None
+    for f in _first_level_dirs(v):
+        if _key(f) in homes:
+            continue
+        if _key(f) == _key(name):
+            exact = exact or f
+        else:
+            m = _DEFAULT_DIR.match(f)
+            if m and _key(m.group(2)) == _key(name):
+                numbered = numbered or f
+    return exact or numbered
+
+
 def dir_plan(vault, types, old_types=None, number_legacy=False):
     """每個型別應該用哪個夾（D-247、D-250）：照型別表順序走，dir 是她自訂的（不是預設樣子）而且夾在 → 照用；
     其他 → default_dir(第幾列, 名稱)。沒有 dir、舊表也有這一列的是升級前的（夾名就是型別名），照舊不動；
@@ -1112,6 +1127,7 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
         homes.append(_key(d) if d else (_key(t["name"]) if prev is not None else None))
     for i, t in enumerate(types):
         row = dict(t)
+        given = row.pop("dir_given", None)  # 加型別時 夾名= 給的夾（照使用者現有夾的編排，D-312(3)）
         prev = old.get(_key(t["name"]))
         d = t["dir"] if t.get("dir") else (prev or {}).get("dir")
         if not d and prev is not None and not number_legacy:
@@ -1121,13 +1137,18 @@ def dir_plan(vault, types, old_types=None, number_legacy=False):
                 creates.append(t["name"])
             continue
         taken = _key(t["name"]) in {h for j, h in enumerate(homes) if j != i and h}
+        adopt_keep = False
         if d:
             current = d if (v / d).is_dir() else None
         else:
             adopt_free = _is_free(t["name"]) and prev is None  # 新加的型別不收編彈性區；舊表本來就有的那列夾就是它自己的
-            current = t["name"] if (v / t["name"]).is_dir() and not taken and not adopt_free else None
-        keep = d and current and not is_default_dir(t["name"], d) and not _is_free(d)
-        target = d if keep else default_dir(i, t["name"])
+            if prev is None and not number_legacy:  # 第一層已有同名夾（不分大小寫、不看編號）就直接當這個型別的夾，不改名（D-312(3)）
+                current = None if (taken or adopt_free) else _adoptable_dir(v, t["name"], homes)
+                adopt_keep = current is not None
+            else:
+                current = t["name"] if (v / t["name"]).is_dir() and not taken and not adopt_free else None
+        keep = bool(d and current and not is_default_dir(t["name"], d) and not _is_free(d)) or bool(given and d and not _is_free(d))
+        target = d if keep else (current if adopt_keep else default_dir(i, t["name"]))
         row["dir"] = target
         out.append(row)
         if current is None:
@@ -1456,7 +1477,7 @@ def edited(data, section, op, fields, today=None, uses=None, **limits):
     第一節 add 帶「序號」是把已有的型別移到第幾列（D-248，型別夾跟著重新編號由呼叫端照 dir_plan 做）。"""
     today = today or _today()
     number, columns, key = _spec(section)
-    allowed = (columns + (("序號",) if number in (1, 6) else ())) if op == "add" else key
+    allowed = (columns + (("序號",) if number in (1, 6) else ()) + (("夾名",) if number == 1 else ())) if op == "add" else key
     for k in fields:
         if k not in allowed:
             raise ProfileError(number, None, f"「{section}」這一節沒有「{k}」欄；欄是 {'、'.join(allowed)}")
@@ -1508,6 +1529,8 @@ def _edit_types(out, op, f, today, absent, *_limits):
         rows.insert(n - 1, row)
         return f"已把{row['name']}排到第 {n} 個", True
     if row is not None:
+        if f.get("夾名"):
+            raise ProfileError(1, None, f"型別「{row['name']}」已經有了，夾名不能這樣改；要換夾名用 kb source-edit move 搬那個夾")
         if "大類" in f and f["大類"] != _REVERSED[0].get(row.get("category")):
             raise ProfileError(1, None, f"型別「{row['name']}」已經有了，大類不能這樣改")
         if "一句說明" not in f or f["一句說明"] == (row.get("note") or ""):
@@ -1518,6 +1541,13 @@ def _edit_types(out, op, f, today, absent, *_limits):
         _err(1, len(rows) + 1, "的大類要是 對象、事、物、主題 之一")
     new = {"name": name, "category": CATEGORIES[f["大類"]], "note": f.get("一句說明", ""), "source": "corrected",
            "date": today}
+    if f.get("夾名"):  # AI 照使用者現有夾的編排給的夾名；沒給照預設編號建（D-312(3)）
+        why = type_name_problem(f["夾名"], {_key(_dir_of(t)) for t in rows if _key(_dir_of(t)) != _key(f["夾名"])} - {_key(f["夾名"])})
+        if why or _WINDOWS_RESERVED.match(f["夾名"]):
+            raise ProfileError(1, None, f"夾名「{f['夾名']}」不能用（{why or 'Windows 保留名'}）")
+        if any(_key(_dir_of(t)) == _key(f["夾名"]) for t in rows):
+            raise ProfileError(1, None, f"夾名「{f['夾名']}」已經是別的型別的夾")
+        new["dir"], new["dir_given"] = f["夾名"], True
     rows.append(new)
     if all(_key(s["type"]) != _key(name) for s in out["synthesis_sections"]):  # 新型別補大類預設（D-119，同 merge）
         out["synthesis_sections"] += default_sections([new], today)

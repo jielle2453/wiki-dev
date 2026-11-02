@@ -487,10 +487,27 @@ class Adopt(Base):
         (self.V / "合約").mkdir()
         (self.V / "合約" / "租約.txt").write_text("租約\n", encoding="utf-8")
         r = self.add_type("合約", "物")
-        self.assertIn("合約這個夾改叫 03 合約了，跟其他型別放一起", r.stdout)
-        self.assertFalse((self.V / "合約").exists())
-        self.assertTrue((self.V / "03 合約" / "租約.txt").is_file())
-        self.assertEqual(self.dirs(), ["01 案子", "02 業主", "03 合約"])
+        # 放寬甲 D-312(3)：使用者自己的夾直接記成型別的夾，不改名
+        self.assertNotIn("改叫", r.stdout)
+        self.assertTrue((self.V / "合約" / "租約.txt").is_file())
+        self.assertFalse((self.V / "03 合約").exists())
+        self.assertEqual(profile.load(self.V)["types"][-1]["dir"], "合約")
+
+    def test_10b_case_insensitive_and_numbered_name(self):
+        (self.V / "Contracts").mkdir()
+        (self.V / "05 報價").mkdir()
+        self.add_type("contracts", "物")
+        self.add_type("報價", "物")
+        rows = {t["name"]: t["dir"] for t in profile.load(self.V)["types"]}
+        self.assertEqual((rows["contracts"], rows["報價"]), ("Contracts", "05 報價"))
+        self.assertTrue((self.V / "Contracts").is_dir() and (self.V / "05 報價").is_dir())
+
+    def test_10c_folder_name_field(self):
+        r = kb(self.V, "profile", "add", "型別", "名稱=報價", "大類=物", "夾名=報價單")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((self.V / "報價單").is_dir())
+        self.assertFalse((self.V / "03 報價").exists())
+        self.assertEqual(profile.load(self.V)["types"][-1]["dir"], "報價單")
 
 
 def legacy_vault():

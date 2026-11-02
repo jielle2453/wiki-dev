@@ -591,11 +591,34 @@ def _make_dirs(vault, names, turn_id):
     return made
 
 
+def _first_payload(first):
+    return {"applied_first": True, "applied_first_summary": first["summary"]} if first else {}
+
+
+def _apply_first(vault, pend, conversation):
+    """profile add 遇手改（D-307(4)）：先照 apply 套用手改（同一回合、同一把鎖）；apply 失敗才回錯誤。回 {"summary", "lines"}。"""
+    import contextlib
+    import io
+    if pend["error"]:
+        raise Refused(APPLY_ERROR.format(error=pend["error"]))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = _apply_locked(vault, False, conversation)
+    if code != 0:
+        raise Refused(buf.getvalue().strip())
+    return {"summary": pend["summary"], "lines": buf.getvalue().strip().splitlines()}
+
+
 def _edit_locked(vault, op, args, as_json, conversation):
     section = args.section.strip()
     again = cmd("profile", op, section, *args.fields)
     st = profile.status(vault)
-    _guard_pending(st, again)
+    first = None
+    if op == "add" and _pending_edit(st) is not None:
+        first = _apply_first(vault, _pending_edit(st), conversation)
+        st = profile.status(vault)
+    else:
+        _guard_pending(st, again)
     fields = _fields(args.fields)
     old = st["data"]
     lim = _limits(vault)
@@ -604,8 +627,9 @@ def _edit_locked(vault, op, args, as_json, conversation):
     try:
         sections, res = profile.edited(old, section, op, fields, uses=profile.use_choices(vault), **lim)
         if not res["changed"]:
-            _out(as_json, [res["message"]], {"applied": False, "section": section, "op": op, "row": res["row"],
-                                            "message": res["message"], "created_dirs": [], "unskipped": 0})
+            _out(as_json, (first["lines"] if first else []) + [res["message"]],
+                 dict({"applied": False, "section": section, "op": op, "row": res["row"],
+                       "message": res["message"], "created_dirs": [], "unskipped": 0}, **_first_payload(first)))
             return 0
         merged = dict(old, **sections)
         new = profile.parse_md(profile.render_text(merged, profile.card_titles(vault, merged)),
@@ -615,6 +639,11 @@ def _edit_locked(vault, op, args, as_json, conversation):
     except profile.ProfileError as e:
         raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
     turn_id = turn.current(vault)["turn"]
+    for t in sections["types"]:  # 夾名= 的夾名，render／parse 帶不過來，這裡接回去
+        if t.get("dir_given"):
+            for n in new["types"]:
+                if profile._key(n["name"]) == profile._key(t["name"]):
+                    n["dir"], n["dir_given"] = t["dir"], True
     fc = profile.folder_check(vault, new["types"], old["types"])
     if fc["refusal"]:
         raise Refused(fc["refusal"])
@@ -648,9 +677,10 @@ def _edit_locked(vault, op, args, as_json, conversation):
     if about_lines:
         changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
     journal_cli.record_program_or_warn(vault, message, changed, f"profile {op}", conversation)
-    _out(as_json, [message] + about_lines, {"applied": True, "section": section, "op": op, "row": res["row"],
-                                            "message": message, "created_dirs": created, "unskipped": len(unskipped),
-                                            "retag": sum(sum(v.values()) for v in marked.values())})
+    _out(as_json, (first["lines"] if first else []) + [message] + about_lines,
+         dict({"applied": True, "section": section, "op": op, "row": res["row"],
+               "message": message, "created_dirs": created, "unskipped": len(unskipped),
+               "retag": sum(sum(v.values()) for v in marked.values())}, **_first_payload(first)))
     return 0
 
 

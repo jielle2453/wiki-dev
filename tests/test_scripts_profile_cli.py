@@ -485,27 +485,30 @@ class Edit(Base):
         self.assertEqual(self.refused("remove", "卡型", "卡型=估價單"), "沒有這一列：卡型=估價單")
         self.assertEqual(self.hashes(), before)
 
-    def test_pending_hand_edit_refused(self):
+    def test_pending_hand_edit_applied_first(self):
+        """放寬甲 D-307(4)：手改還沒套用時，profile add 先套用再加（同一回合），回 applied_first。"""
         self.add_types(ROW)
-        before = self.hashes()
-        r = self.kb("add", "偏好", "偏好=先講結論", "--json")
-        self.assertEqual(r.returncode, 3)
-        got = json.loads(r.stdout)
-        self.assertEqual((got["applied"], got["message"]), (False, "設定檔有你改過還沒套用的地方（型別 +1），先套用再改"))
-        self.assertEqual(got["question"], "設定檔有你改過還沒套用的地方（型別 +1），要先套用嗎？")
-        self.assertEqual([(x["n"], x["label"], x["do"], x["strict"]) for x in got["results"]],
-                         [(1, "先套用我改的，再記這句", ["kb profile apply", "kb profile add 偏好 偏好=先講結論"], False),
-                          (2, "先不記", [], False)])
-        self.assertEqual(self.refused("add", "偏好", "偏好=先講結論"), "設定檔有你改過還沒套用的地方（型別 +1），先套用再改")
-        self.assertEqual(self.hashes(), before)
         show = json.loads(self.kb("show", "--json").stdout)
         self.assertEqual(show["pending_edit"], {"summary": "型別 +1", "error": None})
+        r = self.kb("add", "偏好", "偏好=先講結論", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertTrue(got["applied_first"])
+        self.assertEqual(got["applied_first_summary"], "型別 +1")
+        data = self.data()
+        self.assertIn("工地", [t["name"] for t in data["types"]])
+        self.assertIn("先講結論", [p["text"] for p in data["preferences"]])
+        self.assertIsNone(json.loads(self.kb("show", "--json").stdout)["pending_edit"])
+
+    def test_pending_hand_edit_unreadable_gives_apply_error(self):
         self.add_types("| 壞的 | 事 |")
-        got = json.loads(self.kb("add", "偏好", "偏好=先講結論", "--json").stdout)
-        self.assertEqual(got["question"], "設定檔有你改過但讀不懂：第 1 節第 3 列欄數不對（要 3 欄或 5 欄），改好之前我記不了")
-        self.assertEqual([x["label"] for x in got["results"]], ["先不記"])
+        before = self.hashes()
+        r = self.kb("add", "偏好", "偏好=先講結論")
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout.strip(), "設定檔讀不懂：第 1 節第 2 列欄數不對（要 3 欄或 5 欄）" + FIX)
+        self.assertEqual(self.hashes(), before)
         self.assertEqual(json.loads(self.kb("show", "--json").stdout)["pending_edit"],
-                         {"summary": None, "error": "第 1 節第 3 列欄數不對（要 3 欄或 5 欄）"})
+                         {"summary": None, "error": "第 1 節第 2 列欄數不對（要 3 欄或 5 欄）"})
 
     def test_in_conversation_no_program_line(self):
         turns = self.V / ".system" / "turns"
