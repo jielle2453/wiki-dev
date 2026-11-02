@@ -12,7 +12,7 @@ from tests import _entities as E
 from tests import _lint as L
 from tests import _tags as T
 from tests.test_hooks_output_log import write_via_tools
-from tests.test_hooks_session import payload as session_payload, run as run_session
+from tests.test_hooks_session import payload as session_payload, run_turn_ctx as run_session  # 標籤的行挪到每句開頭（放寬丙 3b）
 from tests.test_scripts_inventory_cli import run_kb
 from kb._lib import batches, entities, migrate, pending, plan, synthesis, turn  # noqa: E402
 from kb.lint import state  # noqa: E402

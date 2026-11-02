@@ -43,6 +43,18 @@ def turn_lines(cwd, sid=None):
     return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"].split("\n")
 
 
+def run_turn_ctx(data):
+    """給別的測試檔用：跟 run 一樣收 payload（只用 cwd），但跑 hooks/turn.py（每句開頭，放寬丙 3b），stdout 沒東西時補一個空的
+    additionalContext，呼叫端照舊 json.loads。每次換一個 session。"""
+    import types
+    _SID[0] += 1
+    turn_data = {"session_id": f"tc{_SID[0]}", "cwd": data["cwd"], "prompt": "問", "hook_event_name": "UserPromptSubmit"}
+    r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(turn_data, ensure_ascii=False), capture_output=True,
+                       text=True, encoding="utf-8", cwd=str(data["cwd"]), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+    out = r.stdout or json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ""}})
+    return types.SimpleNamespace(returncode=r.returncode, stdout=out, stderr=r.stderr)
+
+
 def payload(cwd, source="startup"):
     data = {"session_id": "abc", "transcript_path": "x.jsonl", "cwd": str(cwd), "hook_event_name": "SessionStart"}
     if source is not None:
