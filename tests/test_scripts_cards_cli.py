@@ -718,7 +718,7 @@ class RedoMount(unittest.TestCase):
         (item,) = self.todo()["synthesis_stale"]
         self.assertEqual(item["name"], "大安陳")
         self.assertEqual([(x["id"], x.get("reason")) for x in item["changed"]], [(self.fid, "客戶說卡讀錯了")])
-        card.write_text(self.E.synthesis_text(item["header"], "大安陳"), encoding="utf-8")
+        card.write_text(self.E.synthesis_text(self.E.stale_header(self.V, item), "大安陳"), encoding="utf-8")
         self.assertEqual(self.todo()["synthesis_stale"], [])
 
     def test_redo_json_synthesis_and_revert_restores_it(self):
