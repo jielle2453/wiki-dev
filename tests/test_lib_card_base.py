@@ -38,6 +38,15 @@ class Body(unittest.TestCase):
         self.assertEqual(card_base.body_of("---\r\na: 1\r\n---\r\n# T\r\n"), "# T\n")
         self.assertEqual(card_base.body_of("沒有檔頭\n"), "沒有檔頭\n")
 
+    def test_strip_files_whole_line_only(self):
+        """裁定 24：記號要整行才算（同 synthesis._span）；行中間的記號字串是內文，照留。"""
+        from kb._lib import synthesis
+        inline = "- 2026-10-30 備註 " + synthesis.FILE_BEGIN + " x〔f-00000001〕\n"
+        body = "# T\n\n## 紀事\n" + inline + "- 2026-10-01 甲\n"
+        self.assertEqual(card_base.strip_files(body), body)
+        files = "　" + synthesis.FILE_BEGIN + "\n## 相關檔\n- [[a.md|甲]]\n" + synthesis.FILE_END + "\n"
+        self.assertEqual(card_base.strip_files(body + "\n" + files + "\n## 備註\n二\n"), body + "## 備註\n二\n")
+
     def test_hunks_add_and_delete(self):
         self.assertEqual(card_base.hunks("a\nb\n", "a\nb\nc\n"), [{"before": "", "after": "c"}])
         self.assertEqual(card_base.hunks("a\nb\nc", "a\nc"), [{"before": "b", "after": ""}])
