@@ -797,6 +797,71 @@ def _brief(m):
     return {"id": m["id"], "path": m.get("path"), "title": m.get("title")}
 
 
+def _similar(data, entry):
+    """名字相近或別名重疊的其他實體（active、不含自己與客戶自己）：名稱或別名有一個相同，或兩個名稱一個是另一個的一部分（兩字以上）。"""
+    mine = {entities.key(w) for w in entities.words(entry) if w}
+    me = entities.key(entry["name"])
+    out = []
+    for o in data["entities"]:
+        if o.get("id") == entry.get("id") or o.get("status") != "active" or entities.is_self(o):
+            continue
+        other = entities.key(o["name"])
+        if (mine & {entities.key(w) for w in entities.words(o) if w}
+                or (min(len(me), len(other)) >= 2 and (me in other or other in me))):
+            out.append(o["name"])
+    return out
+
+
+def _last_activity(vault, entry, data, mounts, know, today):
+    """掛的檔最新的文件日期、口述日期、日程條目日期（今天以前）、日誌提到它的最後一天，取最晚；都沒有回 None。"""
+    days = [m.get("date") for m in mounts.get(entry["name"], [])]
+    days += [x.get("date") for x in statements_for(know, entry["name"])]
+    try:
+        from kb._lib import agenda
+        k = entities.key(entry["name"])
+        days += [i.get("date") for i in agenda.load(vault)["items"]
+                 if any(entities.key(n) == k for n in i.get("entities") or []) and str(i.get("date") or "") <= today]
+    except (ValueError, OSError, KeyError):
+        pass
+    try:
+        from kb._lib import journal
+        rows = journal.recent(vault, 1, find=entry["name"])
+        days += [str(rows[0].get("time", ""))[:10]] if rows else []
+    except (ValueError, OSError):
+        pass
+    days = [d for d in days if isinstance(d, str) and _DATE.match(d)]
+    return max(days) if days else None
+
+
+def statements_for(know, name):
+    from kb._lib import statements
+    return statements.active_for(know["statements"], name)
+
+
+def _drift_facts(vault, d, data, mounts, know, today, missing):
+    """entity_drift 每項多帶的判斷資料（放寬丙 6-1，D-311）：progress、last_activity、source、mounts（main／mention）、similar、
+    same_name_new（別的型別夾新出現的同名綜合卡路徑，沒有 None）、deleted_with（同一次一起不見的其他綜合卡數，missing 是這次不見的總數）。程式不判斷，交 AI。"""
+    e = next((x for x in data["entities"] if x.get("id") == d["entity_id"]), None)
+    if e is None:
+        return {}
+    same = None
+    if d["kind"] == "missing":
+        k = entities.key(e["name"])
+        by_id = {x.get("id"): x for x in data["entities"]}
+        for eid, rels in sorted(entities.synthesis_files(vault).items()):
+            for rel in rels:
+                owner = by_id.get(eid)
+                if eid == e["id"] or entities.key(rel.rpartition("/")[2][:-3]) != k:
+                    continue
+                if owner is not None and owner.get("type") and rel.casefold() == card_rel(owner, vault).casefold():
+                    continue  # 登記好、在原位的另一個同名實體不是「新出現」
+                same = same or rel
+    return {"progress": e.get("progress"), "last_activity": _last_activity(vault, e, data, mounts, know, today),
+            "source": e.get("source"), "mounts": {"main": len(mounts.get(e["name"], [])), "mention": 0},
+            "similar": _similar(data, e), "same_name_new": same,
+            "deleted_with": max(0, missing - 1) if d["kind"] == "missing" else 0}
+
+
 def buckets(vault, data, mounts, prof):
     """給 cards todo：回 synthesis_new、synthesis_stale、synthesis_broken、entity_drift 四桶（資料與介面格式）。只讀。"""
     min_cards = config.get(vault, "synthesis_min_cards")
@@ -865,7 +930,8 @@ def buckets(vault, data, mounts, prof):
             ok, reason = validate(vault, rel, data, mounts, prof, know)
             broken.append({"path": rel, "reason": reason if not ok else f"綜合卡該放在 {card_rel(owner, vault)}"})
             listed.add(rel.casefold())
-    drift_items = [dict(d, question=_question(d)) for d in drift_list]
+    gone = sum(1 for d in drift_list if d["kind"] == "missing")
+    drift_items = [dict(d, question=_question(d), **_drift_facts(vault, d, data, mounts, know, today, gone)) for d in drift_list]
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}
 
 

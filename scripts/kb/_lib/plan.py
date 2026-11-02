@@ -280,7 +280,7 @@ def _asks(out, vault, config, full_plan, state=None):
     if waiting > config.get(vault, "ingest_auto_max") and state is None:
         asks.append(_batch(waiting, full_plan, vault, config))
     drifts = out.get("entity_drift") or []
-    asks.extend(_drift(d, out) for d in drifts if d["kind"] == "missing")
+    asks.extend(_drift(d, out) for d in drifts if d["kind"] == "missing" and _ask_missing_drift(d))
     asks.extend(_drift(d, out) for d in drifts if d["kind"] != "missing")
     asks.extend(_missing(m) for m in out.get("missing") or [])
     asks.extend(_credential_asks(vault, out))  # 密碼與守門：排在原檔不見之後、逾期之前
@@ -307,6 +307,21 @@ def _rename_results(name, new, label):
     return [_result(label, [_rename(name, new)]),
             _result(f"改回{name}", [_rename(name, name)]),
             _result("改成別的名字", [_rename(name, Slot("新名字"))], fill=[_fill("新名字", NAME_RULE)])]
+
+
+DRIFT_RECENT_DAYS = 30
+
+
+def _ask_missing_drift(d):
+    """綜合卡不見（放寬丙 6-1，D-311）：交 AI 判斷，只有進行中、last_activity 30 天內、similar 與 same_name_new 空、
+    deleted_with 0（沒有線索）才照 D-310 問一題；其他不出題。"""
+    last = d.get("last_activity")
+    if d.get("progress") != "ongoing" or not last or d.get("similar") or d.get("same_name_new") or d.get("deleted_with"):
+        return False
+    try:
+        return (date.today() - date.fromisoformat(last)).days <= DRIFT_RECENT_DAYS
+    except ValueError:
+        return False
 
 
 def _drift(d, out):

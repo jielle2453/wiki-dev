@@ -6,6 +6,7 @@ import shlex
 import shutil
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from tests import _cards
@@ -38,8 +39,13 @@ def work(n):
     return [{"id": f"f-0000000{i}", "uri": f"file://a/{i}.txt"} for i in range(n)]
 
 
-def drift(kind, name="信義王", found=None, eid="e-5c1d0a7e", type_="案子"):
-    return {"entity_id": eid, "name": name, "type": type_, "kind": kind, "found": found, "question": f"Q-{kind}"}
+def drift(kind, name="信義王", found=None, eid="e-5c1d0a7e", type_="案子", **facts):
+    """missing 預設是 D-311(4) 那種（進行中、最近還在用、沒有線索）才會出題；facts 蓋掉預設（放寬丙 6-1）。"""
+    base = {"entity_id": eid, "name": name, "type": type_, "kind": kind, "found": found, "question": f"Q-{kind}"}
+    if kind == "missing":
+        base.update(progress="ongoing", last_activity=date.today().isoformat(), source="confirmed",
+                    mounts={"main": 3, "mention": 0}, similar=[], same_name_new=None, deleted_with=0)
+    return dict(base, **facts)
 
 
 class Base(unittest.TestCase):
@@ -291,6 +297,17 @@ class Asks(Base):
         self.assertEqual((first["n"], first["label"], first["do"], first["strict"]), (1, "先把廠商加進設定檔", [], False))
         self.assertTrue(first["note"])
         self.assertEqual(self.results(ask)[1], (2, "搬回案子", ["kb entity rename 信義王 --to 信義王"], False, []))
+
+    def test_drift_missing_with_any_clue_has_no_ask(self):
+        """放寬丙 6-1（驗收 17）：進行中、30 天內、沒有線索才出題；其他交 AI 判斷，不出 drift_missing。"""
+        old = (date.today() - timedelta(days=45)).isoformat()
+        cases = {"closed": {"progress": "closed"}, "paused": {"progress": "paused"}, "old": {"last_activity": old},
+                 "never": {"last_activity": None}, "similar": {"similar": ["內湖王宅"]},
+                 "same_name_new": {"same_name_new": "業主/信義王/信義王.md"}, "batch_delete": {"deleted_with": 2}}
+        for label, facts in cases.items():
+            with self.subTest(label):
+                self.assertEqual(self.build(entity_drift=[drift("missing", **facts)])["asks"], [])
+        self.assertEqual(len(self.build(entity_drift=[drift("missing")])["asks"]), 1)
 
     def test_drift_missing(self):
         ask = self.one(entity_drift=[drift("missing")])
@@ -766,8 +783,25 @@ class WithRealVault(unittest.TestCase):
             with self.subTest(n=n):
                 self.tearDown()
                 self.setUp()
+                E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"], date=date.today().isoformat())  # 最近還在用（放寬丙 6-1）
                 shutil.rmtree(self.V / "案子" / "信義王")
                 self.run_result("drift:", n)
+
+    def test_drift_missing_carries_facts_and_asks_only_with_no_clue(self):
+        """放寬丙 6-1（驗收 17）：綜合卡不見 → entity_drift 帶判斷資料；沒有線索的（進行中、最近還在用）才出一題。"""
+        keys = {"progress", "last_activity", "source", "mounts", "similar", "same_name_new", "deleted_with"}
+        shutil.rmtree(self.V / "案子" / "大安陳")
+        data = self.todo()
+        (item,) = data["entity_drift"]
+        self.assertEqual((item["name"], item["kind"]), ("大安陳", "missing"))
+        self.assertTrue(keys <= set(item), item)
+        self.assertEqual((item["progress"], item["mounts"], item["similar"], item["same_name_new"], item["deleted_with"]),
+                         ("ongoing", {"main": 0, "mention": 0}, [], None, 0))
+        self.assertEqual([a for a in data["asks"] if a["id"].startswith("drift:")], [])
+        E.write_card(self.V, E.ESTIMATE, "大安陳估價", ["大安陳"], date=date.today().isoformat())
+        again = self.todo()
+        self.assertEqual(again["entity_drift"][0]["last_activity"], date.today().isoformat())
+        self.assertEqual([a["kind"] for a in again["asks"] if a["id"].startswith("drift:")], ["drift_missing"])
 
     # --- 原檔不見
     def make_missing(self):
