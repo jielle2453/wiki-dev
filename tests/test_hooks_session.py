@@ -894,7 +894,7 @@ class OpeningUpgrade(unittest.TestCase):
         self.put_history(self.plugin())
         self.put_check(latest="99.0.0", kind="major", allowed=True, note="日程可以匯出成 Excel")
         lines = self.status()
-        self.assertEqual(lines[1], "有新版 99.0.0：日程可以匯出成 Excel；說「升級」我帶你做。")
+        self.assertEqual(lines[1], "有新版 99.0.0：日程可以匯出成 Excel；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_new_version_line_not_printed_when_not_on_the_roster_or_only_a_patch(self):
         self.put_history(self.plugin())
@@ -1237,7 +1237,7 @@ class InboxLine(unittest.TestCase):
         from unittest import mock
         from kb._lib import env
         self.files(10)
-        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；說「升級」我帶你做。"):
+        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；客戶說「升級」再帶他做，這行只講一次。"):
             self.assertIsNone(self.session.line_inbox(self.V))
         self.assertIsNone(env.inbox_reminded(self.V))
         self.assertIsNotNone(self.session.line_inbox(self.V))
