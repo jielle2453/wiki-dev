@@ -204,7 +204,7 @@ class DigOriginals(unittest.TestCase):
         part = self.verify[self.verify.index("## 六、"):self.verify.index("## 七、")]
         line = next(ln for ln in part.splitlines() if "不直接說沒有" in ln)
         for want in ("kb lookup", "kb convert", "各部分在哪", "Grep", "verify_max", "不翻整個資料夾",
-                     "設定檔說不抄進卡的種類"):
+                     "設定檔說不抄進卡的種類", "mentions", "`files` 的 `card`", "ruled_out"):
             with self.subTest(want=want):
                 self.assertIn(want, line)
         self.assertIn("卡不改、不標重做", part)
