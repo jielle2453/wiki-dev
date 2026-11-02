@@ -1169,6 +1169,42 @@ def with_renamed(types, old_types, renamed):
     return out
 
 
+def entity_members(vault, type_name):
+    """這個型別底下 active、不是客戶自己的實體名稱；entities.json 讀不了當沒有。"""
+    from kb._lib import entities
+    try:
+        data = entities.load(vault)
+    except ValueError:
+        return []
+    return [e["name"] for e in data["entities"] if e.get("type") and _key(e["type"]) == _key(type_name)
+            and e.get("status") == "active" and not entities.is_self(e)]
+
+
+def pending_types(vault, types, old_types):
+    """舊表有、新表沒有、底下還有實體的型別：[(名稱, 實體數)]（拿掉型別不再被擋，先標 pending_remove，換完實體自動拿掉）。"""
+    names = {_key(t["name"]) for t in types}
+    out = []
+    for t in old_types or []:
+        if _key(t["name"]) not in names:
+            n = len(entity_members(vault, t["name"]))
+            if n:
+                out.append((t["name"], n))
+    return out
+
+
+def with_pending(types, old_types, pending_names):
+    """把還有實體的舊型別列（標 pending_remove）放回型別表原來的位置。"""
+    if not pending_names:
+        return list(types)
+    keys = {_key(n) for n in pending_names}
+    out = list(types)
+    for i, t in enumerate(old_types or []):
+        if _key(t["name"]) in keys:
+            row = dict(t, pending_remove=True)
+            out.insert(min(i, len(out)), row)
+    return out
+
+
 def folder_check(vault, types, old_types=None):
     """型別表對第一層夾（D-112、D-247）：to_create 該有、夾還沒有的夾名；unlisted 夾有、不是任何型別的夾；
     renamed 是她自己改了名、認得出的型別夾（[{"type","from","to"}]，不算 unlisted）；moves 是照編號要改名的夾 [(從, 到)]，
@@ -1177,6 +1213,8 @@ def folder_check(vault, types, old_types=None):
     removed_dirs 是那些型別的夾名 {名稱: 夾名}。old_types 沒給讀 profile.json。"""
     if old_types is None:
         old_types = (load(vault) or {}).get("types") or []
+    pending = pending_types(vault, types, old_types)  # 表上拿掉了、實體還在的型別：先留著占位（D-307(2)）
+    types = with_pending(types, old_types, [n for n, _c in pending])
     effective = with_renamed(types, old_types, [])
     found = renamed_dirs(vault, effective, old_types)
     renamed = [r for r in found if not r["default"]]
@@ -1184,18 +1222,14 @@ def folder_check(vault, types, old_types=None):
     listed = {_key(_dir_of(t)) for t in plan["types"]} | {_key(a) for a, _b in plan["moves"]}
     unlisted = [n for n in _first_level_dirs(vault) if _key(n) not in listed]
     names = {_key(t["name"]) for t in types}
-    removed_empty, removed_nonempty, removed_dirs = [], [], {}
+    removed_empty, removed_nonempty, removed_dirs = [], list(pending), {}
     for t in old_types:
         if _key(t["name"]) in names:
             continue
-        folder = Path(vault) / _dir_of(t)
         removed_dirs[t["name"]] = _dir_of(t)
-        n = _item_count(folder) if folder.is_dir() else 0
-        if n:
-            removed_nonempty.append((t["name"], n))
-        else:
-            removed_empty.append(t["name"])
+        removed_empty.append(t["name"])  # 沒有實體了：夾空就拿掉，夾裡剩別的檔就留著當使用者的夾（D-307(2)）
     return {"to_create": plan["creates"], "unlisted": unlisted, "removed_empty": removed_empty,
+            "pending_types": [{"type": n, "entities": entity_members(vault, n)} for n, _c in pending],
             "removed_nonempty": removed_nonempty, "removed_dirs": removed_dirs, "renamed": renamed,
             "moves": plan["moves"], "adopted": plan["adopted"], "plan_types": plan["types"], "refusal": plan["refusal"]}
 
@@ -1217,7 +1251,7 @@ def render_text(data, titles=None, limits=None):
     cats, srcs, acts = _REVERSED
     tables = (
         [[t["name"], cats.get(t.get("category"), ""), t.get("note"), srcs.get(t.get("source"), ""), t.get("date")]
-         for t in data.get("types") or []],
+         for t in data.get("types") or [] if not t.get("pending_remove")],
         [[c["name"], s["name"], "✓" if s.get("required") else "", s.get("hint"), srcs.get(c.get("source"), ""),
           c.get("date")] for c in data.get("card_types") or [] for s in c.get("sections") or []],
         [[e["kind"], acts.get(e.get("action"), ""), srcs.get(e.get("source"), ""), e.get("date")]
@@ -1704,7 +1738,7 @@ def status(vault):
     profile.json 壞了丟 ValueError（呼叫端各自處理，I-046）。"""
     data = load(vault)
     out = {"state": "missing", "diff": None, "error": None, "unlisted": [], "to_create": [], "removed_empty": [],
-           "removed_nonempty": [], "data": data, "new": None, "renamed": [], "moves": [], "adopted": [],
+           "removed_nonempty": [], "pending_types": [], "data": data, "new": None, "renamed": [], "moves": [], "adopted": [],
            "plan_types": None, "removed_dirs": {}, "refusal": None}
     md = Path(vault) / MD_POSIX
     if data is None or not md.is_file():
@@ -1732,7 +1766,7 @@ def status(vault):
             types = new["types"]
     out.update(folder_check(vault, types, data["types"]))
     if out["state"] != "changed":  # 沒有要套用的表：刪列的對帳不算
-        out["removed_empty"], out["removed_nonempty"] = [], []
+        out["removed_empty"], out["removed_nonempty"], out["pending_types"] = [], [], []
     if out["state"] == "error":  # 表讀不了，第一層夾的對帳沒意義（測試後修正裁定 14）
         out["unlisted"], out["to_create"], out["renamed"], out["moves"], out["adopted"] = [], [], [], [], []
         out["plan_types"], out["refusal"] = None, None

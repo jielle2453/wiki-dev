@@ -143,9 +143,21 @@ def _accept(vault, args, as_json, conversation, turn_id):
 
 
 def _rename(vault, args, as_json, conversation, turn_id):
+    try:
+        was = entities.find(entities.load(vault), args.ref)[0]
+    except ValueError:
+        was = None
+    old_type = (was or {}).get("type")
     got = entities.rename(vault, args.ref, args.to.strip(), args.type.strip() if args.type else None, turn_id)
     old, new = got["old_name"], got["entity"]["name"]
     changed = list(got["changed"])
+    settled = None
+    if args.type and old_type and entities.key(old_type) != entities.key(got["entity"].get("type") or ""):
+        from kb import profile_cli
+        settled = profile_cli.settle_pending(vault, turn_id, old_type)
+        if settled:
+            changed += [{"path": profile_cli.profile.PROFILE_POSIX, "action": "modify"},
+                        {"path": profile_cli.profile.MD_POSIX, "action": "modify"}]
     if got["moved_files"]:  # 夾裡的客戶原檔換了位置：只掃知識庫、套進清冊（鎖外，同 folders add）
         report = inventory.scan(vault, sources_lib.load(vault), only_roots=[inventory.KNOWLEDGE])
         if inventory.has_changes(vault, report):
@@ -163,6 +175,8 @@ def _rename(vault, args, as_json, conversation, turn_id):
         lines.append(f"已改名：{old} → {new}（舊名記成別名）")
     if got["moved_files"]:
         lines.append(f"資料夾裡的 {got['moved_files']} 個檔跟著搬了，檔案卡下次整理會跟著改位置")
+    if settled:
+        lines.append(settled)
     journal_cli.record_program_or_warn(vault, f"實體改名：{old} → {new}", changed, "entity rename", conversation)
     _out(as_json, lines, {"entity": got["entity"], "old_name": old, "cards": got["cards"], "card": got["card"],
                           "moved_files": got["moved_files"]})

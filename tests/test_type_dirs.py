@@ -217,7 +217,7 @@ class ReviewFixes(Base):
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
         line = next(ln for ln in ctx.splitlines() if "你改名叫「工程案」了" in ln)
         self.assertNotIn("不用問", line)
-        self.assertIn("客戶說好才 apply", line)
+        self.assertIn("跑 kb profile apply 套用", line)
 
 
 class Round1(Base):

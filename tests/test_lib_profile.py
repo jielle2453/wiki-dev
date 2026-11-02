@@ -268,8 +268,8 @@ class Vault(unittest.TestCase):
         got = profile.folder_check(self.V, [{"name": "工地"}, {"name": "廠商"}], old)
         self.assertEqual(got["to_create"], ["01 工地"])
         self.assertEqual(got["unlisted"], ["案子", "空的"])
-        self.assertEqual(got["removed_empty"], ["空的", "沒有夾"])
-        self.assertEqual(got["removed_nonempty"], [("案子", 2)])
+        self.assertEqual(got["removed_empty"], ["案子", "空的", "沒有夾"])  # 沒有實體：夾裡剩別的檔不擋，夾留著（D-307(2)）
+        self.assertEqual(got["removed_nonempty"], [])
 
     def test_sha_detects_change_and_status_states(self):
         self.assertEqual(profile.status(self.V)["state"], "ok")

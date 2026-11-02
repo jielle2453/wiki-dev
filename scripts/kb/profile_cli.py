@@ -39,8 +39,10 @@ LOCK_BUSY = "等不到鎖，沒有寫入"
 NO_CHANGE = "客戶設定檔沒有改"
 NOT_APPLIED = "客戶設定檔沒有改，沒有套用"
 NO_CONTENT_DIFF = "客戶設定檔有改，但沒有內容上的差異"
-NONEMPTY = "型別「{name}」底下還有 {n} 項，先搬走再拿掉這列"
-UNLISTED = "第一層夾不在型別表：{names}（請在設定檔第一節補一列）"
+PENDING_TYPE = ("型別「{type}」還有 {n} 個實體要換型別：{names}；照使用者的話一個一個跑 kb entity rename <名稱> --to <名稱> "
+                "--type <新型別>（看不出來才問），換完這個型別自動拿掉。")
+PENDING_SHOWN = 8
+APPLY_ERROR = "設定檔讀不懂：{error}；照錯誤用 Edit 改好再跑 kb profile apply，改不好就 kb versions 退回上一版。"
 CHANGED = [{"path": profile.PROFILE_POSIX, "action": "modify"}, {"path": profile.MD_POSIX, "action": "modify"}]
 
 
@@ -97,7 +99,7 @@ def _detail_lines(st):
     nonempty = dict(st["removed_nonempty"])
     lines = [f"- 型別 多了 {n}（{cats.get(new_types[n]['category'], '')}）" for n in d["types"]["added"]]
     for n in d["types"]["removed"]:
-        why = f"夾裡還有 {nonempty[n]} 項，套用會被擋" if n in nonempty else "空夾會一起拿掉"
+        why = f"還有 {nonempty[n]} 個實體，先留著、換完型別自動拿掉" if n in nonempty else "空夾會一起拿掉"
         lines.append(f"- 型別 少了 {n}（{why}）")
     lines += [f"- 型別 {n} 改了" for n in d["types"]["changed"]]
     for word, key in (("多了", "added"), ("少了", "removed"), ("改了", "changed")):
@@ -128,13 +130,19 @@ def _detail_lines(st):
     return lines
 
 
-def _unlisted_line(st):
-    return [UNLISTED.format(names="、".join(st["unlisted"]))] if st["unlisted"] else []
+def _pending_lines(pend):
+    out = []
+    for p in pend:
+        names = p["entities"]
+        shown = "、".join(names[:PENDING_SHOWN]) + (f"等 {len(names)} 個" if len(names) > PENDING_SHOWN else "")
+        out.append(PENDING_TYPE.format(type=p["type"], n=len(names), names=shown))
+    return out
 
 
 def _public(st):
     return {"state": st["state"], "diff": st["diff"], "error": st["error"], "unlisted": st["unlisted"],
             "removed_empty": st["removed_empty"], "removed_nonempty": [list(x) for x in st["removed_nonempty"]],
+            "pending_types": st["pending_types"],
             "to_create": st["to_create"], "renamed": st.get("renamed") or [],
             "renames": [{"from": a, "to": b} for a, b in st.get("moves") or []]}
 
@@ -147,11 +155,11 @@ def check_lines(st):
         return [f"客戶設定檔讀不懂：{st['error']}"], 3
     renamed = profile.renamed_line(st.get("renamed"))  # 她改了型別夾名：跟開場同一句，不說沒有改（裁定 8）
     if st["state"] == "ok":
-        return [renamed or NO_CHANGE] + _unlisted_line(st), 0
+        return [renamed or NO_CHANGE], 0
     if not profile.has_change(st):
-        return [renamed or NO_CONTENT_DIFF] + _unlisted_line(st), 0
+        return [renamed or NO_CONTENT_DIFF], 0
     summary = profile.summary_full(st["diff"]) or ORDER_SUMMARY
-    return [f"客戶設定檔有改：{summary}"] + _detail_lines(st) + _move_lines(st) + _unlisted_line(st), 0
+    return [f"客戶設定檔有改：{summary}"] + _detail_lines(st) + _move_lines(st), 0
 
 
 ORDER_SUMMARY = "型別順序"
@@ -188,7 +196,7 @@ def _remove_empty_dirs(vault, names):
     removed, kept = [], []
     for name in names:
         path = vault / name
-        if not path.is_dir():
+        if not path.is_dir() or _item_count(path):  # 夾裡還有別的檔：留著當使用者的夾（D-307(2)），不提
             continue
         try:
             os.rmdir(path)
@@ -214,7 +222,7 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
         _refuse(as_json, st, MISSING)
         return 3
     if st["state"] == "error":
-        _refuse(as_json, st, f"客戶設定檔讀不懂：{st['error']}")
+        _refuse(as_json, st, APPLY_ERROR.format(error=st["error"]))
         return 3
     try:
         tag_plan = _tag_plan(vault, st, drop_tags, rename_tags)
@@ -245,10 +253,6 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
         else:
             print("\n".join([NOT_APPLIED] + lines))
         return 0
-    if st["removed_nonempty"]:
-        name, n = st["removed_nonempty"][0]
-        _refuse(as_json, st, NONEMPTY.format(name=name, n=n))
-        return 3
     blocked = [n for n in st["to_create"] if (vault / n).exists()]
     if blocked:
         _refuse(as_json, st, f"「{blocked[0]}」已經有同名的檔，不能建成型別夾；先改名或搬走")
@@ -262,6 +266,8 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
         turn.record_folder(vault, turn_id, "make", name)
     merged = profile.merge(old, new, first=old.get("applied") is None)
     merged["types"] = _with_plan_dirs(merged["types"], st["plan_types"])
+    pend = st["pending_types"]
+    merged["types"] = profile.with_pending(merged["types"], old["types"], [p["type"] for p in pend])
     data = dict(old, **merged, applied=profile.now())
     try:
         retagged, dir_changed, touched = _write_with_tag_plan(vault, data, tag_plan, turn_id, st["moves"],
@@ -301,6 +307,7 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
         parts.append(f"{len(retagged)} 張綜合卡的標籤跟著改")
     if marked:
         parts.append(_marked_text(marked))
+    pending_lines = _pending_lines(pend)
     body = "；".join(parts) if summary else "沒有內容上的差異，重寫了設定檔" + "".join("；" + p for p in parts)
     sentence = f"已套用客戶設定檔：{body}"
     changed = CHANGED + ([{"path": inventory.INVENTORY_POSIX, "action": "modify"}] if unskipped else [])
@@ -312,10 +319,10 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
     journal_cli.record_program_or_warn(vault, sentence[1:], changed, "profile apply", conversation)
     if as_json:
         print(json.dumps(dict(_public(st), applied=True, created_dirs=created, removed_dirs=removed_dirs,
-                              unskipped=len(unskipped), about=about), ensure_ascii=False))
+                              unskipped=len(unskipped), about=about, pending_types=pend), ensure_ascii=False))
         return 0
     print(sentence)
-    for line in about_lines + _unlisted_line(st):
+    for line in about_lines + pending_lines:
         print(line)
     return 0
 
@@ -415,7 +422,7 @@ def _apply_dirs_only(vault, st, as_json, conversation):
         print(json.dumps(dict(_public(st), applied=True, created_dirs=created, removed_dirs=[], unskipped=0,
                               message=lines[0] if lines else ""), ensure_ascii=False))
     else:
-        print("\n".join(lines + _unlisted_line(st)))
+        print("\n".join(lines))
     return 0
 
 
@@ -454,7 +461,7 @@ def _apply_from(vault, from_md, as_json, conversation):
     try:
         text = open(from_md, encoding="utf-8").read()
     except UnicodeDecodeError:
-        _refuse(as_json, st, "客戶設定檔讀不懂：檔案不是 UTF-8")
+        _refuse(as_json, st, APPLY_ERROR.format(error="檔案不是 UTF-8"))
         return 3
     except OSError as e:
         _refuse(as_json, st, FROM_UNREADABLE.format(e.strerror or e))
@@ -467,7 +474,7 @@ def _apply_from(vault, from_md, as_json, conversation):
                          known_types=[t["name"] for t in data["types"]], **profile.preference_limits(vault),
                          resolve=profile.template_resolver(vault, data), uses=profile.known_uses(vault, data))
     except profile.ProfileError as e:
-        _refuse(as_json, st, f"客戶設定檔讀不懂：{e.message}")
+        _refuse(as_json, st, APPLY_ERROR.format(error=e.message))
         return 3
     md = vault / profile.MD_POSIX
     old = md.read_text(encoding="utf-8") if md.is_file() else None
@@ -927,17 +934,15 @@ def _plan_remove(vault, data, name, checking):
     renumber = _renumber(vault, data, [t for t in data["types"] if t is not row])
     folders += [{"from": a, "to": b} for a, b in renumber["moves"]]
     imp = _impact(vault, row, members, folders)
-    if members:
-        if not checking:
-            raise Refused(f"「{row['name']}」底下還有 {len(members)} 個實體，先併到別的型別")
+    if members:  # 還有實體：標 pending_remove，換完型別自動拿掉（D-307(2)）；後面的夾不補號
+        renumber = _renumber(vault, data, list(data["types"]))
         others = [t["name"] for t in data["types"] if t is not row]
         results = [_result(i, f"併到{o}", [cmd("profile", "type", "merge", row["name"], "--into", o)], True)
                    for i, o in enumerate(others, 1)]
         results.append(_result(len(results) + 1, "先不刪"))
         return row, imp, f"「{row['name']}」底下還有 {len(members)} 個實體，要併到哪一類？", results, renumber
-    n = _item_count(folder) if folder.is_dir() else 0
-    if n:
-        raise Refused(NONEMPTY.format(name=row["name"], n=n))
+    if folder.is_dir() and _item_count(folder):  # 夾裡剩別的檔：夾留著當使用者的夾，後面的夾不補號
+        renumber = _renumber(vault, data, list(data["types"]))
     results = [_result(1, f"刪掉{row['name']}這一類", [cmd("profile", "type", "remove", row["name"])], True),
                _result(2, "先不刪")]
     tail = f"後面的夾會補號：{_arrow(renumber['moves'])}。" if renumber["moves"] else ""
@@ -1155,13 +1160,23 @@ def _merge_type(vault, data, row, dst, members, imp, turn_id, renumber):
 
 def _remove_type(vault, data, row, turn_id, renumber):
     name, folder = row["name"], _folder(row)
+    members = _members(vault, name)
+    if members:  # 還有實體：只標 pending_remove
+        types = [dict(t, pending_remove=True) if t["name"] == name else dict(t) for t in data["types"]]
+        entities._guarded(vault, lambda undo: _write_profile(vault, dict(data, types=types), turn_id, undo))
+        pend = [{"type": name, "entities": [m["name"] for m in members]}]
+        return (f"型別「{name}」先留著（還有 {len(members)} 個實體）；" + _pending_lines(pend)[0]), list(CHANGED)
+    keep_dir = (vault / folder).is_dir() and bool(_item_count(vault / folder))
+    if keep_dir:  # 夾裡剩別的檔：夾留著，後面的夾不補號
+        renumber = dict(renumber, types=[t for t in renumber["types"] if profile._key(t["name"]) != profile._key(name)],
+                        moves=[])
 
     def act(undo):
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(name)]
         tags = [t for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(name)]
         changed = _write_profile(vault, dict(data, types=renumber["types"], synthesis_sections=synth, tags=tags),
                                  turn_id, undo)
-        if (vault / folder).is_dir():
+        if (vault / folder).is_dir() and not keep_dir:
             os.rmdir(vault / folder)
             undo.rmdir(folder)
             undo.folder(turn_id, "remove", folder)
@@ -1205,9 +1220,28 @@ def _type_locked(vault, args, as_json, conversation):
     else:
         message, changed = _remove_type(vault, data, row, turn_id, renumber)
     journal_cli.record_program_or_warn(vault, message, changed, f"profile type {op}", conversation)
-    _out(as_json, [message], {"applied": True, "op": op, "type": row["name"], "target": target, "message": message,
-                              "impact": imp})
+    payload = {"applied": True, "op": op, "type": row["name"], "target": target, "message": message, "impact": imp}
+    if op == "remove" and _type_row(profile.load(vault) or {}, row["name"]) is not None:
+        payload["pending_types"] = [{"type": row["name"], "entities": [m["name"] for m in _members(vault, row["name"])]}]
+    _out(as_json, [message], payload)
     return 0
+
+
+def settle_pending(vault, turn_id, old_type):
+    """entity rename --type 換掉最後一個實體之後：型別列標了 pending_remove 就在同一回合拿掉（夾空了跟著拿掉）。
+    回句子；沒事回 None。"""
+    data = profile.load(vault)
+    row = _type_row(data or {}, old_type) if old_type else None
+    if not row or not row.get("pending_remove") or _members(vault, row["name"]):
+        return None
+    with profile.lock(vault):
+        data = profile.load(vault)
+        row = _type_row(data, old_type)
+        if not row:
+            return None
+        renumber = {"types": [t for t in data["types"] if t is not row], "moves": []}
+        message, _changed = _remove_type(vault, data, row, turn_id, renumber)
+    return message
 
 
 PENDING_CATEGORY = "「{old}」只在 {n} 張檔案卡的待補型別裡、型別表沒有；「{new}」要加成新型別，先說它是哪一大類"

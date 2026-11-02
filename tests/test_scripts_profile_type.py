@@ -257,7 +257,6 @@ class Remove(Base):
 
     def test_remove_with_entities(self):
         before = tree(self.V, ())
-        self.assertEqual(self.kb("remove", "業主", code=3).stdout.strip(), "「業主」底下還有 1 個實體，先併到別的型別")
         got = self.check("remove", "業主")
         self.assertEqual(got["question"], "「業主」底下還有 1 個實體，要併到哪一類？")
         self.assertEqual([(r["label"], r["do"], r["strict"]) for r in got["results"]],
@@ -265,6 +264,47 @@ class Remove(Base):
                           ("併到工班", ["kb profile type merge 業主 --into 工班"], True),
                           ("併到廠商", ["kb profile type merge 業主 --into 廠商"], True), ("先不刪", [], False)])
         self.assertEqual(tree(self.V, ()), before)
+
+
+class RemovePending(Base):
+    """放寬甲 D-307(2)：拿掉還有實體的型別不擋，標 pending_remove，換完實體自動拿掉；夾裡剩別的檔不算。"""
+
+    def test_remove_with_entities_marks_pending_then_auto_removes(self):
+        r = self.kb("remove", "業主")
+        self.assertIn("型別「業主」還有 1 個實體要換型別：王先生；", r.stdout)
+        self.assertIn("kb entity rename <名稱> --to <名稱> --type <新型別>", r.stdout)
+        row = next(t for t in self.data()["types"] if t["name"] == "業主")
+        self.assertTrue(row.get("pending_remove"))
+        self.assertNotIn("| 業主 | 對象 |", (self.V / "系統" / "客戶設定檔.md").read_text(encoding="utf-8"))
+        self.assertEqual(self.entity("王先生")["type"], "業主")
+        r = run_kb("entity", "rename", "王先生", "--to", "王先生", "--type", "廠商", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("業主", [t["name"] for t in self.data()["types"]])
+        self.assertEqual(self.entity("王先生")["type"], "廠商")
+
+    def test_apply_dropping_row_with_entities_gives_pending_types(self):
+        md = self.V / "系統" / "客戶設定檔.md"
+        text = md.read_text(encoding="utf-8")
+        row = next(ln for ln in text.split("\n") if ln.startswith("| 業主 | 對象 |"))
+        md.write_text(text.replace(row + "\n", "", 1), encoding="utf-8", newline="\n")
+        r = run_kb("profile", "apply", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got["pending_types"], [{"type": "業主", "entities": ["王先生"]}])
+        self.assertTrue(next(t for t in self.data()["types"] if t["name"] == "業主").get("pending_remove"))
+        self.assertTrue((self.V / "業主" / "王先生").is_dir() or any((self.V).glob("*業主*")))
+
+    def test_remove_json_has_pending_types(self):
+        got = json.loads(self.kb("remove", "業主", "--json").stdout)
+        self.assertEqual(got["pending_types"], [{"type": "業主", "entities": ["王先生"]}])
+
+    def test_remove_keeps_folder_with_other_files(self):
+        folder = self.V / "案子"
+        (folder / "散檔.txt").write_text("x", encoding="utf-8")
+        entities.remove(self.V, "信義王", turn.current(self.V)["turn"])
+        self.kb("remove", "案子")
+        self.assertTrue((folder / "散檔.txt").is_file())
+        self.assertNotIn("案子", [t["name"] for t in self.data()["types"]])
 
 
 class Rollback(Base):
