@@ -211,6 +211,11 @@ class DigOriginals(unittest.TestCase):
         self.assertIn("原檔也沒有才說找不到", part)
         self.assertEqual(self.verify.count("設定檔說不抄進卡的種類"), 1)
 
+    def test_skill_points_to_verify(self):
+        body = SKILL.read_text(encoding="utf-8")
+        line = next(ln for ln in body.splitlines() if ln.startswith("- 回答："))
+        self.assertIn("卡上找不到先順著卡讀原檔（`references/verify.md` 第六節）", line)
+
     def test_find_points_to_verify(self):
         part = self.find[self.find.index("## 十、"):]
         line = next(ln for ln in part.splitlines() if "只讀卡與綜合卡、不讀原檔" in ln)
