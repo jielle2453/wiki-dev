@@ -639,7 +639,7 @@ class List(Base):
         self.folders("exclude", "../raw/行政/薪資", "--kind", "hidden", "--reason", "薪資個資")
         data = json.loads(self.list("--json").stdout)
         src = data["sources"][0]
-        self.assertEqual(set(src), {"id", "alias", "spec", "path", "exists", "excludes"})
+        self.assertEqual(set(src), {"id", "alias", "spec", "path", "exists", "shared", "excludes"})
         self.assertTrue(src["exists"])
         ex = src["excludes"][0]
         self.assertEqual(set(ex), {"spec", "kind", "reason", "added", "path", "exists"})
