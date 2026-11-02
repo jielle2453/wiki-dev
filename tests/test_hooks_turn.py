@@ -449,6 +449,22 @@ class EachTurnChecks(unittest.TestCase):
         checks = json.loads((self.V / ".system" / "turns" / f"{SID}.json").read_text(encoding="utf-8"))["checks"]
         self.assertIn("cards", checks["stamps"])
 
+    def test_moved_line_once_per_item_and_folder_counts_once(self):
+        """放寬丙 5-3：認出搬動印一行（整夾算一件）；同一件同一個對話只講一次，新的一件再印。"""
+        shutil.copy2(self.raw / "行政" / "請款" / "r.docx", self.raw / "行政" / "請款" / "r2.docx")
+        settle(self.V)
+        (self.raw / "行政" / "2025 結案").mkdir()
+        shutil.move(self.raw / "行政" / "請款", self.raw / "行政" / "2025 結案" / "請款")
+        got = self.say()
+        lines = [ln for ln in got if "kb changes --moved" in ln]
+        self.assertEqual(len(lines), 1, got)
+        self.assertTrue(lines[0].startswith("有 1 件搬動：跑 kb changes --moved --json，照內容判斷"), lines[0])
+        self.assertEqual([ln for ln in self.say() if "kb changes --moved" in ln], [])
+        shutil.move(self.raw / "客戶案件" / "a.txt", self.raw / "行政" / "a.txt")
+        again = [ln for ln in self.say() if "kb changes --moved" in ln]
+        self.assertEqual(len(again), 1)
+        self.assertTrue(again[0].startswith("有 1 件搬動："), again[0])
+
     def test_no_session_id_means_no_checks(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新", encoding="utf-8")
         r = run_hook({"cwd": str(self.V), "prompt": "問", "hook_event_name": "UserPromptSubmit"})

@@ -28,6 +28,8 @@ SOURCE = "session"  # log 的 source；turn.py 改成 "turn"
 CHANGES_LINE = ("有變動（新增 {added}、修改 {modified}、不見 {missing}）：照 ingest 整理，要做卡的不超過 {max} 份就在背景做、"
                 "不跟客戶報數字；超過先問一句要不要全部做（額度）。")
 CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
+MOVED_HINT = ("有 {n} 件搬動：跑 kb changes --moved --json，照內容判斷要不要改掛（搬到結案夾、桌面、客戶自己的夾就不用動也不用提）；"
+              "先看夾名、檔名一批一起判斷，看不出來的才讀內容，卡跟著走不重做。")  # 放寬丙 5-3，字句照乙
 INGEST_HINT = ("有變動：先照 ingest skill 整理（開始前照 announce 說一句），整理完再完整回答客戶；"
                "超過 {max} 份先在回答最後問一句要不要全部整理，理由講額度、不講內部名詞。")
 DRIFT_PART = "、實體夾有變 {n}"
@@ -246,6 +248,18 @@ def line_changes(vault):
     if any(counts.values()):
         return CHANGES_LINE.format(max=_auto_max(vault), **counts) + (DRIFT_PART.format(n=drift) if drift else "")
     return DRIFT_LINE.format(n=drift) if drift else None
+
+
+def line_moved_files(vault, told):
+    """認出搬動時印給 AI 的一行（放寬丙 5-3）：整夾搬算一件（cards.group_moves）；同一件同一個對話只講一次（鍵記進 told，
+    「moved|舊|新」）。沒有新的件回 None；回 (句子, 新鍵清單)。"""
+    got = file_compare(vault)
+    if got is None or not got[1]["moved"]:
+        return None
+    from kb._lib import cards
+
+    fresh = [k for k in (f"moved|{g['from']}|{g['to']}" for g in cards.group_moves(vault, got[1]["moved"])) if k not in told]
+    return (MOVED_HINT.format(n=len(fresh)), fresh) if fresh else None
 
 
 def _stopped(vault, session_id):
@@ -519,6 +533,10 @@ def turn_lines(vault, session_id):
             stamps["profile"] = stamp_now
     if got is not None or not over_budget():  # 比對本身有自己的時限；比完後組句子很快，比過了就不再看這裡的預算
         tell(guarded(line_missing_sources, vault))
+        moved = guarded(line_moved_files, vault, told)
+        if moved and not yield_to_upgrade(vault):
+            tell(moved[0])
+            told.extend(moved[1])
         line = guarded(line_changes, vault)
         if line is not None and line not in told:
             tell(line, once=True)
