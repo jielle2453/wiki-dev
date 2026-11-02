@@ -174,6 +174,17 @@ class Round2(unittest.TestCase):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("做成文件、Excel 檔、簡報", answer)
 
+    def test_notes_saved_final_not_draft(self):
+        """D-519（#33）：筆記這類 md 成品直接存成定稿；她說先不要整理才標草稿。"""
+        line = next(ln for ln in self.body.splitlines() if "本身就是成品" in ln)
+        for want in ("直接存成定稿", "先不要整理", "D-519"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+        sec = self.draft[self.draft.index("## md 本身就是成品的"):self.draft.index("## 放哪、叫什麼")]
+        for want in ("kb office check", "kb output save", "暫存區/筆記/", "先不要整理", "（草稿）.md"):
+            with self.subTest(want=want):
+                self.assertIn(want, sec)
+
 
 class Evals(unittest.TestCase):
     def test_twenty_half_half_with_negatives(self):

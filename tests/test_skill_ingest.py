@@ -179,5 +179,17 @@ class CardMakerSkeleton(unittest.TestCase):
                 self.assertIn(want, carding)
 
 
+class SimpleCardForAiNotes(unittest.TestCase):
+    """D-519（#33）：AI 產出的 md 卡寫簡單版，只寫重點三到五點。"""
+
+    def test_carding_simple_version(self):
+        carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        line = next(ln for ln in carding.splitlines() if "簡單版" in ln)
+        for want in ("出處「AI 產出」的 md", "## 重點", "三到五點", "D-519"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+
+
 if __name__ == "__main__":
     unittest.main()
+
