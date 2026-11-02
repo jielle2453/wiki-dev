@@ -975,6 +975,9 @@ def remove_card(vault, rel, turn_id):
     prune_dirs(vault, rel)
 
 
+SKIP_AI = "AI 判斷"  # skip_kind 的特殊值：AI 看過、判斷不用卡（D-310(1)），不在設定檔第三節
+
+
 def skip(vault, sources, fid, kind, turn_id):
     """kb cards skip（客戶設定檔與型別第 5 點，D-113）：條目要 active、read ok，kind 要是設定檔第三節 no_card 的種類，
     錯了丟 SkipRefused 帶給人看的句子。有卡（同編號多張全部）備成 delete 後刪；清冊備份後記 skip_kind；重寫總目錄。
@@ -988,7 +991,8 @@ def skip(vault, sources, fid, kind, turn_id):
         if entry.get("status") != "active" or entry.get("read") != "ok":
             raise SkipRefused(f"這份不是待製卡的檔（{entry.get('status')}／{entry.get('read')}）")
         data, _missing = _profile_or_default(vault)
-        if kind not in profile.no_card_kinds(data):
+        kind = kind or SKIP_AI
+        if kind != SKIP_AI and kind not in profile.no_card_kinds(data):
             raise SkipRefused(f"「{kind}」不在客戶設定檔的不整理種類裡，先在設定檔第三節加一列再套用")
         groups, _broken = _scan_groups(vault)
         removed = [c["path"] for c in groups.get(fid) or []]

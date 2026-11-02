@@ -483,15 +483,35 @@ class Skip(Base):
     def test_refusals(self):
         self.set_no_card()
         fid = self.fid()
-        r = self.kb("cards", "skip", fid, "--kind", "薪資")
-        self.assertEqual((r.returncode, r.stdout.strip()),
-                         (3, "「薪資」不在客戶設定檔的不整理種類裡，先在設定檔第三節加一列再套用"))
         cred = next(e for e in inventory.load(self.V)["entries"] if e["read"] == "credential")
         r = self.kb("cards", "skip", cred["id"], "--kind", "請款")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "這份不是待製卡的檔（active／credential）"))
         r = self.kb("cards", "skip", "f-00000000", "--kind", "請款")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "清冊沒有 f-00000000"))
         self.assertNotIn("skip_kind", self.entry(fid))
+
+
+class SkipRelaxed(Skip):
+    """放寬甲 D-310(1)：--kind 可省略（AI 判斷）；不在第三節就自己加進去（kind_added）。"""
+
+    def test_skip_without_kind_records_ai_judgement(self):
+        fid = self.fid()
+        r = self.kb("cards", "skip", fid)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.entry(fid)["skip_kind"], "AI 判斷")
+        r = self.kb("profile", "apply")  # AI 判斷不算設定檔殘留，apply 不會把它放回待製卡
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.entry(fid)["skip_kind"], "AI 判斷")
+
+    def test_skip_with_unlisted_kind_adds_it(self):
+        fid = self.fid()
+        r = self.kb("cards", "skip", fid, "--kind", "薪資單", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["kind"], got["kind_added"]), ("薪資單", True))
+        self.assertEqual(self.entry(fid)["skip_kind"], "薪資單")
+        text = self.md().read_text(encoding="utf-8")
+        self.assertIn("| 薪資單 | 不整理 |", text)
 
 
 class TodoProfile(Base):

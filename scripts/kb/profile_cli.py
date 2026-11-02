@@ -437,7 +437,7 @@ def _about_lines(about):
 
 def _stale_skip_kinds(vault, data):
     """清冊裡記了 skip_kind、但設定檔第三節已經不是「不整理」的種類（上次寫完設定檔、清冊那步沒做完留下的）。"""
-    keep = set(profile.no_card_kinds(data))
+    keep = set(profile.no_card_kinds(data)) | {cards.SKIP_AI}  # AI 判斷不在設定檔裡，不算殘留
     return {e["skip_kind"] for e in inventory.load(vault)["entries"] if e.get("skip_kind")} - keep
 
 
