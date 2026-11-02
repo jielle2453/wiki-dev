@@ -582,7 +582,8 @@ def unscanned(vault, data, groups=None, entries=None, skip=()):
     for cid, group in sorted(groups.items(), key=lambda kv: kv[1][0]["path"]):
         entry, card = by_id.get(cid), group[0]
         fp = card_fp(card["front"])
-        if entry is None or entry.get("status") != "active" or not fp or entry.get("agenda_fp") == fp or cid in skip:
+        if (entry is None or entry.get("status") != "active" or not fp or entry.get("agenda_fp") == fp or cid in skip
+                or entry.get("archived")):  # 封存的檔不從它抽日期（放寬丙 12）
             continue
         existing = [{"id": i["id"], "kind": KIND_TEXT.get(i.get("kind"), i.get("kind")), "date": i.get("date"), "text": i.get("text")}
                     for i in data["items"] if i.get("status") == "open" and (i.get("origin") or {}).get("card") == cid]

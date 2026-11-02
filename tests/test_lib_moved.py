@@ -97,7 +97,7 @@ class Check(Base):
         self.assertEqual(got["from"], posix(self.V))
         self.assertEqual(got["to"], posix(NV))
         self.assertEqual(got["sources_rewritten"], [])
-        self.assertEqual(got["cards_relinked"], 1)
+        self.assertEqual(got["cards_relinked"], 0)  # 放寬丙 9：開原檔是外掛連結，換位置卡不用重寫
         self.assertEqual(got["missing_sources"], [])
         self.assertEqual(_backup.tree(NV), before, "--check 不動任何檔")
 
@@ -150,8 +150,11 @@ class Apply(Base):
     def test_together_relinks_cards_and_records_path(self):
         NV = self.move_together()
         t = turn.start(NV, None, "補連結")
+        card = next((NV / "檔案索引").rglob("大安陳會議一-*.md"))
+        before = card.read_bytes()
         got = moved.apply(NV, t["turn"])
-        self.assertEqual(got["cards_relinked"], 1)
+        self.assertEqual(got["cards_relinked"], 0)
+        self.assertEqual(card.read_bytes(), before, "放寬丙 9：卡沒被重寫")
         self.assertEqual(env.vault_path(NV), posix(NV))
         self.assertEqual(moved.state(NV)["state"], "same")
         card = next((NV / "檔案索引").rglob("大安陳會議一-*.md"))

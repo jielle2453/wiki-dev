@@ -61,7 +61,8 @@ def _text(item):
 
 
 def _list(vault, as_json):
-    opened = [i for i in pending.load(vault)["items"] if i.get("status") == "open"]
+    from kb._lib import archive
+    opened = [i for i in archive.visible_items(vault, pending.load(vault)["items"]) if i.get("status") == "open"]  # 封存的不列
     if as_json:
         print(json.dumps(opened, ensure_ascii=False))
         return 0

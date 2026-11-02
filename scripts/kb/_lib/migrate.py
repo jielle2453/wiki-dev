@@ -19,8 +19,11 @@ entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 act
 AI 產出／收件匣的檔搬進暫存區、同名一樣的拿掉、空夾拿掉），有就算 0（要遷）、沒有算 1；升級前照 D-215 拍快照，不另備路徑。
 彈性區（D-512）：再一列，rel 也是 profile.json：型別表有列的 dir 是 FREE_DIR（她自己把型別夾改名成它）算 6、沒有算 7。
 rewrite 照 dir_plan（叫 FREE_DIR 的夾名不留，改回預設編號名）改夾名、寫 dir，跟補編號那列同一套 _follow；Skip 的條件也一樣。
+_extras 改名 _個人（放寬丙 4，D-314）：再一列，rel 是 FREE_DIR（不是狀態檔）：第一層有 _extras 沒有 _個人 算 0（要遷）、其他算 1；
+rewrite 把夾改名（升級前照 D-215 拍快照）。兩個都有就不動，apply 記一行 log、notes 說一聲沒有合併。
 apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
 """
+import os
 from collections import namedtuple
 from pathlib import Path
 
@@ -194,6 +197,26 @@ def _hold_stored(vault):
         return None
 
 
+OLD_FREE = "_extras"  # 舊名：只給這一列遷移用
+
+
+def _old_free_dir(vault):
+    p = Path(vault) / OLD_FREE
+    return p.is_dir() and not p.is_symlink()
+
+
+def _free_name_stored(vault):
+    """_extras 改名那列：有 _extras、沒有 _個人 算 0（要遷），其他算 1。"""
+    return 0 if _old_free_dir(vault) and not (Path(vault) / FREE_DIR).exists() else 1
+
+
+def _rewrite_free_name(vault, turn_id):
+    os.rename(Path(vault) / OLD_FREE, Path(vault) / FREE_DIR)
+
+
+FREE_BOTH_NOTE = f"{OLD_FREE} 跟 {FREE_DIR} 都在，沒有合併；要合併請自己把 {OLD_FREE} 裡的東西搬進 {FREE_DIR}"
+
+
 STATE_FILES = (
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, profile.stored_schema, _rewrite_profile),
     Migration(inventory.INVENTORY_POSIX, lambda: inventory.SCHEMA_VERSION, _raw_version(inventory.INVENTORY_POSIX),
@@ -205,6 +228,7 @@ STATE_FILES = (
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _dirs_stored, _rewrite_dirs),
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _free_stored, _rewrite_free),
     Migration(hold_migrate.REL, lambda: 1, _hold_stored, hold_migrate.rewrite),  # 收件匣與 AI 產出合成暫存區（放寬甲第二輪 13）
+    Migration(FREE_DIR, lambda: 1, _free_name_stored, _rewrite_free_name),  # _extras 改名 _個人（放寬丙 4）
 )
 CARD_HEADER_MIGRATIONS = []
 
@@ -281,5 +305,12 @@ def apply(vault, turn_id):
                 left += extra.get("left_in_output") or []
             else:
                 skipped += extra or []
+    if _old_free_dir(vault) and (Path(vault) / FREE_DIR).exists():  # 兩個都有：不動，記 log、說一聲
+        notes.append(FREE_BOTH_NOTE)
+        try:
+            from kb._lib import ledger
+            ledger.log_error(vault, FREE_BOTH_NOTE, source="migrate")
+        except Exception:  # noqa: BLE001
+            pass
     return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped), "notes": notes,
             "left_in_output": left}

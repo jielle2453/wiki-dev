@@ -50,6 +50,7 @@ BROKEN = "檔案壞了"
 BAD_TEMP = "暫存位置不對"
 JSON_KEYS = ("id", "uri", "path", "kind", "temp", "chars", "parts", "encoding", "pages", "big", "unreadable",
              "pending_id", "scanned_pages", "images", "ask_save", "unlocked")
+MID_LINE = "中檔：照 carding.md 加「各部分在哪」"
 WRONG_PASSWORD = extract.PDF_WRONG_PASSWORD
 NOT_ALLOWED = "這組密碼沒說過可以用在別的檔"
 ONE_PASSWORD = "--password 跟 --saved 只能擇一"
@@ -275,9 +276,17 @@ def convert(vault, sources, entry, path, password=None, secret=False):
         lines.append(f"編碼：{encoding}")
     if big:
         lines.append("大檔：照 carding.md 摘要加定位")
+    elif _mid(vault, chars):
+        lines.append(MID_LINE)
     if chars == 0:
         lines.append("轉換結果是空的")
     return result, lines
+
+
+def _mid(vault, chars, pages=None):
+    """中檔（放寬丙 10，D-330）：沒到大檔，但抽出文字 >= card_section_map_min_chars，或 PDF 頁數 >= card_section_map_min_pages。"""
+    return chars >= config.get(vault, "card_section_map_min_chars") or (
+        pages is not None and pages >= config.get(vault, "card_section_map_min_pages"))
 
 
 def _temp_target(vault, entry, path, secret=False):
@@ -317,6 +326,8 @@ def _convert_pdf(vault, entry, path, result, password=None, secret=False):
         lines.append(f"掃描頁超過 {limit} 頁：只轉前 {limit} 頁，卡的讀取標「部分」")
     if big:
         lines.append("大檔：照 carding.md 摘要加定位")
+    elif _mid(vault, chars, pages):
+        lines.append(MID_LINE)
     return result, lines
 
 

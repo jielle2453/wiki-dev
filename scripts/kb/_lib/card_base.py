@@ -20,15 +20,26 @@ BASE_POSIX = ".system/card_base.json"
 SCHEMA = 1
 
 
+def strip_files(body):
+    """綜合卡最後一段「相關檔」（synthesis.file_section，程式的快取，放寬丙 7）拿掉：它不是她或 Claude 寫的，不算內文。"""
+    from kb._lib import synthesis
+    i = body.find(synthesis.FILE_BEGIN)
+    if i < 0:
+        return body
+    j = body.find(synthesis.FILE_END, i)
+    tail = body[j + len(synthesis.FILE_END):].lstrip("\n") if j >= 0 else ""
+    return body[:i].rstrip("\n") + "\n" + tail
+
+
 def body_of(text):
-    """檔頭之後的全文，行尾統一 \\n；沒有檔頭就是整份。"""
+    """檔頭之後的全文（綜合卡的「相關檔」那段不算），行尾統一 \\n；沒有檔頭就是整份。"""
     text = str(text).lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
     if lines and lines[0].strip() == "---":
         for i in range(1, len(lines)):
             if lines[i].strip() == "---":
-                return "\n".join(lines[i + 1:])
-    return text
+                return strip_files("\n".join(lines[i + 1:]))
+    return strip_files(text)
 
 
 def sha(body):

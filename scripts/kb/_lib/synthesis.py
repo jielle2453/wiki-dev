@@ -674,6 +674,85 @@ def validate(vault, rel, data=None, mounts=None, prof=None, know=None, allow_sta
     return (False, found[0][1]) if found else (True, "")
 
 
+# ---------- 相關檔（放寬丙 7，D-315）----------
+
+FILE_BEGIN = "<!-- willy:檔 開始 -->"
+FILE_END = "<!-- willy:檔 結束 -->"
+FILE_TITLE = "## 相關檔"
+NO_TYPE = "未分類"
+_WIKI_ESC = {"|": "｜", "[": "［", "]": "］"}
+
+
+def _wiki(m):
+    title = re.sub(r"[|\[\]]", lambda x: _WIKI_ESC[x.group()], m.get("title") or m["path"].rpartition("/")[2][:-3])
+    day = m.get("date") or ""
+    return f"[[{m['path']}|{title}]]" + (f"（{day}）" if _DATE.match(day) else "")
+
+
+def file_section(mounts_of_it):
+    """綜合卡最後一段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
+    `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
+    ordered = sorted(sorted(mounts_of_it, key=lambda m: m["id"]), key=_date_key, reverse=True)
+    main, old, other, seen = [], [], [], set()
+    for m in ordered:
+        if m.get("relation") == "mention" or m.get("archived"):  # 封存的檔也收進「其他」（放寬丙 12）
+            other.append(m)
+            continue
+        k = entities.key(m.get("title") or m["id"])
+        (old if k in seen else main).append(m)
+        seen.add(k)
+    if not (main or old or other):
+        return ""
+    groups = {}
+    for m in main:
+        groups.setdefault(m.get("card_type") or NO_TYPE, []).append(m)
+    lines = [FILE_BEGIN, FILE_TITLE, ""]
+    for t in sorted(groups, key=lambda t: (-len(groups[t]), t)):
+        lines += [f"### {t}"] + [f"- {_wiki(m)}" for m in groups[t]] + [""]
+    for head, items in (("舊版", old), ("其他", other)):
+        if items:
+            lines += [f"> [!note]- {head}"] + [f"> - {_wiki(m)}" for m in items] + [""]
+    return "\n".join(lines + [FILE_END])
+
+
+def _span(text):
+    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到結尾。"""
+    i = text.find(FILE_BEGIN)
+    if i < 0:
+        return None
+    j = text.find(FILE_END, i)
+    return (i, j + len(FILE_END)) if j >= 0 else (i, len(text))
+
+
+def with_file_section(text, section):
+    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段就接在最後；其他字原樣。"""
+    span = _span(text)
+    if span is None:
+        return text.rstrip("\n") + "\n\n" + section + "\n" if section else text
+    head, tail = text[:span[0]].rstrip("\n"), text[span[1]:].strip("\n")
+    return head + ("\n\n" + section if section else "") + ("\n\n" + tail if tail else "") + "\n"
+
+
+def _file_key(rel):
+    return f"{rel}#檔"
+
+
+def _hers_file_section(vault, rel, text, section):
+    """她手改了檔案清單那段（跟程式上次寫的不一樣、也不是這次要寫的）→ 回那段文字，否則 None（D-223）。沒紀錄不算手改。"""
+    from kb._lib import renders
+    span = _span(text)
+    if span is None:
+        return None
+    now = text[span[0]:span[1]]
+    data = renders.load(vault)
+    key = _file_key(rel)
+    want = data["files"].get(key)
+    sha = renders.fingerprint(now)
+    if not want or now == section or sha == want or sha in (data["history"].get(key) or []):
+        return None
+    return now
+
+
 # ---------- 快取渲染 ----------
 
 def _cache_ok(found):
@@ -684,9 +763,10 @@ def _cache_ok(found):
 def render_cache(vault, entity_names, turn_id):
     """對這些實體裡已有合法綜合卡的（只差整理到也算），只重寫檔頭的 檔案卡 與 相關實體 兩欄；內容沒變不寫；
     寫前 turn.backup(by="program")。entity_names 是 None 就全部；名稱可以是別名或合併過的。回重寫了的相對路徑清單。"""
-    from kb._lib import turn
+    from kb._lib import ledger, renders, turn
     data = entities.load(vault)
     mounts = entities.mounts(vault, data)
+    all_mounts = entities.mounts(vault, data, mentions=True)
     prof = entities._profile(vault)
     know = knowledge(vault)
     if entity_names is None:
@@ -715,13 +795,29 @@ def render_cache(vault, entity_names, turn_id):
             continue
         new = replace_front(text, {"檔案卡": card_lines(mounts.get(e["name"], [])),
                                    "相關實體": related(data, mounts, e)})
+        section = file_section(all_mounts.get(e["name"], []))
+        hers = _hers_file_section(vault, rel, new, section)
+        if hers is not None:  # 她手改了這段：先留她那份再重寫（D-223）；留不下來這次就不動這段
+            try:
+                renders.keep(vault, rel, hers)
+            except Exception as err:  # noqa: BLE001
+                ledger.log_error(vault, f"{rel} 她改的檔案清單沒存成，這次不重寫那段：{type(err).__name__}: {err}", source="synthesis")
+                section = None
+        if section is not None:
+            new = with_file_section(new, section)
         need = new != text or bool(e.get("aliases"))
         if need and maps is None:
             maps = _fix_maps(vault)  # 寫之前讀：還算數的要照寫之前的指紋認
         if new != text:
+            from kb._lib import card_base
+            synced = card_base.in_sync(vault, rel)  # 她沒有沒處理的手改：程式改了內文，基準跟著換（D-270）
             turn.backup(vault, rel, turn_id, by="program")
             write_text_atomic(p, new)
             written.append(rel)
+            if synced and card_base.body_of(new) != card_base.body_of(text):
+                card_base.record_safe(vault, rel)
+        if section and renders.load(vault)["files"].get(_file_key(rel)) != renders.fingerprint(section):
+            renders.record(vault, _file_key(rel), section)
         if need:
             _follow_fixes(vault, e, rel, new != text, *maps)
     return written
@@ -860,21 +956,89 @@ def _brief(m):
     return {"id": m["id"], "path": m.get("path"), "title": m.get("title")}
 
 
+def _similar(data, entry):
+    """名字相近或別名重疊的其他實體（active、不含自己與客戶自己）：名稱或別名有一個相同，或兩個名稱一個是另一個的一部分（兩字以上）。"""
+    mine = {entities.key(w) for w in entities.words(entry) if w}
+    me = entities.key(entry["name"])
+    out = []
+    for o in data["entities"]:
+        if o.get("id") == entry.get("id") or o.get("status") != "active" or entities.is_self(o):
+            continue
+        other = entities.key(o["name"])
+        if (mine & {entities.key(w) for w in entities.words(o) if w}
+                or (min(len(me), len(other)) >= 2 and (me in other or other in me))):
+            out.append(o["name"])
+    return out
+
+
+def _last_activity(vault, entry, data, mounts, know, today):
+    """掛的檔最新的文件日期、口述日期、日程條目日期（今天以前）、日誌提到它的最後一天，取最晚；都沒有回 None。"""
+    days = [m.get("date") for m in mounts.get(entry["name"], [])]
+    days += [x.get("date") for x in statements_for(know, entry["name"])]
+    try:
+        from kb._lib import agenda
+        k = entities.key(entry["name"])
+        days += [i.get("date") for i in agenda.load(vault)["items"]
+                 if any(entities.key(n) == k for n in i.get("entities") or []) and str(i.get("date") or "") <= today]
+    except (ValueError, OSError, KeyError):
+        pass
+    try:
+        from kb._lib import journal
+        rows = journal.recent(vault, 1, find=entry["name"])
+        days += [str(rows[0].get("time", ""))[:10]] if rows else []
+    except (ValueError, OSError):
+        pass
+    days = [d for d in days if isinstance(d, str) and _DATE.match(d)]
+    return max(days) if days else None
+
+
+def statements_for(know, name):
+    from kb._lib import statements
+    return statements.active_for(know["statements"], name)
+
+
+def _drift_facts(vault, d, data, mounts, know, today, missing, all_mounts=None):
+    """entity_drift 每項多帶的判斷資料（放寬丙 6-1，D-311）：progress、last_activity、source、mounts（main／mention）、similar、
+    same_name_new（別的型別夾新出現的同名綜合卡路徑，沒有 None）、deleted_with（同一次一起不見的其他綜合卡數，missing 是這次不見的總數）。程式不判斷，交 AI。"""
+    e = next((x for x in data["entities"] if x.get("id") == d["entity_id"]), None)
+    if e is None:
+        return {}
+    same = None
+    if d["kind"] == "missing":
+        k = entities.key(e["name"])
+        by_id = {x.get("id"): x for x in data["entities"]}
+        for eid, rels in sorted(entities.synthesis_files(vault).items()):
+            for rel in rels:
+                owner = by_id.get(eid)
+                if eid == e["id"] or entities.key(rel.rpartition("/")[2][:-3]) != k:
+                    continue
+                if owner is not None and owner.get("type") and rel.casefold() == card_rel(owner, vault).casefold():
+                    continue  # 登記好、在原位的另一個同名實體不是「新出現」
+                same = same or rel
+    return {"progress": e.get("progress"), "last_activity": _last_activity(vault, e, data, mounts, know, today),
+            "source": e.get("source"), "mounts": {"main": len(mounts.get(e["name"], [])),
+                                                              "mention": sum(1 for m in (all_mounts or {}).get(e["name"], []) if m.get("relation") == "mention")},
+            "similar": _similar(data, e), "same_name_new": same,
+            "deleted_with": max(0, missing - 1) if d["kind"] == "missing" else 0}
+
+
 def buckets(vault, data, mounts, prof):
     """給 cards todo：回 synthesis_new、synthesis_stale、synthesis_broken、entity_drift 四桶（資料與介面格式）。只讀。"""
     min_cards = config.get(vault, "synthesis_min_cards")
     know = knowledge(vault)
     types = {entities.key(t["name"]) for t in prof.get("types") or []}
-    drift_list = entities.drift(vault, data)
+    archived_ents = {e.get("id") for e in data["entities"] if e.get("archived")}
+    drift_all = entities.drift(vault, data)
+    drift_list = [d for d in drift_all if d["entity_id"] not in archived_ents]
     drift_ids = {d["entity_id"] for d in drift_list}
-    drift_found = {d["found"].casefold() for d in drift_list if d["found"]}
+    drift_found = {d["found"].casefold() for d in drift_all if d["found"]}
     today = date.today().isoformat()
     new, stale, broken = [], [], []
     listed = set()
     fixes = _lint_fixes(vault)
     for e in data["entities"]:
-        if e.get("status") == "merged" or entities.is_self(e) or not e.get("type"):
-            continue
+        if e.get("status") == "merged" or entities.is_self(e) or not e.get("type") or e.get("archived"):
+            continue  # 封存的實體不再整理、不出題（放寬丙 12，D-332）
         rel = card_rel(e, vault)
         ms = mounts.get(e["name"], [])
         p = Path(vault) / rel
@@ -928,7 +1092,9 @@ def buckets(vault, data, mounts, prof):
             ok, reason = validate(vault, rel, data, mounts, prof, know)
             broken.append({"path": rel, "reason": reason if not ok else f"綜合卡該放在 {card_rel(owner, vault)}"})
             listed.add(rel.casefold())
-    drift_items = [dict(d, question=_question(d)) for d in drift_list]
+    gone = sum(1 for d in drift_list if d["kind"] == "missing")
+    all_mounts = entities.mounts(vault, data, mentions=True) if drift_list else {}
+    drift_items = [dict(d, question=_question(d), **_drift_facts(vault, d, data, mounts, know, today, gone, all_mounts)) for d in drift_list]
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}
 
 

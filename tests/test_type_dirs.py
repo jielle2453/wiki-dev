@@ -9,7 +9,7 @@ from pathlib import Path
 from tests import _cards
 from tests import _entities as E
 from tests.test_hooks_output_log import post_payload, run_hook
-from tests.test_hooks_session import payload, run as run_session
+from tests.test_hooks_session import payload, run_turn_ctx as run_session  # 設定檔的行挪到每句開頭（放寬丙 3b）
 from tests.test_scripts_inventory_cli import run_kb
 from tests._guard_fixture import ROOT
 from kb._lib import cards, entities, inventory, migrate, profile, synthesis, turn  # noqa: E402

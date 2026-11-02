@@ -23,7 +23,7 @@ import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from kb._lib import hand, ledger, renders
+from kb._lib import archive, hand, ledger, renders
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PENDING_POSIX = ".system/pending.json"
@@ -161,7 +161,7 @@ def _hand_edit(vault, data, turn_id):
         if hers is None:
             return None
         known = renders.base(vault, MD_POSIX)  # 上一次真的寫進去的那份（T-29）；沒記過才用現在的資料重算
-        base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data))
+        base_text, lines = known if known else (render_text(vault, data, asks=[]), item_lines(data, vault))
         return hand.guarded(
             vault, MD_POSIX, hers, data,
             lambda st: hand.consume(vault, MD_POSIX, hers, base_text, lines, {i.get("id") for i in data["items"]},
@@ -396,16 +396,17 @@ def _newest_first(rows):
     return sorted(rows, key=lambda i: str(i.get("created", "")), reverse=True)
 
 
-def item_lines(data):
-    """[(待處理.md 裡那一行, 編號)]：open 的每一條（先放著的也是），手改比對用。"""
-    return [(_row(i), i["id"]) for i in data["items"] if i.get("status") == "open" and i.get("id")]
+def item_lines(data, vault=None):
+    """[(待處理.md 裡那一行, 編號)]：open 的每一條（先放著的也是），手改比對用；給了 vault 就跟 render_text 一樣不列跟封存有關的。"""
+    items = archive.visible_items(vault, data["items"]) if vault is not None else data["items"]
+    return [(_row(i), i["id"]) for i in items if i.get("status") == "open" and i.get("id")]
 
 
 def render_text(vault, data, asks=None):
     """待處理.md 的內容：只列 open，依 kind 分段、新的在上；再來「整理時要問你的」（asks：不住在 pending.json 的問題，
     沒給就用上一次健檢或 kb asks --all 算好、記在 renders.json 的那份——每次寫待處理都重算整理問題太慢）；最底下「先放著的」。
     什麼都沒有時一行 NOTHING。兩份寫法不同的日期寫在句尾。"""
-    opened = [i for i in data["items"] if i.get("status") == "open"]
+    opened = [i for i in archive.visible_items(vault, data["items"]) if i.get("status") == "open"]  # 跟封存有關的不列（放寬丙 12）
     front = [i for i in opened if not i.get("set_aside")]
     aside = [i for i in opened if i.get("set_aside")]
     asks = renders.stored_asks(vault) if asks is None else list(asks)
@@ -434,7 +435,7 @@ def render(vault, data=None, asks=None, turn_id=None):
     target = Path(vault) / MD_POSIX
     target.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(target, text)
-    renders.record(vault, MD_POSIX, text, turn_id=turn_id, lines=item_lines(data))
+    renders.record(vault, MD_POSIX, text, turn_id=turn_id, lines=item_lines(data, vault))
 
 
 def refresh(vault, turn_id, asks=None):

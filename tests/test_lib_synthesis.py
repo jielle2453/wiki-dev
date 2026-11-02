@@ -121,7 +121,9 @@ class RenderCache(Base):
         self.assertEqual([x.split(" ", 2)[2] for x in front["檔案卡"]], ["信義王報價"])
         self.assertEqual(front["相關實體"], ["王宅"])
         unchanged = [ln for ln in before if not ln.startswith(("檔案卡:", "相關實體:"))]
-        self.assertEqual([ln for ln in after if not ln.startswith(("檔案卡:", "相關實體:", "  - "))], unchanged)
+        head = after[:after.index(synthesis.FILE_BEGIN)]  # 最後一段「相關檔」是另一件事（FileSection 測）
+        self.assertEqual([ln for ln in head if not ln.startswith(("檔案卡:", "相關實體:", "  - "))],
+                         unchanged + [""])
         rows = {r["path"]: r for r in turn.entries(self.V, self.t)}
         self.assertEqual(rows[XINYI_REL]["by"], "program")
         self.assertEqual(turn.modified_synthesis_count(self.V, self.t), 0)
@@ -387,6 +389,78 @@ class Knowledge(Base):
         self.statements.add(self.V, "公司下個月搬家", ["林小姐室內設計"], self.t)
         self.statements.add(self.V, "公司要換電話", ["林小姐室內設計"], self.t)
         self.assertEqual([i["name"] for i in self.buckets()["synthesis_new"]], ["王宅"])
+
+
+class FileSection(Base):
+    """放寬丙 7（驗收 19、20）：綜合卡最後一段「相關檔」是程式寫的快取。"""
+
+    def card(self, rel=XINYI_REL):
+        return (self.V / rel).read_text(encoding="utf-8")
+
+    def by_id(self):
+        from kb._lib import inventory
+        return {e["id"]: e for e in inventory.load(self.V)["entries"]}
+
+    def mention(self, rel, name):
+        p = self.V / rel
+        p.write_text(p.read_text(encoding="utf-8").replace("提到: []", f"提到: [{name}]"), encoding="utf-8", newline="\n")
+
+    def test_main_and_mention_sections(self):
+        main = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"], date="2026-10-01")
+        other = E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"], date="2026-09-12")
+        self.mention(other, "大安陳")
+        self.assertEqual(cards.validate(self.V, other, self.by_id()), (True, ""))
+        synthesis.render_cache(self.V, None, self.t)
+        text = self.card()
+        self.assertIn(synthesis.FILE_BEGIN + "\n## 相關檔\n", text)
+        self.assertTrue(text.rstrip().endswith(synthesis.FILE_END))
+        self.assertIn(f"[[{main}|信義王報價]]（2026-10-01）", text)
+        self.assertIn(f"[[{other}|信義王估價]]（2026-09-12）", text)
+        self.assertNotIn("[!note]- 其他", text)
+        daan = self.card("案子/大安陳/大安陳.md")
+        self.assertIn("> [!note]- 其他\n> - [[" + other + "|信義王估價]]", daan)
+        self.assertNotIn("### ", daan)
+        self.assertEqual(synthesis.render_cache(self.V, None, self.t), [])  # 穩定：第二次不寫
+
+    def test_old_version_folded(self):
+        old = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"], date="2026-08-01")
+        new = E.write_card(self.V, E.ESTIMATE, "信義王報價", ["信義王"], date="2026-10-01")
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        text = self.card()
+        self.assertLess(text.index(new), text.index("> [!note]- 舊版"))
+        self.assertGreater(text.index(old), text.index("> [!note]- 舊版"))
+
+    def test_v2_card_counts_as_main(self):
+        rel = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        p = self.V / rel
+        p.write_text(p.read_text(encoding="utf-8").replace("提到: []\n", "").replace("範本版本: 3", "範本版本: 2"),
+                     encoding="utf-8", newline="\n")
+        self.assertEqual(cards.validate(self.V, rel, self.by_id()), (True, ""))
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        self.assertIn(f"[[{rel}|信義王報價]]", self.card())
+
+    def test_ai_edit_without_section_passes_and_handedit_kept(self):
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        text = self.card()
+        i = text.index(synthesis.FILE_BEGIN)
+        self.assertIn("整理到", synthesis.validate(self.V, XINYI_REL)[1])  # 只差整理到（AI 的事），這段本身不挑
+        (self.V / XINYI_REL).write_text(text[:i].rstrip() + "\n", encoding="utf-8", newline="\n")  # AI 把段拿掉再寫
+        self.assertIn("整理到", synthesis.validate(self.V, XINYI_REL)[1])
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        self.assertEqual(self.card(), text)
+        (self.V / XINYI_REL).write_text(text.replace("## 相關檔", "## 相關檔\n她寫的一行"), encoding="utf-8", newline="\n")
+        t2 = turn.start(self.V, None, "")["turn"]
+        self.assertEqual(synthesis.render_cache(self.V, ["信義王"], t2), [XINYI_REL])
+        self.assertEqual(self.card(), text)
+        from kb._lib import renders
+        (saved,) = renders.saved(self.V)
+        self.assertEqual(saved["file"], XINYI_REL)
+        self.assertIn("她寫的一行", (self.V / saved["saved"]).read_text(encoding="utf-8"))
+
+    def test_no_files_no_section(self):
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        self.assertNotIn(synthesis.FILE_BEGIN, self.card())
 
 
 if __name__ == "__main__":
