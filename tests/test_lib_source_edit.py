@@ -162,9 +162,14 @@ class Refusals(Base):
         (Path(self.V) / "案子" / "內湖李").mkdir(parents=True, exist_ok=True)
         dest = str(self.raw / "報價與合約")
         # 放寬甲：整個實體夾、型別夾、登記的來源根本身、綜合卡、沒登記的檔都收
-        for src in (Path(self.V) / "案子" / "內湖李", Path(self.V) / "案子", self.raw / "公司行政",
+        for src in (Path(self.V) / "案子" / "內湖李", Path(self.V) / "案子",
                     Path(self.V) / "案子" / "信義王" / "信義王.md", self._outside_file()):
             self.assertEqual(self.plan(str(src), dest=dest)["src"], str(src))
+        # 登記的來源根本身搬走：搬完自動換登記位置，所以要搬去的地方不能是知識庫或別的來源裡面（兩張卡）
+        away = self.tmp / "別處"
+        away.mkdir()
+        self.assertEqual(self.plan(str(self.raw / "公司行政"), dest=str(away))["source_root"], "公司行政")
+        self.assertIn("kb folders remove", self.refuse(self.plan, str(self.raw / "公司行政"), dest=dest))
         self.assert_refused("這個檔名像密碼或金鑰，不動。", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), dest=dest)
         msg = self.refuse(self.plan, str(Path(self.V) / ".system" / "sources.json"), dest=dest)
         self.assertTrue(msg.startswith("「sources.json」是 willy 自己的檔：") and msg.endswith(guard.AI_TAIL), msg)

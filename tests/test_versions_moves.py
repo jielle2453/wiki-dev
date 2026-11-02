@@ -273,3 +273,46 @@ class OutsideMove(Base):
             msg = self.refuse(self.plan, self.fid, dest=str(elsewhere))
         self.assertIn("不在這台電腦的使用者資料夾底下", msg)
         self.assertIn("kb folders add", msg)
+
+
+class RegistryFollows(Base):
+    """放寬甲（spec 五、六節）：整個型別夾改名、登記來源的根搬走，profile.json 的 dir／sources.json 的 spec 跟著換；退回回得去。"""
+
+    def test_type_folder_rename_updates_profile_dir_and_revert(self):
+        from kb._lib import entities, profile
+        card = Path(self.V) / "案子" / "信義王"
+        card.mkdir(parents=True, exist_ok=True)
+        (card / "信義王.md").write_text("x", encoding="utf-8")
+        before = profile.load(self.V)
+        before_dir = next((t.get("dir") or t["name"]) for t in before["types"] if t["name"] == "案子")
+        p = se.plan_move(self.V, sources_lib.load(self.V), str(Path(self.V) / before_dir), self.V, new_name="工程案")
+        se.do_move(self.V, p, self.t, "rename")
+        row = next(t for t in profile.load(self.V)["types"] if t["name"] == "案子")
+        self.assertEqual(row["dir"], "工程案")
+        self.assertTrue((Path(self.V) / "工程案" / "信義王" / "信義王.md").is_file())
+        self.assertEqual(profile.dir_type(profile.load(self.V), "工程案"), "案子")
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        row = next(t for t in profile.load(self.V)["types"] if t["name"] == "案子")
+        self.assertEqual(row.get("dir") or row["name"], before_dir)
+        self.assertTrue((Path(self.V) / before_dir / "信義王" / "信義王.md").is_file())
+        self.assertFalse((Path(self.V) / "工程案").exists())
+
+    def test_source_root_rename_updates_spec(self):
+        root = self.raw / "客戶案件"
+        sp = Path(self.V) / ".system" / "sources.json"
+        old = json.loads(sp.read_text(encoding="utf-8"))["sources"][0]
+        p = se.plan_move(self.V, sources_lib.load(self.V), str(root), self.V, new_name="客戶案件改名")
+        self.assertEqual(p["source_root"], old["alias"])
+        se.do_move(self.V, p, self.t, "rename")
+        now = json.loads(sp.read_text(encoding="utf-8"))["sources"][0]
+        self.assertTrue(now["spec"].endswith("客戶案件改名"), now["spec"])
+        self.assertTrue((self.raw / "客戶案件改名").is_dir())
+        self.assertEqual(entry(self.V, self.fid)["locations"][0]["uri"], "file://" + ESTIMATE)
+        self.assertEqual(entry(self.V, self.fid)["status"], "active")
+        self.assertTrue(Path(sources_lib.load(self.V).entries[0]["root"]).is_dir())
+
+    def test_source_root_into_vault_refused(self):
+        msg = self.refuse(se.plan_move, self.V, sources_lib.load(self.V), str(self.raw / "客戶案件"), self.V,
+                          dest=str(Path(self.V) / "案子"))
+        self.assertIn("kb folders remove", msg)
