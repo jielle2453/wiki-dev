@@ -227,15 +227,16 @@ class EntityLog(Base):
         self.kb("log", "信義王", f"2026-10-20 甲〔{f}〕", f"2026-10-20 乙〔{f}〕")
         self.assertEqual(self.events()[:3], [f"- 2026-10-20 甲〔{f}〕", f"- 2026-10-20 乙〔{f}〕", "- 2026-10-20 登記這個案子"])
 
-    def test_adds_section_after_status(self):
+    def test_adds_section_at_end(self):
+        """D-523：沒有紀事段就補在全卡最後。"""
         text = self.p.read_text(encoding="utf-8")
         self.p.write_text(text.replace("## 紀事\n- 2026-10-20 登記這個案子\n\n", ""), encoding="utf-8", newline="\n")
         self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕")
         text = self.p.read_text(encoding="utf-8")
-        self.assertIn(f"## 現況\n- 還沒有掛上的檔案卡\n\n## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n\n## 時程\n", text)
+        self.assertTrue(text.endswith(f"## 時程\n未知\n\n## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n"))
 
     def test_file_section_untouched(self):
-        """裁定 5：紀事是最後一段時，加的行在程式寫的「相關檔」之前，那段一字不動。"""
+        """裁定 5、D-523：紀事是最後一段時相關檔插在它上面；加的行進紀事，相關檔那段一字不動。"""
         from kb._lib import synthesis
         text = self.p.read_text(encoding="utf-8")
         cut = text.index("\n## ", text.index("## 紀事"))  # 紀事之後的段拿掉，紀事變成最後一段
@@ -243,13 +244,13 @@ class EntityLog(Base):
         synthesis.render_cache(self.V, ["信義王"], self.new_turn())
         text = self.p.read_text(encoding="utf-8")
         i, j = text.find(synthesis.FILE_BEGIN), text.find(synthesis.FILE_END)
-        self.assertTrue(text.index("## 紀事") < i < j, "render_cache 要在最後寫出相關檔那段")
-        files = text[i:]
+        self.assertTrue(0 < i < j < text.index("## 紀事"), "render_cache 要把相關檔寫在紀事上面")
+        files = text[i:j]
         self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", f"2026-10-01 報價〔{self.fid}〕", "--synced")
         text = self.p.read_text(encoding="utf-8")
-        self.assertTrue(text.endswith(files))
+        self.assertEqual(text[text.find(synthesis.FILE_BEGIN):text.find(synthesis.FILE_END)], files)
         self.assertEqual(self.events()[0], f"- 2026-10-25 開會〔{self.fid}〕")
-        self.assertIn(f"- 2026-10-01 報價〔{self.fid}〕\n\n{synthesis.FILE_BEGIN}", text)
+        self.assertTrue(text.rstrip("\n").endswith(f"- 2026-10-01 報價〔{self.fid}〕"))
 
     def test_synced_json(self):
         r = run_kb("entity", "log", "信義王宅", f"2026-10-25 開會〔{self.fid}〕", "--synced", "--json", cwd=self.V)
@@ -317,7 +318,7 @@ class EntityLog(Base):
         """D-521 裁定 3：綜合卡有整理到以外的錯也拒絕、不寫檔。"""
         self.p.write_text(self.p.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8", newline="\n")
         before = self.p.read_text(encoding="utf-8")
-        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", code=3)[0], "信義王的綜合卡有錯：範本版本該是 1")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", code=3)[0], "信義王的綜合卡有錯：範本版本該是 2")
         self.assertEqual(self.p.read_text(encoding="utf-8"), before)
 
 

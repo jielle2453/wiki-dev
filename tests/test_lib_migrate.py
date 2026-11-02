@@ -210,6 +210,69 @@ class Cards(Base):
         self.assertEqual([s["rel"] for s in got["skipped"]], [rel])
 
 
+class SynthesisLayout(unittest.TestCase):
+    """D-523 驗收 4：綜合卡範本版本 1 → 2，推算搬到其他段後面、紀事搬到最後；pending／apply 一起列。"""
+    def setUp(self):
+        self.tmp, self.V, _raw = _entities.make_entity_vault(with_entities=True)
+        with mock.patch.object(migrate, "SYNTHESIS_MIGRATIONS", []):  # 其他遷移（型別夾補編號會搬夾）先跑完
+            migrate.apply(self.V, turn.start(self.V, None, "先遷別的")["turn"])
+        rels = {Path(rel).stem: rel for rel, _v in migrate._synthesis_cards(self.V)}
+        self.XINYI, self.DAAN = rels["信義王"], rels["大安陳"]
+        self.turn = turn.start(self.V, None, "升級")["turn"]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def text(self, rel):
+        return (self.V / rel).read_text(encoding="utf-8")
+
+    def heads(self, rel):
+        return [l for l in self.text(rel).split("\n") if l.startswith("## ") or l.startswith("<!-- willy:檔")]
+
+    def old_cards(self):
+        return sorted(p["rel"] for p in migrate.pending(self.V) if p["from"] == 1 and p["to"] == 2)
+
+    def test_pending_apply_backup_undo_and_idempotent(self):
+        from kb._lib import card_base
+        from tests.test_scripts_inventory_cli import run_kb
+        before = {rel: self.text(rel) for rel in (self.XINYI, self.DAAN)}
+        self.assertEqual(self.old_cards(), sorted([self.DAAN, self.XINYI]))
+        got = migrate.apply(self.V, self.turn)
+        self.assertEqual(got["cards"], 2)
+        self.assertEqual(self.heads(self.XINYI), ["## 現況", "## 時程", "## 紀事"])
+        self.assertIn("範本版本: 2\n", self.text(self.XINYI))
+        self.assertEqual(self.old_cards(), [])
+        for rel, old in before.items():
+            self.assertEqual((self.V / ".system" / "versions" / self.turn / "files" / rel).read_text(encoding="utf-8"), old)
+        self.assertEqual(card_base.edits(self.V)["edits"], [], "程式搬的不算她手改")
+        after = self.text(self.XINYI)
+        self.assertEqual(migrate.apply(self.V, turn.start(self.V, None, "再一次")["turn"])["cards"], 0)
+        self.assertEqual(self.text(self.XINYI), after, "跑第二次不變")
+        r = run_kb("versions", "undo", self.turn, cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.text(self.XINYI), before[self.XINYI])
+
+    def test_unreadable_card_does_not_block_others(self):
+        (self.V / self.DAAN).write_text("壞掉的卡，沒有檔頭\n", encoding="utf-8")
+        got = migrate.apply(self.V, self.turn)
+        self.assertEqual(got["cards"], 1)
+        self.assertEqual([s["rel"] for s in got["skipped"]], [self.DAAN])
+        self.assertIn("範本版本: 2\n", self.text(self.XINYI))
+        self.assertEqual(self.text(self.DAAN), "壞掉的卡，沒有檔頭\n")
+
+    def test_hand_edited_file_section_only_events_move(self):
+        """她手改過相關檔那段（D-223）：照樣只搬紀事，那段一字不動。"""
+        from kb._lib import synthesis
+        p = self.V / self.XINYI
+        files = synthesis.FILE_BEGIN + "\n## 相關檔\n她自己寫的一行\n" + synthesis.FILE_END
+        p.write_text(self.text(self.XINYI).rstrip("\n") + "\n\n" + files + "\n", encoding="utf-8", newline="\n")
+        migrate.apply(self.V, self.turn)
+        text = self.text(self.XINYI)
+        self.assertIn(files, text)
+        self.assertEqual(self.heads(self.XINYI), ["## 現況", "## 時程", synthesis.FILE_BEGIN, "## 相關檔",
+                                                  synthesis.FILE_END, "## 紀事"])
+
+
 class FreeRename(Base):
     """放寬丙 4：_extras 改名 _個人。"""
 

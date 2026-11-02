@@ -66,8 +66,8 @@ class Validate(Base):
         self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (True, ""))
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertIn("設定檔讀不到，綜合卡的標籤行沒有驗", log)
-        (self.V / T.XINYI_REL).write_text(good.replace("範本版本: 1", "範本版本: 2"), encoding="utf-8")
-        self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (False, "範本版本該是 1"), "其他照驗")
+        (self.V / T.XINYI_REL).write_text(good.replace("範本版本: 2", "範本版本: 9"), encoding="utf-8")
+        self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (False, "範本版本該是 2"), "其他照驗")
 
 
 class Header(Base):

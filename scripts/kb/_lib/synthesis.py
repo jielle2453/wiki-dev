@@ -24,15 +24,16 @@ from pathlib import Path
 from kb._lib import config, entities, profile
 from kb._lib.io import write_text_atomic
 
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"  # D-523：紀事放最後
+OLD_VERSIONS = ("1",)  # 遷移前的舊版面照舊算有效（遷移見 migrate_layout）
 KEYS = ("編號", "型別", "大類", "名稱", "別名", "範本版本", "整理到", "更新日", "檔案卡", "相關實體")
 CACHE_KEYS = ("檔案卡", "相關實體")
-BASE_SECTIONS = ("現況", "紀事", "推算")
+BASE_SECTIONS = ("現況", "推算", "紀事")  # 現況在最上，推算、紀事接在第四節的段後面（D-523）
 BLOCK_KEYS = ("整理到", "檔案卡")  # 一行一項（"  - …"）；其他清單寫一行 [a, b]
 LIST_KEYS = ("別名", "相關實體") + BLOCK_KEYS
 BASE_HINTS = {"現況": "這件事現在怎樣：一點一行、事實變了就改寫，每點結尾〔f-…〕（口述是〔s-…〕）",
-              "紀事": "日期倒序、只增不改：決定、改版、關鍵事件",
-              "推算": "從多張卡算出來的：結果、算法、依據、算的日期；沒有就整段不寫"}
+              "推算": "從多張卡算出來的：結果、算法、依據、算的日期；沒有就整段不寫",
+              "紀事": "日期倒序、只增不改：決定、改版、關鍵事件"}
 STALE_CODE = "synced"
 TAG_ONLY_REASON = "補標籤"
 REDO = "redo"  # 整理到 那行的指紋欄：客戶說卡讀錯了，等卡重寫（實作回報裁定 1）
@@ -52,13 +53,14 @@ def category_text(prof, type_name):
 
 
 def sections_for(prof, type_):
-    """綜合卡要寫的段：固定三段（現況、紀事、推算）加設定檔第四節那個型別的列，[{"name","required","hint"}]。"""
-    out = [{"name": n, "required": False, "hint": BASE_HINTS[n]} for n in BASE_SECTIONS]
+    """綜合卡要寫的段 [{"name","required","hint"}]：現況、設定檔第四節那個型別的列、推算、紀事（D-523）。"""
+    base = [{"name": n, "required": False, "hint": BASE_HINTS[n]} for n in BASE_SECTIONS]
+    out = base[:1]
     for s in (prof or {}).get("synthesis_sections") or []:
         if entities.key(s.get("type")) == entities.key(type_):
             out += [{"name": x["name"], "required": bool(x.get("required")), "hint": x.get("hint", "")}
                     for x in s.get("sections") or []]
-    return out
+    return out + base[1:]
 
 
 # ---------- 快取欄 ----------
@@ -580,7 +582,7 @@ def problems(vault, rel, text, data, mounts, prof, know=None):
         if front[k] != v:
             out.append(("field", f"「{k}」照 kb cards todo 給的檔頭抄"))
             break
-    if front["範本版本"] != TEMPLATE_VERSION:
+    if front["範本版本"] != TEMPLATE_VERSION and str(front["範本版本"]) not in OLD_VERSIONS:
         out.append(("version", f"範本版本該是 {TEMPLATE_VERSION}"))
     have = front["整理到"]
     know = know if know is not None else knowledge(vault)
@@ -725,10 +727,18 @@ def _span(text):
 
 
 def with_file_section(text, section):
-    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段就接在最後；其他字原樣。"""
+    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段時，最後一段是「## 紀事」就插在它前面（D-523），
+    不然接在最後（遷移前的舊版面）；其他字原樣。"""
     span = _span(text)
     if span is None:
-        return text.rstrip("\n") + "\n\n" + section + "\n" if section else text
+        if not section:
+            return text
+        last = None
+        for m in re.finditer(r"(?m)^## [^\r\n]*", text):
+            last = m
+        if last is not None and last.group().rstrip() == "## 紀事":
+            return text[:last.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[last.start():]
+        return text.rstrip("\n") + "\n\n" + section + "\n"
     head, tail = text[:span[0]].rstrip("\n"), text[span[1]:].strip("\n")
     return head + ("\n\n" + section if section else "") + ("\n\n" + tail if tail else "") + "\n"
 
@@ -1144,7 +1154,7 @@ def read_ranges(text):
         parts.append((at, a))
         at = max(at, b)
     parts.append((at, len(lines)))
-    return [[a + 1, b - a] for a, b in parts if b > a]
+    return [[a + 1, b - a] for a, b in parts if any(l.strip() for l in lines[a:b])]  # 只有空行的不算一段
 
 
 # ---------- 紀事（entity log，D-521）----------
@@ -1190,7 +1200,7 @@ def _event_day(line):
 
 def insert_events(text, events):
     """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加。
-    沒有紀事段就在「## 現況」那段之後補一段（S-08）。回 (新內文, 加了的行, 已經有的行)。"""
+    沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。"""
     crlf = "\r\n" in text
     lines = _lines(text)
     start = _body_start(lines)
@@ -1207,13 +1217,10 @@ def insert_events(text, events):
         return text, added, dup
     if span is None:
         block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
-        cur = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 現況"), None)
-        at = _section_end(lines, start if cur is None else cur + 1)  # 沒有現況：照 S-08 紀事排在其他段前面
-        head, tail = lines[:at], lines[at:]
+        head = list(lines)
         while head and not head[-1].strip():
             head.pop()
-        new = head + [""] + block + ([""] + tail if tail else [])
-        return _join(new, True, crlf), added, dup
+        return _join(head + [""] + block, True, crlf), added, dup
     sec = lines[span[0] + 1:span[1]]
     for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
         at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
@@ -1227,6 +1234,59 @@ def insert_events(text, events):
 def _join(lines, end_nl, crlf):
     out = "\n".join(lines) + ("\n" if end_nl else "")
     return out.replace("\n", "\r\n") if crlf else out
+
+
+# ---------- 版面遷移（D-523）----------
+
+def _blocks(body):
+    """內文切成 [(種類, 行)]：開頭（標題與第一個 ## 之前）"pre"、每個 ## 段（種類是標題行）、相關檔 "file"
+    （開始到結束記號，沒結束記號算到檔尾）、相關檔之後到下一個 ## 之前的字 "after"。"""
+    out, kind, buf, in_file = [], "pre", [], False
+    for line in body:
+        if in_file:
+            buf.append(line)
+            if line.strip() == FILE_END:
+                out.append(("file", buf))
+                kind, buf, in_file = "after", [], False
+            continue
+        if line.strip() == FILE_BEGIN or line.startswith("## "):
+            out.append((kind, buf))
+            kind, buf, in_file = ("file", [line], True) if line.strip() == FILE_BEGIN else (line.rstrip(), [line], False)
+            continue
+        buf.append(line)
+    out.append((kind, buf))
+    return out
+
+
+def migrate_layout(text):
+    """範本版本 1 → 2（D-523）：「## 推算」整段搬到其他段後面（相關檔前）、「## 紀事」整段搬到全卡最後（相關檔後）；
+    一段 = 標題到下一個「## 」或相關檔記號之前。她自己加的段照原來的先後；段與段之間一個空行；檔頭只改範本版本，
+    段的內容一字不動。沒檔頭、檔頭沒有範本版本丟 ValueError（migrate 列進 skipped）。"""
+    raw = str(text)
+    bom = "﻿" if raw.startswith("﻿") else ""
+    lines = _lines(raw[len(bom):])
+    start = _body_start(lines)
+    if start == 0:
+        raise ValueError("沒有檔頭")
+    ver = next((n for n in range(1, start - 1) if re.match(r"^範本版本\s*:", lines[n])), None)
+    if ver is None:
+        raise ValueError("檔頭沒有範本版本")
+    head = lines[:start]
+    head[ver] = f"範本版本: {TEMPLATE_VERSION}"
+    blocks = []
+    for kind, buf in _blocks(lines[start:]):
+        while buf and not buf[-1].strip():
+            buf = buf[:-1]
+        if buf or kind == "pre":
+            blocks.append((kind, buf))
+    pre = [b for k, b in blocks if k == "pre"]
+    order = ([b for k, b in blocks if k not in ("pre", "## 推算", "## 紀事", "file")]
+             + [b for k, b in blocks if k == "## 推算"] + [b for k, b in blocks if k == "file"]
+             + [b for k, b in blocks if k == "## 紀事"])
+    body = pre[0] if pre else []
+    for b in order:
+        body = body + ([""] if body else []) + b
+    return bom + _join(head + body, True, "\r\n" in raw)
 
 
 def add_events(vault, name, lines, turn_id, synced=False):

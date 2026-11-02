@@ -46,7 +46,7 @@ class Header(Base):
         front = cards.parse_front(self.header(E.XINYI))
         self.assertEqual(list(front), list(synthesis.KEYS))
         self.assertEqual((front["編號"], front["型別"], front["大類"], front["名稱"], front["別名"], front["範本版本"],
-                          front["更新日"]), (E.XINYI, "案子", "事", "信義王", ["信義王宅"], "1", "2026-10-20"))
+                          front["更新日"]), (E.XINYI, "案子", "事", "信義王", ["信義王宅"], "2", "2026-10-20"))
         self.assertEqual([x.split(" ", 2)[2] for x in front["檔案卡"]], ["信義王報價第二版", "信義王估價"])
         self.assertTrue(all(len(x.split(" ")[1]) == 12 for x in front["整理到"]))
         self.assertEqual(front["整理到"], sorted(front["整理到"]))
@@ -54,9 +54,9 @@ class Header(Base):
 
     def test_sections_for(self):
         got = synthesis.sections_for(entities._profile(self.V), "案子")
-        self.assertEqual([s["name"] for s in got], ["現況", "紀事", "推算", "時程", "金額"])
+        self.assertEqual([s["name"] for s in got], ["現況", "時程", "金額", "推算", "紀事"])
         self.assertEqual([s["name"] for s in synthesis.sections_for(entities._profile(self.V), "不在表")],
-                         ["現況", "紀事", "推算"])
+                         ["現況", "推算", "紀事"])
 
 
 class Validate(Base):
@@ -84,7 +84,7 @@ class Validate(Base):
             (good.replace(E.XINYI, E.WANG), XINYI_REL, "還沒跟客戶確認名稱，先問再寫"),
             (good, "案子/王宅/王宅.md", "綜合卡該放在 案子/信義王/信義王.md"),
             (good.replace("名稱: 信義王", "名稱: 信義"), XINYI_REL, "「名稱」照 kb cards todo 給的檔頭抄"),
-            (good.replace("範本版本: 1", "範本版本: 2"), XINYI_REL, "範本版本該是 1"),
+            (good.replace("範本版本: 2", "範本版本: 9"), XINYI_REL, "範本版本該是 2"),
             (stale, XINYI_REL, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"),
         ]
         for text, rel, want in cases:
@@ -198,14 +198,14 @@ class MarkSynced(Base):
         card = self.V / XINYI_REL
         card.write_text(card.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8")
         self.assertEqual(synthesis.mark_synced(self.V, ["信義王", "信義王宅"], self.t),
-                         ([], [{"name": "信義王", "reason": "範本版本該是 1"}]))
+                         ([], [{"name": "信義王", "reason": "範本版本該是 2"}]))
 
     def test_mark_synced_skips(self):
         card = self.V / XINYI_REL
         card.write_text(card.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8")
         before = card.read_text(encoding="utf-8")
         self.assertEqual(synthesis.mark_synced(self.V, ["信義王", "王宅", "沒有"], self.t), ([], [
-            {"name": "信義王", "reason": "範本版本該是 1"}, {"name": "王宅", "reason": "還沒有綜合卡"},
+            {"name": "信義王", "reason": "範本版本該是 2"}, {"name": "王宅", "reason": "還沒有綜合卡"},
             {"name": "沒有", "reason": "找不到這個實體"}]))
         self.assertEqual(card.read_text(encoding="utf-8"), before)
 
@@ -221,7 +221,7 @@ class Buckets(Base):
                          (E.WANG, "王宅", "案子", "事", False, "案子/王宅/王宅.md"))
         self.assertEqual(item["question"], "我要幫「王宅」（案子，掛了 2 份檔）整理一頁現況：名字這樣叫對嗎？它跟其他案子是同一件嗎？")
         self.assertEqual(len(item["cards"]), 2)
-        self.assertEqual([s["name"] for s in item["sections"]], ["現況", "紀事", "推算", "時程", "金額"])
+        self.assertEqual([s["name"] for s in item["sections"]], ["現況", "時程", "金額", "推算", "紀事"])
         self.assertTrue(item["header"].startswith("---\n編號: e-0f3e9a21\n"))
         self.update(E.WANG, source="confirmed")
         (item,) = self.buckets()["synthesis_new"]
@@ -264,7 +264,7 @@ class Buckets(Base):
                          [[4, 2]])  # 沒有結束記號算到檔尾（同 _span）
 
     def test_insert_events_keeps_file_section(self):
-        """D-521 裁定 5：紀事是最後一段、或沒有紀事段而現況是最後一段，加的行都在「相關檔」開始記號之前，那段一字不動。"""
+        """D-521 裁定 5：舊版面紀事在相關檔前面時加的行不進相關檔；D-523：沒有紀事段一律補在全卡最後（相關檔下面）。"""
         new = "- 2026-10-25 開會〔f-00000001〕"
         text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n## 紀事\n- 2026-10-01 甲\n\n" + self.FILES
         got, added, _dup = synthesis.insert_events(text, [("2026-10-25", new[2:])])
@@ -272,15 +272,12 @@ class Buckets(Base):
         self.assertEqual(got, text.replace("## 紀事\n", f"## 紀事\n{new}\n"))
         got, _a, _d = synthesis.insert_events(text, [("2026-09-01", "2026-09-01 早〔f-00000001〕")])
         self.assertEqual(got, text.replace("- 2026-10-01 甲\n", "- 2026-10-01 甲\n- 2026-09-01 早〔f-00000001〕\n"))
-        text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n" + self.FILES
-        got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
-        self.assertEqual(got, text.replace("- 一\n\n", f"- 一\n\n## 紀事\n{new}\n\n"))
-        text = "---\na: 1\n---\n# x\n\n## 推算\n- 一\n\n" + self.FILES  # 沒有現況：照 S-08 紀事排在其他段前面
-        got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
-        self.assertEqual(got, text.replace("# x\n\n", f"# x\n\n## 紀事\n{new}\n\n"))
-        text = "---\na: 1\n---\n# x\n一句。\n\n" + self.FILES  # 一段都沒有：補在相關檔之前
-        got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
-        self.assertEqual(got, text.replace("一句。\n\n", f"一句。\n\n## 紀事\n{new}\n\n"))
+        for text in ("---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n" + self.FILES,  # 只有現況
+                     "---\na: 1\n---\n# x\n\n## 推算\n- 一\n\n" + self.FILES,  # 沒有現況
+                     "---\na: 1\n---\n# x\n一句。\n\n" + self.FILES):  # 一段都沒有
+            with self.subTest(text=text):
+                got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
+                self.assertEqual(got, text + f"\n## 紀事\n{new}\n")
 
     def test_stale_added_changed_removed(self):
         a = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
@@ -321,7 +318,7 @@ class Buckets(Base):
         stray.parent.mkdir()
         stray.write_text((E.FIX / "大安陳.md").read_text(encoding="utf-8"), encoding="utf-8")
         got = self.buckets()["synthesis_broken"]
-        self.assertEqual(got, [{"path": XINYI_REL, "reason": "範本版本該是 1"},
+        self.assertEqual(got, [{"path": XINYI_REL, "reason": "範本版本該是 2"},
                                {"path": "案子/王宅/王宅.md", "reason": "綜合卡該放在 案子/大安陳/大安陳.md"}])
 
     def test_drift_with_question(self):
@@ -510,6 +507,123 @@ class FileSection(Base):
     def test_no_files_no_section(self):
         synthesis.render_cache(self.V, ["信義王"], self.t)
         self.assertNotIn(synthesis.FILE_BEGIN, self.card())
+
+
+def heads(text):
+    """內文的段標題與相關檔記號，照出現的順序。"""
+    return [l for l in text.split("\n") if l.startswith("## ") or l == synthesis.FILE_BEGIN]
+
+
+def segments(text):
+    """{段標題或相關檔: 那段的字（去頭尾空行）}：遷移前後照段比對用。"""
+    out, cur, buf = {}, None, []
+    lines = text.split("\n")
+    i = next(n for n in range(1, len(lines)) if lines[n] == "---") + 1
+    for l in lines[i:]:
+        if l.startswith("## ") or l == synthesis.FILE_BEGIN:
+            if cur:
+                out[cur] = "\n".join(buf).strip("\n")
+            cur, buf = l, []
+        if cur:
+            buf.append(l)
+        if l == synthesis.FILE_END:
+            out[cur], cur, buf = "\n".join(buf).strip("\n"), None, []
+    if cur:
+        out[cur] = "\n".join(buf).strip("\n")
+    return out
+
+
+class Layout(Base):
+    """D-523：現況 → 第四節的段 → 推算 → 相關檔 → 紀事；舊版（範本版本 1）照舊算有效、由遷移搬。"""
+    FILES = synthesis.FILE_BEGIN + "\n## 相關檔\n\n### 報價\n- [[a.md|甲]]\n" + synthesis.FILE_END
+    HEAD = "---\n編號: e-5c1d0a7e\n名稱: 信義王\n範本版本: 1\n整理到:\n  - f-00000001 aaaaaaaaaaaa\n---\n# 信義王\n\n一句。\n\n"
+    NOW = "## 現況\n- 一點〔f-00000001〕\n"
+    EVENTS = "## 紀事\n- 2026-10-20 甲〔f-00000001〕\n- 2026-10-01 乙〔f-00000001〕\n"
+    GUESS = "## 推算\n- 差 3 萬〔f-00000001〕（算於 2026-10-20）\n"
+    CUSTOM = "## 時程\n- 開始 2026-09-12〔f-00000001〕\n\n## 金額\n未知\n"
+
+    def old(self, *parts):
+        return self.HEAD + "\n".join(parts) + "\n"
+
+    def test_template_version_and_old_still_valid(self):
+        self.assertEqual(synthesis.TEMPLATE_VERSION, "2")
+        good = E.synthesis_text(self.header(E.XINYI), "信義王")
+        self.assertIn("範本版本: 2\n", good)
+        p = self.V / XINYI_REL
+        p.write_text(good.replace("範本版本: 2", "範本版本: 1"), encoding="utf-8", newline="\n")
+        self.assertEqual(synthesis.validate(self.V, XINYI_REL), (True, ""), "遷移前的舊版照舊算有效")
+
+    def test_template_file_order(self):
+        from tests._guard_fixture import ROOT
+        text = (ROOT / "templates" / "synthesis.md").read_text(encoding="utf-8")
+        self.assertIn("範本版本: 2\n", text)
+        self.assertEqual(heads(text), ["## 現況", "## 時程", "## 金額", "## 推算", "## 紀事"])
+
+    def test_render_cache_puts_files_above_events(self):
+        """驗收 2：新版面的卡補相關檔時插在紀事前面；紀事不在最後的舊版照舊接在最後。"""
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        p = self.V / XINYI_REL
+        p.write_text(E.synthesis_text(self.header(E.XINYI), "信義王", "一句。\n\n" + self.NOW + "\n" + self.CUSTOM + "\n"
+                                      + self.GUESS + "\n" + self.EVENTS), encoding="utf-8", newline="\n")
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        self.assertEqual(heads(p.read_text(encoding="utf-8")),
+                         ["## 現況", "## 時程", "## 金額", "## 推算", synthesis.FILE_BEGIN, "## 相關檔", "## 紀事"])
+        self.assertTrue(p.read_text(encoding="utf-8").endswith(self.EVENTS))
+        self.assertEqual(synthesis.render_cache(self.V, ["信義王"], self.t), [])  # 穩定
+        old = self.old(self.NOW, self.EVENTS, self.CUSTOM)
+        self.assertEqual(heads(synthesis.with_file_section(old, self.FILES)),
+                         ["## 現況", "## 紀事", "## 時程", "## 金額", synthesis.FILE_BEGIN, "## 相關檔"])
+
+    def test_read_ranges_one_part_and_log_goes_last(self):
+        """驗收 3：新版面 read_ranges 是一段（不含相關檔、紀事）；沒有紀事段就補在最後。"""
+        text = self.old(self.NOW, self.CUSTOM, self.GUESS, self.FILES + "\n", self.EVENTS)
+        (got,) = synthesis.read_ranges(text)
+        lines = text.split("\n")
+        kept = lines[got[0] - 1:got[0] - 1 + got[1]]
+        self.assertEqual(kept[0], "# 信義王")
+        self.assertFalse([l for l in kept if l.startswith("- 2026") or "相關檔" in l or l == synthesis.FILE_BEGIN])
+        new, added, _dup = synthesis.insert_events(text, [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
+        self.assertTrue(new.rstrip("\n").endswith("## 紀事\n- 2026-10-25 開會〔f-00000001〕\n- 2026-10-20 甲〔f-00000001〕\n"
+                                                  "- 2026-10-01 乙〔f-00000001〕"))
+        bare = self.old(self.NOW, self.CUSTOM, self.FILES)
+        new, _a, _d = synthesis.insert_events(bare, [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
+        self.assertEqual(new, bare + "\n## 紀事\n- 2026-10-25 開會〔f-00000001〕\n")
+
+    def migrate(self, text):
+        new = synthesis.migrate_layout(text)
+        self.assertIn("範本版本: 2\n", new)
+        self.assertEqual(new.replace("範本版本: 2\n", "範本版本: 1\n").split("---\n# ")[0], text.split("---\n# ")[0],
+                         "檔頭只改範本版本")
+        self.assertEqual(segments(new), segments(text), "每段內容一字不差")
+        self.assertEqual(synthesis.migrate_layout(new), new, "跑第二次不變")
+        return heads(new)
+
+    def test_migrate_layout_cases(self):
+        """驗收 4：四種舊版卡遷移後是 現況、自訂段、推算、相關檔、紀事。"""
+        F = [synthesis.FILE_BEGIN, "## 相關檔"]
+        cases = [
+            ("全部", (self.NOW, self.EVENTS, self.GUESS, self.CUSTOM, self.FILES), ["## 現況", "## 時程", "## 金額", "## 推算"] + F + ["## 紀事"]),
+            ("沒有相關檔", (self.NOW, self.EVENTS, self.GUESS, self.CUSTOM), ["## 現況", "## 時程", "## 金額", "## 推算", "## 紀事"]),
+            ("沒有推算", (self.NOW, self.EVENTS, self.CUSTOM, self.FILES), ["## 現況", "## 時程", "## 金額"] + F + ["## 紀事"]),
+            ("沒有紀事", (self.NOW, self.GUESS, self.CUSTOM, self.FILES), ["## 現況", "## 時程", "## 金額", "## 推算"] + F),
+            ("她自己加的段留原位", (self.NOW, "## 備忘\n她寫的\n", self.EVENTS, self.GUESS, self.CUSTOM),
+             ["## 現況", "## 備忘", "## 時程", "## 金額", "## 推算", "## 紀事"]),
+        ]
+        for name, parts, want in cases:
+            with self.subTest(name):
+                self.assertEqual(self.migrate(self.old(*parts)), want)
+
+    def test_migrate_layout_crlf_and_bom(self):
+        text = "﻿" + self.old(self.NOW, self.EVENTS, self.GUESS, self.CUSTOM, self.FILES).replace("\n", "\r\n")
+        new = synthesis.migrate_layout(text)
+        self.assertTrue(new.startswith("﻿---\r\n"))
+        self.assertNotIn("\n", new.replace("\r\n", ""))
+        self.assertEqual(heads(new.replace("\r\n", "\n").lstrip("﻿"))[-1], "## 紀事")
+
+    def test_migrate_layout_refuses_unreadable(self):
+        for bad in ("沒有檔頭\n## 紀事\n", "---\n名稱: x\n---\n# x\n"):  # 沒檔頭、檔頭沒有範本版本
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                synthesis.migrate_layout(bad)
 
 
 if __name__ == "__main__":

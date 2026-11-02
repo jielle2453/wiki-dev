@@ -5,6 +5,8 @@ STATE_FILES 是一張表：哪個檔、現在的 schema 版本、磁碟上存的
 發行程式 tools/release.py 就不准標成小修，D-217）。
 CARD_HEADER_MIGRATIONS 是卡的檔頭遷移：[{"from": 舊範本版本, "to": 新範本版本, "fn": 整張卡的文字 → 新文字}]，目前沒有要遷的（空表，D-054）；
 只改檔頭機器欄位、正文不動，寫前備進回合；fn 改壞檔頭（解析不了、版本沒變成 to）就不寫、列進 skipped。
+SYNTHESIS_MIGRATIONS 是綜合卡的同一套表（D-523：範本版本 1 → 2，synthesis.migrate_layout 把推算、紀事搬下去）：掃 active
+實體的綜合卡，pending 一張一項、apply 遷的張數併進 "cards"；讀不懂、遷壞的列進 skipped，不擋其他張。
 不需要遷移登記的：sources.json 排除列的選填欄（purge 等）、purge-pending.json、回合夾的 moves.jsonl、unlock.json、vault.json、
 rulings.json（v0.19.0 沒升 schema）、lint.json、renders.json、set_aside.json、statements-archive.json、findings-archive.json（lint 題的新檔，schema 1）、batches.json、build.json（新檔 schema 1）、entities.json 的 ai_judged（schema 沒改）。
 pending 只讀；apply 一個檔失敗不擋其他檔，失敗的列進 skipped（原因一句話）；rewrite 回清單的，那幾筆也併進 skipped。
@@ -233,6 +235,69 @@ STATE_FILES = (
 CARD_HEADER_MIGRATIONS = []
 
 
+def _synthesis_v2(text):
+    from kb._lib import synthesis
+    return synthesis.migrate_layout(text)
+
+
+SYNTHESIS_MIGRATIONS = [{"from": "1", "to": "2", "fn": _synthesis_v2}]  # D-523：紀事放最後
+
+
+def _synthesis_cards(vault):
+    """[(rel, 範本版本)]：active、有綜合卡的實體（客戶自己不算）；讀不懂的卡範本版本是那個例外。實體清單讀不了回 []。"""
+    from kb._lib import synthesis
+    try:
+        data = entities.load(vault)
+    except (ValueError, OSError):
+        return []
+    out = []
+    for e in data["entities"]:
+        if e.get("status") != "active" or entities.is_self(e) or not e.get("card"):
+            continue
+        rel = entities.locate(vault, e)
+        if not rel:
+            continue
+        try:
+            version = str(synthesis.read_front((Path(vault) / rel).read_text(encoding="utf-8")).get("範本版本"))
+        except (OSError, UnicodeDecodeError, ValueError) as err:
+            version = err
+        out.append((rel, version))
+    return out
+
+
+def _synthesis_due(version):
+    return next((m for m in SYNTHESIS_MIGRATIONS if str(m["from"]) == version), None) if isinstance(version, str) else None
+
+
+def _migrate_synthesis(vault, turn_id, skipped):
+    """綜合卡的版面遷移（D-523）；回遷了幾張。寫前備進回合（by program）；她沒有沒處理的手改時基準跟著換（D-270），
+    不算她手改。一張讀不懂、遷壞（版本沒變成 to）不寫、列進 skipped，不擋其他張。"""
+    from kb._lib import card_base, synthesis, turn
+    count = 0
+    for rel, version in _synthesis_cards(vault):
+        if isinstance(version, Exception):
+            skipped.append({"rel": rel, "why": f"綜合卡版面沒遷成（{_first_line(version)}）"})
+            continue
+        mig = _synthesis_due(version)
+        if mig is None:
+            continue
+        target = Path(vault) / rel
+        try:
+            new = mig["fn"](target.read_text(encoding="utf-8"))
+            if str(synthesis.read_front(new).get("範本版本")) != str(mig["to"]):
+                raise ValueError("遷移後範本版本不對")
+            synced = card_base.in_sync(vault, rel)
+            turn.backup(vault, rel, turn_id, by="program")
+            write_text_atomic(target, new)
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            skipped.append({"rel": rel, "why": f"綜合卡版面沒遷成（{_first_line(e)}）"})
+            continue
+        if synced:
+            card_base.record_safe(vault, rel)
+        count += 1
+    return count
+
+
 def _due(vault, m):
     stored, current = m.stored(vault), m.current()
     return (stored, current) if isinstance(stored, int) and stored < current else None
@@ -240,13 +305,17 @@ def _due(vault, m):
 
 def pending(vault):
     """要遷的狀態檔 [{"rel", "from", "to"}]：存的 schema 比現在舊的；同一個 rel 有兩列要遷時併成一項（from 取舊的）。
-    只讀；沒檔、讀不了的不算。"""
+    再接要遷的綜合卡（一張一項，from／to 是範本版本，D-523）。只讀；沒檔、讀不了的不算。"""
     out = {}
     for m in STATE_FILES:
         due = _due(vault, m)
         if due:
             was = out.get(m.rel)
             out[m.rel] = {"rel": m.rel, "from": min(due[0], was["from"]) if was else due[0], "to": due[1]}
+    for rel, version in _synthesis_cards(vault):
+        mig = _synthesis_due(version)
+        if mig:
+            out.setdefault(rel, {"rel": rel, "from": int(mig["from"]), "to": int(mig["to"])})
     return list(out.values())
 
 
@@ -312,5 +381,5 @@ def apply(vault, turn_id):
             ledger.log_error(vault, FREE_BOTH_NOTE, source="migrate")
         except Exception:  # noqa: BLE001
             pass
-    return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped), "notes": notes,
-            "left_in_output": left}
+    count = _migrate_cards(vault, turn_id, skipped) + _migrate_synthesis(vault, turn_id, skipped)  # 綜合卡版面併進卡數
+    return {"migrated": migrated, "skipped": skipped, "cards": count, "notes": notes, "left_in_output": left}
