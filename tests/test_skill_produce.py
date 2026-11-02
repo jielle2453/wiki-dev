@@ -160,7 +160,7 @@ class Round2(unittest.TestCase):
 
     def test_template_from_profile_show(self):
         self.assertIn("kb profile show --json", self.make)
-        self.assertIn("只收工作區或 AI 產出裡的檔", self.make)
+        self.assertIn("只收工作區或 AI 產出裡的檔", self.make)  # skills 的字由 spec 乙改成暫存區
 
     def test_revert_keeps_output(self):
         """確認後裁定 27：退回照 D-074 成品先留著，要刪再說；不說「退回會拿掉」。"""

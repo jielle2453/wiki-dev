@@ -31,17 +31,14 @@ class Check(unittest.TestCase):
     def run_check(self, today=DAY):
         return {f["key"]: f for f in preferences.run(L.ctx(self.V, today=today))}
 
-    def test_review_has_whole_table_and_similar_pairs(self):
+    def test_review_only_numbers_no_decision(self):
+        """放寬甲：每月看偏好只留數字（條數、字面相似的對數），不產生要使用者決定的事。"""
         self.put(pref("回答先講結論"), pref("報價單金額加千分位", "做文件"), pref("回答要先講結論"), pref("講重點就好，不要囉嗦"))
         got = self.run_check()
-        self.assertEqual(set(got), {"preference:review"})
-        f = got["preference:review"]
-        self.assertEqual(f["kind"], "decide")
-        self.assertEqual([r["序號"] for r in f["data"]["rows"]], [1, 2, 3, 4])
-        self.assertEqual(f["data"]["rows"][1], {"序號": 2, "偏好": "報價單金額加千分位", "用在哪": "做文件"})
-        self.assertEqual([p[:2] for p in f["data"]["similar"]], [[1, 3]])
-        self.assertIn("4 條", f["text"])
-        self.assertIn("preference.md", f["data"]["results"][0]["note"])
+        self.assertEqual(set(got), {"preferences"})
+        f = got["preferences"]
+        self.assertEqual(f["kind"], "number")
+        self.assertEqual(f["data"], {"count": 4, "similar_pairs": 1})
         self.assertEqual(state.load(self.V)["last_preference"], DAY)
 
     def test_one_preference_no_review(self):
@@ -97,27 +94,15 @@ class Monthly(unittest.TestCase):
         with mock.patch.object(checks, "CHECKS", [preferences]):
             return runner.run(self.V, today=today)
 
-    def test_monthly_cycle(self):
+    def test_monthly_cycle_has_no_pending_item(self):
         self.lint("2026-10-27")
-        item = self.items()["preference:review"]
-        self.assertEqual((item["status"], len(item["data"]["rows"])), ("open", 2))
+        self.assertNotIn("preference:review", self.items(), "放寬甲：不再開要使用者決定的件")
         self.assertEqual(state.load(self.V)["last_preference"], "2026-10-27")
-        d = profile.load(self.V)
-        d["preferences"] = d["preferences"][:1]
-        profile.write(self.V, d, turn.start(self.V, None, "")["turn"])
         self.lint("2026-11-10")
-        self.assertEqual(self.items()["preference:review"]["status"], "open", "不到 30 天不跑，也不關它的件")
-        self.assertEqual(state.load(self.V)["last_preference"], "2026-10-27")
+        self.assertEqual(state.load(self.V)["last_preference"], "2026-10-27", "不到 30 天不跑")
         self.lint("2026-11-26")
-        self.assertEqual(self.items()["preference:review"]["status"], "done", "滿 30 天再跑：剩 1 條，題目不成立就關")
-
-    def test_ai_resolves_then_closed(self):
-        self.lint("2026-10-27")
-        pid = self.items()["preference:review"]["id"]
-        pending.resolve(self.V, pid, "偏好月檢：沒有要改的", turn.start(self.V, None, "")["turn"])
-        self.assertEqual(self.items()["preference:review"]["status"], "done")
-        self.lint("2026-11-27")
-        self.assertEqual(self.items()["preference:review"]["status"], "done", "表沒變、答過不重開")
+        self.assertEqual(state.load(self.V)["last_preference"], "2026-11-26")
+        self.assertNotIn("preference:review", self.items())
 
 
 if __name__ == "__main__":

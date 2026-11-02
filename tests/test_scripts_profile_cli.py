@@ -15,6 +15,8 @@ ROW = "| 工地 | 事 | 一個客戶一個裝修案 |"
 ANCHOR = "| 案子 | 事 |  | 推測 | 2026-10-19 |\n"
 
 
+FIX = "；照錯誤用 Edit 改好再跑 kb profile apply，改不好就 kb versions 退回上一版。"  # 放寬甲 D-307(1)
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_inv_vault()
@@ -76,7 +78,7 @@ class Check(Base):
         (self.V / "廠商").mkdir()
         before = self.stamps()
         lines = self.kb("check").stdout.splitlines()
-        self.assertEqual(lines[-1], "第一層夾不在型別表：廠商（請在設定檔第一節補一列）")
+        self.assertNotIn("不在型別表", " ".join(lines))  # 放寬甲：不再印
         self.assertEqual(self.stamps(), before)
 
     def test_broken_md_exit_3(self):
@@ -97,10 +99,9 @@ class Check(Base):
         self.md.write_text(text, encoding="utf-8", newline="\n")
         lines = self.kb("check").stdout.splitlines()
         self.assertEqual(lines, ["客戶設定檔有改：型別 +1 -1 ~0、卡型 +0 -0 ~1、不整理與敏感 +1 -0 ~0、每類段落 +0 -2 ~0",
-                                 "- 型別 多了 工地（事）", "- 型別 少了 案子（夾裡還有 2 項，套用會被擋）",
+                                 "- 型別 多了 工地（事）", "- 型別 少了 案子（空夾會一起拿掉）",
                                  "- 卡型 報價 的段落 日期與數字 改了", "- 不整理與敏感 多了 請款（不整理）",
-                                 "- 每類段落 案子 的 時程 少了", "- 每類段落 案子 的 金額 少了",
-                                 "第一層夾不在型別表：案子（請在設定檔第一節補一列）"])
+                                 "- 每類段落 案子 的 時程 少了", "- 每類段落 案子 的 金額 少了"])
 
     def test_json(self):
         self.add_types(ROW)
@@ -156,7 +157,7 @@ class Apply(Base):
         self.assertEqual((got["工地"], got["工班"], got["業主"]), ("interview", "confirmed", "corrected"))
         self.add_types("| 水電 | 對象 | x | 亂填 |  |")
         lines = self.apply(3)
-        self.assertEqual(lines[0], "客戶設定檔讀不懂：第 1 節第 5 列的來源要是 訪談、推測、確認、糾正 之一，或留空")
+        self.assertEqual(lines[0], "設定檔讀不懂：第 1 節第 5 列的來源要是 訪談、推測、確認、糾正 之一，或留空" + FIX)
 
     def test_remove_empty_row_and_refuse_nonempty(self):
         self.add_types(ROW, "| 工班 | 對象 | 施工班底 |")
@@ -170,8 +171,10 @@ class Apply(Base):
         (self.V / "02 工地" / "a.txt").write_text("x", encoding="utf-8")
         self.drop_line("| 工地 | 事 |")
         before_json, before_md = self.data(), self.md_text()
-        self.assertEqual(self.apply(3), ["型別「工地」底下還有 1 項，先搬走再拿掉這列"])
-        self.assertEqual((self.data(), self.md_text()), (before_json, before_md))
+        # 放寬甲（D-307(2)）：夾裡剩別的檔（不是實體）不擋；型別拿掉、夾留著當使用者的夾
+        self.assertEqual(self.apply(), ["已套用客戶設定檔：型別 -1、每類段落 -2"])
+        self.assertNotIn("工地", [t["name"] for t in self.data()["types"]])
+        self.assertTrue((self.V / "02 工地" / "a.txt").is_file())
 
     def test_rename_is_one_less_one_more(self):
         self.add_types("| 客戶 | 對象 | 業主 |")
@@ -291,10 +294,10 @@ class AfterTest(Base):
     def test_too_long_and_windows_name_refused_before_anything(self):
         self.add_types("| " + "長" * 300 + " | 事 | x |")
         before = self.stamps()
-        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「長長長長長長長長長長…」太長（最多 37 字）"])
+        self.assertEqual(self.apply(3), ["設定檔讀不懂：第 1 節第 2 列的型別名「長長長長長長長長長長…」太長（最多 37 字）" + FIX])
         self.drop_line("| 長")
         self.add_types("| NUL | 事 | x |")
-        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「NUL」是 Windows 保留名，不能當資料夾"])
+        self.assertEqual(self.apply(3), ["設定檔讀不懂：第 1 節第 2 列的型別名「NUL」是 Windows 保留名，不能當資料夾" + FIX])
         self.assertEqual(self.stamps(), before)
 
     def test_check_unreadable_has_no_unlisted_line(self):
@@ -354,7 +357,7 @@ class SchemaTwoApply(Base):
     def test_section_four_error_sentence(self):
         """第四節的型別從來不在第一節（打錯字）照樣報錯。"""
         self.md.write_text(self.md_text().replace("| 案子 | 時程 |", "| 工地 | 時程 |"), encoding="utf-8", newline="\n")
-        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 4 節第 1 列的型別「工地」不在第 1 節"])
+        self.assertEqual(self.apply(3), ["設定檔讀不懂：第 4 節第 1 列的型別「工地」不在第 1 節" + FIX])
 
 
 
@@ -482,27 +485,30 @@ class Edit(Base):
         self.assertEqual(self.refused("remove", "卡型", "卡型=估價單"), "沒有這一列：卡型=估價單")
         self.assertEqual(self.hashes(), before)
 
-    def test_pending_hand_edit_refused(self):
+    def test_pending_hand_edit_applied_first(self):
+        """放寬甲 D-307(4)：手改還沒套用時，profile add 先套用再加（同一回合），回 applied_first。"""
         self.add_types(ROW)
-        before = self.hashes()
-        r = self.kb("add", "偏好", "偏好=先講結論", "--json")
-        self.assertEqual(r.returncode, 3)
-        got = json.loads(r.stdout)
-        self.assertEqual((got["applied"], got["message"]), (False, "設定檔有你改過還沒套用的地方（型別 +1），先套用再改"))
-        self.assertEqual(got["question"], "設定檔有你改過還沒套用的地方（型別 +1），要先套用嗎？")
-        self.assertEqual([(x["n"], x["label"], x["do"], x["strict"]) for x in got["results"]],
-                         [(1, "先套用我改的，再記這句", ["kb profile apply", "kb profile add 偏好 偏好=先講結論"], False),
-                          (2, "先不記", [], False)])
-        self.assertEqual(self.refused("add", "偏好", "偏好=先講結論"), "設定檔有你改過還沒套用的地方（型別 +1），先套用再改")
-        self.assertEqual(self.hashes(), before)
         show = json.loads(self.kb("show", "--json").stdout)
         self.assertEqual(show["pending_edit"], {"summary": "型別 +1", "error": None})
+        r = self.kb("add", "偏好", "偏好=先講結論", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertTrue(got["applied_first"])
+        self.assertEqual(got["applied_first_summary"], "型別 +1")
+        data = self.data()
+        self.assertIn("工地", [t["name"] for t in data["types"]])
+        self.assertIn("先講結論", [p["text"] for p in data["preferences"]])
+        self.assertIsNone(json.loads(self.kb("show", "--json").stdout)["pending_edit"])
+
+    def test_pending_hand_edit_unreadable_gives_apply_error(self):
         self.add_types("| 壞的 | 事 |")
-        got = json.loads(self.kb("add", "偏好", "偏好=先講結論", "--json").stdout)
-        self.assertEqual(got["question"], "設定檔有你改過但讀不懂：第 1 節第 3 列欄數不對（要 3 欄或 5 欄），改好之前我記不了")
-        self.assertEqual([x["label"] for x in got["results"]], ["先不記"])
+        before = self.hashes()
+        r = self.kb("add", "偏好", "偏好=先講結論")
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout.strip(), "設定檔讀不懂：第 1 節第 2 列欄數不對（要 3 欄或 5 欄）" + FIX)
+        self.assertEqual(self.hashes(), before)
         self.assertEqual(json.loads(self.kb("show", "--json").stdout)["pending_edit"],
-                         {"summary": None, "error": "第 1 節第 3 列欄數不對（要 3 欄或 5 欄）"})
+                         {"summary": None, "error": "第 1 節第 2 列欄數不對（要 3 欄或 5 欄）"})
 
     def test_in_conversation_no_program_line(self):
         turns = self.V / ".system" / "turns"
@@ -552,7 +558,7 @@ class SecondRound(Base):
         self.assertEqual(self.hashes(), before)
         self.kb("add", "偏好", "偏好=回答先講結論")  # 有第六節的 md（fixture 是 schema 2）
         self.hand_add("## 七、", "| 用 password: hunter2 登入 |  |")
-        self.assertEqual(self.apply(3), [f"客戶設定檔讀不懂：第 6 節第 2 列：{SECRET}"])
+        self.assertEqual(self.apply(3), [f"設定檔讀不懂：第 6 節第 2 列：{SECRET}" + FIX])
         self.assertNotIn("hunter2", (self.V / ".system" / "profile.json").read_text(encoding="utf-8"))
 
     def test_preference_four_chars_refused(self):
@@ -563,7 +569,7 @@ class SecondRound(Base):
         self.assertEqual(self.hashes(), before)
         self.kb("add", "偏好", "偏好=回答先講結論")
         self.hand_add("## 七、", "| 含$符號 |  |")
-        self.assertEqual(self.apply(3), [f"客戶設定檔讀不懂：第 6 節第 2 列：{CHARS}"])
+        self.assertEqual(self.apply(3), [f"設定檔讀不懂：第 6 節第 2 列：{CHARS}" + FIX])
 
     def test_names_refuse_shell_chars_and_knowledge(self):
         before = self.hashes()
@@ -580,7 +586,7 @@ class SecondRound(Base):
         self.assertEqual(run_kb("profile", "type", "rename", "案子", "--to", "x$y", cwd=self.V).stdout.strip(),
                          "型別名「x$y」不能用（含不能用的字元）")
         self.add_types("| 知識庫 | 物 |  |")
-        self.assertEqual(self.apply(3), ["客戶設定檔讀不懂：第 1 節第 2 列的型別名「知識庫」不能用（跟保留字一樣）"])
+        self.assertEqual(self.apply(3), ["設定檔讀不懂：第 1 節第 2 列的型別名「知識庫」不能用（跟保留字一樣）" + FIX])
 
     def test_add_type_entity_card_then_revert_leaves_no_folder(self):
         """F-2 的重現：同回合加型別、登記實體、寫綜合卡，退回後不留空夾、不印「裡有東西」。"""

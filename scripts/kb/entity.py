@@ -143,9 +143,21 @@ def _accept(vault, args, as_json, conversation, turn_id):
 
 
 def _rename(vault, args, as_json, conversation, turn_id):
+    try:
+        was = entities.find(entities.load(vault), args.ref)[0]
+    except ValueError:
+        was = None
+    old_type = (was or {}).get("type")
     got = entities.rename(vault, args.ref, args.to.strip(), args.type.strip() if args.type else None, turn_id)
     old, new = got["old_name"], got["entity"]["name"]
     changed = list(got["changed"])
+    settled = None
+    if args.type and old_type and entities.key(old_type) != entities.key(got["entity"].get("type") or ""):
+        from kb import profile_cli
+        settled = profile_cli.settle_pending(vault, turn_id, old_type)
+        if settled:
+            changed += [{"path": profile_cli.profile.PROFILE_POSIX, "action": "modify"},
+                        {"path": profile_cli.profile.MD_POSIX, "action": "modify"}]
     if got["moved_files"]:  # 夾裡的客戶原檔換了位置：只掃知識庫、套進清冊（鎖外，同 folders add）
         report = inventory.scan(vault, sources_lib.load(vault), only_roots=[inventory.KNOWLEDGE])
         if inventory.has_changes(vault, report):
@@ -163,25 +175,91 @@ def _rename(vault, args, as_json, conversation, turn_id):
         lines.append(f"已改名：{old} → {new}（舊名記成別名）")
     if got["moved_files"]:
         lines.append(f"資料夾裡的 {got['moved_files']} 個檔跟著搬了，檔案卡下次整理會跟著改位置")
+    if settled:
+        lines.append(settled)
     journal_cli.record_program_or_warn(vault, f"實體改名：{old} → {new}", changed, "entity rename", conversation)
     _out(as_json, lines, {"entity": got["entity"], "old_name": old, "cards": got["cards"], "card": got["card"],
                           "moved_files": got["moved_files"]})
     return 0
 
 
+def _move_leftovers(vault, src_folder, dst_folder, turn_id, conversation):
+    """合併之後舊夾裡剩的檔：照 source-edit move 搬進目標的夾（搬、同名比內容、回合記 moves 與 folders），
+    目標沒有夾就把舊夾改名過去，舊夾空了拿掉。回 (conflict 列, 搬了幾個, 別的拒絕句)。"""
+    import os
+    from kb._lib import source_edit as se
+    from kb._lib.io import FileLock
+    root = Path(vault)
+    srcp, dstp = root / src_folder, root / dst_folder
+    if not srcp.is_dir():
+        return [], 0, []
+    if not any(srcp.iterdir()):
+        try:
+            se.remove_empty_folder(vault, sources_lib.load(vault), srcp, turn_id)
+        except se.Refused:
+            pass
+        return [], 0, []
+    conflicts, refused, moved = [], [], 0
+    with FileLock(root / sources_lib.SOURCES_REL):
+        sources = sources_lib.load(vault)
+        if not dstp.exists():  # 目標沒有夾：舊夾整個搬過去、改成目標的夾名
+            plan = se.plan_move(vault, sources, str(srcp), str(root), dest=str(dstp.parent), to_name=dstp.name)
+            got = se.do_move(vault, plan, turn_id, "move")
+            journal_cli.record_program_or_warn(vault, se.move_sentence(plan, got, "move"), got["changed"],
+                                               "entity merge", conversation)
+            return [], plan["files"], []
+        for item in sorted(srcp.iterdir(), key=lambda p: p.name.casefold()):
+            try:
+                plan = se.plan_move(vault, sources, str(item), str(root), dest=str(dstp))
+                got = se.do_move(vault, plan, turn_id, "move")
+            except se.Conflict as e:
+                conflicts += list(e.rows)
+                continue
+            except se.Refused as e:
+                refused.append(str(e))
+                continue
+            moved += 1
+            journal_cli.record_program_or_warn(vault, se.move_sentence(plan, got, "move"), got["changed"],
+                                               "entity merge", conversation)
+        try:
+            se.remove_empty_folder(vault, sources_lib.load(vault), srcp, turn_id)
+        except se.Refused:
+            pass
+    return conflicts, moved, refused
+
+
 def _merge(vault, args, as_json, conversation, turn_id):
     got = entities.merge(vault, args.ref, args.into, turn_id)
     src, dst = got["source"]["name"], got["target"]["name"]
     changed = list(got["changed"])
-    if any(c["path"].startswith(cards.CARDS_DIR + "/") for c in changed):
+    if got["retyped"] and got["retyped"]["moved_files"]:  # 先換型別搬了夾：原檔的新位置入冊（同 rename）
+        report = inventory.scan(vault, sources_lib.load(vault), only_roots=[inventory.KNOWLEDGE])
+        if inventory.has_changes(vault, report):
+            inventory.apply(vault, report, turn_id)
+            changed.append({"path": inventory.INVENTORY_POSIX, "action": "modify"})
+    conflicts, moved, refused = _move_leftovers(vault, got["src_folder"], got["dst_folder"], turn_id, conversation)
+    if any(c["path"].startswith(cards.CARDS_DIR + "/") for c in changed) or moved:
         _index(vault, turn_id, changed)
     changed += [{"path": rel, "action": "modify"} for rel in _refresh(vault, [dst], turn_id)]
     lines = [f"已合併：{src} 併進 {dst}（{src}記成別名）"]
+    if got["retyped"]:
+        lines.insert(0, f"「{src}」先從「{got['retyped']['from']}」換成「{got['retyped']['to']}」")
     if got["target_card"] and got["added"]:
         lines.append(f"{dst}的綜合卡下次整理會補上這 {len(got['added'])} 張")
+    if moved:
+        lines.append(f"舊夾裡的 {moved} 個檔搬進了「{dst}」的夾")
+    payload = {"source": got["source"], "target": got["target"], "added": got["added"]}
+    if conflicts or refused:
+        names = "、".join(c["name"] for c in conflicts)
+        lines.append(f"這些檔跟「{dst}」的夾裡同名、沒有搬（留在原夾）：{names}；照內容判斷取代或另取名，"
+                     "用 kb source-edit move 搬（--replace 或 --name）。" if conflicts else "；".join(refused))
+        lines.append("（實體已經合併了）")
+        payload["refused"] = lines[-2]
+        if conflicts:
+            payload["conflict"] = conflicts
     journal_cli.record_program_or_warn(vault, f"合併實體：{src} 併進 {dst}", changed, "entity merge", conversation)
-    _out(as_json, lines, {"source": got["source"], "target": got["target"], "added": got["added"]})
-    return 0
+    _out(as_json, lines, payload)
+    return 3 if (conflicts or refused) else 0
 
 
 def _remove(vault, args, as_json, conversation, turn_id):

@@ -37,7 +37,7 @@ TEMP_POSIX = ".system/temp"
 NOT_IN_VAULT = "這裡不是知識庫；到知識庫裡執行"  # 不收 --vault，不提示它（裁定 15）
 CLI_LOCK_TIMEOUT = 30
 _ID = re.compile(r"^(f|out)-[0-9a-f]+$")
-NOT_CARD_ZONES = ("Z1", "Z6", "Z7", "Z8")
+NOT_CARD_ZONES = ("Z1", "Z6", "Z7")  # 放寬甲：Z8（第一層、型別夾根）的使用者檔也可以製卡；只擋總目錄與知識庫根本身（見 gate）
 EXCLUDED = "這個位置你說過不讀"
 CREDENTIAL = "檔名像密碼或金鑰，預設不讀"
 OUTSIDE = "不在登記的資料夾裡"
@@ -156,7 +156,7 @@ def gate(vault, sources, entry, path):
         raise Refused(EXCLUDED, None)
     if zone == "Z11":
         raise Refused(OUTSIDE, None)
-    if zone in NOT_CARD_ZONES:
+    if zone in NOT_CARD_ZONES or (zone == "Z8" and guard.is_willy_file(zone, target_n, normalize(str(vault), None))):
         raise Refused(NOT_CARD, None)
     if zone == "Z12" and guard.credential_hit(target_n, zone, normalize(str(vault), None), sources) is not None:
         raise Refused(CREDENTIAL, None)  # 彈性區不在清冊，沒有「可以讀」這條路（D-510）

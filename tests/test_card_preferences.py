@@ -12,7 +12,7 @@ from kb._lib import profile, turn  # noqa: E402
 
 SID = "sid-pref"
 DAY = "2026-10-26"
-PREFS = ["回答先講結論", "日期帶星期", "寫進檔案（AI 產出、報告、文件）時，提到客戶或其他實體用 Obsidian 連結 [[名字]]；對話裡回答照舊寫純文字"]
+PREFS = ["回答先講結論", "日期帶星期", "寫進檔案（暫存區、報告、文件）時，提到客戶或其他實體用 Obsidian 連結 [[名字]]；對話裡回答照舊寫純文字"]
 
 
 class Lib(unittest.TestCase):

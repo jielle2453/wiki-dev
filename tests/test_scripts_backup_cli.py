@@ -77,7 +77,7 @@ class Backup(Base):
 
     def test_refusals_exact_and_no_tmp_left(self):
         cases = [
-            (["--to", str(self.V / "AI 產出" / "備份")], "備份不能放在知識庫裡面"),
+            (["--to", str(self.V / "暫存區" / "備份")], "備份不能放在知識庫裡面"),
             (["--to", str(self.raw / "客戶案件" / "備份")], "備份不能放在登記的資料夾「客戶案件」裡，不然會被當成新檔整理"),
         ]
         for args, want in cases:

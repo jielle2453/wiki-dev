@@ -132,5 +132,13 @@
   "find_results_max": 50,
   "_why_find_results_max": "kb find 一次最多回幾份檔（D-257）；下拉框看不了更多，要再縮小她會加字",
   "find_recent_days": 30,
-  "_why_find_recent_days": "kb find 的時間詞「最近」是往前幾天（D-257）；跟日程過去區同一個月的尺度"
+  "_why_find_recent_days": "kb find 的時間詞「最近」是往前幾天（D-257）；跟日程過去區同一個月的尺度",
+  "guard_script_max_bytes": 1048576,
+  "_why_guard_script_max_bytes": "守門看直譯器腳本檔內容時最大讀多少位元組，超過就不讀內容、照放行並在 ledger 記 script_unread（放寬甲 D-306(4)）",
+  "trash_backup_margin_mb": 500,
+  "_why_trash_backup_margin_mb": "刪的東西進不了資源回收筒、先留一份進回合備份時，磁碟要多留的空間（MB）；放不下就問使用者才刪（放寬甲）",
+  "relocate_search_depth": 4,
+  "_why_relocate_search_depth": "kb folders locate 找搬走的來源夾時，從家目錄與各固定磁碟根往下找幾層（D-322 第 8 件）",
+  "relocate_search_seconds": 20,
+  "_why_relocate_search_seconds": "kb folders locate 最多花幾秒找，時間到就用已經找到的候選回答（D-322 第 8 件）"
 }

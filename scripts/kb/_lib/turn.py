@@ -597,6 +597,44 @@ def backup(vault, rel, turn_id, action=None, by=None):
         _append_line(manifest, row)
 
 
+def backup_source(vault, target, cwd, turn_id, sources=None):
+    """登記的來源（Z9，知識庫外）寫入前備份（放寬甲 D-306）：舊版複製到 versions/<回合>/files/_src/<別名>/<相對路徑>，
+    manifest 那行多 uri（file://<別名>/<相對路徑>）；退回時 versions 照 uri 經 inventory.path_of 放回。同回合同路徑只做第一次。
+    target 不在任何登記的來源裡丟 ValueError；複製失敗丟 OSError。回 uri。"""
+    from kb._lib import sources as sources_lib
+    from kb._lib.paths import _text_forms, inside, normalize
+    sources = sources or sources_lib.load(vault)
+    text, drive_rel = _text_forms(target)
+    if drive_rel or not os.path.isabs(text):
+        text = os.path.join(str(cwd or os.getcwd()), text)
+    real = _realcase(os.path.abspath(text))
+    real_n = normalize(real, None)
+    best = None
+    for src in sources.entries:
+        if inside(real_n, src["root"]) and real_n != src["root"] and (best is None or len(src["root"]) > len(best["root"])):
+            best = src
+    if best is None:
+        raise ValueError(f"不在登記的來源裡：{target}")
+    rel = real.replace("\\", "/")[len(best["root"]) + 1:]
+    uri = f"file://{best['alias']}/{rel}"
+    key = f"_src/{best['alias']}/{rel}"
+    vdir = turn_dir(vault, turn_id)
+    manifest = vdir / "manifest.jsonl"
+    with FileLock(manifest):
+        if any(e.get("path") == key for e in entries(vault, turn_id)):
+            _note_write(vault, vdir, turn_id, key)
+            return uri
+        src_file = Path(real)
+        exists = src_file.is_file()
+        if exists:
+            dst = vdir / "files" / key
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dst)
+        row = {"path": key, "uri": uri, "action": "modify" if exists else "create", "time": _now().strftime("%Y-%m-%dT%H:%M:%S")}
+        _append_line(manifest, row)
+    return uri
+
+
 def _append_line(path, row):
     """jsonl 追加一行；檔尾是半截行先補換行，新的一行不被吃掉（第二輪 R2-L5）。呼叫端拿著 manifest 鎖。"""
     lead = ""
@@ -757,6 +795,13 @@ def before_write(vault, target, cwd, zone, session_id, turn_id=None):
     Z1 既有檔放行時把路徑記進回合檔的 ai_synthesis（去重）；同一張再改不重複算。
     turn_id（子代理的寫入，D-195）給了就算那個回合；那個回合不在了照 session 的目前回合。"""
     t = (turn_data(vault, turn_id) if turn_id else None) or current(vault, session_id)
+    if zone == "Z9":  # 登記的來源在知識庫外：備份記 uri（放寬甲）
+        try:
+            backup_source(vault, target, cwd, t["turn"])
+        except (OSError, ValueError) as e:
+            ledger.log_error(vault, f"backup_failed {target}: {type(e).__name__}: {e}")
+            return False, "backup_failed", BACKUP_FAILED_REASON
+        return True, "", ""
     rel = rel_path(vault, target, cwd)
     if zone == "Z1" and (Path(vault) / rel).is_file():
         limit = config.get(vault, "big_change_synthesis_max")

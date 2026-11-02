@@ -60,7 +60,7 @@ def add_arguments(sub):
     ix = subs.add_parser("index", help="重寫總目錄", description="重寫總資料夾根的 總目錄.md。")
     sk = subs.add_parser("skip", help="記成依設定不整理", description="客戶設定檔說不整理的種類：這份不做卡，有卡的拿掉。")
     sk.add_argument("id", help="清冊編號（f-…）")
-    sk.add_argument("--kind", required=True, help="客戶設定檔第三節「不整理」的種類")
+    sk.add_argument("--kind", help="不整理的種類；可以省略（記成 AI 看過、不用卡）；不在設定檔第三節就自己加進去")
     rd = subs.add_parser("redo", help="卡讀錯了，標成要重做", description="客戶說卡讀錯原檔：標成要重做，下次整理時照原檔重寫。")
     rd.add_argument("id", nargs="?", help="清冊編號（f-…）")
     rd.add_argument("--job", action="append", help="整批重做：這次整理的編號（cards status --json 的 jobs），可以重複")
@@ -305,8 +305,33 @@ def _index(vault, as_json, conversation):
 
 # ---------- skip ----------
 
-def _skip(vault, fid, kind, as_json, conversation):
+def _add_skip_kind(vault, kind, conversation):
+    """--kind 不在設定檔第三節：先 profile add 不整理與敏感（同一回合）。已經在就不動。回 True 表示加了。"""
+    import argparse
+    import contextlib
+    import io
+    from kb import profile_cli
+    from kb._lib import profile as profile_lib
+    data = profile_lib.load(vault)
+    if data is None or kind in profile_lib.no_card_kinds(data):
+        return False
+    ns = argparse.Namespace(section="不整理與敏感", fields=[f"種類={kind}", "處理=不整理"])
+    buf = io.StringIO()
     try:
+        with contextlib.redirect_stdout(buf):
+            code = profile_cli._locked(vault, profile_cli._edit_locked, "add", ns, False, conversation)
+    except profile_cli.Refused as e:
+        raise cards.SkipRefused(e.line) from e
+    if code != 0:
+        raise cards.SkipRefused(buf.getvalue().strip())
+    return True
+
+
+def _skip(vault, fid, kind, as_json, conversation):
+    kind_added = False
+    try:
+        if kind:
+            kind_added = _add_skip_kind(vault, kind, conversation)
         got = cards.skip(vault, sources_lib.load(vault), fid, kind, turn.current(vault)["turn"])
     except cards.SkipRefused as e:
         print(str(e))
@@ -318,11 +343,16 @@ def _skip(vault, fid, kind, as_json, conversation):
                + [{"path": rel, "action": "delete"} for rel in got["removed"]]
                + [{"path": cards.INDEX_POSIX, "action": "modify"}])
     name = name_of(got["uri"]).rpartition("/")[2]
+    kind = got["kind"]
     journal_cli.record_program_or_warn(vault, f"依設定不整理：{kind}（{name}）", changed, "cards skip", conversation)
     if as_json:
-        print(json.dumps({"id": fid, "kind": kind, "card": got["card"]}, ensure_ascii=False))
+        out = {"id": fid, "kind": kind, "card": got["card"]}
+        if kind_added:
+            out["kind_added"] = True
+        print(json.dumps(out, ensure_ascii=False))
     else:
-        print(f"已記成不整理（{kind}）：{got['uri']}；有卡的已拿掉，說「退回上一版」救得回來")
+        extra = f"（「{kind}」加進了設定檔第三節）" if kind_added else ""
+        print(f"已記成不整理（{kind}）：{got['uri']}；有卡的已拿掉，說「退回上一版」救得回來{extra}")
     return 0
 
 
@@ -668,7 +698,7 @@ def run(args):
         if command == "drop":
             return _drop(vault, args.id, as_json, conversation)
         if command == "skip":
-            return _skip(vault, args.id, args.kind.strip(), as_json, conversation)
+            return _skip(vault, args.id, (args.kind or "").strip() or None, as_json, conversation)
         if command == "redo":
             if sum(bool(x) for x in (args.id, args.job, args.ids)) != 1 or (args.check and not (args.job or args.ids)):
                 print(REDO_WHICH)

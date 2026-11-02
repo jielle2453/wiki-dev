@@ -13,10 +13,10 @@ from pathlib import Path
 from tests._guard_fixture import KB, ROOT, make_vault
 
 SKELETON = ROOT / "skeleton"
-EXPECTED_DIRS = ["AI 產出", "_extras", "收件匣", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
+EXPECTED_DIRS = ["暫存區", "_extras", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
 EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".system/sources.json", ".system/profile.json",
                   "系統/客戶設定檔.md", "系統/日程.md"]
-SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "AI 產出/.gitkeep", "收件匣/.gitkeep", "檔案索引/.gitkeep",
+SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep",
                     "_extras/.gitkeep"}
 
@@ -44,6 +44,7 @@ class Skeleton(unittest.TestCase):
 
     def test_claude_md_mentions_five_zones_and_no_plugin_path(self):
         text = (SKELETON / "CLAUDE.md").read_text(encoding="utf-8")
+        # skeleton/CLAUDE.md 的夾名由 spec 乙改成暫存區（這題不動說明文字）；乙改完把這裡換成「暫存區」
         for zone in ("型別夾", "AI 產出", "收件匣", "檔案索引", "系統"):
             self.assertIn(zone, text)
         self.assertNotIn("CLAUDE_PLUGIN_ROOT", text)
@@ -96,7 +97,7 @@ class Init(unittest.TestCase):
         for name in ("CLAUDE.md", ".claude", ".system"):
             with self.subTest(name=name):
                 self.assertTrue((self.V / name).stat().st_file_attributes & 0x2, name)
-        self.assertFalse((self.V / "AI 產出").stat().st_file_attributes & 0x2)
+        self.assertFalse((self.V / "暫存區").stat().st_file_attributes & 0x2)
 
     def test_rerun_says_nothing_missing_and_keeps_files(self):
         self.init(str(self.V))
@@ -113,11 +114,11 @@ class Init(unittest.TestCase):
 
     def test_fills_one_missing_folder(self):
         self.init(str(self.V))
-        shutil.rmtree(self.V / "收件匣")
+        shutil.rmtree(self.V / "暫存區")
         r = self.init(str(self.V))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), f"{self.V} 已是知識庫，補齊了 1 項")
-        self.assertTrue((self.V / "收件匣").is_dir())
+        self.assertTrue((self.V / "暫存區").is_dir())
 
     def test_check_prints_plan_and_creates_nothing(self):
         r = self.init(str(self.V), "--check")
@@ -125,7 +126,7 @@ class Init(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertTrue(lines)
         self.assertTrue(all(ln.startswith("會建 ") for ln in lines), lines)
-        self.assertIn("會建 AI 產出/", lines)
+        self.assertIn("會建 暫存區/", lines)
         self.assertIn("會建 CLAUDE.md", lines)
         self.assertIn("會建 .system/sources.json", lines)
         self.assertFalse(self.V.exists())
@@ -143,12 +144,12 @@ class Init(unittest.TestCase):
     def test_inside_existing_vault_exit_3(self):
         tmp, V, _raw = make_vault()
         try:
-            r = self.init(str(V / "AI 產出" / "x"))
+            r = self.init(str(V / "暫存區" / "x"))
             self.assertEqual(r.returncode, 3)
             first = r.stdout.splitlines()[0]
             self.assertIn("上層", first)
             self.assertIn("已經是知識庫", first)
-            self.assertFalse((V / "AI 產出" / "x").exists())
+            self.assertFalse((V / "暫存區" / "x").exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -470,12 +471,12 @@ class InitJournal(unittest.TestCase):
         run_kb("init", str(self.V), cwd=self.tmp)
         run_kb("init", str(self.V), cwd=self.tmp)
         self.assertEqual(len(self.rows()), 1)
-        shutil.rmtree(self.V / "收件匣")
+        shutil.rmtree(self.V / "暫存區")
         run_kb("init", str(self.V), cwd=self.tmp)
         rows = self.rows()
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1]["note"], "補齊了 1 項")
-        self.assertEqual(rows[1]["changed"], [{"path": "收件匣", "action": "create"}])
+        self.assertEqual(rows[1]["changed"], [{"path": "暫存區", "action": "create"}])
 
     def test_check_writes_no_journal(self):
         run_kb("init", str(self.V), "--check", cwd=self.tmp)
@@ -493,7 +494,7 @@ class InitJournal(unittest.TestCase):
                                                         "session_id": "test-sid", "started": "2026-10-16T10:00:00",
                                                         "prompt_head": "補齊", "approved": False, "note": "",
                                                         "done": False}), encoding="utf-8")
-        shutil.rmtree(self.V / "收件匣")
+        shutil.rmtree(self.V / "暫存區")
         r = run_kb("init", str(self.V), cwd=self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(self.rows()), 1)

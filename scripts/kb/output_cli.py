@@ -22,20 +22,21 @@ DROPPED = "草稿收起來了：{name}（說「退回」會回來）"
 
 def add_arguments(sub):
     subs = sub.add_subparsers(dest="output_command", metavar="<子子命令>", required=True)
-    sv = subs.add_parser("save", help="把做好的檔放進 AI 產出", description="工作區的檔用搬的、知識庫外的用複製的；先備份、登記，退回時成品先留著、要刪再刪。")
+    sv = subs.add_parser("save", help="把做好的檔放進知識庫（沒給 --to 落暫存區）", description="工作區的檔用搬的、知識庫外的用複製的；先備份、登記，退回時成品先留著、要刪再刪。")
     sv.add_argument("file", help="工作區或知識庫外的檔")
-    sv.add_argument("--to", required=True, help="放到哪：AI 產出/<型別>/<檔名>")
+    sv.add_argument("--to", help="放到哪：<夾>/<檔名>（使用者的任何夾；暫存區底下也行）；沒給落暫存區，檔名照原檔")
+    sv.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
     sv.add_argument("--from", dest="source", help="改自哪份原檔（卡編號、uri 或路徑）")
-    sv.add_argument("--draft", help="定稿前的草稿（AI 產出裡的（草稿）.md），收起來")
+    sv.add_argument("--draft", help="定稿前的草稿（暫存區裡的（草稿）.md），收起來")
     sv.add_argument("--link", help="這份是哪個線上文件下載回來的（https://claude.ai/…）")
     lk = subs.add_parser("link", help="登記一份線上文件", description="Claude artifact（Docs、Slides、網頁）記進清冊，下次整理做卡。")
     lk.add_argument("url", help="https://claude.ai/artifact/…")
     lk.add_argument("--title", required=True, help="標題")
-    lk.add_argument("--type", dest="type_", help="放在 AI 產出的哪一類（例：報告）")
+    lk.add_argument("--type", dest="type_", help="放在暫存區的哪一類（例：報告）")
     lk.add_argument("--entity", action="extend", nargs="+", default=[], help="掛的實體名稱，可以多個")
     lk.add_argument("--basis", action="extend", nargs="+", default=[], help="依據的檔案卡編號（f-…），可以多個")
     dd = subs.add_parser("drop-draft", help="草稿不要了", description="草稿備進回合後拿掉；說退回會回來。")
-    dd.add_argument("draft", help="AI 產出裡的（草稿）.md")
+    dd.add_argument("draft", help="暫存區裡的（草稿）.md")
     ls = subs.add_parser("links", help="列出存成連結的線上文件", description="只讀：清冊裡 kind 是 link 的條目（換帳號時請她分享或下載用）。")
     for p in (sv, lk, dd, ls):  # 不收 --vault：同 convert，假的知識庫會讓真知識庫的檔變成「外面」被複製出去（收尾 security-review）
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
@@ -51,10 +52,10 @@ def _shown(rel):
 
 def _save(vault, args, as_json, conversation, turn_id):
     res = output.save(vault, args.file, args.to, turn_id, os.getcwd(), from_=args.source, draft=args.draft,
-                      link=args.link)
+                      link=args.link, replace=args.replace)
     extra = (f"，改自「{res['from_label']}」" if res["from"] else "") + ("，草稿收起來了" if res["draft"] else "")
     line = SAVED.format(shown=_shown(res["path"]), extra=extra)
-    changed = [{"path": res["path"], "action": "create"}] + (
+    changed = ([{"path": res["path"], "action": "create"}] if res["in_vault"] else []) + (
         [{"path": res["draft"], "action": "delete"}] if res["draft"] else [])
     journal_cli.record_program_or_warn(vault, line.split("（說")[0], changed + [
         {"path": inventory.INVENTORY_POSIX, "action": "modify"}], "output save", conversation)
@@ -113,7 +114,10 @@ def run(args):
         turn_id = turn.current(vault)["turn"]
         return HANDLERS[args.output_command](vault, args, as_json, conversation, turn_id)
     except output.Refused as e:
-        _out(as_json, str(e), {"ok": False, "message": str(e)})
+        payload = {"ok": False, "message": str(e)}
+        if isinstance(e, output.Conflict):
+            payload.update(refused=str(e), conflict=e.rows)
+        _out(as_json, str(e), payload)
         return 3
     except TimeoutError:
         _out(as_json, LOCK_BUSY, {"ok": False, "message": LOCK_BUSY})

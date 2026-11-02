@@ -17,7 +17,7 @@ add 第一行的份數與憑證清單從同一個 scan 取（清冊審閱裁定 
 manage 第二版（D-174、D-177）：exclude（兩種）與 remove 在清冊對帳之後把那些條目的檔案卡拿掉（備進回合）、重寫總目錄與綜合卡快取，
 成功句接「卡拿掉 N 張」；hidden 那條排除記 purge: pending，列出接著要重寫的綜合卡（「整理到」引用那些卡的），
 沒有受影響的綜合卡就在同一個指令裡接著清殘留（kb folders purge，本體在 _lib/purge）。
-find <名>（manage 第二版第二輪修）：在登記的根（含知識庫、AI 產出、收件匣）底下找夾名，只列「別名/相對路徑」，
+find <名>（manage 第二版第二輪修）：在登記的根（含知識庫、暫存區）底下找夾名，只列「別名/相對路徑」，
 跳過排除的、憑證樣式的、. 開頭與隱藏的夾、連結；走訪上限照 credential_scan_max_entries；只讀。
 relocate <別名> <新路徑>：資料夾搬家只換登記的位置（別名、排除、清冊 uri 不動），新路徑照 add 的拒絕條件查（跟自己不算重疊），
 從清冊抽樣到新位置比對、照實回報；--check 只印，不帶就改 spec、掃描、搬卡、重寫總目錄，先備進回合，退回回到舊位置。
@@ -34,7 +34,7 @@ from kb._lib import cards, config, credentials, env, inventory, plan, purge, tur
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, write_json_atomic
-from kb._lib.paths import compress_spec, inside, is_abs_spec, normalize, resolve_spec
+from kb._lib.paths import compress_spec, decode_uri, inside, is_abs_spec, normalize, resolve_spec
 
 CLI_LOCK_TIMEOUT = 30
 NOT_IN_VAULT = "這裡不是知識庫；到知識庫裡執行，或加 --vault"
@@ -49,8 +49,10 @@ NOTHING_TO_PURGE = "「{name}」沒有要清的"
 PURGE_BLOCKED = "還有綜合卡寫著那夾的內容：{names}（先重寫再清）"
 RESERVED_RELOCATE = "「{alias}」是知識庫自己的，不用換位置"
 HIDDEN_LOST = "不想讓 AI 看到的「{spec}」在新位置找不到；先說它現在叫什麼，或重新設不讀，再換過去"
-KB_IN_VAULT = "知識庫裡的夾不能設成不讀；要不讓 AI 看到，先搬到登記的來源夾再設"  # B-413
-FIND_NO_CMD = "夾名有引號一類的特殊符號，指令給不出來；請她先在檔案總管改名"
+VAULT_ALIAS = sources_lib.VAULT_ALIAS
+VAULT_ROOT_EXCLUDE = "知識庫本身不能設成不讀；要設的是裡面的夾"
+LOCATE_FOUND = "找到了：{path}（抽樣 {hit}/{n} 份對上）；跑 kb folders relocate {alias} <路徑> 接上，跟使用者說一聲。"
+LOCATE_NONE = "找不到；問使用者「{alias}」搬到哪了。"
 PURGE_AGAIN = "{left}；關掉開著的檔再跑一次 {cmd}"
 ALIAS_BAD_CHARS = '<>:"/\\|?*'
 # Windows 保留裝置名（N7）：當夾名會建不出來或指到裝置
@@ -63,6 +65,13 @@ def add_arguments(sub):
     a.add_argument("path", help="來源資料夾")
     a.add_argument("--alias", help="別名，預設用資料夾名")
     a.add_argument("--check", action="store_true", help="只印報告，不寫")
+    a.add_argument("--shared", action="store_true", help="同事也在用的夾（只記，不改任何行為）")
+    st = subs.add_parser("set", help="改來源的記號", description="改登記來源的記號：--shared yes|no 記這個來源是不是同事也在用的夾。")
+    st.add_argument("alias", help="來源的別名")
+    st.add_argument("--shared", required=True, choices=("yes", "no"), help="同事也在用的夾")
+    lc = subs.add_parser("locate", help="在這台電腦找搬走的來源夾（只讀）",
+                         description="找搬走的來源夾：從家目錄與固定磁碟根往下找同名的夾，用抽樣比對排序，回候選。")
+    lc.add_argument("alias", help="來源的別名")
     e = subs.add_parser("exclude", help="排除來源裡的一個夾或檔", description="排除來源裡的一個夾或檔；對象要真的存在。")
     e.add_argument("path", help="來源裡的夾或檔")
     e.add_argument("--kind", required=True, choices=("hidden", "unused"), help="hidden 不想讓 AI 看到；unused 用不到")
@@ -83,7 +92,7 @@ def add_arguments(sub):
     fd = subs.add_parser("find", help="在登記的資料夾裡找某個夾（只讀）",
                          description="在登記的資料夾底下找夾名，列出「別名/相對路徑」；排除的、檔名像密碼的夾不看。")
     fd.add_argument("name", help="夾名（也可以是「上層/夾名」）")
-    for p in (a, e, rm, inc, ls, rl, pg, fd):
+    for p in (a, st, lc, e, rm, inc, ls, rl, pg, fd):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -236,7 +245,7 @@ def _reconcile(vault, raw, turn_id):
 
 def _scan_source(vault, raw, alias, turn_id):
     """add、include：只掃那個來源；turn_id 是 None（--check）只比不套。回 (report, 有沒有改到清冊)。"""
-    report = inventory.scan(vault, sources_lib.Sources(vault, raw), only_roots=[alias])
+    report = inventory.scan(vault, sources_lib.Sources(vault, raw), only_roots=alias if isinstance(alias, list) else [alias])
     if turn_id is None or not inventory.has_changes(vault, report):
         return report, False
     inventory.apply(vault, report, turn_id)
@@ -326,15 +335,12 @@ def _removed_lines(result):
 
 
 def purge_cmd(name):
-    """給 AI 跑的那一行（$、反引號用單引號）；給不出來回 None（第一輪修）。"""
-    arg = plan.shell_arg(name)
-    return f"kb folders purge {arg}" if arg is not None else None
+    """給 AI 跑的那一行（$、反引號用單引號；引號配不起來的改給 % 編碼的 uri，放寬甲）。"""
+    return f"kb folders purge {plan.path_arg(name)}"
 
 
 def _left_line(got, name):
-    cmd = purge_cmd(name)
-    return PURGE_AGAIN.format(left=purge.remaining_text(got["remaining"]), cmd=cmd) if cmd else \
-        purge.remaining_text(got["remaining"]) + "；" + plan.PURGE_NO_CMD
+    return PURGE_AGAIN.format(left=purge.remaining_text(got["remaining"]), cmd=purge_cmd(name))
 
 
 def _obsidian_line(cleared):
@@ -395,7 +401,10 @@ def _add(vault, args, as_json):
             report, inv_changed = _scan_source(vault, trial, alias, None)
         else:
             entry_id = sources_lib.new_id(s.get("id") for s in raw["sources"])
-            raw["sources"].append({"id": entry_id, "alias": alias, "spec": spec, "excludes": []})
+            new_entry = {"id": entry_id, "alias": alias, "spec": spec, "excludes": []}
+            if getattr(args, "shared", False):
+                new_entry["shared"] = True
+            raw["sources"].append(new_entry)
             turn_id, original = _backup_then_write(vault, raw)
             report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, alias, turn_id)
 
@@ -440,7 +449,11 @@ def _raw_entry(raw, best):
 def _target(vault, text):
     """exclude、include 的對象：kb folders find 印的「別名/相對路徑」（跟 source-edit move --to 同一個解法），否則照路徑。"""
     from kb._lib import source_edit
-    text = str(text).strip()
+    text = decode_uri(str(text).strip())
+    if text.startswith("file://"):  # 清冊 uri（% 編碼已解開）：照 uri 解成磁碟上的路徑
+        got = inventory.path_of(vault, sources_lib.load(vault), text)
+        if got is not None:
+            return Path(os.path.realpath(str(got))) if os.path.exists(got) else Path(got)
     if not os.path.isabs(text) and not text.startswith("file://"):
         p = source_edit._alias_form(vault, sources_lib.load(vault), text)
         if p is not None:
@@ -453,15 +466,25 @@ def _exclude(vault, args, as_json):
     if not t.exists():
         return _reject(f"找不到 {t}；排除的對象要真的存在")
     tn = normalize(str(t), None)
-    if inside(tn, normalize(str(vault), None)):  # 知識庫、AI 產出、收件匣裡的夾這版不能設成不讀（B-413）
-        return _reject(KB_IN_VAULT)
+    vn = normalize(str(vault), None)
+    in_vault = inside(tn, vn)
     with FileLock(_sources_path(vault)):
         raw = sources_lib.load_raw(vault)
         resolved = sources_lib.Sources(vault, raw)
         best = None
-        for e in resolved.entries:
-            if inside(tn, e["root"]) and (best is None or len(e["root"]) > len(best["root"])):
-                best = e
+        if in_vault:  # 知識庫裡使用者的夾（放寬甲 D-322 第 23 件）：記在 sources.json 頂層 vault_excludes，別名「知識庫」
+            from kb._lib import source_edit
+            if tn == vn:
+                return _reject(VAULT_ROOT_EXCLUDE)
+            try:
+                source_edit.check_from(vault, sources_lib.load(vault), t)  # willy 自己的區、不讀的夾不收
+            except source_edit.Refused as e:
+                return _reject(str(e))
+            best = {"id": "", "alias": VAULT_ALIAS, "root": vn, "excludes": resolved.vault_excludes}
+        else:
+            for e in resolved.entries:
+                if inside(tn, e["root"]) and (best is None or len(e["root"]) > len(best["root"])):
+                    best = e
         if best is None:
             return _reject(f"{t} 不在任何登記的來源裡；先用 folders add 登記")
         if tn == best["root"]:
@@ -469,7 +492,7 @@ def _exclude(vault, args, as_json):
         for ex in best["excludes"]:
             if inside(tn, ex["root"]):
                 return _reject(f"已經在排除裡：{_realcase(ex['root'])}")
-        entry = _raw_entry(raw, best)
+        entry = {"excludes": raw.setdefault("vault_excludes", [])} if in_vault else _raw_entry(raw, best)
         if entry is None:
             shown = best["alias"] if best["alias"] != "?" else f"沒有別名、spec {best['root']}"  # Sources 對沒別名的填 ?，不印給人
             return _reject(f"sources.json 裡找不到「{shown}」這筆，沒有寫入")
@@ -479,6 +502,8 @@ def _exclude(vault, args, as_json):
         if args.kind == "hidden":
             row["purge"] = sources_lib.PURGE_PENDING  # D-174：殘留清完才改成日期
         entry.setdefault("excludes", []).append(row)
+        if in_vault:
+            raw["vault_excludes"] = entry["excludes"]
         before = _snapshot_status(vault)
         before_entries = inventory.load(vault)["entries"]
         inv_before = _inventory_bytes(vault)
@@ -529,7 +554,7 @@ def _exclude(vault, args, as_json):
     if rewrite:
         what = f"拿掉「{titles[0]}」等 {len(titles)} 張卡的內容" if titles else "拿掉那夾的內容"
         cmd = purge_cmd(name)
-        print(f"接著要重寫的綜合卡：{'、'.join(rewrite)}（{what}），" + (f"寫完跑 {cmd}" if cmd else plan.PURGE_NO_CMD))
+        print(f"接著要重寫的綜合卡：{'、'.join(rewrite)}（{what}），" + f"寫完跑 {cmd}")
     elif purged is not None and purged["remaining"]:
         print(_left_line(purged, name))
         if purged.get("undecodable"):
@@ -583,6 +608,11 @@ def _include(vault, args, as_json):
                 continue
             in_source = in_source or inside(tn, root)
             rows += [(src, ex, resolve_spec(ex["spec"], root)) for ex in src.get("excludes") or [] if ex.get("spec")]
+        vn = normalize(str(vault), None)
+        if inside(tn, vn):  # 知識庫裡使用者的不讀夾（vault_excludes）
+            in_source = True
+            vsrc = {"id": "", "alias": VAULT_ALIAS, "excludes": raw.get("vault_excludes") or []}
+            rows += [(vsrc, ex, resolve_spec(ex["spec"], vn)) for ex in vsrc["excludes"] if ex.get("spec")]
         found = next(((src, ex) for src, ex, ex_root in rows if ex_root == tn), None)
         if found is None:
             shown = _realcase(t)
@@ -595,7 +625,9 @@ def _include(vault, args, as_json):
         s, ex = found
         s["excludes"].remove(ex)
         turn_id, original = _backup_then_write(vault, raw)
-        report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, s.get("alias", ""), turn_id)
+        roots = ([inventory.KNOWLEDGE, inventory.HOLD] if s.get("alias") == VAULT_ALIAS
+                 else s.get("alias", ""))
+        report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, roots, turn_id)
     alias = s.get("alias", "")
     first = f"已取消排除「{alias}/{ex['spec']}」，從現在起讀得到。"
     _journal(vault, first, "folders include", inv_changed)
@@ -622,16 +654,24 @@ def _list(vault, as_json):
             excludes.append({"spec": ex.get("spec", ""), "kind": ex.get("kind", ""), "reason": ex.get("reason", ""),
                              "added": ex.get("added", ""), "path": ex_path, "exists": ex_exists})
         out.append({"id": s.get("id", ""), "alias": s.get("alias", ""), "spec": spec, "path": path, "exists": exists,
-                    "excludes": excludes})
+                    "shared": bool(s.get("shared")), "excludes": excludes})
+    vex = [{"spec": ex.get("spec", ""), "kind": ex.get("kind", ""), "reason": ex.get("reason", ""),
+            "added": ex.get("added", "")} for ex in raw.get("vault_excludes") or []]
     if as_json:
-        print(json.dumps({"sources": out}, ensure_ascii=False))
+        print(json.dumps(dict({"sources": out}, **({"vault_excludes": vex} if vex else {})), ensure_ascii=False))
         return 0
-    if not out:
+    if not out and not vex:
         print("還沒有登記任何來源")
         return 0
+    if vex:
+        print(f"「{VAULT_ALIAS}」裡設成不讀的夾：")
+        for ex in vex:
+            parts = "，".join(x for x in (ex["kind"], ex["reason"], ex["added"]) if x)
+            print(f"  - 排除 {ex['spec']}（{parts}）")
     for s in out:
         shown = s["path"] if s["path"] is not None else "展不開"
-        print(f"「{s['alias']}」 {s['spec']} → {shown}" + ("" if s["exists"] else "（這台電腦找不到）"))
+        print(f"「{s['alias']}」 {s['spec']} → {shown}" + ("" if s["exists"] else "（這台電腦找不到）")
+              + ("（同事也在用）" if s.get("shared") else ""))
         for ex in s["excludes"]:
             parts = "，".join(x for x in (ex["kind"], ex["reason"], ex["added"]) if x)
             print(f"  - 排除 {ex['spec']}（{parts}）")
@@ -795,6 +835,130 @@ def _relocate(vault, args, as_json):
     return 0
 
 
+def _set(vault, args, as_json):
+    """kb folders set <別名> --shared yes|no：只記，不改任何行為（D-334(3)）。"""
+    wanted = _clean_alias(args.alias.strip())
+    value = args.shared == "yes"
+    with FileLock(_sources_path(vault)):
+        raw = sources_lib.load_raw(vault)
+        entry = next((s for s in raw["sources"] if str(s.get("alias", "")).casefold() == wanted.casefold()), None)
+        if entry is None:
+            return _reject(f"沒有叫「{wanted}」的來源")
+        if bool(entry.get("shared")) == value:
+            line = f"「{entry.get('alias', '')}」本來就{'是' if value else '不是'}同事也在用的夾"
+        else:
+            if value:
+                entry["shared"] = True
+            else:
+                entry.pop("shared", None)
+            _backup_then_write(vault, raw)
+            line = f"已把「{entry.get('alias', '')}」記成{'同事也在用的夾' if value else '只有你用的夾'}"
+            _journal(vault, line, "folders set")
+    print(json.dumps({"alias": entry.get("alias", ""), "shared": value, "message": line}, ensure_ascii=False)
+          if as_json else line)
+    return 0
+
+
+def _locate_roots():
+    """找搬走的夾從哪裡開始：使用者家目錄、各固定磁碟的根（Windows）；Mac／Linux 加上 /Volumes、/mnt、/media 底下的磁碟。"""
+    from kb._lib import source_edit
+    roots = [Path(os.path.expanduser("~"))]
+    if os.name == "nt":
+        for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+            root = f"{letter}:\\"
+            try:
+                if os.path.isdir(root) and source_edit._drive_type(root) == source_edit.DRIVE_FIXED:
+                    roots.append(Path(root))
+            except OSError:
+                continue
+    else:
+        for base in ("/Volumes", "/mnt", "/media"):
+            try:
+                roots += [Path(base) / n for n in sorted(os.listdir(base))]
+            except OSError:
+                continue
+    seen, out = set(), []
+    for r in roots:
+        k = os.path.normcase(os.path.realpath(str(r)))
+        if k not in seen:
+            seen.add(k)
+            out.append(r)
+    return out
+
+
+def locate_candidates(vault, name, roots, depth, seconds, skip=()):
+    """roots 往下 depth 層裡叫 name 的夾（不分大小寫）；時間到就收手。回 (路徑清單, 花了幾秒)。"""
+    import time
+    start = time.monotonic()
+    want = name.casefold()
+    skip_n = {normalize(str(s), None) for s in skip}
+    found, seen = [], set()
+    for root in roots:
+        stack = [(str(root), 0)]
+        while stack:
+            if time.monotonic() - start > seconds:
+                return found, time.monotonic() - start
+            here, level = stack.pop()
+            try:
+                with os.scandir(here) as it:
+                    items = sorted(it, key=lambda i: i.name)
+            except OSError:
+                continue
+            for item in items:
+                try:
+                    if not item.is_dir(follow_symlinks=False):
+                        continue
+                    attrs = getattr(item.stat(follow_symlinks=False), "st_file_attributes", 0)
+                except OSError:
+                    continue
+                nm = item.name
+                if nm.startswith(".") or attrs & FIND_HIDDEN or nm in ("AppData", "node_modules", "$Recycle.Bin",
+                                                                       "Windows", "Program Files", "Program Files (x86)"):
+                    continue
+                full = normalize(item.path, None)
+                if full in skip_n or any(inside(full, s) for s in skip_n):
+                    continue
+                if nm.casefold() == want and full not in seen:
+                    seen.add(full)
+                    found.append(item.path)
+                if level + 1 < depth:
+                    stack.append((item.path, level + 1))
+    return found, time.monotonic() - start
+
+
+def _locate(vault, args, as_json):
+    wanted = _clean_alias(args.alias.strip())
+    raw = sources_lib.load_raw(vault)
+    entry = next((s for s in raw["sources"] if str(s.get("alias", "")).casefold() == wanted.casefold()), None)
+    if entry is None:
+        return _reject(f"沒有叫「{wanted}」的來源")
+    alias = entry.get("alias", "")
+    spec = entry.get("spec", "")
+    name = Path(spec.replace("\\", "/").rstrip("/")).name
+    if not name or name in (".", "..", "~"):
+        name = alias
+    found, secs = locate_candidates(vault, name, _locate_roots(), config.get(vault, "relocate_search_depth"),
+                                    config.get(vault, "relocate_search_seconds"), skip=[str(vault)])
+    cands = []
+    for path in found:
+        total, ok, _misses = _sample(vault, alias, path)
+        cands.append({"path": path, "hit": ok, "sampled": total})
+    cands.sort(key=lambda c: (-(c["hit"] / c["sampled"]) if c["sampled"] else 0, -c["hit"], c["path"]))
+    best = next((c for c in cands if c["sampled"] and c["hit"] * 2 > c["sampled"]), None)
+    if best is not None:
+        line = LOCATE_FOUND.format(path=best["path"], hit=best["hit"], n=best["sampled"], alias=alias)
+    else:
+        line = LOCATE_NONE.format(alias=alias)
+    if as_json:
+        print(json.dumps({"alias": alias, "candidates": cands, "searched_seconds": round(secs, 1), "message": line},
+                         ensure_ascii=False))
+        return 0
+    print(line)
+    for c in cands:
+        print(f"- {c['path']}（抽樣 {c['hit']}/{c['sampled']} 份對上）")
+    return 0
+
+
 FIND_HIDDEN = 0x2 | 0x4 | 0x400  # 隱藏、系統、重解析點（連結、junction）
 
 
@@ -802,7 +966,7 @@ def _find_roots(vault, sources):
     vault_s = str(vault)
     out = [(s["alias"], s["root"], [ex["root"] for ex in s["excludes"]]) for s in sources.entries]
     out.append((inventory.KNOWLEDGE, vault_s, []))
-    out += [(a, os.path.join(vault_s, a), []) for a in (inventory.INBOX, inventory.OUTPUT)]
+    out += [(a, os.path.join(vault_s, a), []) for a in (inventory.HOLD,)]
     return out
 
 
@@ -855,12 +1019,8 @@ def find_folders(vault, name, limit):
 def _find_item(path):
     """find --json 的一筆：現成的 exclude 指令（照 plan.shell_arg）；知識庫裡的、給不出指令的 exclude 是 null、帶 note。"""
     in_vault = path.split("/", 1)[0].casefold() in {a.casefold() for a in sources_lib.RESERVED_ALIASES}
-    if in_vault:
-        return {"path": path, "in_vault": True, "exclude": None, "note": KB_IN_VAULT}
-    arg = plan.shell_arg(path)
-    if arg is None:
-        return {"path": path, "in_vault": False, "exclude": None, "note": FIND_NO_CMD}
-    return {"path": path, "in_vault": False,
+    arg = plan.path_arg(path)  # 名字有引號一類的字元也給得出來：file:// 加 % 編碼（放寬甲）
+    return {"path": path, "in_vault": in_vault,
             "exclude": {k: f"kb folders exclude {arg} --kind {k}" for k in ("hidden", "unused")}}
 
 
@@ -874,7 +1034,7 @@ def _find(vault, name, as_json):
     if found:
         print(f"找到 {len(found)} 個叫「{shown}」的夾：")
         for it in items:
-            print(f"- {it['path']}" + ("（知識庫裡的夾，不能設成不讀）" if it["in_vault"] else ""))
+            print(f"- {it['path']}" + ("（知識庫裡的夾）" if it["in_vault"] else ""))
     else:
         print(f"登記的資料夾裡沒有叫「{shown}」的夾")
     if truncated:
@@ -894,7 +1054,7 @@ def run(args):
         return 3
     kio.LOCK_TIMEOUT = CLI_LOCK_TIMEOUT
     as_json = getattr(args, "json", False)
-    if args.folders_command not in ("list", "find"):
+    if args.folders_command not in ("list", "find", "locate"):
         try:  # 清冊讀不到先擋，sources.json 一行都不改（I-046、清冊審閱裁定 4）
             inventory.load(vault)
         except ValueError as e:
@@ -911,6 +1071,10 @@ def run(args):
             return _include(vault, args, as_json)
         if args.folders_command == "relocate":
             return _relocate(vault, args, as_json)
+        if args.folders_command == "set":
+            return _set(vault, args, as_json)
+        if args.folders_command == "locate":
+            return _locate(vault, args, as_json)
         if args.folders_command == "purge":
             return _purge(vault, args, as_json)
         if args.folders_command == "find":

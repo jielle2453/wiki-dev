@@ -26,6 +26,7 @@ import copy
 import fnmatch
 import hashlib
 import os
+import re
 import secrets
 import stat as stat_lib
 import time
@@ -34,7 +35,7 @@ from pathlib import Path
 
 from kb._lib import config, content_fp, credentials
 from kb._lib import sources as sources_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 from kb._lib.io import FileLock, read_json, write_json_atomic
 from kb._lib.paths import inside, long_path, normalize
 
@@ -43,10 +44,10 @@ INVENTORY_POSIX = ".system/inventory.json"
 SCHEMA_VERSION = 2
 EMPTY = {"schema_version": SCHEMA_VERSION, "entries": []}
 
-KNOWLEDGE, INBOX, OUTPUT = "知識庫", "收件匣", "AI 產出"  # 總資料夾自身的三個保留別名（D-042）
-RESERVED_CF = {a.casefold() for a in (KNOWLEDGE, INBOX, OUTPUT)}
+KNOWLEDGE, HOLD = "知識庫", HOLD_DIR  # 總資料夾自身的兩個保留別名（D-042；D-324 起收件匣與 AI 產出合成暫存區）
+RESERVED_CF = {a.casefold() for a in (KNOWLEDGE, HOLD)}
 # 知識庫根第一層不當型別夾的保留夾（跟 guard.RESERVED 同一組；隱藏夾另由「. 開頭」跳過；彈性區不盤點，D-511）
-VAULT_RESERVED_DIRS = {"ai 產出", "收件匣", "檔案索引", "系統", FREE_DIR.casefold()}
+VAULT_RESERVED_DIRS = {HOLD.casefold(), "檔案索引", "系統", FREE_DIR.casefold()}
 SKIP_NAMES = ("~$*", "*.tmp", "Thumbs.db", "desktop.ini", ".DS_Store")
 HIDDEN_OR_SYSTEM = 0x2 | 0x4
 REPARSE_POINT = 0x400
@@ -223,15 +224,15 @@ def _has_location(entry, key):
     return any(uri_key(loc.get("uri", "")) == key for loc in entry.get("locations", []))
 
 
-def register_output(vault, rel, turn_id, derived_from=None):
+def register_output(vault, rel, turn_id, derived_from=None, uri=None, target=None, backup_key=None):
     """同 location 有 status active 的條目：最後一筆指紋相同就不動，不同就追加一筆（位置大小時間跟著更新），回那一筆。
     沒有 active 條目：這回合 manifest 記 create 才新建；曾登記過（turn_reverted／deleted）又再改也新建；
     從沒登記過的既有檔（modify）不登記、回 None（第一輪 M2／M4）。
     derived_from（kb output save --from）：新建的條目記原檔的清冊編號；掃描補登記過的（unbacked）經程式再放一次就拿掉那欄。
     """
-    uri = "file://" + str(rel).replace("\\", "/")
+    uri = uri or "file://" + str(rel).replace("\\", "/")  # uri、target、backup_key：放在知識庫的別處或登記的來源裡時由呼叫端給（放寬甲）
     key = uri_key(uri)
-    target = Path(vault) / rel
+    target = target or Path(vault) / rel
     digest = sha256_of(target)
     now = _now()
     p = _path(vault)
@@ -256,7 +257,7 @@ def register_output(vault, rel, turn_id, derived_from=None):
                                   for loc in entry["locations"]]
             _write(vault, data["entries"])
             return entry
-        action = _manifest_action(vault, rel, turn_id)
+        action = _manifest_action(vault, backup_key or rel, turn_id)
         if not (action == "create" or (action == "modify" and same)):
             return None
         for old in same:  # 同位置後來有新成品：舊的非 active 條目改 superseded（第二輪 R2-3）
@@ -280,14 +281,14 @@ def register_output(vault, rel, turn_id, derived_from=None):
         return entry
 
 
-def register_intake(vault, rel, turn_id, meta, fresh=False):
+def register_intake(vault, rel, turn_id, meta, fresh=False, uri=None, target=None):
     """kb intake 收進收件匣的檔（收件匣第 2 點，D-242）：同位置有 active 條目就追加指紋（位置大小時間跟著更新，同 register_output），
     沒有就新建一筆 origin intake、created_turn 是這回合；同位置的舊非 active 條目改 superseded。
     fresh（新收的檔，呼叫端剛建）：一律新建；同位置還記著 active 的（檔在 kb 外被刪、掃描還沒記不見）也改 superseded，不接到舊條目上。
     選填欄 intake = meta（from、name、original_name、pasted、copy，沒有的不寫）加 received（第一次收進來的時間，覆蓋時不改）。回那一筆。"""
-    uri = "file://" + str(rel).replace("\\", "/")
+    uri = uri or "file://" + str(rel).replace("\\", "/")  # uri、target：放在知識庫的別處或登記的來源裡時由呼叫端給（放寬甲）
     key = uri_key(uri)
-    target = Path(vault) / rel
+    target = target or Path(vault) / rel
     digest = sha256_of(target)
     now = _now()
     info = {k: v for k, v in dict(meta or {}).items() if v not in (None, "", False)}
@@ -667,14 +668,15 @@ def roots(vault, sources):
             skip.append(vault_n)
         out.append({"alias": src["alias"], "path": src["root"], "origin": "client_file", "kind": "source",
                     "skip": skip, "credential": True})
-    out.append({"alias": KNOWLEDGE, "path": vault_s, "origin": "client_file", "kind": "knowledge", "skip": [],
+    vskip = [ex["root"] for ex in getattr(sources, "vault_excludes", [])]  # 知識庫裡使用者的不讀夾（放寬甲 四.2）
+    out.append({"alias": KNOWLEDGE, "path": vault_s, "origin": "client_file", "kind": "knowledge", "skip": vskip,
                 "credential": False})
-    for alias, origin in ((INBOX, "intake"), (OUTPUT, "ai_output")):
+    for alias, origin in ((HOLD, "intake"),):  # 暫存區裡掃描才看到的檔：誰放的看不出來，當使用者放的（對話收件）；AI 經程式或 hook 放的已登記成 ai_output
         area = os.path.join(vault_s, alias)
         if _is_link(area):
             errors.append({"path": f"file://{alias}", "error": f"{alias} 是連結，不掃"})
         elif os.path.isdir(long_path(area)):
-            out.append({"alias": alias, "path": area, "origin": origin, "kind": "area", "skip": [], "credential": False})
+            out.append({"alias": alias, "path": area, "origin": origin, "kind": "area", "skip": vskip, "credential": False})
     return out, missing, errors
 
 
@@ -723,7 +725,10 @@ def _iter_root(root, stopper):
             continue
         if not stat_lib.S_ISDIR(st.st_mode):
             continue
-        for rel, fst, err in walk(os.path.join(base, name), (), stopper):
+        skip = {_fs_key(x) for x in root.get("skip") or []}
+        if skip and _fs_key(f"{str(base).replace(chr(92), '/').rstrip('/')}/{name}") in skip:
+            continue
+        for rel, fst, err in walk(os.path.join(base, name), root.get("skip") or (), stopper):
             full = f"{name}/{rel}" if rel else name
             if err is None and _is_card(full, base):
                 continue  # 綜合卡是 AI 筆記，不入冊
@@ -1012,8 +1017,6 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
         }
         if rec["read"] == "error":
             entry["error"] = rec["error"]
-        if rec["root"]["alias"] == OUTPUT:  # AI 產出裡沒經程式放進來的（腳本寫死路徑、升級前的舊成品）：照成品登記、退回拿不掉
-            entry["unbacked"] = True
         taken.add(entry["id"])
         entries.append(entry)
         if digest:
@@ -1112,6 +1115,19 @@ def _exclude_kind(src, key):
     return None
 
 
+def _vault_exclude_kind(sources, vault, alias, rel):
+    """知識庫別名的位置落進哪一條 vault_excludes：回 kind（hidden｜unused）或 None。"""
+    exs = getattr(sources, "vault_excludes", None)
+    if not exs:
+        return None
+    base = rel if alias.casefold() == KNOWLEDGE.casefold() else f"{alias}/{rel}"
+    key = _fs_key(f"{sources.vault}/{base}")
+    for ex in exs:
+        if inside(key, ex["root"]):
+            return ex.get("kind") or "hidden"
+    return None
+
+
 def reconcile(vault, sources, turn_id):
     """給 folders exclude／remove：active、missing、excluded 條目的每個位置對新登記表。
     - 落進 hidden 排除（審閱裁定 40）：位置直接拿掉、不留檔名；條目沒位置剩下就整筆刪。
@@ -1141,8 +1157,16 @@ def reconcile(vault, sources, turn_id):
                 alias, rel = split_uri(loc.get("uri", ""))
                 a = alias.casefold()
                 src = by_alias.get(a)
-                if a in RESERVED_CF or a in unresolved:
+                if a in unresolved:
                     keep.append(loc)
+                elif a in RESERVED_CF:  # 知識庫（含 AI 產出、收件匣）裡使用者設成不讀的夾（放寬甲：folders exclude 在知識庫裡）
+                    kind = _vault_exclude_kind(sources, vault, a, rel)
+                    if kind == "hidden":
+                        hidden += 1
+                    elif kind is None:
+                        keep.append(loc)
+                    else:
+                        dormant.append(loc)
                 elif src is None:
                     dormant.append(loc)
                 else:
@@ -1187,10 +1211,11 @@ def _under(uri, base):
     return "/".join(parts[len(bparts):])
 
 
-def move_locations(vault, old_uri, new_uri, turn_id, folder=False):
+def move_locations(vault, old_uri, new_uri, turn_id, folder=False, status=None):
     """kb source-edit 搬了一份檔或一個夾之後（manage 第二版，B-095）：直接把條目的位置換成新的，不靠掃描照指紋認搬動
     （只在雲端的檔沒有指紋，掃描會認成新增加不見）。檔是位置相同的換掉；夾是在它底下的換前綴。任何 status 都換。
-    有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。"""
+    有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。
+    status 給了（outside：搬到知識庫外沒登記的地方）就把改到的條目記成那個狀態；沒給而條目本來是 outside，搬回登記的地方就回 active。"""
     from kb._lib import turn
     p = _path(vault)
     if not p.exists():
@@ -1213,6 +1238,10 @@ def move_locations(vault, old_uri, new_uri, turn_id, folder=False):
                         loc["uri"], hit = f"{new_uri}/{rest}", True
             if hit:
                 hits.append(e["id"])
+                if status:
+                    e["status"], e["missing_since"] = status, None
+                elif e.get("status") == OUTSIDE:
+                    e["status"], e["missing_since"] = "active", None
         if hits:
             turn.backup(vault, INVENTORY_POSIX, turn_id)
             _write(vault, data["entries"])
@@ -1227,7 +1256,7 @@ def uri_of(vault, sources, path):
     if inside(target, vault_n):
         rel = target[len(vault_n):].lstrip("/")
         first, _, rest = rel.partition("/")
-        for alias in (INBOX, OUTPUT):
+        for alias in (HOLD,):
             if first == alias.casefold() or first == alias:
                 return make_uri(alias, rest) if rest else None
         if first in VAULT_RESERVED_DIRS or first.startswith(".") or not rest:
@@ -1254,15 +1283,78 @@ def entry_for(vault, uri, entries=None):
     return hits[-1] if hits else None
 
 
+def rebase_alias(vault, alias, new_prefix, turn_id):
+    """整個登記來源根搬進知識庫或別的來源、那筆登記拿掉之後（放寬甲）：位置在 file://<alias>/… 的條目一律換成
+    <new_prefix>/…（任何 status、編號不變）。有改才在清冊的鎖裡備進回合、寫。回改到的條目編號。"""
+    from kb._lib import turn
+    p = _path(vault)
+    if not p.exists():
+        return []
+    with FileLock(p):
+        data = load(vault)
+        hits = []
+        for e in data["entries"]:
+            hit = False
+            for loc in e.get("locations") or []:
+                uri = loc.get("uri", "")
+                if not is_file_uri(uri):
+                    continue
+                a, rel = split_uri(uri)
+                if a.casefold() == str(alias).casefold():
+                    loc["uri"] = new_prefix.rstrip("/") + ("/" + rel if rel else "")
+                    hit = True
+            if hit:
+                hits.append(e["id"])
+        if hits:
+            turn.backup(vault, INVENTORY_POSIX, turn_id)
+            _write(vault, data["entries"])
+    return hits
+
+
+OUTSIDE = "outside"  # 清冊 status：搬到知識庫外沒登記的地方（桌面）；位置記成可攜 spec file://~/…，不掃描、卡留著（放寬甲）
+HOME_ALIAS = "~"
+
+
+def outside_uri(path):
+    """沒登記的地方的清冊 uri：在使用者家目錄底下回 file://~/相對路徑（可攜 spec，家目錄本身回 file://~），
+    家目錄外回絕對路徑 file:///D:/…（POSIX 是 file:///usr/…）；路徑解不開才回 None。"""
+    try:
+        home = os.path.realpath(os.path.expanduser("~"))
+        real = os.path.realpath(str(path))
+    except (OSError, ValueError):
+        return None
+    hn, rn = normalize(home, None), normalize(real, None)
+    if rn == hn:
+        return "file://~"
+    if inside(rn, hn):
+        return "file://~/" + os.path.relpath(real, home).replace("\\", "/")
+    posix = real.replace("\\", "/")
+    return "file://" + (posix if posix.startswith("/") else "/" + posix)
+
+
+def abs_of_uri(uri):
+    """file:///D:/a/b（或 file:///usr/a）→ 絕對路徑 Path；不是這種寫法回 None。"""
+    alias, rel = split_uri(uri)
+    if alias != "":
+        return None
+    return Path(rel) if re.match(r"^[A-Za-z]:", rel) else Path("/" + rel)
+
+
 def path_of(vault, sources, uri):
-    """uri 反查絕對路徑；別名對不到回 None。"""
+    """uri 反查絕對路徑；別名對不到回 None。file://~/… 是知識庫外沒登記的地方（outside），從家目錄起算。"""
     alias, rel = split_uri(uri)
     parts = [p for p in rel.split("/") if p]
     a = alias.casefold()
+    if a == "":  # file:///D:/…：知識庫外沒登記的地方，家目錄外的絕對路徑
+        return abs_of_uri(uri)
+    if a == HOME_ALIAS:
+        return Path(os.path.expanduser("~")).joinpath(*parts)
     if a == KNOWLEDGE.casefold():
         return Path(vault).joinpath(*parts)
-    if a in (INBOX.casefold(), OUTPUT.casefold()):
-        return Path(vault).joinpath(INBOX if a == INBOX.casefold() else OUTPUT, *parts)
+    if a == HOLD.casefold():
+        return Path(vault).joinpath(HOLD, *parts)
+    if a in (OLD_INBOX.casefold(), OLD_OUTPUT.casefold()):  # 舊資料（升級遷移還沒跑）的舊別名：照舊夾名找
+        return Path(vault).joinpath(OLD_INBOX if a == OLD_INBOX.casefold() else OLD_OUTPUT, *parts)
     for src in sources.entries:
         if src["alias"].casefold() == a:
             return Path(src["root"]).joinpath(*parts)

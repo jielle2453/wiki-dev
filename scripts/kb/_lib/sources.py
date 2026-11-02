@@ -10,12 +10,14 @@ PURGE_PENDING、pending_purges 給 cards todo 與 kb folders purge 找還沒清�
 import json
 import secrets
 
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 from kb._lib.paths import inside, normalize, resolve_spec
 
 SOURCES_REL = ".system/sources.json"
-# 檔案索引/<來源別名>/ 保留給知識庫自身、AI 產出、收件匣三個來源（D-042）；彈性區的名字也不能當別名（D-511）
-RESERVED_ALIASES = ("知識庫", "AI 產出", "收件匣", FREE_DIR)
+# 檔案索引/<來源別名>/ 保留給知識庫自身與暫存區（D-042、D-324）；彈性區的名字也不能當別名（D-511）；
+# 舊名（收件匣、AI 產出）也留著保留，免得被登記成來源別名、跟升級遷移前的舊資料撞名
+VAULT_ALIAS = "知識庫"
+RESERVED_ALIASES = ("知識庫", HOLD_DIR, OLD_OUTPUT, OLD_INBOX, FREE_DIR)
 
 
 class Sources:
@@ -23,6 +25,7 @@ class Sources:
         self.vault = normalize(vault, None)
         self.entries = []
         self.unresolved = []  # [{"alias", "spec", "id", "kind"}]，kind 是 source｜exclude（清冊審閱裁定 2）
+        self.vault_excludes = []  # 知識庫裡使用者的夾設成不讀（放寬甲一.6）：sources.json 頂層 vault_excludes，spec 相對知識庫根
         if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
             raise ValueError(f"{SOURCES_REL} 格式不對：要有 sources 清單")
         for s in data["sources"]:
@@ -40,6 +43,25 @@ class Sources:
                 excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
                                  "spec": ex.get("spec", ""), "purge": ex.get("purge")})
             self.entries.append({"id": src_id, "alias": alias, "root": root, "excludes": excludes})
+        for ex in data.get("vault_excludes", []) or []:
+            ex_root = resolve_spec(ex.get("spec", ""), self.vault) if ex.get("spec") else None
+            if ex_root is None:
+                self.unresolved.append({"alias": VAULT_ALIAS, "spec": ex.get("spec", ""), "id": "", "kind": "exclude"})
+                continue
+            self.vault_excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
+                                        "spec": ex.get("spec", ""), "purge": ex.get("purge")})
+
+    def exclude_owners(self):
+        """有排除可找的「來源」：登記的來源，加上知識庫（vault_excludes）當一個別名叫知識庫的假來源（purge 找排除用）。"""
+        return list(self.entries) + [{"id": "", "alias": VAULT_ALIAS, "root": self.vault, "excludes": self.vault_excludes}]
+
+    def vault_excluded(self, path):
+        """path（已 normalize、在知識庫裡）在知識庫的不讀夾底下嗎。"""
+        return any(inside(path, ex["root"]) for ex in self.vault_excludes)
+
+    def vault_excluded_under(self, path):
+        """path 底下（含自己）有知識庫的不讀夾嗎（Z10b）。"""
+        return any(inside(ex["root"], path) for ex in self.vault_excludes)
 
     def lookup(self, path):
         """path 要先 normalize。回 ("excluded"|"registered"|None, source)；排除贏。"""
@@ -65,6 +87,13 @@ def load(vault):
     return Sources(vault, load_raw(vault))
 
 
+def raw_owners(raw):
+    """sources.json 原始內容裡有排除的「來源」列：登記的來源加上知識庫的假列（excludes 就是頂層 vault_excludes 那個清單，
+    改了會跟著寫回；沒有那個清單時是空的、不會寫出新鍵）。"""
+    vex = raw.get("vault_excludes")
+    return list(raw["sources"]) + [{"alias": VAULT_ALIAS, "excludes": vex if isinstance(vex, list) else []}]
+
+
 def load_raw(vault):
     """原始 dict。壞 JSON 丟 ValueError；格式不對（沒有 sources 清單）也丟 ValueError。"""
     with open(str(vault).rstrip("/\\") + "/" + SOURCES_REL, encoding="utf-8") as f:
@@ -79,6 +108,9 @@ def load_raw(vault):
             raise ValueError(f"{SOURCES_REL} 格式不對：第 {i} 筆來源的 excludes 不是清單")
         if any(not isinstance(ex, dict) for ex in excludes or []):
             raise ValueError(f"{SOURCES_REL} 格式不對：第 {i} 筆來源的排除有一條不是物件")
+    vex = data.get("vault_excludes")
+    if vex is not None and (not isinstance(vex, list) or any(not isinstance(ex, dict) for ex in vex)):
+        raise ValueError(f"{SOURCES_REL} 格式不對：vault_excludes 要是物件的清單")
     return data
 
 

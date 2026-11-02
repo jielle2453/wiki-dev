@@ -27,7 +27,7 @@ SKILL_BODY_MAX_CHARS = 5000
 REFERENCE_MAX_LINES = 150
 RESIDENT_TOTAL_MAX_CHARS = 5000
 OPENING_MAX_LINES = 8
-OPENING_MAX_CHARS = 550  # 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
+OPENING_MAX_CHARS = 600  # 放寬甲：開場兩句改成 spec 的新句（變長），550→600；原註 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
 
 SKILLS_DIR = ROOT / "skills"
 CORE = ROOT / "rules" / "core.md"
@@ -193,7 +193,7 @@ class OpeningAllLines(unittest.TestCase):
             status = opening_status(source, all_lines_vault)
             lines = status.splitlines()
             with self.subTest(source=source):
-                for head in ("變動：", "有變動：", "這台電腦找不到來源", "設定檔有改（", "日程：逾期 1（"):
+                for head in ("變動：", "有變動：", "這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（"):
                     self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, (head, lines))
                 self.assertTrue(next(ln for ln in lines if ln.startswith("變動：")).endswith("、實體夾有變 2"), lines)
                 self.assertLessEqual(count_lines(status), OPENING_MAX_LINES)
@@ -257,16 +257,16 @@ class OpeningVersionLines(unittest.TestCase):
 
 
 class OpeningInboxLine(unittest.TestCase):
-    """收件匣第 6 點（D-045）與裁定 2：版本那行在時收件匣那行不印；沒有版本那行時，收件匣那行（份數、天數都四位數）
+    """暫存區第 6 點（D-045）與裁定 2：版本那行在時暫存區那行不印；沒有版本那行時，暫存區那行（份數、天數都四位數）
     疊在七行情況（摺疊）上照樣在預算內。"""
-    WORST = "收件匣：9999 份沒歸位、最久 9999 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+    WORST = "暫存區：9999 份沒歸位、最久 9999 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
 
     @staticmethod
     def with_inbox(prepare):
         def go(vault):
             prepare(vault)
             for i in range(10):
-                (vault / "收件匣" / f"{i}.txt").write_text("x", encoding="utf-8")
+                (vault / "暫存區" / f"{i}.txt").write_text("x", encoding="utf-8")
         return go
 
     def test_inbox_line_worst_case_within_budget(self):
@@ -274,7 +274,7 @@ class OpeningInboxLine(unittest.TestCase):
             self.skipTest("hooks/session.py 尚未建立")
         for source in ("startup", "compact"):
             lines = opening_status(source, self.with_inbox(all_lines_vault)).splitlines()
-            i = next(n for n, ln in enumerate(lines) if ln.startswith("收件匣："))
+            i = next(n for n, ln in enumerate(lines) if ln.startswith("暫存區："))
             text = "\n".join(lines[:i] + [self.WORST] + lines[i + 1:])
             with self.subTest(source=source):
                 self.assertLessEqual(count_lines(text), OPENING_MAX_LINES, text)
@@ -286,7 +286,7 @@ class OpeningInboxLine(unittest.TestCase):
         for kind in ("a", "b", "c"):
             lines = opening_status("compact", self.with_inbox(version_line_vault(kind))).splitlines()
             with self.subTest(kind=kind):
-                self.assertFalse([ln for ln in lines if ln.startswith("收件匣：")], lines)
+                self.assertFalse([ln for ln in lines if ln.startswith("暫存區：")], lines)
 
 
 PREFERENCE_MAX = 20  # 開場那組（整理成卡以外，D-504）；整理成卡那組不進開場

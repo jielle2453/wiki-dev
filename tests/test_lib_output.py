@@ -15,28 +15,37 @@ class Paths(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_output_rel_forms(self):
-        for raw, cwd in (("AI 產出/報價/a.xlsx", self.tmp), ("AI 產出\\報價\\a.xlsx", self.tmp),
-                         (str(self.V / "AI 產出" / "報價" / "a.xlsx"), self.tmp), ("報價/a.xlsx", self.V / "AI 產出")):
+        for raw, cwd in (("暫存區/報價/a.xlsx", self.tmp), ("暫存區\\報價\\a.xlsx", self.tmp),
+                         (str(self.V / "暫存區" / "報價" / "a.xlsx"), self.tmp), ("報價/a.xlsx", self.V / "暫存區")):
             with self.subTest(raw=raw):
-                self.assertEqual(output.output_rel(self.V, raw, cwd), "AI 產出/報價/a.xlsx")
-        for raw in ("案子/a.xlsx", "AI 產出", "AI 產出/../系統/a.xlsx", str(self.tmp / "a.xlsx"), ".system/x.xlsx"):
+                self.assertEqual(output.output_rel(self.V, raw, cwd), "暫存區/報價/a.xlsx")
+        for raw in ("案子/a.xlsx", "暫存區", "暫存區/../系統/a.xlsx", str(self.tmp / "a.xlsx"), ".system/x.xlsx"):
             with self.subTest(raw=raw), self.assertRaises(output.Refused) as c:
                 output.output_rel(self.V, raw, self.V)
             self.assertEqual(str(c.exception), output.ONLY_OUTPUT)
 
-    def test_free_rel(self):
-        (self.V / "AI 產出" / "a.xlsx").write_bytes(b"1")
-        self.assertEqual(output.free_rel(self.V, "AI 產出/a.xlsx"), "AI 產出/a (2).xlsx")
-        (self.V / "AI 產出" / "a (2).xlsx").write_bytes(b"2")
-        self.assertEqual(output.free_rel(self.V, "AI 產出/a.xlsx"), "AI 產出/a (3).xlsx")
-        self.assertEqual(output.free_rel(self.V, "AI 產出/b.xlsx"), "AI 產出/b.xlsx")
+    def test_place_at_kinds(self):
+        """放寬甲：--to 收任何准許的位置；willy 的區不收；沒登記的地方也收（不登記）。"""
+        from kb._lib import sources as sources_lib
+        sources = sources_lib.load(self.V)
+        p = output.place_at(self.V, sources, self.V / "暫存區" / "報價", "a.xlsx")
+        self.assertEqual((p["kind"], p["rel"], p["uri"], p["legacy"]), ("vault", "暫存區/報價/a.xlsx", None, True))
+        p = output.place_at(self.V, sources, self.V / "案子", "a.xlsx")
+        self.assertEqual((p["kind"], p["uri"], p["legacy"]), ("vault", "file://知識庫/案子/a.xlsx", False))
+        p = output.place_at(self.V, sources, self.tmp / "外面", "a.xlsx")
+        self.assertEqual((p["kind"], p["rel"]), ("outside", None))
+        with self.assertRaises(output.Refused):
+            output.place_at(self.V, sources, self.V / ".system", "a.xlsx")
+        c = output.conflict(output.place_at(self.V, sources, self.V / "案子", "a.xlsx"), False, rename="改 --to 的檔名")
+        self.assertIn("改 --to 的檔名", str(c))
+        self.assertEqual(c.rows[0]["dest"], "案子")
 
     def test_source_mode(self):
         ws = self.V / ".system" / "temp" / "office" / "t1"
         ws.mkdir(parents=True)
         self.assertEqual(output.source_mode(self.V, ws / "a.xlsx"), "move")
         self.assertEqual(output.source_mode(self.V, self.tmp / "下載" / "a.xlsx"), "copy")
-        for inside in (self.V / "案子" / "說明.txt", self.V / "AI 產出" / "x.md", self.V / ".system" / "profile.json"):
+        for inside in (self.V / "案子" / "說明.txt", self.V / "暫存區" / "x.md", self.V / ".system" / "profile.json"):
             with self.subTest(inside=inside), self.assertRaises(output.Refused) as c:
                 output.source_mode(self.V, inside)
             self.assertEqual(str(c.exception), output.IN_VAULT)

@@ -74,7 +74,7 @@ def _numbers(ctx, got, numbers, ingest, notes, failed):
     if g.get("last"):
         lines.append(f"守門最後一次跑是 {g['last']}")
     if s.get("inbox"):
-        lines.append(f"收件匣 {s['inbox']} 份")
+        lines.append(f"暫存區 {s['inbox']} 份")
     links = (numbers.get("citations") or {}).get("broken_links")
     if links:
         lines.append(f"開原檔點不開的卡 {links} 張")

@@ -25,6 +25,7 @@ COMMANDS = {
     "folders": ("kb.folders", "來源：add 登記一個資料夾，exclude 排除裡面的夾或檔，remove 拿掉一個來源，include 取消排除，list 列出登記表，"
                            "find 找夾，relocate 資料夾搬家，purge 清不想讓 AI 看到的夾的殘留"),
     "source-edit": ("kb.source_edit", "原檔：move 搬一份檔或一個夾，rename 改名，trash 丟資源回收筒，where 這個實體的檔放在哪，open 開檔案總管"),
+    "config": ("kb.config_cli", "門檻與頻率：show 列可以調的、set 改一個、reset 改回預設"),
     "journal": ("kb.journal_cli", "工作日誌：recent 印最近幾段，render 重寫月檔"),
     "inventory": ("kb.inventory_cli", "清冊：scan 掃描來源與總資料夾，把變動套進清冊"),
     "changes": ("kb.changes", "變動：跟清冊上次掃描比，列新增、修改、搬動、不見；只看不改"),
@@ -51,9 +52,9 @@ COMMANDS = {
                                 "unpack／pack 解開與打包，pdf 轉 PDF，recalc 重算 Excel，render 轉每頁的圖"),
     "build": ("kb.build", "建置：status 做到哪，start 開始，env 檢查這台電腦，set 記幾個人用與舊 wiki，facts 盤點，"
                           "done 這一步做完，redo 回到做過的一步，adopt 收舊 llm-wiki，report 交付報告"),
-    "output": ("kb.output_cli", "成品：save 把做好的檔放進 AI 產出（登記、退回拿得掉），link 登記線上文件，drop-draft 收掉草稿，"
+    "output": ("kb.output_cli", "成品：save 把做好的檔放進知識庫（沒給 --to 落暫存區；登記、退回拿得掉），link 登記線上文件，drop-draft 收掉草稿，"
                                "links 列出存成連結的線上文件"),
-    "intake": ("kb.intake_cli", "收件匣：把拖進對話的檔、程式交來的檔存進收件匣（原檔不動）；--pasted 存這一則（或上一則）貼的圖或文字；"
+    "intake": ("kb.intake_cli", "收件：把拖進對話的檔、程式交來的檔存進暫存區或指定的夾（原檔不動）；--pasted 存這一則（或上一則）貼的圖或文字；"
                                 "--from 記來源，加 --name 定期同步同一份"),
     "backup": ("kb.backup_cli", "備份：把整個知識庫備份成一個 zip；--to 指定放哪（第一次要給），--check 只看不做"),
     "restore": ("kb.restore_cli", "還原：list 列備份與快照，check 演練會回到什麼樣子，apply 還原（先拍快照）"),

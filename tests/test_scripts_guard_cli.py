@@ -31,7 +31,7 @@ class GuardDecide(unittest.TestCase):
         r = run_kb("guard", "decide", "--tool", "Read", "--path", str(self.raw / "行政" / "薪資" / "s.xlsx"), "--cwd", str(self.V))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(r.stdout.startswith("deny Z10 excluded "), r.stdout)
-        self.assertIn("這個夾你說過不讀", r.stdout)
+        self.assertIn("使用者說過不讀", r.stdout)
 
     def test_pass_line(self):
         r = run_kb("guard", "decide", "--tool", "Read", "--path", "C:/Windows/notepad.exe", "--cwd", str(self.V))

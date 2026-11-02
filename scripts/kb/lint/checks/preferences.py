@@ -1,14 +1,12 @@
 """偏好月檢（D-504 決策 7、裁定 5）：距上次滿 preference_lint_days 天才跑（due），跑了記 lint.json 的 last_preference。
-第六節 2 條以上開一件「偏好月檢」，附全表與字面相似過 preference_similar_ratio 的配對，意思上的重複、可合併、矛盾交給主對話 AI
-照 note 的 preference.md 判斷（有才提議，沒有直接關、不提）；用在哪的 skill 不在、某組超過上限八成由程式判，各一件。"""
+放寬甲（D-322 第 12 件）：每月看偏好不再產生要使用者決定的事，第六節 2 條以上只留數字（條數、字面相似過 preference_similar_ratio
+的對數）給健檢報告；偏好滿了由 AI 自己併（profile add 偏好 超過上限的錯誤句直接說怎麼併）。
+用在哪的 skill 不在、某組超過上限八成由程式判，各一件。"""
 from kb._lib import profile
 from kb.lint import runner, state
 
 NAME = "偏好月檢"
 NEAR = 0.8
-REVIEW_NOTE = ("照 note 的 references/preference.md「偏好月檢」：看 data.rows 有沒有重複、可合併、矛盾的；有就擬好改法問她，"
-               "她說好才 kb profile add 偏好 序號=<N> … 或 kb profile remove 偏好 序號=<N>；沒有就直接 kb pending resolve 這件、"
-               "回答裡不提")
 
 
 def due(ctx):
@@ -33,13 +31,8 @@ def run(ctx):
         pairs = [[a["序號"], b["序號"], profile.similar(a["偏好"], b["偏好"])]
                  for k, a in enumerate(rows) for b in rows[k + 1:] if profile.same_group(a["用在哪"], b["用在哪"])]
         pairs = [x for x in pairs if x[2] >= ratio]
-        text = f"每月看一次偏好：{len(rows)} 條有沒有重複、可以合併或互相矛盾的"
-        if pairs:
-            text += f"（字面很像的有 {len(pairs)} 對）"
-        out.append(runner.finding(
-            "preferences", "decide", "preference:review", text, items=[f"{r['用在哪']}:{r['偏好']}" for r in rows],
-            data={"rows": rows, "similar": pairs,
-                  "results": [{"label": "照偏好月檢看", "note": REVIEW_NOTE}]}))
+        out.append(runner.finding("preferences", "number", "preferences", "",
+                                  data={"count": len(rows), "similar_pairs": len(pairs)}))
     have = set(profile.use_choices(ctx.vault))
     gone = [r for r in rows if r["用在哪"] not in have]
     if gone:

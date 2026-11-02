@@ -41,9 +41,9 @@ class ViaHook(unittest.TestCase):
         self.assertEqual(self.lines(), [])
 
     def test_unparsed_row(self):
-        run_hook(payload("Bash", "rm $X", self.V))
+        run_hook(payload("Bash", "rm $X", self.V))  # 放寬甲 U5：看不出目標、整句有刪的動詞 → delete
         cols = self.lines()[1].split("\t")
-        self.assertEqual(cols[1:5], ["Bash", "deny", "", "unparsed"])
+        self.assertEqual(cols[1:5], ["Bash", "deny", "", "delete"])
         self.assertEqual(cols[5], "rm $X")
 
     def test_command_head_is_capped_at_120(self):

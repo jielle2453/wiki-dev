@@ -972,6 +972,25 @@ class Finish(Base):
         self.assertEqual(len(backup.snapshots(self.V)), 2)
         self.assertNotEqual(got["snapshot"], old.name)
 
+    def test_hold_migration_runs_after_the_pre_upgrade_snapshot(self):
+        """放寬甲第二輪 13（D-324）：大升級先拍快照（D-215），再把 收件匣／AI 產出 併成暫存區；升級前的快照裡還是舊樣子。"""
+        shutil.rmtree(self.V / "暫存區", ignore_errors=True)
+        (self.V / "收件匣").mkdir()
+        (self.V / "收件匣" / "a.txt").write_text("a", encoding="utf-8")
+        (self.V / "AI 產出").mkdir()
+        (self.V / "AI 產出" / "b.txt").write_text("b", encoding="utf-8")
+        (self.V / "AI 產出" / "a.txt").write_text("different", encoding="utf-8")
+        self.put_history("0.20.1")
+        got = self.finish()
+        snaps = backup.snapshots(self.V)
+        self.assertEqual((len(snaps), got["snapshot"]), (1, snaps[0].name))
+        self.assertIn("暫存區", got["migrated"])
+        self.assertFalse((self.V / "收件匣").exists())
+        self.assertEqual(sorted(p.name for p in (self.V / "暫存區").iterdir()), ["a.txt", "b.txt"])
+        self.assertEqual((self.V / "暫存區" / "a.txt").read_text(encoding="utf-8"), "a")
+        self.assertEqual([x["name"] for x in got["left_in_output"]], ["a.txt"])
+        self.assertEqual((self.V / "AI 產出" / "a.txt").read_text(encoding="utf-8"), "different")
+
     def test_patch_takes_no_snapshot(self):
         self.PLUGIN = "0.20.2"
         self.put_history("0.20.1")

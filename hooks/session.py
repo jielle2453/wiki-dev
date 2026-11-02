@@ -101,7 +101,7 @@ def line_moved(vault):
 
 CHANGES_LINE = "變動：新增 {added}、修改 {modified}、不見 {missing}"
 CHANGES_INCOMPLETE = "變動：來源很大還沒比完，說「有什麼變動」我再比"
-MISSING_SOURCES_LINE = "這台電腦找不到來源{names}，其他照常；搬過的話跟我說。"
+MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
 MISSING_SOURCES_SHOWN = 3
 # D-156（note 改規則實作中裁定 1）：先整理、整理完再回答；門檻內開始前照 announce 說一句（D-100 修訂）。
 # 怎麼派 card-maker 只寫在 ingest 的 SKILL.md，開場句不提（開場預算，card-maker 實作疑義 22 定）
@@ -267,11 +267,9 @@ def line_missing_sources(vault):
     return MISSING_SOURCES_LINE.format(names=names)
 
 
-PROFILE_CHANGED = "設定檔有改（{summary}）：先 kb profile check 複述，客戶說好才 apply"
+PROFILE_CHANGED = "設定檔被手改了（{summary}）：跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
 PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
-PROFILE_UNLISTED = "第一層夾{names}不在型別表（請客戶補進設定檔）"
 PROFILE_LINE_MAX = 120
-PROFILE_UNLISTED_SHOWN = 2
 PROFILE_ORDER = "型別順序"  # 只調了型別表的順序（型別夾會改名）：diff 沒有內容差異時的摘要
 
 
@@ -291,17 +289,7 @@ def line_profile(vault):
     if st.get("renamed"):  # 句子跟 kb profile check 同一支（profile.renamed_line，裁定 8）
         text = profile.renamed_line(st["renamed"], with_change=head is not None)
         head = f"{head}；{text}" if head else text
-    if not st["unlisted"]:
-        return head
-
-    def joined(names, more):
-        text = "、".join(f"「{n}」" for n in names) + (f"等 {more} 個" if more else "")
-        tail = PROFILE_UNLISTED.format(names=text)
-        return f"{head.rstrip('。')}；{tail}" if head else f"設定檔：{tail}"
-    line = joined(st["unlisted"], 0)
-    if len(line) > PROFILE_LINE_MAX:
-        line = joined(st["unlisted"][:PROFILE_UNLISTED_SHOWN], len(st["unlisted"]))
-    return line
+    return head
 
 
 TAGS_EDITED = "綜合卡上的標籤你改了 {n} 張（{names}）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她"
@@ -341,7 +329,19 @@ def line_agenda(vault):
     return "日程：" + "、".join(parts) if parts else None
 
 
-INBOX_LINE = "收件匣：{n} 份沒歸位{oldest}；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+HOLD_LEFT_LINE = ("升級後「AI 產出」還有 {n} 份跟暫存區同名、內容不同：照內容判斷取代或另取名，"
+                  "用 kb source-edit move 搬進暫存區，做完說一聲。")  # 句子歸乙定稿（放寬甲第二輪 13.2）
+
+
+def line_hold_left(vault):
+    """升級把 AI 產出併進暫存區時，同名而內容不同的檔留在 AI 產出（程式不判斷，D-324）：還有就印一行叫 AI 照 D-309 判斷；搬完就沒有了。"""
+    from kb._lib import hold_migrate
+
+    n = hold_migrate.left_count(vault)
+    return HOLD_LEFT_LINE.format(n=n) if n else None
+
+
+INBOX_LINE = "暫存區：{n} 份沒歸位{oldest}；回答末尾問她要不要一起看，說好再跑 kb asks --all"
 INBOX_OLDEST = "、最久 {days} 天"  # 0 天不講（裁定 8）
 
 
@@ -351,7 +351,7 @@ def _inbox_days(vault, files, today):
     from datetime import date
     from kb._lib import inventory
 
-    keys = {inventory.uri_key(inventory.make_uri(inventory.INBOX, f.name)) for f in files}
+    keys = {inventory.uri_key(inventory.make_uri(inventory.HOLD, f.name)) for f in files}
     try:
         entries = inventory.load(vault)["entries"]
     except ValueError:
@@ -378,7 +378,7 @@ def line_inbox(vault):
 
     if line_version(vault):
         return None
-    root = os.path.join(str(vault), inventory.INBOX)
+    root = os.path.join(str(vault), inventory.HOLD)
     if not os.path.isdir(root) or os.path.islink(root):
         return None
     with os.scandir(root) as it:  # 清冊走訪不讀的（. 開頭、~$ 這類、隱藏或系統屬性）不算
@@ -438,7 +438,7 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_card_edits, line_missing_sources, line_profile, line_tags, line_agenda, line_inbox,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_card_edits, line_missing_sources, line_profile, line_hold_left, line_tags, line_agenda, line_inbox,
                line_backup,
                line_health,
                lambda v: line_compact(v, source)):

@@ -33,6 +33,8 @@ def md_with(types=(), cards=None, exclusions=None):
     return text
 
 
+FULL_TAIL = "：把意思相近的併成一條（kb profile add 偏好 序號=<n> 偏好=<併好的句子>）或拿掉用不到的，再加這條；不用問使用者，做完說一聲改成什麼。"
+
 class self_raises:
     def __enter__(self):
         return self
@@ -140,7 +142,7 @@ class Parse(unittest.TestCase):
                          "第 1 節第 2 列的大類要是 對象、事、物、主題 之一")
 
     def test_type_name_errors(self):
-        cases = [("AI 產出", "跟保留字一樣"), ("ai 產出", "跟保留字一樣"), ("ＡＩ 產出", "跟保留字一樣"),
+        cases = [("暫存區", "跟保留字一樣"), ("ai 產出", "跟保留字一樣"), ("ＡＩ 產出", "跟保留字一樣"),
                  ("系統", "跟保留字一樣"), ("claude.md", "跟保留字一樣"), (".hidden", "不能以點開頭，也不能以點或空白結尾"),
                  ("a/b", "含不能用的字元"), ("x.", "不能以點開頭，也不能以點或空白結尾"), ("", "空的")]
         for name, why in cases:
@@ -268,8 +270,8 @@ class Vault(unittest.TestCase):
         got = profile.folder_check(self.V, [{"name": "工地"}, {"name": "廠商"}], old)
         self.assertEqual(got["to_create"], ["01 工地"])
         self.assertEqual(got["unlisted"], ["案子", "空的"])
-        self.assertEqual(got["removed_empty"], ["空的", "沒有夾"])
-        self.assertEqual(got["removed_nonempty"], [("案子", 2)])
+        self.assertEqual(got["removed_empty"], ["案子", "空的", "沒有夾"])  # 沒有實體：夾裡剩別的檔不擋，夾留著（D-307(2)）
+        self.assertEqual(got["removed_nonempty"], [])
 
     def test_sha_detects_change_and_status_states(self):
         self.assertEqual(profile.status(self.V)["state"], "ok")
@@ -586,9 +588,9 @@ class SchemaThree(unittest.TestCase):
         cases = [
             (["|  | 全部 | 糾正 |  |"], "第 6 節第 1 列的偏好是空的"),
             (["| 先講結論 |  |", "| 日期帶星期 |  |", "| 先講結論 | 做文件 |"], "第 6 節第 3 列跟第 1 列重複（先講結論）"),
-            ([f"| 第{i}條 |  |" for i in range(21)], "第 6 節第 21 列超過上限（偏好最多 20 條，整理成卡的另算）"),
+            ([f"| 第{i}條 |  |" for i in range(21)], "第 6 節第 21 列偏好滿了（20 條／70 字）" + FULL_TAIL),
             (["| " + "長" * 900 + " |  |", "| " + "短" * 101 + " |  |"],
-             "第 6 節第 2 列超過上限（偏好合計最多 1000 字，整理成卡的另算）"),
+             "第 6 節第 2 列偏好滿了（1 條／900 字）" + FULL_TAIL),
             (["| 先講結論 | 全部 | 亂填 |  |"], "第 6 節第 1 列的來源要是 訪談、推測、確認、糾正 之一，或留空"),
             (["| 先講結論 | 全部 | 糾正 |"], "第 6 節第 1 列欄數不對（要 2 欄或 4 欄）"),
         ]

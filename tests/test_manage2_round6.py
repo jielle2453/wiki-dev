@@ -152,8 +152,8 @@ class Encodings(Private):
     def test_cp950_masked_and_undecodable_skipped(self):
         t = turn.start(self.V, None, "")["turn"]
         files = Path(self.V) / ".system/versions" / t / "files"
-        for rel, data in (("AI 產出/清單.csv", "客戶案件/私人/日記.txt,1\n".encode("cp950")),
-                          ("AI 產出/亂碼.txt", b"\xff\xfe\x81\x00\xff\x80\xfe")):
+        for rel, data in (("暫存區/清單.csv", "客戶案件/私人/日記.txt,1\n".encode("cp950")),
+                          ("暫存區/亂碼.txt", b"\xff\xfe\x81\x00\xff\x80\xfe")):
             (files / rel).parent.mkdir(parents=True, exist_ok=True)
             (files / rel).write_bytes(data)
             with open(Path(self.V) / ".system/versions" / t / "manifest.jsonl", "a", encoding="utf-8") as f:
@@ -163,7 +163,7 @@ class Encodings(Private):
         self.assertEqual(code, 0, out)
         self.assertIn(UNDECODABLE, out)
         self.assertNotIn("還沒清完", out)
-        text = (files / "AI 產出/清單.csv").read_bytes().decode("cp950")  # 還是 Big5、解得開
+        text = (files / "暫存區/清單.csv").read_bytes().decode("cp950")  # 還是 Big5、解得開
         self.assertTrue(text.startswith("（已排除）"), text)  # 檔名可以有逗號：路徑後面整段一起遮
         self.assertNotIn("私人", text)
 

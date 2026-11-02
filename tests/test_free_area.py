@@ -132,10 +132,14 @@ class GuardWrite(FixtureVault):
         self.assertEqual([e["action"] for e in rows], ["create"])
 
     def test_4_shell_write_denied(self):
+        """放寬甲：彈性區（Z12）指令寫照使用者區規則——新檔放行，改既有檔內容才擋 content。"""
+        d = self.decide("Bash", f'echo x > "{self.F / "new.txt"}"')
+        self.assertEqual(d.decision, "pass")
+        (self.F / "a.txt").write_text("a", encoding="utf-8")
         d = self.decide("Bash", f'echo x > "{self.F / "a.txt"}"')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "shell_write"))
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"))
         d = self.decide("PowerShell", f'Set-Content -Path "{self.F / "a.txt"}" -Value x')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "shell_write"))
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"))
 
 
 class GuardCredential(FixtureVault):
@@ -167,7 +171,7 @@ class GuardCredential(FixtureVault):
             self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"), (cmd, cwd))
 
     def test_5_other_zones_still_not_walked(self):
-        (self.V / "AI 產出" / "帳密.xlsx").write_text("x", encoding="utf-8")
+        (self.V / "暫存區" / "帳密.xlsx").write_text("x", encoding="utf-8")
         d = self.decide("Grep", self.V)
         self.assertNotEqual(d.decision, "deny", d.reason)
 
@@ -198,8 +202,8 @@ class Agent(FixtureVault):
         self.assertEqual(out["permissionDecision"], "deny")
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/{FREE_DIR}/筆記.md"')
         self.assertEqual(out["permissionDecision"], "deny", "review #2：uri 寫法也擋")
-        for uri in (f"file://AI 產出/../{FREE_DIR}/筆記.md", f"file://知識庫/./{FREE_DIR}/筆記.md",
-                    f"file://知識庫/檔案索引/../{FREE_DIR}/筆記.md", f"file://收件匣/../{FREE_DIR.upper()}/筆記.md",
+        for uri in (f"file://暫存區/../{FREE_DIR}/筆記.md", f"file://知識庫/./{FREE_DIR}/筆記.md",
+                    f"file://知識庫/檔案索引/../{FREE_DIR}/筆記.md", f"file://暫存區/../{FREE_DIR.upper()}/筆記.md",
                     f"file://客戶案件/../../vault/{FREE_DIR}/筆記.md"):
             out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "{uri}"')
             self.assertEqual(out["permissionDecision"], "deny", f"測試 T1：{uri}")
@@ -349,8 +353,8 @@ class Profile(TypeBase):
 
 class Journal(unittest.TestCase):
     def test_10_changed_text_counts_free_area(self):
-        changed = [{"path": f"{FREE_DIR}/a.md"}, {"path": f"{FREE_DIR}/子夾/b.txt"}, {"path": "AI 產出/x.docx"}]
-        self.assertEqual(journal.changed_text(changed), f"AI 產出 1 份；{FREE_DIR} 2 份")
+        changed = [{"path": f"{FREE_DIR}/a.md"}, {"path": f"{FREE_DIR}/子夾/b.txt"}, {"path": "暫存區/x.docx"}]
+        self.assertEqual(journal.changed_text(changed), f"暫存區 1 份；{FREE_DIR} 2 份")
 
 
 class JournalBlackBox(FixtureVault):
@@ -404,8 +408,7 @@ class Sources(FixtureVault):
         self.assertIn("保留字", r.stdout)
         (self.F / "x").mkdir()
         r = run_kb("folders", "exclude", f"{FREE_DIR}/x", "--kind", "unused", cwd=self.V)
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        self.assertIn("知識庫裡的夾不能設成不讀", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)  # 放寬甲：知識庫裡使用者的夾（含彈性區）可以設成不讀
 
 
 # ---------- 13 建置 ----------

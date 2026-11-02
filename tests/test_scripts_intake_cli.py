@@ -23,7 +23,7 @@ SID = "sid-intake"
 FIX = Path(__file__).resolve().parent / "fixtures" / "intake"
 ID_PATTERN = re.compile(r"[aefsrcp]-[0-9a-f]{8}")
 NEXT = "接著整理：kb cards dispatch --json"
-IMAGE_MISS = "這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"
+IMAGE_MISS = "這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"
 PASTE = "第一條 甲方委託乙方裝修。\n第二條 工期 30 天，逾期每日罰 1,000 元。\n\n  （以下空白）"
 
 
@@ -52,7 +52,7 @@ class Base(unittest.TestCase):
         return [e for e in inventory.load(self.V)["entries"] if e.get("origin") == origin and e.get("intake")]
 
     def inbox_files(self):
-        root = self.V / "收件匣"
+        root = self.V / "暫存區"
         return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and not p.name.startswith("."))
 
     def outside(self, name, data):
@@ -78,38 +78,72 @@ class NoFolders(Base):
     def test_1_copy_into_inbox(self):
         src = self.outside("合約.pdf", b"%PDF-1.4 wang")
         out = self.ok(str(src))
-        self.assertEqual(out, ["收進收件匣了：收件匣/合約.pdf（原檔沒動）", NEXT])
-        self.assertEqual((self.V / "收件匣" / "合約.pdf").read_bytes(), b"%PDF-1.4 wang")
+        self.assertEqual(out, ["收進暫存區了：暫存區/合約.pdf（原檔沒動）", NEXT])
+        self.assertEqual((self.V / "暫存區" / "合約.pdf").read_bytes(), b"%PDF-1.4 wang")
         self.assertTrue(src.is_file())
         (e,) = self.entries()
         self.assertEqual((e["origin"], e["status"], e["created_turn"]), ("intake", "active", self.t))
         self.assertTrue(e["intake"]["received"])
         self.assertNotIn("from", e["intake"])
-        self.assertEqual({r["path"]: r["action"] for r in turn.entries(self.V, self.t)}["收件匣/合約.pdf"], "create")
+        self.assertEqual({r["path"]: r["action"] for r in turn.entries(self.V, self.t)}["暫存區/合約.pdf"], "create")
         self.assertIn(e["id"], turn.touched(turn.current(self.V, SID))["files"])
 
     def test_2_same_content_again(self):
         src = self.outside("合約.pdf", b"%PDF-1.4 wang")
         self.ok(str(src))
         copy = self.outside("合約 - 複製.pdf", b"%PDF-1.4 wang")
-        self.assertEqual(self.ok(str(copy)), ["這份收過了：收件匣/合約.pdf"])
+        self.assertEqual(self.ok(str(copy)), ["這份收過了：暫存區/合約.pdf"])
         self.assertEqual(self.inbox_files(), ["合約.pdf"])
         self.assertEqual(len(self.entries()), 1)
 
     def test_4_title_and_same_name(self):
         src = self.outside("IMG_2034.jpg", b"\xff\xd8 photo one")
         self.assertEqual(self.ok(str(src), "--title", "王先生合約"),
-                         ["收進收件匣了：收件匣/王先生合約.jpg（原本叫 IMG_2034.jpg）", NEXT])
+                         ["收進暫存區了：暫存區/王先生合約.jpg（原本叫 IMG_2034.jpg）", NEXT])
         (e,) = self.entries()
         self.assertEqual(e["intake"]["original_name"], "IMG_2034.jpg")
         other = self.outside("IMG_2035.jpg", b"\xff\xd8 photo two")
-        self.assertEqual(self.ok(str(other), "--title", "王先生合約")[0],
-                         "收進收件匣了：收件匣/王先生合約 (2).jpg（原本叫 IMG_2035.jpg）")
-        self.assertEqual(self.inbox_files(), ["王先生合約 (2).jpg", "王先生合約.jpg"])
+        # 放寬甲：同名不再加 (2)，內容不一樣回 conflict，--title 另取名
+        r = self.kb(str(other), "--title", "王先生合約", "--json")
+        self.assertEqual(r.returncode, 3, r.stdout)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["conflict"], [{"name": "王先生合約.jpg", "dest": "暫存區", "same_content": False,
+                                              "existing": "file://暫存區/王先生合約.jpg"}])
+        self.assertIn("--replace", data["refused"])
+        self.assertEqual(self.inbox_files(), ["王先生合約.jpg"])
+        self.assertEqual(self.ok(str(other), "--title", "王先生合約_二")[0],
+                         "收進暫存區了：暫存區/王先生合約_二.jpg（原本叫 IMG_2035.jpg）")
+        third = self.outside("IMG_2036.jpg", b"\xff\xd8 photo three")
+        r = self.kb(str(third), "--title", "王先生合約", "--replace")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((self.V / "暫存區" / "王先生合約.jpg").read_bytes(), b"\xff\xd8 photo three")
+
+    def test_to_folder_conflict_and_have(self):
+        """驗收 16：--to 收進使用者的夾；內容改過再收 -> conflict 沒有 (2)；--replace 覆蓋；一樣的 -> 這份收過了。"""
+        mine = self.V / "我的夾"
+        mine.mkdir()
+        src = self.outside("a.txt", b"one")
+        out = self.ok(str(src), "--to", str(mine))
+        self.assertEqual(out[0], "收進「我的夾」了：我的夾/a.txt（原檔沒動）")
+        self.assertEqual((mine / "a.txt").read_bytes(), b"one")
+        (e,) = self.entries()
+        self.assertEqual(e["locations"][0]["uri"], "file://知識庫/我的夾/a.txt")
+        src.write_bytes(b"two")
+        r = self.kb(str(src), "--to", str(mine))
+        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertEqual(sorted(p.name for p in mine.iterdir()), ["a.txt"])
+        r = self.kb(str(src), "--to", str(mine), "--replace")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual((mine / "a.txt").read_bytes(), b"two")
+        out = self.ok(str(src), "--to", str(mine))
+        self.assertTrue(out[0].startswith("這份收過了"), out)
+        r = self.kb(str(src), "--to", str(self.V / "檔案索引"))
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("willy 自己的檔", r.stdout)
 
     def test_already_in_inbox_and_in_vault(self):
         self.ok(str(self.outside("a.txt", b"a")))
-        self.assertEqual(self.ok(str(self.V / "收件匣" / "a.txt")), ["這份已經在收件匣：收件匣/a.txt"])
+        self.assertEqual(self.ok(str(self.V / "暫存區" / "a.txt")), ["這份已經在暫存區：暫存區/a.txt"])
         self.assertEqual(self.refused(str(self.V / "系統" / "客戶設定檔.md")), ["這份已經在知識庫裡：系統/客戶設定檔.md"])
 
     def test_refusals(self):
@@ -125,34 +159,34 @@ class NoFolders(Base):
     def test_many_paths_one_refused_others_kept(self):
         a, b = self.outside("a.pdf", b"a"), self.outside("帳密.xlsx", b"b")
         out = self.refused(str(a), str(b))
-        self.assertEqual(out, ["收進收件匣了：收件匣/a.pdf（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收", NEXT])
+        self.assertEqual(out, ["收進暫存區了：暫存區/a.pdf（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收", NEXT])
         self.assertEqual(self.inbox_files(), ["a.pdf"])
 
     def test_r6_2_deleted_file_is_received_again(self):
-        """裁定 6 #2：收件匣那份在檔案總管被刪、清冊還沒掃，再拖同一份照新收。"""
+        """裁定 6 #2：暫存區那份在檔案總管被刪、清冊還沒掃，再拖同一份照新收。"""
         src = self.outside("合約.pdf", b"%PDF-1.4 wang")
         self.ok(str(src))
-        (self.V / "收件匣" / "合約.pdf").unlink()
-        self.assertEqual(self.ok(str(src))[0], "收進收件匣了：收件匣/合約.pdf（原檔沒動）")
-        self.assertTrue((self.V / "收件匣" / "合約.pdf").is_file())
+        (self.V / "暫存區" / "合約.pdf").unlink()
+        self.assertEqual(self.ok(str(src))[0], "收進暫存區了：暫存區/合約.pdf（原檔沒動）")
+        self.assertTrue((self.V / "暫存區" / "合約.pdf").is_file())
 
     def test_r6_5_name_too_long(self):
         src = self.outside("a.pdf", b"a")
         self.assertEqual(self.refused(str(src), "--title", "字" * 300), ["檔名太長，換短一點的名字"])
         self.assertEqual(self.inbox_files(), [])
-        self.assertNotIn("收件匣/" + "字" * 300 + ".pdf", [e["path"] for e in turn.entries(self.V, self.t)])
+        self.assertNotIn("暫存區/" + "字" * 300 + ".pdf", [e["path"] for e in turn.entries(self.V, self.t)])
 
     def test_r6_6_many_paths_refusals_carry_file_name(self):
         a, b, c = self.outside("m1.txt", b"1"), self.outside("帳密.xlsx", b"2"), self.tmp / "沒有.txt"
         out = self.refused(str(a), str(b), str(c))
-        self.assertEqual(out, ["收進收件匣了：收件匣/m1.txt（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收",
+        self.assertEqual(out, ["收進暫存區了：暫存區/m1.txt（原檔沒動）", "帳密.xlsx：這個檔名像密碼或金鑰，不收",
                                f"沒有.txt：找不到這個檔：{c}", NEXT])
 
     def test_json(self):
         r = self.kb(str(self.outside("a.pdf", b"a")), "--json")
         data = json.loads(r.stdout)
         (item,) = data["items"]
-        self.assertEqual((item["path"], item["result"], item["said"]), ("收件匣/a.pdf", "new", "收進收件匣了：收件匣/a.pdf（原檔沒動）"))
+        self.assertEqual((item["path"], item["result"], item["said"]), ("暫存區/a.pdf", "new", "收進暫存區了：暫存區/a.pdf（原檔沒動）"))
         self.assertTrue(item["id"].startswith("f-"))
         self.assertEqual(data["next"], "kb cards dispatch --json")
 
@@ -160,10 +194,10 @@ class NoFolders(Base):
         turn.set_done(self.V, SID)
         turn.start(self.V, None, "")
         out = self.ok(str(self.outside("a.pdf", b"a")))
-        self.assertEqual(out, ["收進收件匣了：收件匣/a.pdf（原檔沒動）"])
+        self.assertEqual(out, ["收進暫存區了：暫存區/a.pdf（原檔沒動）"])
         rows = [r for m in journal.months(self.V) for r in journal.read_lines(self.V, m) if r.get("kind") == "program"]
         self.assertEqual(rows[-1]["command"], "intake")
-        self.assertIn("收件匣/a.pdf", rows[-1]["note"])
+        self.assertIn("暫存區/a.pdf", rows[-1]["note"])
 
     def test_13_outside_conversation_gets_its_own_0000_turn(self):
         """驗收 13（D-502）：current.json 是已答完的對話回合，沒帶 --session 跑 kb intake → 備份在自己的 0000 回合，
@@ -175,7 +209,7 @@ class NoFolders(Base):
         self.assertEqual(turn.entries(self.V, self.t), [])
         (e,) = self.entries()
         self.assertTrue(e["created_turn"].endswith("-0000"), e["created_turn"])
-        self.assertEqual({x["path"]: x["action"] for x in turn.entries(self.V, e["created_turn"])}["收件匣/合約.pdf"], "create")
+        self.assertEqual({x["path"]: x["action"] for x in turn.entries(self.V, e["created_turn"])}["暫存區/合約.pdf"], "create")
         rows = [x for m in journal.months(self.V) for x in journal.read_lines(self.V, m) if x.get("kind") == "program"]
         self.assertEqual(rows[-1]["command"], "intake")
 
@@ -184,13 +218,13 @@ class NoFolders(Base):
         (e,) = self.entries()
         r = run("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse((self.V / "收件匣" / "合約.pdf").exists())
-        self.assertEqual(inventory.entry_for(self.V, "file://收件匣/合約.pdf", inventory.load(self.V)["entries"])["status"],
+        self.assertFalse((self.V / "暫存區" / "合約.pdf").exists())
+        self.assertEqual(inventory.entry_for(self.V, "file://暫存區/合約.pdf", inventory.load(self.V)["entries"])["status"],
                          "turn_reverted")
         self.assertIn("成品 0 份", r.stdout)
         r = run("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((self.V / "收件匣" / "合約.pdf").read_bytes(), b"%PDF wang")
+        self.assertEqual((self.V / "暫存區" / "合約.pdf").read_bytes(), b"%PDF wang")
         got = next(x for x in inventory.load(self.V)["entries"] if x["id"] == e["id"])
         self.assertEqual(got["status"], "active")
 
@@ -209,17 +243,17 @@ class Periodic(Base):
     def test_5_new_same_updated_and_customer_file(self):
         a = self.outside("a.md", b"# v1\n")
         self.assertEqual(self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生"),
-                         ["收進收件匣了：收件匣/公司系統/客戶王先生.md"])
+                         ["收進暫存區了：暫存區/公司系統/客戶王先生.md"])
         (e,) = self.entries()
         self.assertEqual((e["intake"]["from"], e["intake"]["name"]), ("公司系統", "客戶王先生"))
-        self.assertEqual(self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生"), ["沒有變：收件匣/公司系統/客戶王先生.md"])
+        self.assertEqual(self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生"), ["沒有變：暫存區/公司系統/客戶王先生.md"])
         # 做一張卡，內容變了要列 stale
         item = next(i for i in cards.todo(self.V, sources_lib.load(self.V))["new"] if i["id"] == e["id"])
         _cards.write_card(self.V, item, "客戶王先生", kind="資料")
         t2 = turn.start(self.V, None, "")["turn"]
         a.write_bytes(b"# v2 changed\n")
-        self.assertEqual(self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生"), ["更新了：收件匣/公司系統/客戶王先生.md"])
-        self.assertEqual((self.V / "收件匣" / "公司系統" / "客戶王先生.md").read_bytes(), b"# v2 changed\n")
+        self.assertEqual(self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生"), ["更新了：暫存區/公司系統/客戶王先生.md"])
+        self.assertEqual((self.V / "暫存區" / "公司系統" / "客戶王先生.md").read_bytes(), b"# v2 changed\n")
         backed = self.V / ".system" / "versions"
         olds = [p for p in backed.rglob("客戶王先生.md") if p.read_bytes() == b"# v1\n"]
         self.assertTrue(olds, "舊內容備進回合")
@@ -229,16 +263,16 @@ class Periodic(Base):
         self.assertIn(e["id"], stale)
         self.assertNotEqual(t2, None)
         # 客戶自己放的同名檔
-        mine = self.V / "收件匣" / "公司系統" / "客戶李小姐.md"
+        mine = self.V / "暫存區" / "公司系統" / "客戶李小姐.md"
         mine.write_bytes(b"mine")
         _cards.scan_apply(self.V)
         self.assertEqual(self.refused(str(a), "--from", "公司系統", "--name", "客戶李小姐"),
-                         ["收件匣/公司系統/ 裡已經有同名的檔，不是 公司系統 交的；請先改名或搬走"])
+                         ["「公司系統」已經有「客戶李小姐.md」（內容不一樣）：一樣的話不用搬；要取代加 --replace（原本那份先進資源回收筒）；要另取名換一個 --name。"])
         self.assertEqual(mine.read_bytes(), b"mine")
 
     def test_from_without_name_goes_to_top_and_is_recorded(self):
         a = self.outside("價目表.pdf", b"%PDF price")
-        self.assertEqual(self.ok(str(a), "--from", "某網站"), ["收進收件匣了：收件匣/價目表.pdf（原檔沒動）"])
+        self.assertEqual(self.ok(str(a), "--from", "某網站"), ["收進暫存區了：暫存區/價目表.pdf（原檔沒動）"])
         (e,) = self.entries()
         self.assertEqual(e["intake"]["from"], "某網站")
         self.assertNotIn("name", e["intake"])
@@ -258,7 +292,7 @@ class Periodic(Base):
         self.ok(str(a), "--from", "公司系統", "--name", "客戶王先生")
         r = run("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((self.V / "收件匣" / "公司系統" / "客戶王先生.md").read_bytes(), b"# v1\n")
+        self.assertEqual((self.V / "暫存區" / "公司系統" / "客戶王先生.md").read_bytes(), b"# v1\n")
 
 
 class Registered(Base):
@@ -274,7 +308,7 @@ class Registered(Base):
     def test_3_reading(self):
         src = self.raw / "客戶案件" / "大安陳" / "會議紀錄_1.docx"
         self.assertEqual(self.ok(str(src)), ["這份我已經在讀了：客戶案件/大安陳/會議紀錄_1.docx"])
-        self.assertEqual(self.inbox_files(), ["貼文.txt"])
+        self.assertEqual(self.inbox_files(), ["x.md", "貼文.txt"])  # fixture 的暫存區原本有 AI 產出的 x.md 與收件匣的貼文.txt
 
     def test_3_excluded(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -284,7 +318,7 @@ class Registered(Base):
         self.assertEqual(self.refused(str(self.raw / "行政" / "舊檔" / "o.doc")), ["這個位置你說過不讀"])
         self.assertEqual(self.refused(str(self.raw / "行政" / "薪資" / "s.xlsx")), ["這個位置你說過不讀"])
         after = sorted(p.as_posix() for p in self.V.rglob("*") if "versions" not in p.parts and "turns" not in p.parts)
-        self.assertEqual([p for p in after if "收件匣" in p], [p for p in before if "收件匣" in p])
+        self.assertEqual([p for p in after if "暫存區" in p], [p for p in before if "暫存區" in p])
 
 
 class Pasted(Base):
@@ -319,28 +353,28 @@ class Pasted(Base):
                          ["這一則：", f"image:1（image/png，{len(png)} 位元組）", f"text:1（{len(PASTE)} 字）",
                           "上一則：", "prev:text:1（10 字）"])
         out = self.ok("--pasted", "text:1", "--title", "2026-10-26 王先生合約條文", extra_env=self.env)
-        self.assertEqual(out, ["收進收件匣了：收件匣/2026-10-26 王先生合約條文.txt", NEXT])
-        self.assertEqual((self.V / "收件匣" / "2026-10-26 王先生合約條文.txt").read_bytes(), PASTE.encode("utf-8"))
+        self.assertEqual(out, ["收進暫存區了：暫存區/2026-10-26 王先生合約條文.txt", NEXT])
+        self.assertEqual((self.V / "暫存區" / "2026-10-26 王先生合約條文.txt").read_bytes(), PASTE.encode("utf-8"))
         out = self.ok("--pasted", "image:1", "--title", "2026-10-26 陳經理名片", extra_env=self.env)
-        self.assertEqual(out[0], "收進收件匣了：收件匣/2026-10-26 陳經理名片.png")
-        self.assertEqual((self.V / "收件匣" / "2026-10-26 陳經理名片.png").read_bytes(), png)
-        img = inventory.entry_for(self.V, "file://收件匣/2026-10-26 陳經理名片.png")
+        self.assertEqual(out[0], "收進暫存區了：暫存區/2026-10-26 陳經理名片.png")
+        self.assertEqual((self.V / "暫存區" / "2026-10-26 陳經理名片.png").read_bytes(), png)
+        img = inventory.entry_for(self.V, "file://暫存區/2026-10-26 陳經理名片.png")
         self.assertEqual((img["intake"]["pasted"], img["intake"]["copy"]), ("image", True))
-        txt = inventory.entry_for(self.V, "file://收件匣/2026-10-26 王先生合約條文.txt")
+        txt = inventory.entry_for(self.V, "file://暫存區/2026-10-26 王先生合約條文.txt")
         self.assertEqual(txt["intake"]["pasted"], "text")
         self.assertNotIn("copy", txt["intake"])
 
     def test_6_uploads_original_is_used(self):
         self.use("uploads.jsonl")
         self.ok("--pasted", "image:1", "--title", "名片", extra_env=self.env)
-        self.assertEqual((self.V / "收件匣" / "名片.png").read_bytes(), (FIX / "原圖.png").read_bytes())
-        e = inventory.entry_for(self.V, "file://收件匣/名片.png")
+        self.assertEqual((self.V / "暫存區" / "名片.png").read_bytes(), (FIX / "原圖.png").read_bytes())
+        e = inventory.entry_for(self.V, "file://暫存區/名片.png")
         self.assertNotIn("copy", e["intake"])
 
     def test_6_vscode_whole_message(self):
         self.use("vscode.jsonl")
         self.ok("--pasted", "text:1", "--title", "王先生合約", extra_env=self.env)
-        self.assertEqual((self.V / "收件匣" / "王先生合約.txt").read_text(encoding="utf-8"),
+        self.assertEqual((self.V / "暫存區" / "王先生合約.txt").read_text(encoding="utf-8"),
                          "王先生合約\n第一條 甲方委託乙方裝修。\n第二條 工期 30 天。")
 
     def test_6_terminal_or_finished_turn_does_not_read_transcript(self):
@@ -348,14 +382,14 @@ class Pasted(Base):
         self.use("desktop.jsonl")
         turn.set_done(self.V, SID)
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
 
     def test_r8_2_save_from_previous_message(self):
         """裁定 8 #2：AI 問過要不要存、她回「存起來」：從上一則取。"""
         self.use("vscode.jsonl")  # 上一則是「上一句：幫我看王先生」
         out = self.ok("--pasted", "prev:text:1", "--title", "王先生", extra_env=self.env)
-        self.assertEqual(out[0], "收進收件匣了：收件匣/王先生.txt")
-        self.assertEqual((self.V / "收件匣" / "王先生.txt").read_text(encoding="utf-8"), "上一句：幫我看王先生")
+        self.assertEqual(out[0], "收進暫存區了：暫存區/王先生.txt")
+        self.assertEqual((self.V / "暫存區" / "王先生.txt").read_text(encoding="utf-8"), "上一句：幫我看王先生")
         self.assertEqual(self.refused("--pasted", "prev:image:1", "--title", "x", extra_env=self.env), [IMAGE_MISS])
 
     def test_r8_2_no_previous_message(self):
@@ -381,13 +415,13 @@ class Pasted(Base):
         t.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
         turn.start(self.V, SID, "存起來", transcript=str(t))
         self.ok("--pasted", "prev:image:1", "--title", "名片", extra_env=self.env)
-        self.assertEqual((self.V / "收件匣" / "名片.png").read_bytes(), (FIX / "原圖.png").read_bytes())
-        self.assertNotIn("copy", inventory.entry_for(self.V, "file://收件匣/名片.png")["intake"])
+        self.assertEqual((self.V / "暫存區" / "名片.png").read_bytes(), (FIX / "原圖.png").read_bytes())
+        self.assertNotIn("copy", inventory.entry_for(self.V, "file://暫存區/名片.png")["intake"])
 
     def test_r6_1_without_session_pasted_is_refused(self):
         self.use("desktop.jsonl")
         r = run("intake", "--pasted", "text:1", "--title", "x", cwd=self.V, extra_env=self.env)
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "這段我拿不到原文；請把它存成檔，再拖進對話"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"))
 
     def test_r6_1_two_conversations_each_read_their_own(self):
         """裁定 6 #1：兩個對話開同一個知識庫，A 的 --pasted 讀 A 的紀錄，不是 current.json 那個（B 最後說話）。"""
@@ -402,20 +436,20 @@ class Pasted(Base):
         src.write_bytes(b"%PDF a")
         r = run("--session", "sA", "intake", str(src), cwd=self.V, extra_env=self.env)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("收件匣/x.pdf", [e["path"] for e in turn.entries(self.V, ta)])
+        self.assertIn("暫存區/x.pdf", [e["path"] for e in turn.entries(self.V, ta)])
 
     def test_6_no_transcript(self):
         turn.start(self.V, SID, "存起來")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
+                         ["這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"])
         self.assertEqual(self.refused("--pasted", "text:1", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
         self.use("vscode.jsonl")
         self.assertEqual(self.refused("--pasted", "image:1", "--title", "x", extra_env=self.env),
-                         ["這張圖我拿不到檔；請用檔案總管把原圖放進收件匣，再跟我說整理一下"])
+                         ["這張圖拿不到原檔：先在使用者的下載、桌面找同名或同時間的圖，找到就 kb intake 那份；找不到才請使用者把原圖拖進來。"])
         self.assertEqual(self.refused("--pasted", "text:2", "--title", "x", extra_env=self.env),
-                         ["這段我拿不到原文；請把它存成檔，再拖進對話"])
-        self.assertEqual([p.name for p in (self.V / "收件匣").iterdir() if not p.name.startswith(".")], [])
+                         ["這段拿不到原文：先在使用者的下載、桌面找同名或同時間的檔，找到就 kb intake 那份；找不到才請使用者把內容存成檔再拖進來。"])
+        self.assertEqual([p.name for p in (self.V / "暫存區").iterdir() if not p.name.startswith(".")], [])
 
 
 class InboxPlace(Base):
@@ -457,13 +491,13 @@ class InboxPlace(Base):
         got = self.asks()
         ask = next(a for a in got["asks"] if a["kind"] == "inbox_place")
         self.assertEqual(ask["key"].split("@")[0], f"inbox:{e['id']}")
-        self.assertEqual(ask["question"], "大安陳合約（收件匣）要放到哪裡？")
+        self.assertEqual(ask["question"], "大安陳合約（暫存區）要放到哪裡？")
         labels = [r["label"] for r in ask["results"]]
         self.assertEqual(labels, ["放到 客戶案件/大安陳", "先放著"])
-        self.assertEqual(ask["results"][0]["do"], ['kb source-edit move 收件匣/合約.pdf --to 客戶案件/大安陳'])
+        self.assertEqual(ask["results"][0]["do"], ['kb source-edit move 暫存區/合約.pdf --to 客戶案件/大安陳'])
         self.assertEqual(ask["results"][-1]["do"], [])
         self.assertFalse(ask["urgent"])
-        r = run("source-edit", "move", "收件匣/合約.pdf", "--to", "客戶案件/大安陳", cwd=self.V)
+        r = run("source-edit", "move", "暫存區/合約.pdf", "--to", "客戶案件/大安陳", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_9_earlier_intake_goes_to_others(self):
@@ -489,10 +523,10 @@ class InboxPlace(Base):
         asks = [a for a in got["asks"] if a["kind"] == "inbox_place"]
         self.assertEqual(len(asks), 1)
         self.assertEqual([r["label"] for r in asks[0]["results"]], ["放到 案子/王先生", "先放著"])
-        self.assertEqual(asks[0]["results"][0]["do"], ["kb source-edit move 收件匣/名片.png --to 案子/王先生"])
+        self.assertEqual(asks[0]["results"][0]["do"], ["kb source-edit move 暫存區/名片.png --to 案子/王先生"])
 
     def test_ruling_1_move_creates_entity_folder_and_revert_removes_it(self):
-        """裁定 1：實體登記了、夾不在 → move 先建那一層再搬，卡跟著搬；退回 → 檔回收件匣、夾拿掉。"""
+        """裁定 1：實體登記了、夾不在 → move 先建那一層再搬，卡跟著搬；退回 → 檔回暫存區、夾拿掉。"""
         t = turn.start(self.V, SID, "王先生的合約")["turn"]
         entities.add(self.V, "案子", "王先生", t)
         self.ok(str(self.outside("合約.pdf", b"%PDF wang")))
@@ -500,12 +534,12 @@ class InboxPlace(Base):
         self.card_for(e, "王先生", "王先生合約")
         folder = self.V / "案子" / "王先生"
         self.assertFalse(folder.exists())
-        r = run("source-edit", "move", "收件匣/合約.pdf", "--to", "案子/王先生", "--check", cwd=self.V)
+        r = run("source-edit", "move", "暫存區/合約.pdf", "--to", "案子/王先生", "--check", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("案子/王先生 還沒有夾，會先建一個", r.stdout.splitlines())
         self.assertFalse(folder.exists(), "--check 不建")
         turn.start(self.V, SID, "好，放進去")
-        r = run("source-edit", "move", "收件匣/合約.pdf", "--to", "案子/王先生", cwd=self.V)
+        r = run("source-edit", "move", "暫存區/合約.pdf", "--to", "案子/王先生", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((folder / "合約.pdf").read_bytes(), b"%PDF wang")
         moved = inventory.entry_for(self.V, "file://知識庫/案子/王先生/合約.pdf")
@@ -514,7 +548,7 @@ class InboxPlace(Base):
         self.assertTrue(card.startswith("檔案索引/知識庫/案子/王先生/"), card)
         r = run("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue((self.V / "收件匣" / "合約.pdf").is_file())
+        self.assertTrue((self.V / "暫存區" / "合約.pdf").is_file())
         self.assertFalse(folder.exists())
 
     def test_ruling_1_other_missing_folders_still_refused(self):
@@ -522,13 +556,13 @@ class InboxPlace(Base):
         self.ok(str(self.outside("合約.pdf", b"%PDF x")))
         for to, why in (("案子/沒登記的人", "找不到這個夾：案子/沒登記的人"), ("案子/大安陳/子夾", "找不到這個夾：案子/大安陳/子夾")):
             with self.subTest(to=to):
-                r = run("source-edit", "move", "收件匣/合約.pdf", "--to", to, cwd=self.V)
+                r = run("source-edit", "move", "暫存區/合約.pdf", "--to", to, cwd=self.V)
                 self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
                 self.assertEqual(r.stdout.strip(), why)
 
 
 class MoveCheck(Base):
-    """驗收 11：從 收件匣/<來源>/ 搬出，--check 多一行。"""
+    """驗收 11：從 暫存區/<來源>/ 搬出，--check 多一行。"""
 
     def setUp(self):
         self.tmp, self.V, self.raw = make_inv_vault()
@@ -539,11 +573,11 @@ class MoveCheck(Base):
 
     def test_11(self):
         self.ok(str(self.outside("a.md", b"x")), "--from", "公司系統", "--name", "客戶王先生")
-        r = run("source-edit", "move", "收件匣/公司系統/客戶王先生.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
+        r = run("source-edit", "move", "暫存區/公司系統/客戶王先生.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("這份是 公司系統 定期交來的；搬走之後下次交來會在收件匣再收一份", r.stdout.splitlines())
+        self.assertIn("這份是 公司系統 定期交來的；搬走之後下次交來會直接覆蓋搬過去的那份", r.stdout.splitlines())
         self.ok(str(self.outside("b.md", b"y")))
-        r = run("source-edit", "move", "收件匣/b.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
+        r = run("source-edit", "move", "暫存區/b.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
         self.assertNotIn("定期交來", r.stdout)
 
 

@@ -153,11 +153,11 @@ class ChangedText(unittest.TestCase):
     def test_classification(self):
         rows = [{"path": p, "action": "modify"} for p in (
             "案子/信義王/信義王.md", "業主/王先生/王先生.md", "案子/大安陳/大安陳.md", "案子/內湖李/內湖李.md",
-            "檔案索引/a/b-1.md", "檔案索引/a/c-2.md", "AI 產出/報價.docx", ".system/statements.json",
+            "檔案索引/a/b-1.md", "檔案索引/a/c-2.md", "暫存區/報價.docx", ".system/statements.json",
             ".system/rulings.json", "系統/裁示.md", ".system/x.json", "系統/y.md", ".system/z.json", ".system/w.json",
-            "收件匣/貼文.txt", "案子/信義王/合約.docx")]
+            "暫存區/貼文.txt", "案子/信義王/合約.docx")]
         self.assertEqual(journal.changed_text(rows),
-                         "綜合卡 信義王、王先生、大安陳等 4 張；檔案卡 2 張；AI 產出 1 份；口述；裁示；x、y、z等 4 個；其他 2 個檔")
+                         "綜合卡 信義王、王先生、大安陳等 4 張；檔案卡 2 張；暫存區 2 份；口述；裁示；x、y、z等 4 個；其他 1 個檔")
         self.assertEqual(journal.changed_text([]), "")
 
 

@@ -32,7 +32,7 @@ from pathlib import Path
 from kb._lib import agenda, card_base, cards, entities, findings, inventory, journal, ledger, pending, rulings, synthesis, turn
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
-from kb._lib.paths import long_path, normalize
+from kb._lib.paths import decode_uri, long_path, normalize
 
 PURGED = journal.PURGED_TEXT
 TEMP_POSIX = ".system/temp"
@@ -118,7 +118,7 @@ def name_hash(name):
 
 def _row(vault, alias, spec):
     """sources.json 裡那條排除（原始 dict）；沒有回 {}。"""
-    for src in sources_lib.load_raw(vault)["sources"]:
+    for src in sources_lib.raw_owners(sources_lib.load_raw(vault)):
         if str(src.get("alias", "")).casefold() == alias.casefold():
             for ex in src.get("excludes") or []:
                 if ex.get("spec") == spec:
@@ -137,7 +137,7 @@ def scope(vault, alias, spec):
 def _write_row(vault, alias, spec, turn_id, change):
     """改那條排除（呼叫端持 sources.json 的鎖）：change(row) 回真才備份、寫。回有沒有寫。"""
     raw = sources_lib.load_raw(vault)
-    for src in raw["sources"]:
+    for src in sources_lib.raw_owners(raw):
         if str(src.get("alias", "")).casefold() != alias.casefold():
             continue
         for ex in src.get("excludes") or []:
@@ -1393,13 +1393,16 @@ def mark_done(vault, alias, spec, turn_id):
 
 def find(vault, sources, target_text, cwd):
     """purge 的對象：「別名/相對」的寫法或路徑，對到 sources 的一條排除。回 {"alias","spec","root","kind","purge"} 或 None。"""
-    text = str(target_text).strip().replace("\\", "/").strip("/")
-    for src in sources.entries:
+    text = decode_uri(str(target_text).strip())
+    if text.startswith("file://"):
+        text = text[len("file://"):]
+    text = text.replace("\\", "/").strip("/")
+    for src in sources.exclude_owners():
         for ex in src["excludes"]:
             if f"{src['alias']}/{ex['spec']}".casefold() == text.casefold():
                 return dict(ex, alias=src["alias"])
     path = normalize(str(target_text), str(cwd))
-    for src in sources.entries:
+    for src in sources.exclude_owners():
         for ex in src["excludes"]:
             if ex["root"] == path:
                 return dict(ex, alias=src["alias"])

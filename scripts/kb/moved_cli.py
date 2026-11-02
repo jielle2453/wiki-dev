@@ -49,7 +49,7 @@ def lines(got, applied):
         out.append("這台找不到的來源：" + "、".join(got["missing_sources"])
                    + "；請她一個一個說新位置，我用 kb folders relocate 接上")
     if got["old_copy"]:
-        out.append(f"舊位置還有一份：{got['old_copy']}；確認新的沒問題就把舊的刪掉（我不代刪）")
+        out.append(f"舊位置還有一份：{got['old_copy']}；新的確認沒問題後，問使用者一句要不要刪舊的，說好就 kb source-edit trash {got['old_copy']}。")
     for item in got["env"]:
         out.append(item["text"] + (f"（{item['fix']}）" if item.get("fix") else ""))
     if got["passwords_missing"]:

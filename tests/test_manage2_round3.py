@@ -41,8 +41,7 @@ class CurlyQuotes(Base):
 
     def test_purge_step_note_for_curly(self):
         steps = plan._purge_steps({"purge_pending": [{"name": "客戶案件/x\u201d; y", "synthesis": []}]})
-        self.assertIsNone(steps[0]["do"])
-        self.assertIn("改夾名", steps[0]["note"])
+        self.assertIn("file://客戶案件/x%E2%80%9D; y", steps[0]["do"])  # 放寬甲：改給 % 編碼的 uri
 
 
 # ---------- 第 2 條：遮罩不看左邊界 ----------
@@ -186,13 +185,13 @@ class Others(Base):
         self.assertNotIn(link.name, [d.name for d in purge._version_dirs(self.V)])
 
     def test_plan_cmd_unsafe_draft_does_not_crash(self):
-        drafts = Path(self.V) / "AI 產出"
+        drafts = Path(self.V) / "暫存區"
         (drafts / "Joe's $500 quote（草稿）.md").write_text("草稿", encoding="utf-8")
         asks = plan._draft_asks(self.V)
         bad = next(a for a in asks if "Joe" in a["id"])
         drop = next(r for r in bad["results"] if r["label"] == "不要了")
         self.assertEqual(drop["do"], [])
-        self.assertIn("改名", drop["note"])
+        self.assertIn("file://", drop["note"])  # 放寬甲：NO_CMD_NOTE 改說 uri 寫法
         self.assertIsNone(plan.cmd("output", "drop-draft", "a'$b"))
 
     def test_device_names(self):

@@ -104,7 +104,7 @@ class Add(Base):
         self.assertEqual(r.returncode, 3)
         self.assertIn("重疊", r.stdout)
         (self.raw / "別名測試").mkdir()
-        bad = ("客戶案件", "客戶案件 ", "客戶案件.", "收件匣", "收件匣 ", "收件匣.", "AI 產出", "ai 產出", "知識庫",
+        bad = ("客戶案件", "客戶案件 ", "客戶案件.", "暫存區", "暫存區 ", "暫存區.", "暫存區", "ai 產出", "知識庫",
                "a/b", "a\\b", "", " ", ".", "..", "a:b", 'a"b', "a<b", "a>b", "a|b", "a?b", "a*b", "a\tb")
         for alias in bad:
             with self.subTest(alias=alias):
@@ -203,11 +203,11 @@ class Add(Base):
             "磁碟根": drive_root,
             "系統夾": os.environ.get("SystemRoot") or ("C:\\Windows" if os.name == "nt" else "/usr"),
             "總資料夾": str(self.V),
-            "總資料夾的子夾": str(self.V / "AI 產出"),
+            "總資料夾的子夾": str(self.V / "暫存區"),
             "既有來源的父": str(self.raw),
             "既有來源的子": str(self.raw / "行政" / "請款"),
             "另一個知識庫": str(other_vault),
-            "另一個知識庫的子夾": str(other_vault / "AI 產出"),
+            "另一個知識庫的子夾": str(other_vault / "暫存區"),
             "底下藏著知識庫": str(hidden_vault),
         }
         before = self.sources()
@@ -391,7 +391,7 @@ class Exclude(Base):
         self.exclude("../raw/行政/薪資", "--kind", "hidden", "--reason", "薪資個資")
         r = run_kb("guard", "decide", "--tool", "Read", "--path", str(self.raw / "行政" / "薪資" / "s.xlsx"), cwd=self.V)
         self.assertTrue(r.stdout.startswith("deny"), r.stdout)
-        self.assertIn("你說過不讀", r.stdout)
+        self.assertIn("使用者說過不讀", r.stdout)
         self.assertNotIn("密碼或金鑰", r.stdout)
 
     def test_whole_source_points_to_folders_remove(self):
@@ -639,7 +639,7 @@ class List(Base):
         self.folders("exclude", "../raw/行政/薪資", "--kind", "hidden", "--reason", "薪資個資")
         data = json.loads(self.list("--json").stdout)
         src = data["sources"][0]
-        self.assertEqual(set(src), {"id", "alias", "spec", "path", "exists", "excludes"})
+        self.assertEqual(set(src), {"id", "alias", "spec", "path", "exists", "shared", "excludes"})
         self.assertTrue(src["exists"])
         ex = src["excludes"][0]
         self.assertEqual(set(ex), {"spec", "kind", "reason", "added", "path", "exists"})
@@ -1006,3 +1006,48 @@ class FoldersInventory(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedAndLocate(Base):
+    """放寬甲 D-334(3)、D-322 第 8 件：folders add --shared、folders set --shared、list 帶 shared；locate 找搬走的來源夾。"""
+
+    def test_add_shared_set_and_list(self):
+        r = self.add("../raw/客戶案件", "--shared")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.sources()["sources"][0]["shared"])
+        listed = json.loads(self.folders("list", "--json").stdout)
+        self.assertTrue(listed["sources"][0]["shared"])
+        r = self.folders("set", "客戶案件", "--shared", "no")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("shared", self.sources()["sources"][0])
+        self.assertFalse(json.loads(self.folders("list", "--json").stdout)["sources"][0]["shared"])
+        r = self.folders("set", "客戶案件", "--shared", "yes")
+        self.assertTrue(self.sources()["sources"][0]["shared"])
+        r = self.folders("set", "沒有這個", "--shared", "yes")
+        self.assertEqual(r.returncode, 3)
+
+    def test_locate_finds_moved_source(self):
+        self.assertEqual(self.add("../raw/客戶案件").returncode, 0)
+        home = self.tmp / "home"
+        new = home / "文件" / "客戶案件"
+        new.parent.mkdir(parents=True)
+        shutil.move(str(self.raw / "客戶案件"), str(new))
+        (self.V / ".system" / "config.json").write_text(
+            json.dumps({"relocate_search_seconds": 3, "relocate_search_depth": 3}), encoding="utf-8")
+        r = self.folders("locate", "客戶案件", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(Path(got["candidates"][0]["path"]).resolve(), new.resolve())
+        self.assertGreater(got["candidates"][0]["hit"], 0)
+        self.assertIn("找到了：", got["message"])
+        self.assertIn("kb folders relocate 客戶案件 <路徑>", got["message"])
+        self.assertIn("searched_seconds", got)
+
+    def test_locate_nothing(self):
+        self.assertEqual(self.add("../raw/客戶案件").returncode, 0)
+        shutil.rmtree(self.raw / "客戶案件")
+        (self.V / ".system" / "config.json").write_text(
+            json.dumps({"relocate_search_seconds": 2, "relocate_search_depth": 2}), encoding="utf-8")
+        r = self.folders("locate", "客戶案件")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "找不到；問使用者「客戶案件」搬到哪了。")

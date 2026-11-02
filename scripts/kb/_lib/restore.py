@@ -31,18 +31,18 @@ from pathlib import Path
 from kb._lib import backup, env, paths
 from kb._lib import io as kio
 from kb._lib import vault as vault_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 
 EXAMPLES_MAX = 3
 SYSTEM = ".system"
-RESERVED_TOP = {s.casefold() for s in (".system", ".claude", "系統", "收件匣", "檔案索引", "AI 產出", FREE_DIR)}  # 不分大小寫（spec 裁定 5）
+RESERVED_TOP = {s.casefold() for s in (".system", ".claude", "系統", HOLD_DIR, OLD_INBOX, "檔案索引", OLD_OUTPUT, FREE_DIR)}  # 不分大小寫（spec 裁定 5）
 # 保留、不還原的 .system 底下的項目（名字；鎖檔另判）
 PRESERVED = {"vault.json", "env.json", "turns", "snapshots", "temp", "guard-status", "ledger.tsv", "hook-errors.log"}
 # 現在有就留、空資料夾還原才用備份的
 KEEP_IF_PRESENT = {"vault.json", "env.json"}
 CLASSES = (("statements", "口述", "條"), ("rulings", "裁示", "條"), ("agenda", "日程", "條"), ("findings", "推算", "條"),
            ("entities", "實體", "個"), ("cards", "檔案卡", "張"), ("synthesis", "綜合卡", "張"),
-           ("outputs", "AI 產出", "份"), ("journal_turns", "工作日誌", "個回合"))
+           ("outputs", HOLD_DIR, "份"), ("journal_turns", "工作日誌", "個回合"))
 NOT_EMPTY = "這個資料夾不是空的，也不是知識庫；換一個空資料夾"
 NOT_FOUND = "找不到這份：{}"
 FILE_OPEN = backup.FILE_OPEN
@@ -156,7 +156,7 @@ def _labels(root, names):
             if sub.is_dir() and card.is_file():
                 digest = _safe(lambda q=card: __import__("hashlib").sha256(q.read_bytes()).hexdigest())
                 out["synthesis"][f"{top.name}/{sub.name}"] = (sub.name, digest)
-    out["outputs"] = {n: Path(n).name for n in names if n.startswith("AI 產出/") and not n.endswith("/")}
+    out["outputs"] = {n: Path(n).name for n in names if n.startswith((HOLD_DIR + "/", OLD_OUTPUT + "/")) and not n.endswith("/")}
     out["journal_turns"] = {t: t for t in _journal_turns(root)}
     return out
 
@@ -177,7 +177,7 @@ def _journal_turns(root):
 
 def _vault_names(vault):
     """知識庫現在的檔名清單（zip 內路徑的寫法），只為了數 AI 產出。"""
-    root = Path(vault) / "AI 產出"
+    root = Path(vault) / HOLD_DIR
     if not root.is_dir():
         return []
     return [p.relative_to(vault).as_posix() for p in root.rglob("*") if p.is_file()]

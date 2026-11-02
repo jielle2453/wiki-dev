@@ -217,7 +217,7 @@ class ReviewFixes(Base):
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
         line = next(ln for ln in ctx.splitlines() if "你改名叫「工程案」了" in ln)
         self.assertNotIn("不用問", line)
-        self.assertIn("客戶說好才 apply", line)
+        self.assertIn("跑 kb profile apply 套用", line)
 
 
 class Round1(Base):
@@ -369,7 +369,7 @@ class MoveByTypeName(Base):
     """裁定 5：kb source-edit move --to 用型別名寫實體夾（案子/信義王），實際的夾（01 案子/信義王）在不在都認得。"""
 
     def put(self, name):
-        f = self.V / "AI 產出" / name
+        f = self.V / "暫存區" / name
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(f"{name}的內容\n", encoding="utf-8")
         _cards.scan_apply(self.V)
@@ -378,7 +378,7 @@ class MoveByTypeName(Base):
         self.entity("案子", "信義王")
         self.put("報價單.txt")
         turn.start(self.V, None, "")
-        r = kb(self.V, "source-edit", "move", "AI 產出/報價單.txt", "--to", "案子/信義王")
+        r = kb(self.V, "source-edit", "move", "暫存區/報價單.txt", "--to", "案子/信義王")
         self.assertIn("已搬好", r.stdout)
         self.assertTrue((self.V / "01 案子/信義王/報價單.txt").is_file())
         self.assertFalse((self.V / "案子").exists())
@@ -387,7 +387,7 @@ class MoveByTypeName(Base):
         self.entity("業主", "王先生", card=False)
         self.put("名片.txt")
         turn.start(self.V, None, "")
-        kb(self.V, "source-edit", "move", "AI 產出/名片.txt", "--to", "業主/王先生")
+        kb(self.V, "source-edit", "move", "暫存區/名片.txt", "--to", "業主/王先生")
         self.assertTrue((self.V / "02 業主/王先生/名片.txt").is_file())
         self.assertFalse((self.V / "業主").exists())
 
@@ -412,14 +412,14 @@ class Remove(Base):
 class Rename(Base):
     def test_6_rename_keeps_number(self):
         self.entity("案子", "信義王")
-        (self.V / "AI 產出" / "案子").mkdir(parents=True)
+        (self.V / "暫存區" / "案子").mkdir(parents=True)
         turn.start(self.V, None, "")
         kb(self.V, "profile", "type", "rename", "案子", "--to", "工程")
         self.assertEqual(self.dirs(), ["01 工程", "02 業主"])
         self.assertFalse((self.V / "01 案子").exists())
         self.assertTrue((self.V / "01 工程/信義王/信義王.md").is_file())
-        self.assertTrue((self.V / "AI 產出" / "工程").is_dir(), "AI 產出底下照型別名、不編號（D-251）")
-        self.assertFalse((self.V / "AI 產出" / "01 工程").exists())
+        self.assertTrue((self.V / "暫存區" / "工程").is_dir(), "暫存區底下照型別名、不編號（D-251）")
+        self.assertFalse((self.V / "暫存區" / "01 工程").exists())
         front = cards.parse_front((self.V / "01 工程/信義王/信義王.md").read_text(encoding="utf-8"))
         self.assertEqual(front["型別"], "工程")
 
@@ -487,10 +487,27 @@ class Adopt(Base):
         (self.V / "合約").mkdir()
         (self.V / "合約" / "租約.txt").write_text("租約\n", encoding="utf-8")
         r = self.add_type("合約", "物")
-        self.assertIn("合約這個夾改叫 03 合約了，跟其他型別放一起", r.stdout)
-        self.assertFalse((self.V / "合約").exists())
-        self.assertTrue((self.V / "03 合約" / "租約.txt").is_file())
-        self.assertEqual(self.dirs(), ["01 案子", "02 業主", "03 合約"])
+        # 放寬甲 D-312(3)：使用者自己的夾直接記成型別的夾，不改名
+        self.assertNotIn("改叫", r.stdout)
+        self.assertTrue((self.V / "合約" / "租約.txt").is_file())
+        self.assertFalse((self.V / "03 合約").exists())
+        self.assertEqual(profile.load(self.V)["types"][-1]["dir"], "合約")
+
+    def test_10b_case_insensitive_and_numbered_name(self):
+        (self.V / "Contracts").mkdir()
+        (self.V / "05 報價").mkdir()
+        self.add_type("contracts", "物")
+        self.add_type("報價", "物")
+        rows = {t["name"]: t["dir"] for t in profile.load(self.V)["types"]}
+        self.assertEqual((rows["contracts"], rows["報價"]), ("Contracts", "05 報價"))
+        self.assertTrue((self.V / "Contracts").is_dir() and (self.V / "05 報價").is_dir())
+
+    def test_10c_folder_name_field(self):
+        r = kb(self.V, "profile", "add", "型別", "名稱=報價", "大類=物", "夾名=報價單")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((self.V / "報價單").is_dir())
+        self.assertFalse((self.V / "03 報價").exists())
+        self.assertEqual(profile.load(self.V)["types"][-1]["dir"], "報價單")
 
 
 def legacy_vault():
@@ -586,7 +603,8 @@ class Guard(Base):
     def test_14_guard_unchanged(self):
         turn.start(self.V, SID, "寫卡")
         self.assertEqual(self.decision(self.V / "01 案子/信義王/信義王.md"), "allow")
-        self.assertEqual(self.decision(self.V / "01 案子/亂放.md"), "deny")
+        self.assertEqual(self.decision(self.V / "01 案子/亂放.md"), "allow")  # 放寬甲：型別夾根放檔是使用者區（Z8），檔案工具寫放行
+        self.assertEqual(self.decision(self.V / "總目錄.md"), "deny")  # 知識庫根的總目錄是 willy 自己的檔
 
 
 if __name__ == "__main__":

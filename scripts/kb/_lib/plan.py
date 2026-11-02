@@ -26,6 +26,7 @@ import hashlib
 import math
 import os
 import re
+import urllib.parse
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -40,7 +41,6 @@ DATE_RULE = "YYYY-MM-DD"
 AGENDA_RECHECK = "agenda_recheck"
 AGENDA_UNSCANNED = "agenda_unscanned"
 PURGE_STEPS = ("purge_synthesis", "purge")
-PURGE_NO_CMD = "夾名同時有 $ 或反引號和單引號，清殘留的指令給不出來；請她先在檔案總管改夾名，再說一次不想讓 AI 看到"
 DISPATCH = "kb cards dispatch --json"
 RESUME = "resume"
 RESUME_NOTE = "這個對話說過停：客戶說「整理」「繼續整理」才跑 do 接著做；沒說就不做，照常回答"
@@ -104,6 +104,24 @@ def shell_arg(arg):
     if _SAFE.fullmatch(arg):
         return arg
     return '"' + _ESCAPE.sub(r"\\\1", arg) + '"'
+
+
+_URI_ENCODE = {'"': "%22", "$": "%24", "`": "%60", "\\": "%5C", "%": "%25"}
+
+
+def uri_arg(path):
+    """「別名/相對路徑」寫成 % 編碼的清冊 uri（file://別名/相對路徑；" $ ` \\ % 與彎引號編碼），kb 收路徑的參數都解得回來
+    （paths.decode_uri）。名字有這些字元時 kb 給的指令一律用這種寫法，不再叫使用者去改名（放寬甲）。"""
+    out = []
+    for ch in str(path).replace("\\", "/"):
+        out.append(_URI_ENCODE.get(ch) or (urllib.parse.quote(ch) if ch in CURLY_QUOTES else ch))
+    text = "".join(out)
+    return text if text.startswith("file://") else "file://" + text
+
+
+def path_arg(path):
+    """路徑參數：一般照 shell_arg；給不出來（引號配不起來）就改給 % 編碼的 uri。"""
+    return shell_arg(path) or shell_arg(uri_arg(path))
 
 
 def quote(arg):
@@ -230,9 +248,7 @@ def _purge_steps(out):
         steps.append(_step("purge_synthesis", len(rewrite), "照清單重寫綜合卡，拿掉那夾的卡的內容（purge_pending）",
                            _synthesis_rules()))
     for p in pend:
-        arg = shell_arg(p["name"])
-        steps.append(_step("purge", 1, f"kb folders purge {arg}", None) if arg is not None else
-                     _step("purge", 1, None, None, note=PURGE_NO_CMD))
+        steps.append(_step("purge", 1, f"kb folders purge {path_arg(p['name'])}", None))
     return steps
 
 
@@ -242,7 +258,7 @@ def _fill(name, rule):
     return {"name": name, "rule": rule}
 
 
-NO_CMD_NOTE = "名字裡有引號一類的特殊符號，指令給不出來；請她先在檔案總管改名，或照這個結果用白話說給她聽"
+NO_CMD_NOTE = "名字裡有引號一類的特殊符號，指令給不出來：路徑改用 file:// 加 %22、%24、%60、%5C、%25 編碼的 uri 寫法；其他照這個結果用白話說給使用者聽"
 
 
 def _result(label, do=(), strict=False, fill=(), **extra):
@@ -543,8 +559,8 @@ _DATE_HEAD = re.compile(r"^\d{4}-\d{2}-\d{2}\s+")
 
 
 def drafts(vault):
-    """AI 產出底下的（草稿）.md，回總資料夾相對路徑（照路徑排）；跳過 . 開頭的夾與檔、不跟連結。"""
-    root = Path(vault) / inventory.OUTPUT
+    """暫存區底下的（草稿）.md，回總資料夾相對路徑（照路徑排）；跳過 . 開頭的夾與檔、不跟連結。"""
+    root = Path(vault) / inventory.HOLD
     out = []
     if not root.is_dir() or os.path.islink(root):
         return out
@@ -581,10 +597,10 @@ def _draft_asks(vault):
 
 # ---------- 收件匣的檔要放哪（收件匣第 5 點，D-244、D-178） ----------
 
-INBOX_QUESTION = "{title}（收件匣）要放到哪裡？"
+INBOX_QUESTION = "{title}（暫存區）要放到哪裡？"
 INBOX_PLACES = 3
 INBOX_LATER = "先放著"
-NOT_DESTINATIONS = (inventory.INBOX.casefold(), inventory.OUTPUT.casefold())
+NOT_DESTINATIONS = (inventory.HOLD.casefold(),)
 
 
 def _inbox_places(vault, names, where_of):
@@ -614,7 +630,7 @@ def _inbox_places(vault, names, where_of):
 def _inbox_top(entry):
     """條目在收件匣最上層就回檔名，否則 None（來源子夾裡的定期交來的不問，D-241）。"""
     alias, rel = inventory.split_uri(((entry.get("locations") or [{}])[0]).get("uri", ""))
-    return rel if alias.casefold() == inventory.INBOX.casefold() and rel and "/" not in rel else None
+    return rel if alias.casefold() == inventory.HOLD.casefold() and rel and "/" not in rel else None
 
 
 def _inbox_asks(vault):
@@ -650,7 +666,7 @@ def _inbox_asks(vault):
             places = _inbox_places(vault, names, where_of)
         except ValueError:
             continue
-        src = f"{inventory.INBOX}/{rel}"
+        src = f"{inventory.HOLD}/{rel}"
         out.append(_ask(f"inbox:{e['id']}", "inbox_place", INBOX_QUESTION.format(title=title),
                         [_result(f"放到 {f}", [cmd("source-edit", "move", src, "--to", f)]) for f in places]
                         + [_result(INBOX_LATER)]))
@@ -1041,7 +1057,7 @@ def _opened_tell(vault):
             for o in opened if o.get("label")]
 
 
-UNBACKED_TELL = "AI 產出有 {n} 份沒經程式放進來，這幾份退回拿不掉"  # produce 第 5 點：只數這次待製卡裡的
+UNBACKED_TELL = "暫存區有 {n} 份沒經程式放進來，這幾份退回拿不掉"  # produce 第 5 點：只數這次待製卡裡的
 
 
 def _unreadable_line(name, reason):

@@ -53,7 +53,7 @@ class Base(unittest.TestCase):
             {"id": "a-0001", "kind": "deadline", "date": "2026-11-01", "text": "交報價", "status": "open", "entities": []}]})
         (self.V / "案子" / "信義王" / "信義王.md").write_text("# 信義王\n\n新寫的內容。\n", encoding="utf-8")
         file_card(self.V, "9999", "大安陳報價 v3")
-        (self.V / "AI 產出" / "新報告.docx").write_bytes(b"docx")
+        (self.V / "暫存區" / "新報告.docx").write_bytes(b"docx")
         (self.V / SYSTEM / "turns" / "current.json").write_text('{"turn": "now"}', encoding="utf-8")
         (self.V / SYSTEM / "ledger.tsv").write_text("after\n", encoding="utf-8")
         j = self.V / SYSTEM / "journal"
@@ -168,7 +168,7 @@ class Apply(Base):
         self.assertEqual(json.loads((self.V / SYSTEM / "agenda.json").read_text(encoding="utf-8"))["items"], [])
         self.assertEqual(_backup.tree(self.V)["案子/信義王/信義王.md"], self.before["案子/信義王/信義王.md"])
         self.assertFalse((self.V / "檔案索引" / "客戶案件" / "大安陳報價 v3-9999.md").exists())
-        self.assertFalse((self.V / "AI 產出" / "新報告.docx").exists())
+        self.assertFalse((self.V / "暫存區" / "新報告.docx").exists())
         self.assertEqual((self.V / SYSTEM / "ledger.tsv").read_text(encoding="utf-8"), "after\n")
         self.assertIn("now", (self.V / SYSTEM / "turns" / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(vault_lib.vault_id(self.V), backup.read_meta(self.zip)["vault_id"])

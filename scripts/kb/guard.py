@@ -37,7 +37,7 @@ from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cmdparse, config, credentials, sources as sources_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR
 from kb._lib.paths import inside, normalize, plugin_root
 
 Decision = namedtuple("Decision", "decision zone reason_code reason ledger_rows vault")
@@ -48,37 +48,43 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 FILE_TOOLS = READ_TOOLS + WRITE_TOOLS
 GLOB_HITS_MAX = 5000
 
-RESERVED = {"ai 產出": "Z3", "收件匣": "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".obsidian": "Z7",
-            FREE_DIR.casefold(): "Z12"}
+RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".obsidian": "Z7",
+            FREE_DIR.casefold(): "Z12"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
 if os.name != "nt":
-    RESERVED["AI 產出"] = "Z3"
+    RESERVED[HOLD_DIR] = "Z4"
     RESERVED[FREE_DIR] = "Z12"
 
 # 區 -> {"name", "read": (decision, reason_code, reason), "write": (...)}。理由全中文、一句、說為什麼與可以怎麼做。
-# 有 "shell_write" 的區：Bash／PowerShell 寫入用這欄（指令寫不經回合備份也不經 PostToolUse 登記，D-046 補、I-027）。
-SHELL_WRITE = ("deny", "shell_write", "用指令改的退不回來，請用檔案工具改。")
-# produce：指令碰到 AI 產出一律擋（讀也擋）；成品經 kb output save 放進來、轉 PDF 與看版面經 kb office（D-170）
-OUTPUT_SHELL = ("deny", "output_shell", "AI 產出的檔用 kb output save 放進來；要轉 PDF 或看版面用 kb office")
-RUN_FILE = ("deny", "run_file", "知識庫與原檔夾裡的程式或巨集檔不直接執行；要打開給客戶看，請用 PDF、Word 這類文件")
+# 放寬甲：理由寫給 AI（不是使用者看的），每句以 AI_TAIL 結尾；使用者的區（USER_ZONES）指令寫照「使用者區規則」
+# （_user_rules）：建、搬、改名放行，只有救不回來的（刪、蓋掉同名檔、改既有檔內容）才擋，並教 AI 改用的做法。
+AI_TAIL = "不用跟使用者提這一步。"
+USER_ZONES = ("Z2", "Z4", "Z8", "Z9", "Z12")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
+WILLY_ZONES = ("Z1", "Z5", "Z6", "Z7")  # willy 自己的檔：指令寫一律 willy；檔案工具寫只有 Z1、Z5、客戶設定檔放行
+PROFILE_MD = "系統/客戶設定檔.md"
+INDEX_MD = "總目錄.md"
+WILLY_REASON = "「{name}」是 willy 自己的檔：{hint}。" + AI_TAIL
+HINT_EDIT = "用 Edit 或 Write 改"
+HINT_PROFILE = "用 Edit 改，改完跑 kb profile apply"
+HINT_RENDERED = "是程式產生的，從源頭的 kb 指令改"
+HINT_KB = "用對應的 kb 指令改"
+DELETE_REASON = ("這會刪掉「{name}」，刪了救不回來：改用 kb source-edit trash <路徑>（可以一次給多個、整個夾也收），"
+                 "會先進資源回收筒。" + AI_TAIL)
+OVERWRITE_REASON = ("「{dest}」已經有同名的「{name}」，這樣會蓋掉它：改用 kb source-edit move <來源> --to <夾>，"
+                    "同名時它會告訴你內容一不一樣，再選 --replace 或 --name。" + AI_TAIL)
+CONTENT_REASON = ("這會直接改「{name}」的內容、改之前留不了一份：文字檔用 Edit 或 Write 改（會先留一份），"
+                  "Word、Excel 這類用 kb office。" + AI_TAIL)
+BATCH_REASON = ("批次搬檔看不出會不會蓋掉同名檔：mv、cp 加 -n，Move-Item 不加 -Force，Copy-Item 先用 Test-Path 跳過已有的；"
+                "或用 kb source-edit move 一次給多個檔。" + AI_TAIL)
+CODE_REASON = ("這段程式會刪檔或覆蓋檔，來不及先留一份：刪檔用 kb source-edit trash，寫或改檔用 Edit／Write，"
+               "搬檔改名（os.rename、shutil.move）可以照跑。" + AI_TAIL)
+EXCLUDED_REASON = "「{alias}」使用者說過不讀，不讀也不寫；使用者要重新納入時跑 kb folders include <路徑>。" + AI_TAIL
+EXCLUDED_INSIDE_REASON = "這個範圍底下有使用者說過不讀的夾，縮到不含它的子資料夾再做。" + AI_TAIL
+SCRIPT_UNREAD = "script_unread"  # 腳本檔讀不到或超過 guard_script_max_bytes：照 D-306(4) 放行，ledger 記一行
+RUN_FILE = ("deny", "run_file", "知識庫與原檔夾裡的程式或巨集檔不直接執行；要打開給使用者看，用 PDF、Word 這類文件。" + AI_TAIL)
 _RUN_EXT = ("", ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk", ".wsf", ".wsh", ".vbe", ".jse", ".msc", ".cpl")  # 裸程式名在效用 cwd 底下找的副檔名
-# 裁定 29：附著到開著的 Office、拿 AI 產出的路徑比對要改的是哪份；同句另開、另存、新增、寫入、導向的不放。
-# 收尾 API code review：比對拿到的物件拿去刪、搬、跑（gci 的檔、[IO.File]、WordBasic、Run 巨集…）也不放；附著寫在註解或字串裡不算
-_COM_ATTACH = re.compile(r"GetActiveObject\s*\(\s*['\"](?:Word|Excel|PowerPoint)\.Application['\"]", re.IGNORECASE)
-_COM_CALL = re.compile(r"GetActiveObject\s*\(", re.IGNORECASE)
-_COM_WRITE = re.compile(
-    r"\.Open\w*\s*\(|SaveAs|SaveCopyAs|\.Export\w*\s*\(|(?:Documents|Workbooks|Presentations)\.Add\s*\(|\.(?:Delete|MoveTo|CopyTo|Kill|Run)\s*\(|WordBasic|InvokeMember|"
-    r"\[(?:System\.)?IO\.|::new\b|New-Object|\.Attributes\b|"
-    r"(?<![\w.-])(?:Get-ChildItem|gci|dir|ls|Get-Item|gi|Get-ItemProperty|gp|Resolve-Path|rvpa|Invoke-\w+|iex|ii|"
-    r"Start-Process|saps|start|cmd|powershell|pwsh|wscript|cscript|mshta|rundll32)\b",
-    re.IGNORECASE)
-_COMPARE_LIT = re.compile(r"\.FullName\s*(?:-[ic]?(?:eq|like)\b|==)\s*r?(['\"])(.*?)\1", re.IGNORECASE)
-_DOT_SOURCE = re.compile(r"(?:^|[;{(|\n])\s*\.\s+\S")
-SOURCE_WRITE_REASON = "客戶原檔只讀；要改先用 kb office copy 拿一份副本"
-# B-093 (e)：Z9 擋寫不只是改內容，也有人想放新檔進去
-SOURCE_FOLDER_REASON = "客戶原檔的夾只讀；要放新檔進去用 kb source-edit move（或請客戶自己放），要改內容先用 kb office copy 拿副本"
 # 備份還原與換電腦（D-206）：AI 自己下指令搬或複製整個知識庫（寫入目標是總資料夾本身），理由句說客戶自己搬怎麼做
 VAULT_MOVE_CODE = "vault_move"
-VAULT_MOVE_REASON = "整個知識庫要搬家，請關掉這個對話、用檔案總管剪下貼上，再到新位置開對話"
+VAULT_MOVE_REASON = "整個知識庫要搬家：請使用者關掉這個對話、用檔案總管剪下貼上，再到新位置開對話。"
 MOVE_COPY_VERBS = {"mv", "move", "move-item", "mi", "cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync"}
 WORKSPACE_POSIX = ".system/temp/office"  # kb office 的工作區：檔案工具寫放行（實作回報裁定 1）
 WORKSPACE_TOOLS = ("Write", "Edit", "MultiEdit")
@@ -91,34 +97,31 @@ def _odd_segments(target):
     return any(seg not in ("", ".", "..") and not seg.endswith(":") and seg != seg.rstrip(" .") for seg in segs)
 
 
+def _zone(name, **kw):
+    return {"name": name, "read": ("allow", "", name), "write": ("allow", "", name), **kw}
+
+
+# 檔案工具寫：使用者區放行（hook 先備份）；willy 自己的檔（Z6 除客戶設定檔、Z7、知識庫根、總目錄）willy。指令寫另走 _user_rules／willy
 ZONES = {
-    "Z1": {"name": "綜合卡", "read": ("allow", "", "綜合卡"), "write": ("allow", "", "綜合卡"), "shell_write": SHELL_WRITE},
-    "Z2": {"name": "實體夾原檔", "read": ("allow", "", "實體夾原檔"),
-           "write": ("deny", "entity_file", "實體夾裡只有同名的綜合卡能改；其他是" + SOURCE_WRITE_REASON)},
-    "Z3": {"name": "AI 產出", "read": ("allow", "", "AI 產出"), "write": ("allow", "", "AI 產出"), "shell_write": SHELL_WRITE},
-    "Z4": {"name": "收件匣", "read": ("allow", "", "收件匣"),
-           "write": ("deny", "inbox", "收件匣只收東西、不手寫，要把檔案放進來說「收進來」，我走收件流程。")},
-    "Z5": {"name": "檔案索引", "read": ("allow", "", "檔案索引"), "write": ("allow", "", "檔案索引"), "shell_write": SHELL_WRITE},
-    "Z6": {"name": "系統", "read": ("allow", "", "系統"),
-           "write": ("deny", "system_render", "系統區是程式渲染的，直接改會被蓋掉；跟我說要改什麼，我從源頭改。")},
-    "Z7": {"name": "設定與狀態", "read": ("allow", "", "設定與狀態"),
-           "write": ("deny", "protected", "這是知識庫的設定與狀態檔，只有知識庫腳本能改；要加資料夾或改設定，跟我說要改什麼。")},
-    "Z8": {"name": "總資料夾第一層", "read": ("allow", "", "總資料夾第一層"),
-           "write": ("deny", "protected", "總資料夾第一層與型別夾根不直接放檔；請寫進 AI 產出或對應的綜合卡。")},
-    "Z9": {"name": "登記的來源", "read": ("allow", "", "登記的來源"),
-           "write": ("deny", "readonly_source", SOURCE_FOLDER_REASON)},
-    "Z10": {"name": "排除的來源", "read": ("deny", "excluded", "這個夾你說過不讀；要重新納入，跟我說「把它加回來」。"),
-            "write": ("deny", "excluded", "這個夾你說過不讀，也不會寫；要重新納入，跟我說「把它加回來」。")},
-    "Z10b": {"name": "範圍含排除夾", "read": ("deny", "excluded_inside", "這個範圍底下有你說過不讀的夾，請縮到不含它的子資料夾。"),
-             "write": ("deny", "excluded_inside", "這個範圍底下有你說過不讀的夾，不能整個動；請縮到不含它的子資料夾。")},
+    "Z1": _zone("綜合卡"),
+    "Z2": _zone("實體夾原檔"),
+    "Z4": _zone(HOLD_DIR),
+    "Z5": _zone("檔案索引"),
+    "Z6": _zone("系統"),  # 除客戶設定檔外的檔案工具寫由 is_willy_file 改判 willy
+    "Z7": _zone("設定與狀態"),
+    "Z8": _zone("總資料夾第一層"),
+    "Z9": _zone("登記的來源"),
+    "Z10": {"name": "排除的來源", "read": ("deny", "excluded", EXCLUDED_REASON), "write": ("deny", "excluded", EXCLUDED_REASON)},
+    "Z10b": {"name": "範圍含排除夾", "read": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON),
+             "write": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON)},
     "Z11": {"name": "其他", "read": ("pass", "", ""), "write": ("pass", "", "")},
-    "Z12": {"name": "彈性區", "read": ("allow", "", FREE_DIR), "write": ("allow", "", FREE_DIR), "shell_write": SHELL_WRITE},
+    "Z12": _zone(FREE_DIR),
 }
-VAULT_ZONES = ("Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7", "Z8", "Z12")
+VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8", "Z12")
 SOURCE_ZONES = ("Z9", "Z10", "Z10b")
-CREDENTIAL_REASON = "檔名像密碼或金鑰（{seg}），客戶沒說這份可以讀，不讀也不寫。"
-CREDENTIAL_INSIDE_REASON = "這個範圍裡有檔名像密碼或金鑰的檔（{rel}），客戶沒說可以讀；請縮到不含它的子資料夾或指定單一檔。"
-CREDENTIAL_LIMIT_REASON = "範圍太大，守門來不及檢查有沒有密碼檔，請縮小範圍。"
+CREDENTIAL_REASON = "檔名像密碼或金鑰（{seg}），使用者沒說過這份可以讀，不讀也不寫。"
+CREDENTIAL_INSIDE_REASON = "這個範圍裡有檔名像密碼或金鑰的檔（{rel}），使用者沒說過可以讀；縮到不含它的子資料夾或指定單一檔。"
+CREDENTIAL_LIMIT_REASON = "範圍太大，守門來不及檢查有沒有密碼檔，縮小範圍再做。"
 
 
 def _credential_base(path, zone, vault_n, sources):
@@ -417,8 +420,8 @@ def _plan_stages(command, bodies, powershell=False):
         opaque = (not powershell and verb.startswith("$")) or (
             runs in cmdparse.SHELL_WRAPPERS and "${!" in text + "\n" + code)
         bare = cmdparse.outside_quotes(cmdparse.strip_marks(text), powershell)
-        out.append({"sub": sub, "stage": stage, "text": text, "verb": verb, "words": words, "runs": runs, "var_code": var_code,
-                    "opaque": opaque,
+        out.append({"sub": sub, "stage": stage, "text": text, "verb": verb, "words": words, "args": args, "code": code,
+                    "runs": runs, "var_code": var_code, "opaque": opaque,
                     "kind": cmdparse.stage_kind(runs, cmdparse.strip_marks(text), code, args, powershell),
                     "redirect": bare is None or ">" in bare, "marks": cmdparse.data_marks(text)})
     return out
@@ -616,16 +619,21 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
         write_verb = stage_write  # 只有寫入那一段才讓隱含的讀取範圍不走訪
         if stage_write or any(a for _t, _q, _g, a in tokens):
             out["has_write"] = True
+        interp = plan["runs"] in cmdparse.INTERPRETERS or plan["runs"] in cmdparse.SHELL_WRAPPERS  # 放寬甲 U6：程式碼另判
+        plan["interp"] = interp
         if plan["opaque"]:
             out["has_write"] = out["unparsed"] = True  # 跑的是什麼看不出來：當成寫到不明的地方
+            plan["unknown"] = True
         if stage_write and plan["stage"] > 0 and (tool == "PowerShell" or verb in cmdparse.PIPE_ARG_VERBS) \
                 and verb not in cmdparse.CONTENT_SINKS:
             # 目標從前一段的輸出來（| xargs rm、| Remove-Item、| % { rm $_ }、kb … | xargs rm -rf）：推不出會寫到哪，一律擋，
             # 前一段是 kb 也一樣（測試 28 N2）。| Set-Content x 這類寫的是內容、目標是點名的檔，照一般判
             out["unparsed"] = True
+            plan["unknown"] = True
         if stage_write and (verb in cmdparse.PIPE_ARG_VERBS or _substituted_args(stage_text, plan["runs"], tool == "PowerShell")):
             # 目標來自指令替換或檔案清單（rm -rf $(kb … folders find …)、rm $(cat list)、xargs -a list rm）：跟 N2 同一條（測試 28 N6）
             out["unparsed"] = True
+            plan["unknown"] = True
         switch_ok = tool == "PowerShell" or verb in cmdparse.SWITCH_VERBS  # X3
         stage_base = base
         opened = cmdparse.open_stage(verb, cmdparse.raw_words(stage_text, tool == "PowerShell"), tool == "PowerShell",
@@ -637,6 +645,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
                                            for t in opened["targets"] + opened["writes"] + opened["reads"]))):
             # 要開的、程式的參數、導向有變數或替換，要開的從管線前面來（gci x | ii），或 cd $X 之後的相對路徑：看不出會開什麼
             out["has_write"] = out["unparsed"] = True
+            plan["unknown"] = True
         if stage_write and stage_base in out["cd_targets"]:
             cd_written.add(stage_base)  # cd 進去之後要寫：那個夾照一般規則判（cd 的 Z10b 豁免只給只切目錄、讀、列的）
         own, stage_reads = [], []
@@ -793,8 +802,16 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             if own or stage_globs:
                 out["write_targets"].update(own)
                 out["write_globs"].extend(stage_globs)
-            else:
+            elif not interp:
                 sub_write_empty.setdefault(plan["sub"], True)
+                plan["unknown"] = True
+        elif redirect_targets:
+            pass
+        if any(any(c in t for c in "$%`") for t, _q, _g, a in tokens if a):
+            plan["unknown"] = True  # 導向目標帶變數
+        if stage_write and not interp and cmdparse.unresolved_paths(stage_text, powershell=(tool == "PowerShell")):
+            plan["unknown"] = True  # 路徑裡有展不開的變數
+        plan["own"], plan["redirects"], plan["globs"], plan["reads"] = own, redirect_targets, stage_globs, stage_reads
         plan["base"] = stage_base
     # 寫入那段沒有自己的路徑：吃管線前面的（ls x | xargs rm、gci x | Remove-Item、% { rm $_ }），整個子指令的路徑都算目標
     for sub in sub_write_empty:
@@ -821,7 +838,6 @@ def _original_segment(target, seg):
     return seg
 
 
-UNPARSED_REASON = "看不出這個指令會寫到哪；請用檔案工具，或把完整路徑直接寫在指令裡（不要用 $(…)、反引號或變數）"
 KB_CALL_REASON = "知識庫腳本"
 # D-212：開新口子的密碼動作要客戶按允許（PreToolUse 回 ask）；理由句只用名稱、檔名，不帶密碼值
 SECRET_ACTION = "secret_action"
@@ -836,8 +852,8 @@ ASK_PREFIX = "需要客戶按允許才會執行："
 NO_SUCH_FILE = "no_such_file"
 NO_SUCH_FILE_REASON = "找不到這份檔"
 _FILE_ID = re.compile(r"^f-[0-9a-f]{8}$")
-CURLY_REASON = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令；改用「」或直引號，或改用 Bash 再跑"
-ERROR_REASON = "守門出錯，這次不放行。說「檢查」我看原因"
+CURLY_REASON = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令，這次沒放行：把指令裡的彎引號換成「」或直引號，或改用 Bash 再跑一次"
+ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。"
 
 
 def find_vault(cwd):
@@ -859,6 +875,11 @@ def classify(path, vault, sources):
     if inside(path, vault):
         if path == vault:
             return "Z8", None
+        if getattr(sources, "vault_excludes", None):  # 放寬甲一.6：知識庫裡使用者設成不讀的夾，先於第一層名字判
+            if sources.vault_excluded(path):
+                return "Z10", "知識庫"
+            if sources.vault_excluded_under(path):
+                return "Z10b", "知識庫"
         parts = path[len(vault) + 1:].split("/")
         first = parts[0]
         if first in RESERVED:
@@ -889,7 +910,51 @@ def _verdict(zone, column, alias):
     decision, code, reason = ZONES[zone][column]
     if alias and decision == "allow":
         reason = f"{reason}（{alias}）"
+    elif decision == "deny" and "{alias}" in reason:
+        reason = reason.replace("{alias}", alias or "")
     return decision, code, reason
+
+
+def _profile_path(vault_n):
+    return vault_n.rstrip("/") + "/" + PROFILE_MD
+
+
+def is_willy_file(zone, path, vault_n):
+    """這個路徑是 willy 自己的檔（不給檔案工具寫以外的人改）：Z7、Z6 除客戶設定檔、知識庫根本身與總目錄（Z8）。
+    Z1 綜合卡、Z5 檔案索引檔案工具可以寫，但指令寫仍是 willy（_willy_shell_zone）。"""
+    if zone == "Z7":
+        return True
+    if zone == "Z6":
+        return path != _profile_path(vault_n)
+    if zone == "Z8":
+        return path == vault_n or path == vault_n.rstrip("/") + "/" + INDEX_MD
+    return False
+
+
+def _willy_shell_zone(zone, path, vault_n):
+    """指令寫這個路徑一律 willy：is_willy_file 之外加 Z1 綜合卡、Z5 檔案索引、客戶設定檔（指令寫也不給，教用 Edit）。"""
+    return zone in ("Z1", "Z5", "Z6", "Z7") or is_willy_file(zone, path, vault_n)
+
+
+def willy_hint(zone, path, vault_n):
+    if zone in ("Z1", "Z5"):
+        return HINT_EDIT
+    if zone == "Z6" and path == _profile_path(vault_n):
+        return HINT_PROFILE
+    if zone == "Z7":
+        return HINT_KB
+    return HINT_RENDERED
+
+
+def _display_name(text, path):
+    """理由句印的名字：從原字串找回原始大小寫（normalize 在 Windows 會小寫），找不到用路徑最後一段。"""
+    last = path.rstrip("/").rsplit("/", 1)[-1]
+    m = re.search(re.escape(last), str(text), re.IGNORECASE) if last else None
+    return m.group(0) if m else last
+
+
+def willy_reason(zone, path, vault_n, text):
+    return WILLY_REASON.format(name=_display_name(text, path), hint=willy_hint(zone, path, vault_n))
 
 
 def _unresolved_rows(tool, sources, head):
@@ -949,6 +1014,8 @@ def _file_tool(tool, target, cwd, vault, sources):
         if code:
             return Decision("deny", "Z12", code, reason, [_row(tool, "deny", "Z12", code, target)], vault)
     decision, code, reason = _verdict(zone, column, alias)
+    if column == "write" and is_willy_file(zone, path, vault_n):
+        decision, code, reason = "deny", "willy", willy_reason(zone, path, vault_n, target)
     rows = []
     if decision == "deny":
         rows = [_row(tool, "deny", zone, code, target)]
@@ -1038,67 +1105,6 @@ def _expand_glob(token, hidden=False):
     return [normalize(h, None) for h in hits[:GLOB_HITS_MAX]]
 
 
-def _compare_only(command, powershell):
-    """裁定 29：整句（引號外、註解外）附著到開著的 Office，又沒有另開、另存、新增、刪搬跑、寫入動詞、導向、& 與 dot-source 時，
-    寫入動詞只看引號外（寫進文件的字不算），新增只擋開新檔的 Documents／Workbooks／Presentations.Add（裁定 31）；
-    只出現在 `.FullName` 比對運算子右邊（PowerShell -eq -ieq -ceq -like -ilike -clike、python ==）、不含萬用字元的字串；
-    同一個字串在句子別處也出現就不算。其餘情況回空集合。"""
-    bare = cmdparse.outside_quotes(command, powershell)
-    if bare is None:
-        return frozenset()
-    bare = re.sub(r"(^|\s)#[^\n]*", r"\1", re.sub(r"<#.*?#>", " ", bare, flags=re.S))
-    if (not _COM_ATTACH.search(command) or not _COM_CALL.search(bare) or _COM_WRITE.search(command)
-            or cmdparse.WRITE_WORDS.search(bare) or cmdparse.WRITE_CODE.search(command)
-            or cmdparse.REDIRECT.search(bare) or "&" in bare or _DOT_SOURCE.search(bare)):
-        return frozenset()
-    found = [m.group(2) for m in _COMPARE_LIT.finditer(command) if m.group(2) and not any(ch in m.group(2) for ch in "*?[")]
-    return frozenset(lit for lit in found if command.count(lit) == found.count(lit))
-
-
-def _touches_output(info, bodies, vault_n, sources, tool, compared=frozenset()):
-    """produce 與 D-186 補：指令碰到 AI 產出（Z3）。只有真正會寫或看不出會不會寫的才算：
-    (1) 寫入目標在 Z3；(2) 不是已知只讀的那一段（node、python 腳本、soffice、cp…）的參數或效用 cwd 在 Z3；
-    (3) 餵給直譯器或殼的 heredoc 內文提到 AI 產出。已知只讀指令（cat、grep、Get-Content、Test-Path…）、echo 的字串、
-    餵給 cat／tee 的 heredoc 內文裡提到的不算（讀）。開檔段開的是文件、夾或網址（D-514）也不算，導向進 Z3 照 (1) 擋。
-    附著 Office 時只拿來比對的字串（`compared`，裁定 29）不算。
-    只多擋、不放行任何東西。"""
-    for p in info["write_targets"]:
-        if inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
-            return True
-    for plan in info["stages"]:
-        verb = plan["verb"]
-        opened = plan.get("open")
-        if verb in _CD_VERBS or (verb in cmdparse.READONLY_VERBS and plan["kind"] != "write") or (
-                opened is not None and opened["kind"] == "open"):
-            continue
-        base = plan.get("base")
-        if base is not None and inside(base, vault_n) and classify(base, vault_n, sources)[0] == "Z3":
-            return True
-        if verb in cmdparse.INTERPRETERS or verb in cmdparse.SHELL_WRAPPERS:
-            for body in bodies:  # 整句的內文（經變數餵直譯器的也算，測試 28）
-                if "ai 產出" in body.casefold():
-                    return True
-                for raw in body_paths(body):
-                    p = _norm(raw, base)
-                    if p is not None and inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
-                        return True
-        for tok, _quoted, _glob, _after in _tokens_q(cmdparse.strip_marks(plan["text"]), globs_in_quotes=(tool == "PowerShell")):
-            if not tok or tok in compared:
-                continue
-            value = [tok.split("=", 1)[1]] if "=" in tok else []
-            if tok[:1] in "-/" and ":" in tok:  # PowerShell 的 -Path:值、Windows 程式的 /out:值
-                value.append(tok.split(":", 1)[1])
-            forms = value if tok.startswith("-") else [tok] + value  # --out=值 只看值
-            forms += [cmdparse._ESCAPE.sub("", f) for f in forms]  # bash 把 AI\ 產出 讀成 AI 產出（同 cmdparse 的 N-c）
-            for form in forms:
-                if not form or form[0] in "$%":
-                    continue
-                p = _norm(form, base)
-                if p is not None and inside(p, vault_n) and classify(p, vault_n, sources)[0] == "Z3":
-                    return True
-    return False
-
-
 def readable_ids(vault):
     """有效「可以讀」裁示掛的清冊編號（D-183、D-184）；rulings.json 讀不到當沒有（照擋）。"""
     try:
@@ -1156,20 +1162,580 @@ def _program_file(raw, base):
     return None
 
 
-def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
+# ---------------------------------------------------------------------------------------------------------------
+# 放寬甲：使用者區規則（U1～U6，D-306）。指令在使用者的區（USER_ZONES）建、搬、改名、複製到沒有同名的地方、刪空夾一律放行；
+# 只有救不回來的才擋：刪檔與有東西的夾（delete）、蓋掉同名檔（overwrite）、改既有檔內容（content）、看不出目標的批次搬（batch）、
+# 直譯器程式碼的刪檔與覆蓋寫法（code）。判斷用指令的動詞與目的地現況，不追蹤執行時才發生的事。
+_DELETE_VERBS = {"rm", "del", "erase", "ri", "remove-item", "unlink", "shred", "rd", "rmdir"}
+_MOVE_VERBS = {"mv", "move", "move-item", "mi"}
+_COPY_VERBS = {"cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync", "install"}
+_CONTENT_VERBS = {"set-content", "sc", "add-content", "ac", "out-file", "tee", "tee-object", "truncate", "dd", "export-csv",
+                  "export-clixml", "clear-content"}
+_PASS_VERBS = {"mkdir", "md", "touch", "ren", "rename", "rename-item", "rni", "ln", "chmod", "chown", "attrib", "icacls", "cd",
+               "set-itemproperty", "new-item", "ni", "pushd", "popd", "set-location", "sl", "chdir"}
+_KNOWN_VERBS = _DELETE_VERBS | _MOVE_VERBS | _COPY_VERBS | _CONTENT_VERBS | _PASS_VERBS | {"sed", "perl", "git", "find"}
+_SHELL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "{", "}", "(", ")", "!", "foreach", "for"}
+_NO_CLOBBER = {"-n", "--no-clobber", "--ignore-existing"}
+_PS_VALUED = {"-path", "-literalpath", "-pspath", "-lp", "-destination", "-include", "-exclude", "-filter", "-credential", "-stream",
+              "-newname", "-value", "-encoding"}
+_ENTRIES_MAX = 2000
+UNPARSED_REASON = "指令拆不開（引號或括號沒配好，或巢狀太深）：改寫成簡單的指令再跑。" + AI_TAIL
+
+
+def _eff_verb(plan):
+    """這一段實際的動詞（跳過 do、then 這類殼的關鍵字與 xargs、find -exec 這類包裝）：回 (動詞, 它在 args 裡的位置)。"""
+    words = plan["args"] or plan["words"]
+    for i, w in enumerate(words):
+        b = cmdparse._base(w)
+        if b in _SHELL_KEYWORDS:
+            continue
+        if b in _KNOWN_VERBS:
+            if b == "git":
+                nxt = next((cmdparse._base(x) for x in words[i + 1:] if not x.startswith("-")), "")
+                return "git " + nxt, i
+            return b, i
+    return plan["verb"], 0
+
+
+def _is_empty_dir(p):
+    try:
+        with os.scandir(p) as it:
+            return next(it, None) is None
+    except OSError:
+        return False
+
+
+def _exists_with_content(p):
+    """刪了會丟東西：存在的檔、有東西的夾。空夾與不存在的不算。"""
+    if os.path.isdir(p):
+        return not _is_empty_dir(p)
+    return os.path.lexists(p)
+
+
+def _collides(src, dst):
+    """夾對夾複製會蓋到同名檔：src 底下有檔在 dst 對應位置已經有檔（最多看 _ENTRIES_MAX 項，超過當有）。"""
+    n = 0
+    for root, _dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        for name in files:
+            n += 1
+            if n > _ENTRIES_MAX:
+                return True
+            if os.path.isfile(os.path.join(dst, rel, name)):
+                return True
+    return False
+
+
+def _user_zone_of(p, vault_n, sources):
+    """p 落在使用者的區回區名；ANC 是來源或知識庫的上層夾；其他回 None。"""
+    zone, _alias = classify(p, vault_n, sources)
+    if zone in USER_ZONES:
+        return zone
+    if zone == "Z11" and _ancestor_zone(p, vault_n, sources)[0]:
+        return "ANC"
+    return None
+
+
+class _U5:
+    """看不出目標：之後看整句有沒有碰到使用者區再決定（_check_plan 的回傳，Decision 本身也是 tuple，所以另用一個型別）。"""
+
+    def __init__(self, what):
+        self.what = what
+
+
+class _Ctx:
+    """_user_rules 一次判斷要用的東西。"""
+
+    def __init__(self, tool, command, vault, vault_n, sources, rows):
+        self.tool, self.command, self.vault, self.vault_n, self.sources = tool, command, vault, vault_n, sources
+        self.powershell = tool == "PowerShell"
+        self.rows = rows
+
+    def deny(self, zone, code, reason):
+        return Decision("deny", zone, code, reason, [_row(self.tool, "deny", zone, code, self.command)], self.vault)
+
+    def delete(self, p, zone):
+        return self.deny(zone, "delete", DELETE_REASON.format(name=_display_name(self.command, p)))
+
+    def content(self, p, zone):
+        return self.deny(zone, "content", CONTENT_REASON.format(name=_display_name(self.command, p)))
+
+    def overwrite(self, dest, target, zone):
+        return self.deny(zone, "overwrite", OVERWRITE_REASON.format(dest=_display_name(self.command, dest),
+                                                                     name=_display_name(self.command, target)))
+
+
+def _resolved(raw, base):
+    """一個路徑字（可含萬用字元）展開成 [路徑]；帶變數或替換回 None（看不出）；萬用字元展不出東西回 []。"""
+    if not raw or any(c in raw for c in "$%`"):
+        return None
+    p = _norm(raw, base)
+    if p is None:
+        return None
+    return _expand_glob(p, hidden=True) if cmdparse.is_wildcard(raw) else [p]
+
+
+def _mv_parse(plan, ctx, idx):
+    """mv、cp、Move-Item、Copy-Item、robocopy、xcopy、rsync、install 的參數：回 (來源字清單, 目的地字或 None, 旗標小寫清單, force)。"""
+    allw = plan["args"] or plan["words"]
+    words = allw[idx + 1:]
+    verb = cmdparse._base(allw[idx])
+    flags, force, named, k = [], False, {}, 0
+    if ctx.powershell and verb not in ("robocopy", "xcopy", "rsync"):
+        positional = []
+        while k < len(words):
+            w = words[k]
+            low = w.lower()
+            if low.startswith("-") and len(low) > 1 and not low[1].isdigit():
+                name, colon, val = low.partition(":")
+                flags.append(name)
+                if name in ("-force", "-f"):
+                    force = (val not in ("$false", "false", "0")) if colon else True
+                elif name in _PS_VALUED:
+                    if colon and val:
+                        named[name] = w.partition(":")[2]
+                    elif k + 1 < len(words):
+                        named[name] = words[k + 1]
+                        k += 1
+                k += 1
+                continue
+            positional.append(w)
+            k += 1
+        src = [named[n] for n in ("-path", "-literalpath", "-pspath", "-lp") if n in named]
+        if not src and positional:
+            src = [positional.pop(0)]
+        dest = named.get("-destination") or (positional.pop(0) if positional else None)
+        return src + positional, dest, flags, force
+    pos, dest = [], None
+    while k < len(words):
+        w = words[k]
+        if w == "--":
+            pos += words[k + 1:]
+            break
+        if w.startswith("--"):
+            name, eq, val = w.partition("=")
+            flags.append(name.lower())
+            if name == "--target-directory":
+                dest = val if eq else (words[k + 1] if k + 1 < len(words) else None)
+                k += 0 if eq else 1
+            k += 1
+            continue
+        if verb in ("robocopy", "xcopy") and w.startswith("/") and len(w) > 1 and "/" not in w[1:] and not os.path.exists(w):
+            flags.append(w.lower())
+            k += 1
+            continue
+        if w.startswith("-") and len(w) > 1 and not w[1:].isdigit():
+            flags.append(w)
+            if "t" in w[1:] and verb in ("cp", "mv", "install", "move", "copy"):
+                tail = w[1:].split("t", 1)[1]
+                if tail:
+                    dest = tail
+                elif k + 1 < len(words):
+                    dest = words[k + 1]
+                    k += 1
+            k += 1
+            continue
+        pos.append(w)
+        k += 1
+    if dest is None and pos and verb != "robocopy":
+        dest = pos.pop()
+    return pos, dest, flags, force
+
+
+def _no_clobber(verb, flags, force, ctx):
+    """帶了不覆蓋的旗標、或 Move-Item 沒加 -Force（同名只會報錯、不會蓋掉）。"""
+    flat = {f.lower() for f in flags}
+    if ctx.powershell and verb in _MOVE_VERBS:
+        return not force
+    if flat & _NO_CLOBBER:
+        return True
+    if verb in ("cp", "mv", "install", "move", "copy") and not ctx.powershell:  # PowerShell 的 -Destination 之類具名參數含 n，不是 -n
+        for f in flags:
+            if f.startswith("-") and not f.startswith("--") and "n" in f[1:]:
+                return True
+    if verb in ("xcopy", "move", "copy") and "/-y" in flat:
+        return True
+    if verb == "robocopy" and {"/xc", "/xn", "/xo"} <= flat:
+        return True
+    return False
+
+
+def _move_copy_check(plan, ctx, verb, idx):
+    """U3：搬或複製到已有同名檔的地方 → overwrite；看不出目標回 "unknown"（呼叫端照 U5 的 batch）。回 Decision、"unknown" 或 None。"""
+    base = plan.get("base")
+    sources, dest, flags, force = _mv_parse(plan, ctx, idx)
+    flat = {f.lower() for f in flags}
+    if verb == "robocopy" and flat & {"/mir", "/purge"} and len(sources) >= 2:
+        for p in _resolved(sources[1], base) or []:  # 鏡像會刪目的地多出來的檔
+            z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+            if z and _exists_with_content(p):
+                return ctx.delete(p, z)
+    if verb == "rsync" and any(f.startswith("--delete") for f in flat) and dest:
+        for p in _resolved(dest, base) or []:
+            z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+            if z and _exists_with_content(p):
+                return ctx.delete(p, z)
+    if _no_clobber(verb, flags, force, ctx):
+        return None
+    contents_only_all = False
+    if verb == "robocopy" and len(sources) >= 2:  # robocopy <來源夾> <目的夾> [檔名…]
+        sources, dest, contents_only_all = sources[:1], sources[1], True
+    dests = _resolved(dest, base) if dest else None
+    if dests is None or len(dests) != 1 or not sources:
+        return "unknown"
+    dest_p = dests[0]
+    dest_is_dir = os.path.isdir(dest_p)
+    for raw in sources:
+        got = _resolved(raw, base)
+        if got is None:
+            return "unknown"
+        contents_only = contents_only_all or (verb == "rsync" and raw.endswith(("/", "\\")))
+        for src in got:
+            if os.path.isdir(src) and contents_only:  # rsync 來源/ 與 robocopy：複製的是裡面的東西
+                z = _user_zone_of(dest_p, ctx.vault_n, ctx.sources)
+                if z and dest_is_dir and _collides(src, dest_p):
+                    return ctx.overwrite(dest_p, os.path.basename(src.rstrip("/")), z)
+                continue
+            target = normalize(os.path.join(dest_p, os.path.basename(src)), None) if dest_is_dir else dest_p
+            z = _user_zone_of(target, ctx.vault_n, ctx.sources)
+            if z is None or not os.path.lexists(target):
+                continue
+            if os.path.isfile(target):
+                return ctx.overwrite(os.path.dirname(target) if dest_is_dir else target, os.path.basename(target), z)
+            if os.path.isdir(target) and os.path.isdir(src) and verb in _COPY_VERBS and _collides(src, target):
+                return ctx.overwrite(os.path.dirname(target), os.path.basename(target), z)
+    return None
+
+
+def _target_paths(plan, ctx):
+    """這一段的目標路徑（正規化）：從參數抽到的、萬用字元展開的。"""
+    out = list(plan.get("own") or [])
+    for g in plan.get("globs") or []:
+        out.extend(_expand_glob(g, hidden=ctx.powershell))
+    return list(dict.fromkeys(out))
+
+
+def _u5_words(plan, ctx):
+    """U5：看不出目標時整句找動詞。回 "delete"｜"content"｜"batch"｜None；plan 的文字加它的程式碼一起看。"""
+    text = cmdparse.strip_marks(plan["text"]) + "\n" + (plan.get("code") or "")
+    toks = _tokens_q(text, globs_in_quotes=ctx.powershell)
+    words = [cmdparse._base(t) for t, _q, _g, _a in toks]
+    low = text.lower()
+    if any(w in _DELETE_VERBS for w in words) or re.search(r"(?:^|\s)-delete\b", low) or re.search(r"\bgit\s+(?:rm|clean)\b", low):
+        return "delete"
+    bare = cmdparse.outside_quotes(cmdparse.strip_marks(plan["text"]), ctx.powershell)
+    if (any(w in _CONTENT_VERBS for w in words) or re.search(r"\bsed\s+(?:-[a-zA-Z]+\s+)*(?:-[a-zA-Z]*i|--in-place)", low)
+            or re.search(r"\bperl\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*i", low) or cmdparse.REDIRECT.search(bare if bare is not None else ">")):
+        return "content"
+    movers = [w for w in words if w in _MOVE_VERBS | _COPY_VERBS]
+    if movers:
+        flags = [t for t, _q, _g, _a in toks if t.startswith("-")]
+        verb = movers[0]
+        if ctx.powershell and verb in _MOVE_VERBS:
+            return "batch" if any(f.lower() == "-force" for f in flags) else None
+        if _no_clobber(verb, flags, False, ctx):
+            return None
+        return "batch"
+    return None
+
+
+def _check_plan(plan, ctx):
+    """一段指令照使用者區規則判。回 Decision、("u5", 動詞或 None)（看不出目標，之後看整句有沒有碰到使用者區）或 None。"""
+    verb, idx = _eff_verb(plan)
+    base = plan.get("base")
+    # 導向（>、>>）到既有檔 → content；到新檔 → 放行
+    for p in plan.get("redirects") or []:
+        z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+        if z and os.path.isfile(p):
+            return ctx.content(p, z)
+    if plan.get("unknown"):
+        return _U5(_u5_words(plan, ctx))
+    if plan["kind"] != "write":
+        return None
+    targets = _target_paths(plan, ctx)
+    find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
+    if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
+        tg = targets or ([base] if verb == "git clean" and base else [])
+        for p in tg:
+            z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+            if z and _exists_with_content(p):
+                return ctx.delete(p, z)
+        return None
+    if verb in _MOVE_VERBS or verb in _COPY_VERBS:
+        got = _move_copy_check(plan, ctx, verb, idx)
+        return _U5("batch") if got == "unknown" else got
+    if verb in _PASS_VERBS and not (verb in ("new-item", "ni") and re.search(r"-force", plan["text"], re.IGNORECASE)):
+        return None
+    if verb == "dd":
+        for w in plan["args"]:
+            if w.lower().startswith("of="):
+                for p in _resolved(w[3:], base) or []:
+                    z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+                    if z and os.path.isfile(p):
+                        return ctx.content(p, z)
+        return None
+    # 其餘的寫（Set-Content、tee、sed -i、perl -i、truncate、curl -o、tar、unzip、git checkout…）：目標是既有的檔 → content
+    for p in targets:
+        z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+        if z and z != "ANC" and os.path.isfile(p):
+            return ctx.content(p, z)
+    return None
+
+
+_SUBPROC_CALL = re.compile(r"os\.(?:system|popen)\s*\(|subprocess\.\w+\s*\(|\bexecSync\s*\(|\bspawnSync\s*\(|child_process")
+_SUBPROC = re.compile(
+    r"(?:os\.(?:system|popen)|subprocess\.(?:run|call|check_call|check_output|Popen)|execSync|spawnSync)\s*\(\s*"
+    r"(?:(?P<q>['\"])(?P<s>(?:(?!(?P=q)).)*)(?P=q)|\[(?P<lst>[^\]\n]*)\])")
+_STR_LIT = re.compile(r"""(['"])((?:(?!\1).)*)\1""")
+_REL_PATH_IN_CODE = re.compile(r"""['"]([^'"\n]*[/\\][^'"\n]*|[^'"\n/\\\s]+\.\w{1,6})['"]""")
+
+_ESCAPE_ONLY = re.compile(r"\\[ntr0abfv]")
+
+
+def _code_commands(code):
+    """直譯器程式碼裡跑別的指令的字串常數（os.system("…")、subprocess.run(["rm", "x"])）：回 ([指令字串], 有沒有不是常數的呼叫)。"""
+    cmds, seen = [], 0
+    for m in _SUBPROC.finditer(code):
+        if m.group("s") is not None:
+            cmds.append(m.group("s"))
+            seen += 1
+            continue
+        lst = m.group("lst") or ""
+        lits = [x[1] for x in _STR_LIT.findall(lst)]
+        if lits and len(lits) == len([p for p in lst.split(",") if p.strip()]):
+            cmds.append(" ".join(f'"{x}"' if " " in x else x for x in lits))
+            seen += 1
+    return cmds, len(_SUBPROC_CALL.findall(code)) > seen
+
+
+def _code_touches(code, base, ctx, args=None):
+    """程式碼可能碰到知識庫或來源：效用 cwd 在知識庫或來源裡（或推不出來）、程式碼裡有指到它們的路徑、或有相對路徑（spec 設計自定）。
+    例外（放寬甲 11-02 再定 4）：cwd 在知識庫或來源裡，但程式碼沒有字面路徑也沒有相對路徑、而且給的參數全是知識庫與來源外的絕對路徑，放行。"""
+    if base is None:
+        return True
+    for raw in cmdparse.code_paths(code):
+        p = _norm(raw, base)
+        if p is not None and (classify(p, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(p, ctx.vault_n, ctx.sources)[0]):
+            return True
+    for m in _REL_PATH_IN_CODE.finditer(code):
+        s = m.group(1)
+        plain = _ESCAPE_ONLY.sub("", s)
+        if plain != s and not re.search(r"[/\\]|\.\w{1,6}$", plain):
+            continue  # '\n'、'\t' 這種跳脫字元不是路徑
+        if not cmdparse._ABS_START.match(s) and not cmdparse._URL.match(s):
+            return True
+    if classify(base, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(base, ctx.vault_n, ctx.sources)[0]:
+        if args is None:
+            return True
+        for _q, lit in _STR_LIT.findall(code):
+            if lit and len(lit) <= 255 and "\n" not in lit and not cmdparse._ABS_START.match(lit) \
+                    and not cmdparse._URL.match(lit) and os.path.lexists(os.path.join(base, lit)):
+                return True  # 字串常數剛好是 cwd 底下存在的名字（沒斜線沒副檔名的檔或夾）
+        for w in args:
+            if not cmdparse._ABS_START.match(w):
+                if re.search(r"[/\\]", w) or re.search(r"\.[A-Za-z0-9]{1,6}$", w):
+                    return True  # 相對路徑
+                continue  # 不像路徑的參數（編號、旗標值）
+            p = _norm(w, base)
+            if p is None or classify(p, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(p, ctx.vault_n, ctx.sources)[0]:
+                return True
+    return False
+
+
+def _arg_words(plan, inline, script_path):
+    """直譯器命令列上給程式的參數：-c 的程式碼字串之後、或腳本檔之後的詞（旗標不算）。"""
+    args = plan["args"]
+    rest = []
+    if inline:
+        for i, w in enumerate(args):
+            if w.lower() in cmdparse.CODE_FLAGS and i + 1 < len(args):
+                # 程式碼字串裡有 {a,b} 會被拆成好幾個詞（brace 展開）：跟程式碼開頭長段一樣的詞都不是參數
+                rest = [x for x in args[i + 1:] if len(os.path.commonprefix([x, inline])) < 20 and x != inline]
+                break
+    elif script_path:
+        for i, w in enumerate(args[1:], 1):
+            if not w.startswith("-") and w.lower().endswith(cmdparse.SCRIPT_EXTS):
+                rest = args[i + 1:]
+                break
+    return [w for w in rest if not w.startswith("-")]
+
+
+def _script_of(plan, base, ctx):
+    """第一個存在的腳本檔參數：回 (路徑或 None, 內容或 None, 狀態 ok｜unread｜none)。大小超過 guard_script_max_bytes 或讀不到是 unread；
+    plugin 自己的腳本不看。"""
+    for w in plan["args"][1:]:
+        if w.startswith("-") or not w.lower().endswith(cmdparse.SCRIPT_EXTS):
+            continue
+        p = _norm(w, base)
+        if p is None or not os.path.isfile(p) or inside(p, normalize(str(plugin_root()), None)):
+            continue
+        try:
+            if os.path.getsize(p) > config.get(ctx.vault, "guard_script_max_bytes"):
+                return p, None, "unread"
+            with open(p, encoding="utf-8", errors="replace") as f:
+                return p, f.read(), "ok"
+        except OSError:
+            return p, None, "unread"
+    return None, None, "none"
+
+
+def _code_arg(plan):
+    """殼與直譯器的 -c、-e、-Command 後面的程式碼字串（cmd 的 /c、/k 後面全部）；沒有回 ''。"""
+    args = plan["args"]
+    for i, w in enumerate(args):
+        if w.lower() in cmdparse.CODE_FLAGS and i + 1 < len(args):
+            if w.lower() in ("/c", "/k"):  # cmd 的 /c 後面是整句指令：有空白的詞（路徑）要把引號補回去，不然拆成兩個詞看不出目標
+                rest = args[i + 1:]
+                if len(rest) == 1:  # cmd /c "整句指令"
+                    return rest[0]
+                return " ".join(f'"{x}"' if re.search(r"\s", x) else x for x in rest)
+            return args[i + 1]
+    return ""
+
+
+def _guess_name(text):
+    """看不出目標時理由句裡的名字：第一個像檔名或路徑的字，沒有就說「這些檔」。"""
+    for t, _q, _g, _a in _tokens_q(cmdparse.strip_marks(text)):
+        if t and not t.startswith(("-", "$", "%")) and ("/" in t or "\\" in t or "." in t.rsplit("/", 1)[-1]):
+            return t.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return "這些檔"
+
+
+def _u5_decision(what, ctx, text, zone=""):
+    if what == "delete":
+        return ctx.deny(zone, "delete", DELETE_REASON.format(name=_guess_name(text)))
+    if what == "content":
+        return ctx.deny(zone, "content", CONTENT_REASON.format(name=_guess_name(text)))
+    return ctx.deny(zone, "batch", BATCH_REASON)
+
+
+def _interp_check(plan, ctx, recurse):
+    """U6：直譯器與殼的程式碼。回 Decision 或 None；放行但腳本讀不到時在 ctx.rows 記一行 script_unread。
+    recurse(tool, text, base) 把內層指令照整套判斷（回 Decision）。"""
+    base = plan.get("base")
+    runs = plan["runs"]
+    path, script, status = _script_of(plan, base, ctx)
+    if status == "unread":
+        ctx.rows.append(_row(ctx.tool, "pass", "", SCRIPT_UNREAD, ctx.command))
+    inline = _code_arg(plan)
+    bodies = plan.get("code") or ""
+    shell_like = runs in cmdparse.SHELL_WRAPPERS
+    ext = (path or "").lower()
+    snippets = [s for s in (inline, bodies if bodies.strip() else "", script) if s]
+    sh_tool = "PowerShell" if (runs in ("powershell", "pwsh", "cmd") or ext.endswith((".ps1", ".bat", ".cmd"))) else "Bash"
+    for snip in snippets:
+        if shell_like or (ext.endswith(cmdparse.SHELL_SCRIPT_EXTS) and snip is script):
+            d = recurse(sh_tool, snip, base)
+            if d is not None and d.decision == "deny":
+                return d
+            continue
+        cmds, nonconst = _code_commands(snip)
+        for c in cmds:
+            d = recurse("PowerShell" if runs in ("powershell", "pwsh") else "Bash", c, base)
+            if d is not None and d.decision == "deny":
+                return d
+        argw = _arg_words(plan, inline, path)
+        if cmdparse.DESTRUCTIVE_CODE.search(snip) and _code_touches(snip, base, ctx, argw):
+            return ctx.deny("", "code", CODE_REASON)
+        if nonconst and _code_touches(snip, base, ctx, argw):
+            what = _u5_words({"text": snip, "code": ""}, ctx)
+            if what:
+                return _u5_decision(what, ctx, snip)
+    if shell_like and not snippets:
+        what = _u5_words({"text": plan["text"], "code": bodies}, ctx)
+        if what and _code_touches(plan["text"], base, ctx):
+            return _u5_decision(what, ctx, plan["text"])
+    return None
+
+
+def _perl_inplace(plan, ctx):
+    """perl 帶 -i（-pi、-i.bak）：參數裡存在的使用者檔照 U4 回 content；沒有回 None。"""
+    if plan["runs"] != "perl":
+        return None
+    args = plan["args"][1:]
+    if not any(re.fullmatch(r"-[a-zA-Z]*i\S*", w) for w in args):
+        return None
+    skip = False
+    for w in args:
+        if skip:
+            skip = False
+            continue
+        if w in ("-e", "-E"):
+            skip = True
+            continue
+        if w.startswith("-"):
+            continue
+        for p in _resolved(w, plan.get("base")) or []:
+            z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+            if z and z != "ANC" and os.path.isfile(p):
+                return ctx.content(p, z)
+    return None
+
+
+def _user_rules(info, ctx, base0, classified_zones, recurse):
+    """每一段寫入照使用者區規則判；回 Decision 或 None。
+    U5 只在整句碰到的路徑（含效用 cwd）有使用者區、或推不出效用 cwd 時才套用；cwd 在 willy 自己的區又看不出目標，擋 willy。"""
+    touch_user = base0 is None
+    willy_base = None
+    for plan in info["stages"]:
+        if plan["verb"] in _CD_VERBS:
+            continue
+        b = plan.get("base", base0)
+        if b is None:
+            touch_user = True
+        else:
+            if _user_zone_of(b, ctx.vault_n, ctx.sources):
+                touch_user = True
+            z, _a = classify(b, ctx.vault_n, ctx.sources)
+            if z in WILLY_ZONES and willy_base is None:
+                willy_base = (z, b)
+        for p in (plan.get("own") or []) + (plan.get("redirects") or []) + (plan.get("reads") or []):
+            if _user_zone_of(p, ctx.vault_n, ctx.sources):
+                touch_user = True
+    if any(z in USER_ZONES for z in classified_zones):
+        touch_user = True
+    pending = []
+    for plan in info["stages"]:
+        if plan.get("interp"):
+            d = _perl_inplace(plan, ctx)  # perl -pi -e …：直譯器的 -i 是改既有檔內容（U4），不是程式碼判斷
+            if d is not None:
+                return d
+            d = _interp_check(plan, ctx, recurse)
+            if d is not None:
+                return d
+            continue
+        got = _check_plan(plan, ctx)
+        if isinstance(got, _U5):
+            pending.append((plan, got.what))
+        elif got is not None:
+            return got
+    for plan, what in pending:
+        if willy_base is not None and plan.get("unknown"):
+            z, b = willy_base
+            return ctx.deny(z, "willy", willy_reason(z, b, ctx.vault_n, ctx.command))
+        if what and touch_user:
+            return _u5_decision(what, ctx, plan["text"])
+    return None
+
+
+def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     powershell = tool == "PowerShell"
-    if compared is None:  # 整句才看得到附著（內層的 (…) 只剩比對那一截），算一次往下傳
-        compared = _compare_only(command, powershell)
     clean, bodies = cmdparse.split_bodies(command, powershell=powershell)
     flat = cmdparse.strip_marks(clean)
     vault_n = normalize(vault, None)
     rows, saw_unresolved = [], False
+    ctx = _Ctx(tool, command, vault, vault_n, sources, rows)
 
     def deny(zone, code, reason):
         return Decision("deny", zone, code, reason, [_row(tool, "deny", zone, code, command)], vault)
 
-    def unparsed():
+    def unparsed():  # 指令拆不開（引號或括號沒配好、巢狀太深）：看不出裡面是什麼，擋（跟看不出寫到哪的 U5 不同）
         return Decision("deny", "", "unparsed", UNPARSED_REASON, [_row(tool, "deny", "", "unparsed", command)], vault)
+
+    def recurse(tool2, text2, base2):  # U6：腳本檔、-c 字串、subprocess 常數裡的指令照整套判斷
+        if depth >= SUBST_DEPTH_MAX:
+            return unparsed()
+        return _shell_tool(tool2, text2, base2 or cwd, vault, sources, depth + 1)
 
     # 指令替換與展開（$(…)、反引號、<(…)、PowerShell 的 (…)、{…}）裡是會執行的指令：外層是 echo、ls 也一樣，
     # 照同一套遞迴判斷，效用 cwd 用替換出現的位置之前算出來的那個；拆不出來照 unparsed 擋（測試 28，D-186）
@@ -1183,11 +1749,13 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
         if depth >= SUBST_DEPTH_MAX:
             return unparsed()
         base = _analyze(clean[:pos], cwd, vault_n, tool, bodies)["final_base"]
-        d = _shell_tool(tool, text, base or cwd, vault, sources, depth + 1, compared)
+        d = _shell_tool(tool, text, base or cwd, vault, sources, depth + 1)
         if d.decision == "deny":
             return deny(d.zone, d.reason_code, d.reason)
         if base is None and _analyze(*cmdparse.split_bodies(text, powershell=powershell)[:1], cwd, vault_n, tool)["has_write"]:
-            return unparsed()  # 效用 cwd 推不出來（cd $X 之後）又要寫：看不出寫到哪
+            what = _u5_words({"text": text, "code": ""}, ctx)  # 效用 cwd 推不出來（cd $X 之後）又要寫：照 U5 看動詞
+            if what:
+                return _u5_decision(what, ctx, text)
 
     info = _analyze(clean, cwd, vault_n, tool, bodies)
     # 開檔段開的是程式（D-514）：程式檔在知識庫或來源裡擋 run_file；其餘把程式名加參數那行照直接下那行判（內層 deny 就 deny）
@@ -1220,12 +1788,14 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
             continue
         if depth >= SUBST_DEPTH_MAX:
             return unparsed()
-        d = _shell_tool(tool, opened["program"], run_cwd or cwd, vault, sources, depth + 1, compared)
+        d = _shell_tool(tool, opened["program"], run_cwd or cwd, vault, sources, depth + 1)
         if d.decision == "deny":
             return deny(d.zone, d.reason_code, d.reason)
         if run_cwd is None and _analyze(*cmdparse.split_bodies(opened["program"], powershell=powershell)[:1], cwd, vault_n,
                                         tool)["has_write"]:
-            return unparsed()  # 效用 cwd 推不出來又要寫：看不出寫到哪
+            what = _u5_words({"text": opened["program"], "code": ""}, ctx)  # 效用 cwd 推不出來又要寫：照 U5 看動詞
+            if what:
+                return _u5_decision(what, ctx, opened["program"])
     paths = cmdparse.extract_paths(flat, cwd, powershell=powershell)
     # D-186 (d)：內文照舊抽路徑判斷讀（憑證、排除）；只是提到一個夾不算讀它整夾，不走第三道
     body_only = [p for p in dict.fromkeys(info["body_reads"]) if p not in paths]
@@ -1299,15 +1869,6 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
             _d, code, reason = _verdict(zone, "read", alias)
             return deny(zone, code, reason)
 
-    # produce：寫進 AI 產出、或非 kb 執行檔的參數碰到 AI 產出就擋（D-186 補；單一 kb 呼叫在 decide 最前面已放行）
-    try:
-        touched = _touches_output(info, bodies, vault_n, sources, tool, compared)
-    except Exception:  # noqa: BLE001  hook 對指令出錯不表態（會變成放行），這裡寧可擋（收尾 security-review）
-        touched = True
-    if touched:
-        _d, code, reason = OUTPUT_SHELL
-        return deny("Z3", code, reason)
-
     # D-186：每個路徑照讀判斷；只有真正被寫的（導向目標、寫入那段的參數、管線後面才寫時整個子指令）套寫入欄
     # （第八輪「整條 is_write 為真全部套寫入欄」的誤擋收在這裡，B-024）。只切目錄的目標不算 Z10b（只切目錄不讀內容）
     moves_root = _moves_root(flat, cwd, vault_n, powershell)
@@ -1315,16 +1876,22 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
     def write_column(p, zone, alias):
         if zone == "Z8" and p == vault_n and moves_root:
             return deny(zone, VAULT_MOVE_CODE, VAULT_MOVE_REASON)  # 寫入目標是總資料夾本身：搬家，不是「第一層不放檔」
-        for column in ("read", "shell_write" if "shell_write" in ZONES[zone] else "write"):
-            decision, code, reason = _verdict(zone, column, alias)
-            if decision == "deny":
-                return deny(zone, code, reason)
+        decision, code, reason = _verdict(zone, "read", alias)
+        if decision == "deny":
+            return deny(zone, code, reason)
+        if zone == "Z8" and p == vault_n:  # 知識庫本身要刪：擋，教用 kb 搬家與還原的做法；cp x .、tar -C . 這類只是放東西進第一層，照使用者區規則（U1）
+            if _u5_words({"text": command, "code": ""}, ctx) == "delete":
+                return deny(zone, "delete", DELETE_REASON.format(name=_display_name(command, p)))
+            return None
+        if _willy_shell_zone(zone, p, vault_n):  # willy 自己的檔：指令寫一律擋，教 AI 用對應的做法（放寬甲）
+            return deny(zone, "willy", willy_reason(zone, p, vault_n, command))
         if zone == "Z11":
             up_zone, up_alias = _ancestor_zone(p, vault_n, sources)
             if up_zone:
-                _d, code, reason = _verdict(up_zone, "write", up_alias)
-                return deny(up_zone, code, reason)
-        return None
+                return deny(up_zone, "delete" if up_zone == "Z9" else "willy",
+                            DELETE_REASON.format(name=_display_name(command, p)) if up_zone == "Z9"
+                            else willy_reason("Z7", p, vault_n, command))
+        return None  # 使用者的區：照 _user_rules 判
 
     checked = set()
     cd_only = info["list_only"]  # cd 的 Z10b 豁免只給整句只切目錄、列檔名的（cd 進去再跑程式照擋）
@@ -1355,9 +1922,10 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0, compared=None):
         if zone == "Z10b":
             _d, code, reason = _verdict(zone, "read", alias)
             return deny(zone, code, reason)
-    if info["has_write"] and (info["unparsed"] or cmdparse.unresolved_paths(flat, powershell=powershell)):
-        # 寫入那段找不到目標，或有帶 $變數／%變數% 展不開的路徑（第九輪 Z3）：看不出會寫到哪，一律擋
-        return unparsed()
+    # 放寬甲：使用者區規則（U1～U6）；看不出目標的（原本的 unparsed）照 U5 看動詞
+    got = _user_rules(info, ctx, normalize(cwd, None), [z for _p, z, _a in classified], recurse)
+    if got is not None:
+        return got
     if saw_unresolved:
         rows = _unresolved_rows(tool, sources, command)
     return Decision("pass", "", "", "", rows, vault)

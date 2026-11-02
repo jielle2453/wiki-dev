@@ -1,4 +1,4 @@
-"""收件匣（issue #10，D-240～D-245）的程式庫層：回合記對話紀錄位置、env 的 inbox_reminded、清冊 register_intake 與掃描保留 intake 欄、
+"""暫存區（issue #10，D-240～D-245）的程式庫層：回合記對話紀錄位置、env 的 inbox_reminded、清冊 register_intake 與掃描保留 intake 欄、
 卡檔頭的「收件」行、從對話紀錄取貼的圖與文字（tests/fixtures/intake 的假紀錄：桌面版有 <pasted_content> 與 base64 圖、
 有 inlined_image_paths 的、VS Code 沒有標記的）。kb intake 整段流程在 test_scripts_intake_cli。"""
 import base64
@@ -56,13 +56,13 @@ class RegisterIntake(Base):
 
     def test_new_entry_then_update_appends_fingerprint(self):
         t = turn.start(self.V, None, "")["turn"]
-        rel = "收件匣/公司系統/客戶王先生.md"
+        rel = "暫存區/公司系統/客戶王先生.md"
         self.put(rel, b"v1", t)
         e = inventory.register_intake(self.V, rel, t, {"from": "公司系統", "name": "客戶王先生"})
         self.assertEqual((e["origin"], e["status"], e["created_turn"]), ("intake", "active", t))
         self.assertEqual((e["intake"]["from"], e["intake"]["name"]), ("公司系統", "客戶王先生"))
         self.assertRegex(e["intake"]["received"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
-        self.assertEqual(e["locations"][0]["uri"], "file://收件匣/公司系統/客戶王先生.md")
+        self.assertEqual(e["locations"][0]["uri"], "file://暫存區/公司系統/客戶王先生.md")
         t2 = turn.start(self.V, None, "")["turn"]
         self.put(rel, b"v2-longer", t2)
         with mock.patch.object(inventory, "_now", return_value="2026-10-27T09:00:00"):
@@ -78,12 +78,12 @@ class RegisterIntake(Base):
     def test_fresh_does_not_attach_to_a_stale_active_entry(self):
         """code review：檔在 kb 外被刪、清冊還記著 active，新收同名的另開一筆，舊的改 superseded。"""
         t = turn.start(self.V, None, "")["turn"]
-        self.put("收件匣/a.pdf", b"old", t)
-        old = inventory.register_intake(self.V, "收件匣/a.pdf", t, {}, fresh=True)
-        (self.V / "收件匣" / "a.pdf").unlink()
+        self.put("暫存區/a.pdf", b"old", t)
+        old = inventory.register_intake(self.V, "暫存區/a.pdf", t, {}, fresh=True)
+        (self.V / "暫存區" / "a.pdf").unlink()
         t2 = turn.start(self.V, None, "")["turn"]
-        self.put("收件匣/a.pdf", b"new content", t2)
-        new = inventory.register_intake(self.V, "收件匣/a.pdf", t2, {}, fresh=True)
+        self.put("暫存區/a.pdf", b"new content", t2)
+        new = inventory.register_intake(self.V, "暫存區/a.pdf", t2, {}, fresh=True)
         self.assertNotEqual(new["id"], old["id"])
         self.assertEqual(new["created_turn"], t2)
         got = {e["id"]: e["status"] for e in inventory.load(self.V)["entries"]}
@@ -91,23 +91,23 @@ class RegisterIntake(Base):
 
     def test_meta_keys_only_when_given(self):
         t = turn.start(self.V, None, "")["turn"]
-        self.put("收件匣/合約.pdf", b"%PDF", t)
-        e = inventory.register_intake(self.V, "收件匣/合約.pdf", t, {})
+        self.put("暫存區/合約.pdf", b"%PDF", t)
+        e = inventory.register_intake(self.V, "暫存區/合約.pdf", t, {})
         self.assertEqual(set(e["intake"]), {"received"})
 
     def test_scan_and_apply_keep_intake_field(self):
         t = turn.start(self.V, None, "")["turn"]
-        self.put("收件匣/合約.pdf", b"%PDF-1", t)
-        e = inventory.register_intake(self.V, "收件匣/合約.pdf", t, {"original_name": "IMG_1.pdf"})
+        self.put("暫存區/合約.pdf", b"%PDF-1", t)
+        e = inventory.register_intake(self.V, "暫存區/合約.pdf", t, {"original_name": "IMG_1.pdf"})
         report = inventory.scan(self.V, sources_lib.load(self.V))
         inventory.apply(self.V, report, turn.start(self.V, None, "")["turn"])
-        got = inventory.entry_for(self.V, "file://收件匣/合約.pdf")
+        got = inventory.entry_for(self.V, "file://暫存區/合約.pdf")
         self.assertEqual(got["id"], e["id"])
         self.assertEqual(got["intake"], e["intake"])
-        (self.V / "收件匣" / "合約.pdf").write_bytes(b"%PDF-2 changed")
+        (self.V / "暫存區" / "合約.pdf").write_bytes(b"%PDF-2 changed")
         report = inventory.scan(self.V, sources_lib.load(self.V))
         inventory.apply(self.V, report, turn.start(self.V, None, "")["turn"])
-        got = inventory.entry_for(self.V, "file://收件匣/合約.pdf")
+        got = inventory.entry_for(self.V, "file://暫存區/合約.pdf")
         self.assertEqual(got["intake"], e["intake"])
         self.assertEqual(len(got["fingerprints"]), 2)
 
@@ -132,9 +132,9 @@ class CardHeader(unittest.TestCase):
         return next(i for i in cards.todo(self.V, sources_lib.load(self.V))["new"] if i["id"] == fid)
 
     def test_header_has_intake_line_three_examples(self):
-        cases = (("收件匣/a.txt", {}, "收件: 2026-10-26"),
-                 ("收件匣/公司系統/b.md", {"from": "公司系統", "name": "b"}, "收件: 2026-10-26，從公司系統"),
-                 ("收件匣/c.png", {"pasted": "image", "copy": True}, "收件: 2026-10-26，對話裡的版本"))
+        cases = (("暫存區/a.txt", {}, "收件: 2026-10-26"),
+                 ("暫存區/公司系統/b.md", {"from": "公司系統", "name": "b"}, "收件: 2026-10-26，從公司系統"),
+                 ("暫存區/c.png", {"pasted": "image", "copy": True}, "收件: 2026-10-26，對話裡的版本"))
         for rel, meta, want in cases:
             with self.subTest(rel=rel):
                 e = self.add(rel, meta)
@@ -142,7 +142,7 @@ class CardHeader(unittest.TestCase):
                 self.assertEqual(lines[lines.index("出處: 對話收件") + 1], want)
 
     def test_validate_wants_the_line_only_when_entry_has_intake(self):
-        e = self.add("收件匣/a.txt", {"from": "公司系統"})
+        e = self.add("暫存區/a.txt", {"from": "公司系統"})
         item = self.item(e["id"])
         p = _cards.write_card(self.V, item, "王先生資料", kind="資料")
         by_id = {x["id"]: x for x in inventory.load(self.V)["entries"]}
@@ -152,10 +152,10 @@ class CardHeader(unittest.TestCase):
         for bad in (text.replace("收件: 2026-10-26，從公司系統\n", ""), text.replace("，從公司系統", "，從別處")):
             p.write_text(bad, encoding="utf-8", newline="\n")
             self.assertEqual(cards.validate(self.V, rel, by_id), (False, "收件那行照 kb cards todo 印的抄"))
-        # 客戶自己丟進收件匣的（掃描入冊、沒有 intake 欄）：卡上沒有這行照過
-        (self.V / "收件匣" / "自己丟的.txt").write_text("hi", encoding="utf-8")
+        # 客戶自己丟進暫存區的（掃描入冊、沒有 intake 欄）：卡上沒有這行照過
+        (self.V / "暫存區" / "自己丟的.txt").write_text("hi", encoding="utf-8")
         _cards.scan_apply(self.V)
-        mine = inventory.entry_for(self.V, "file://收件匣/自己丟的.txt")
+        mine = inventory.entry_for(self.V, "file://暫存區/自己丟的.txt")
         self.assertNotIn("intake", mine)
         item = self.item(mine["id"])
         self.assertNotIn("收件:", item["header"])
@@ -164,7 +164,7 @@ class CardHeader(unittest.TestCase):
         self.assertEqual(cards.validate(self.V, p2.relative_to(self.V).as_posix(), by_id), (True, ""))
 
     def test_broken_intake_line_goes_to_broken_with_header(self):
-        e = self.add("收件匣/a.txt", {})
+        e = self.add("暫存區/a.txt", {})
         item = self.item(e["id"])
         p = _cards.write_card(self.V, item, "甲", kind="資料")
         p.write_text(p.read_text(encoding="utf-8").replace("收件: 2026-10-26\n", ""), encoding="utf-8", newline="\n")

@@ -194,19 +194,19 @@ class Merge(Base):
         self.assertNotEqual(tree(self.V), before_revert)
 
     def test_ai_output_parent_is_recorded_and_reverted(self):
-        """測試後修正裁定 18（F-7）：AI 產出/<被併> 搬進新建的 AI 產出/<目標>/，上層夾記 make，退回後不留空夾。"""
-        draft = self.V / "AI 產出" / "工班" / "草稿.md"
+        """測試後修正裁定 18（F-7）：暫存區/<被併> 搬進新建的 暫存區/<目標>/，上層夾記 make，退回後不留空夾。"""
+        draft = self.V / "暫存區" / "工班" / "草稿.md"
         draft.parent.mkdir(parents=True)
         draft.write_text("草稿\n", encoding="utf-8")
         self.kb("merge", "工班", "--into", "廠商")
-        self.assertTrue((self.V / "AI 產出" / "廠商" / "工班" / "草稿.md").is_file())
+        self.assertTrue((self.V / "暫存區" / "廠商" / "工班" / "草稿.md").is_file())
         ops = [(x["op"], x["from"], x["to"]) for x in turn.folders(self.V, self.turn)]
-        self.assertIn(("make", "AI 產出/廠商", None), ops)
-        self.assertLess(ops.index(("make", "AI 產出/廠商", None)), ops.index(("move", "AI 產出/工班", "AI 產出/廠商/工班")))
+        self.assertIn(("make", "暫存區/廠商", None), ops)
+        self.assertLess(ops.index(("make", "暫存區/廠商", None)), ops.index(("move", "暫存區/工班", "暫存區/廠商/工班")))
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(draft.is_file())
-        self.assertFalse((self.V / "AI 產出" / "廠商").exists())
+        self.assertFalse((self.V / "暫存區" / "廠商").exists())
         self.assertNotIn("裡有東西", r.stdout)
 
     def test_cross_category_keeps_progress(self):
@@ -257,7 +257,6 @@ class Remove(Base):
 
     def test_remove_with_entities(self):
         before = tree(self.V, ())
-        self.assertEqual(self.kb("remove", "業主", code=3).stdout.strip(), "「業主」底下還有 1 個實體，先併到別的型別")
         got = self.check("remove", "業主")
         self.assertEqual(got["question"], "「業主」底下還有 1 個實體，要併到哪一類？")
         self.assertEqual([(r["label"], r["do"], r["strict"]) for r in got["results"]],
@@ -265,6 +264,47 @@ class Remove(Base):
                           ("併到工班", ["kb profile type merge 業主 --into 工班"], True),
                           ("併到廠商", ["kb profile type merge 業主 --into 廠商"], True), ("先不刪", [], False)])
         self.assertEqual(tree(self.V, ()), before)
+
+
+class RemovePending(Base):
+    """放寬甲 D-307(2)：拿掉還有實體的型別不擋，標 pending_remove，換完實體自動拿掉；夾裡剩別的檔不算。"""
+
+    def test_remove_with_entities_marks_pending_then_auto_removes(self):
+        r = self.kb("remove", "業主")
+        self.assertIn("型別「業主」還有 1 個實體要換型別：王先生；", r.stdout)
+        self.assertIn("kb entity rename <名稱> --to <名稱> --type <新型別>", r.stdout)
+        row = next(t for t in self.data()["types"] if t["name"] == "業主")
+        self.assertTrue(row.get("pending_remove"))
+        self.assertNotIn("| 業主 | 對象 |", (self.V / "系統" / "客戶設定檔.md").read_text(encoding="utf-8"))
+        self.assertEqual(self.entity("王先生")["type"], "業主")
+        r = run_kb("entity", "rename", "王先生", "--to", "王先生", "--type", "廠商", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("業主", [t["name"] for t in self.data()["types"]])
+        self.assertEqual(self.entity("王先生")["type"], "廠商")
+
+    def test_apply_dropping_row_with_entities_gives_pending_types(self):
+        md = self.V / "系統" / "客戶設定檔.md"
+        text = md.read_text(encoding="utf-8")
+        row = next(ln for ln in text.split("\n") if ln.startswith("| 業主 | 對象 |"))
+        md.write_text(text.replace(row + "\n", "", 1), encoding="utf-8", newline="\n")
+        r = run_kb("profile", "apply", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got["pending_types"], [{"type": "業主", "entities": ["王先生"]}])
+        self.assertTrue(next(t for t in self.data()["types"] if t["name"] == "業主").get("pending_remove"))
+        self.assertTrue((self.V / "業主" / "王先生").is_dir() or any((self.V).glob("*業主*")))
+
+    def test_remove_json_has_pending_types(self):
+        got = json.loads(self.kb("remove", "業主", "--json").stdout)
+        self.assertEqual(got["pending_types"], [{"type": "業主", "entities": ["王先生"]}])
+
+    def test_remove_keeps_folder_with_other_files(self):
+        folder = self.V / "案子"
+        (folder / "散檔.txt").write_text("x", encoding="utf-8")
+        entities.remove(self.V, "信義王", turn.current(self.V)["turn"])
+        self.kb("remove", "案子")
+        self.assertTrue((folder / "散檔.txt").is_file())
+        self.assertNotIn("案子", [t["name"] for t in self.data()["types"]])
 
 
 class Rollback(Base):

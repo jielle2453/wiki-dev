@@ -293,14 +293,14 @@ class JournalTurn(Base):
     def test_finish_fields_unions_two_manifests_later_action_wins(self):
         tid, nid = "20261015-180536-test", "20261015-180540-test"
         turn.backup(self.V, "案子/信義王/信義王.md", tid)            # modify
-        turn.backup(self.V, "AI 產出/x.md", tid)                     # create
-        turn.backup(self.V, "AI 產出/x.md", nid, "delete")           # 後者：delete
+        turn.backup(self.V, "暫存區/x.md", tid)                     # create
+        turn.backup(self.V, "暫存區/x.md", nid, "delete")           # 後者：delete
         turn.backup(self.V, ".system/sources.json", nid)             # modify
         note, by, changed = journal.finish_fields(self.V, dict(turn_data(nid), journal_turn=tid))
         self.assertEqual(changed, [{"path": "案子/信義王/信義王.md", "action": "modify"},
-                                   {"path": "AI 產出/x.md", "action": "delete"},
+                                   {"path": "暫存區/x.md", "action": "delete"},
                                    {"path": ".system/sources.json", "action": "modify"}])
-        self.assertEqual((note, by), ("改了 1 張綜合卡、刪了 1 份 AI 產出、改了設定與狀態檔", "program"))
+        self.assertEqual((note, by), ("改了 1 張綜合卡、刪了 1 份 暫存區、改了設定與狀態檔", "program"))
 
     def test_update_turn_by_journal_key(self):
         t = turn_data("20261015-180536-test")
@@ -334,25 +334,25 @@ class FloorNote(Base):
         self.backup(tid, "案子/新案/新案.md")                  # Z1 create
         self.backup(tid, "案子/舊案/舊案.md", "delete")        # Z1 delete
         self.backup(tid, "檔案索引/客戶案件/a.txt.md")          # Z5 create
-        self.backup(tid, "AI 產出/x.md")                       # Z3 create
-        self.backup(tid, "AI 產出/y.md")                       # Z3 create
+        self.backup(tid, "暫存區/x.md")                       # Z3 create
+        self.backup(tid, "暫存區/y.md")                       # Z3 create
         self.backup(tid, ".system/sources.json")               # Z7
         self.backup(tid, "CLAUDE.md")                          # Z7
         self.backup(tid, "系統/待處理.md")                      # 其他區
         self.assertEqual(journal.floor_note(self.V, tid),
-                         "改了 1 張綜合卡、新增 1 張綜合卡、刪了 1 張綜合卡、新增 1 張檔案卡、新增 2 份 AI 產出、"
+                         "改了 1 張綜合卡、新增 1 張綜合卡、刪了 1 張綜合卡、新增 1 張檔案卡、新增 2 份 暫存區、"
                          "改了設定與狀態檔、改了 1 個檔")
 
     def test_z5_and_z3_modify_delete(self):
         tid = "20261015-180536-test"
         (self.V / "檔案索引" / "b.md").write_text("x", encoding="utf-8")
-        (self.V / "AI 產出" / "z.md").write_text("x", encoding="utf-8")
+        (self.V / "暫存區" / "z.md").write_text("x", encoding="utf-8")
         self.backup(tid, "檔案索引/b.md")
         self.backup(tid, "檔案索引/c.md", "delete")
-        self.backup(tid, "AI 產出/z.md")
-        self.backup(tid, "AI 產出/w.md", "delete")
+        self.backup(tid, "暫存區/z.md")
+        self.backup(tid, "暫存區/w.md", "delete")
         self.assertEqual(journal.floor_note(self.V, tid),
-                         "改了 1 張檔案卡、刪了 1 張檔案卡、改了 1 份 AI 產出、刪了 1 份 AI 產出")
+                         "改了 1 張檔案卡、刪了 1 張檔案卡、改了 1 份 暫存區、刪了 1 份 暫存區")
 
 
 class CutResult(unittest.TestCase):

@@ -483,15 +483,35 @@ class Skip(Base):
     def test_refusals(self):
         self.set_no_card()
         fid = self.fid()
-        r = self.kb("cards", "skip", fid, "--kind", "薪資")
-        self.assertEqual((r.returncode, r.stdout.strip()),
-                         (3, "「薪資」不在客戶設定檔的不整理種類裡，先在設定檔第三節加一列再套用"))
         cred = next(e for e in inventory.load(self.V)["entries"] if e["read"] == "credential")
         r = self.kb("cards", "skip", cred["id"], "--kind", "請款")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "這份不是待製卡的檔（active／credential）"))
         r = self.kb("cards", "skip", "f-00000000", "--kind", "請款")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "清冊沒有 f-00000000"))
         self.assertNotIn("skip_kind", self.entry(fid))
+
+
+class SkipRelaxed(Skip):
+    """放寬甲 D-310(1)：--kind 可省略（AI 判斷）；不在第三節就自己加進去（kind_added）。"""
+
+    def test_skip_without_kind_records_ai_judgement(self):
+        fid = self.fid()
+        r = self.kb("cards", "skip", fid)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.entry(fid)["skip_kind"], "AI 判斷")
+        r = self.kb("profile", "apply")  # AI 判斷不算設定檔殘留，apply 不會把它放回待製卡
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.entry(fid)["skip_kind"], "AI 判斷")
+
+    def test_skip_with_unlisted_kind_adds_it(self):
+        fid = self.fid()
+        r = self.kb("cards", "skip", fid, "--kind", "薪資單", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["kind"], got["kind_added"]), ("薪資單", True))
+        self.assertEqual(self.entry(fid)["skip_kind"], "薪資單")
+        text = self.md().read_text(encoding="utf-8")
+        self.assertIn("| 薪資單 | 不整理 |", text)
 
 
 class TodoProfile(Base):
@@ -726,13 +746,13 @@ class RedoMount(unittest.TestCase):
         self.kb("cards", "sync")
         self.assertEqual(self.redo_listed(), [(self.fid, "客戶說卡讀錯了")])
 
-    def test_mount_refuses_a_first_version_card(self):
-        """測試第一輪後裁定 5（F-3）：檔頭沒有實體欄的舊版卡不寫、exit 3。"""
+    def test_mount_adds_entity_field_to_a_first_version_card(self):
+        """放寬甲（D-322 第 24 件）：檔頭沒有實體欄的舊版卡直接補一欄再改掛，不拒絕。"""
         self.E.to_v1(self.V, self.rel)
-        before = (self.V / self.rel).read_bytes()
-        self.assertEqual(self.kb("cards", "mount", self.fid, "--entity", "信義王", code=3),
-                         ["「信義王報價」是舊版的卡，還沒有實體欄；先整理一次補好再改掛"])
-        self.assertEqual((self.V / self.rel).read_bytes(), before)
+        self.assertNotIn("實體", cards.parse_front((self.V / self.rel).read_text(encoding="utf-8")))
+        self.kb("cards", "mount", self.fid, "--entity", "信義王")
+        front = cards.parse_front((self.V / self.rel).read_text(encoding="utf-8"))
+        self.assertEqual(front["實體"], ["信義王"])
 
     def test_redo_refusals(self):
         self.assertEqual(self.kb("cards", "redo", "f-00000000", code=3), ["清冊沒有 f-00000000"])

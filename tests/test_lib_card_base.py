@@ -162,7 +162,7 @@ class Done(Base):
         self.assertEqual(self.cli_edits(), {"edits": [], "more": False})
 
     def test_done_not_a_card_refused(self):
-        for bad in ("案子/不存在/不存在.md", "AI 產出/x.md", "檔案索引/沒有這張-11111111.md"):
+        for bad in ("案子/不存在/不存在.md", "暫存區/x.md", "檔案索引/沒有這張-11111111.md"):
             r = self.kb("cards", "edits", "--done", bad)
             self.assertNotEqual(r.returncode, 0, bad)
             self.assertIn("不是卡", r.stdout)

@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from kb._lib import config, profile
+from kb._lib.areas import HOLD_DIR
 from kb._lib.io import FileLock, write_text_atomic
 
 CARDS_DIR = "檔案索引"
@@ -131,15 +132,15 @@ DRAFT_SUFFIX = "（草稿）.md"
 
 
 def is_draft(uri):
-    """AI 產出裡的草稿（D-163）：檔名以（草稿）.md 結尾。todo 不列它製卡。"""
+    """暫存區裡的草稿（D-163）：檔名以（草稿）.md 結尾。todo 不列它製卡。"""
     alias, rel = _split(uri)
-    return alias == "AI 產出" and rel.endswith(DRAFT_SUFFIX)
+    return alias == HOLD_DIR and rel.endswith(DRAFT_SUFFIX)
 
 
 def card_dir(entry):
-    """檔案索引/<別名>/<主位置相對夾>（保留別名照字面）；link 條目放 檔案索引/AI 產出/<型別>（沒給型別放 線上）。"""
+    """檔案索引/<別名>/<主位置相對夾>（保留別名照字面）；link 條目放 檔案索引/暫存區/<型別>（沒給型別放 線上）。"""
     if entry.get("kind") == "link":
-        return f"{CARDS_DIR}/AI 產出/{entry.get('type') or LINK_DIR}"
+        return f"{CARDS_DIR}/{HOLD_DIR}/{entry.get('type') or LINK_DIR}"
     alias, rel = _split(entry["locations"][0].get("uri", ""))
     parent = rel.rpartition("/")[0]
     return f"{CARDS_DIR}/{alias}" + (f"/{parent}" if parent else "")
@@ -480,7 +481,7 @@ def not_for_card(vault, sources, entry):
     from kb._lib import inventory
     from kb._lib.paths import normalize
     uri = (entry.get("locations") or [{}])[0].get("uri") or ""
-    if inventory.split_uri(uri)[0] not in (inventory.KNOWLEDGE, inventory.INBOX, inventory.OUTPUT):
+    if inventory.split_uri(uri)[0] not in (inventory.KNOWLEDGE, inventory.HOLD):
         return False
     path = inventory.path_of(vault, sources, uri)
     if path is None:
@@ -932,8 +933,6 @@ def mount(vault, fid, names, turn_id):
             if e["name"] not in new:
                 new.append(e["name"])
         card = card_of(vault, fid)
-        if "實體" not in card["front"]:  # 範本第一版：沒有實體欄可改（測試第一輪後裁定 5）
-            raise CardRefused(f"「{_title(card)}」是舊版的卡，還沒有實體欄；先整理一次補好再改掛")
         was = card["front"].get("實體") if isinstance(card["front"].get("實體"), list) else []
         text = _read(vault, card["path"])
         updated = rewrite_entities(text, new)
@@ -975,6 +974,9 @@ def remove_card(vault, rel, turn_id):
     prune_dirs(vault, rel)
 
 
+SKIP_AI = "AI 判斷"  # skip_kind 的特殊值：AI 看過、判斷不用卡（D-310(1)），不在設定檔第三節
+
+
 def skip(vault, sources, fid, kind, turn_id):
     """kb cards skip（客戶設定檔與型別第 5 點，D-113）：條目要 active、read ok，kind 要是設定檔第三節 no_card 的種類，
     錯了丟 SkipRefused 帶給人看的句子。有卡（同編號多張全部）備成 delete 後刪；清冊備份後記 skip_kind；重寫總目錄。
@@ -988,7 +990,8 @@ def skip(vault, sources, fid, kind, turn_id):
         if entry.get("status") != "active" or entry.get("read") != "ok":
             raise SkipRefused(f"這份不是待製卡的檔（{entry.get('status')}／{entry.get('read')}）")
         data, _missing = _profile_or_default(vault)
-        if kind not in profile.no_card_kinds(data):
+        kind = kind or SKIP_AI
+        if kind != SKIP_AI and kind not in profile.no_card_kinds(data):
             raise SkipRefused(f"「{kind}」不在客戶設定檔的不整理種類裡，先在設定檔第三節加一列再套用")
         groups, _broken = _scan_groups(vault)
         removed = [c["path"] for c in groups.get(fid) or []]
@@ -1100,6 +1103,30 @@ def sync(vault, sources, turn_id, undo=None):
             "touched": touched}
 
 
+def follow_outside(vault, sources, ids, turn_id, undo=None):
+    """原檔搬到知識庫外沒登記的地方（outside）：卡留在原處，只把檔頭的 原檔 清單與 開原檔 換成新位置。回改到的卡路徑。"""
+    from kb._lib import inventory, turn
+    by_id = {e["id"]: e for e in inventory.load(vault)["entries"]}
+    groups, _broken = _scan_groups(vault)
+    changed = []
+    for fid in ids:
+        entry = by_id.get(fid)
+        if entry is None or not entry.get("locations"):
+            continue
+        for card in groups.get(fid) or []:
+            rel = card["path"]
+            text = rewrite_locations(_read(vault, rel), [loc["uri"] for loc in entry["locations"]],
+                                     entry_link(vault, sources, entry))
+            if text == _read(vault, rel):
+                continue
+            if undo is not None:
+                undo.file(rel)
+            turn.backup(vault, rel, turn_id)
+            write_text_atomic(Path(vault) / rel, text)
+            changed.append(rel)
+    return changed
+
+
 def rewrite_locations(text, uris, link):
     """只換檔頭的 原檔 清單與 開原檔 一行，其他行原樣（kb cards sync）。"""
     lines = text.splitlines(keepends=True)
@@ -1176,7 +1203,7 @@ def rewrite_entities(text, names):
     """只換檔頭的 實體 欄（kb entity rename／merge 改掛載），其他行原樣。一行清單或「實體:」下接「  - 項」的區塊都換，
     換完一律寫成一行的清單（測試後修正裁定 13，收法同 rewrite_locations）。"""
     lines = text.splitlines(keepends=True)
-    out, i, in_front = [], 0, False
+    out, i, in_front, found = [], 0, False, False
     while i < len(lines):
         line = lines[i]
         bare = line.rstrip("\r\n")
@@ -1184,7 +1211,10 @@ def rewrite_entities(text, names):
             in_front = True
         elif in_front and bare == "---":
             in_front = False
+            if not found:  # 舊版卡沒有實體欄：補一欄再改掛（放寬甲，D-322 第 24 件）
+                out.append(f"實體: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
         elif in_front and bare.startswith("實體:"):
+            found = True
             out.append(f"實體: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
             i += 1
             while i < len(lines) and lines[i].startswith(("  - ", "- ")):

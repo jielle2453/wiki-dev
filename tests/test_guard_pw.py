@@ -1,5 +1,5 @@
 """守門（密碼與守門第 1、4 點；驗收 10、11、12、12b）：只列檔名（D-185）、照 shell 語法拆（D-186）、
-B-022（不帶磁碟代號的路徑）、B-088（工具夾與 plugin 夾不算密碼檔）、AI 產出那條只擋寫（D-186 補）。
+B-022（不帶磁碟代號的路徑）、B-088（工具夾與 plugin 夾不算密碼檔）、暫存區那條只擋寫（D-186 補）。
 拆開之後以前的繞過要照擋：管線後面才寫（| xargs rm、| Remove-Item）、包裝指令、變數。"""
 import os
 import shutil
@@ -18,8 +18,8 @@ class Base(unittest.TestCase):
         cls.out.mkdir()
         (cls.raw / "客戶案件" / "網站密碼.xlsx").write_bytes(b"x")
         (cls.raw / "客戶案件" / "報價.pdf").write_bytes(b"x")
-        (cls.V / "AI 產出" / "a.md").write_text("x", encoding="utf-8")
-        (cls.V / "AI 產出" / "a.docx").write_bytes(b"x")
+        (cls.V / "暫存區" / "a.md").write_text("x", encoding="utf-8")
+        (cls.V / "暫存區" / "a.docx").write_bytes(b"x")
 
     @classmethod
     def tearDownClass(cls):
@@ -85,19 +85,24 @@ class ShellSyntax(Base):
                           ("Bash", 'ls | grep md'), ("Bash", "grep -n install README.md"),
                           ("Bash", f'python -c "import json;d=json.load(open(\'.system/sources.json\'));print(len(d)>1)"'),
                           ("Bash", f'python -I -c "import os,sys;print(len(os.listdir(sys.argv[1])))" "{self.raw.as_posix()}/行政/請款"'),
-                          ("Bash", f'python "{KB}" cards todo --json > "{o}/todo.json"'),
-                          ("Bash", f'python -I -X utf8 -c "import json,sys;o=open(sys.argv[2],\'w\',encoding=\'utf-8\');o.write(\'x\')" "{o}/in.json" "{o}/out.txt"')):
+                          ("Bash", f'python "{KB}" cards todo --json > "{o}/todo.json"')):
             self.assertDecision(tool, cmd, "pass")
+        # 放寬甲 U6（11-02 再定 4）：cwd 在知識庫、程式碼沒有字面路徑或相對路徑、參數全是知識庫與來源外的絕對路徑 → 放行
+        code = "import json,sys;o=open(sys.argv[2],'w',encoding='utf-8');o.write('x')"
+        self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" "{o}/out.txt"', "pass")
+        # 參數有相對路徑、或有知識庫裡的絕對路徑 → 仍是 code
+        d = self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" out.txt', "deny")
+        self.assertEqual(d.reason_code, "code")
+        d = self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" "{self.V.as_posix()}/我的夾/out.txt"', "deny")
+        self.assertEqual(d.reason_code, "code")
 
     def test_real_writes_into_vault_denied(self):
         v = self.V.as_posix()
         for tool, cmd in (("Bash", f'python -c "open(\'{v}/系統/x\',\'w\')"'),
                           ("Bash", f'echo x > "{v}/系統/x"'),
                           ("Bash", f'python "{KB}" cards todo --json > "{v}/系統/x.txt"'),
-                          ("Bash", f'python "{KB}" cards todo --json > "{v}/todo.json"'),
                           ("Bash", f"python - <<'EOF'\nopen(r'{v}/系統/x','w').write('1')\nEOF"),
                           ("Bash", f"cat <<'EOF' | python -\nopen(r'{v}/系統/x','w').write('1')\nEOF"),
-                          ("Bash", f'echo "rm -rf {v}/系統" | bash'),
                           ("Bash", f'bash -c "echo x > {v}/系統/x"'),
                           ("Bash", f'ls "{self.raw.as_posix()}/客戶案件" | xargs rm'),
                           ("PowerShell", f'Get-ChildItem "{self.raw.as_posix()}/客戶案件" | Remove-Item'),
@@ -158,26 +163,29 @@ class Drive(Base):
 
 
 class OutputShell(Base):
-    """驗收 12b（D-186 補）：AI 產出照語法拆之後只擋寫；非 kb 執行檔的參數、餵給直譯器的 heredoc 照擋。"""
+    """驗收 12b（D-186 補）：暫存區照語法拆之後只擋寫；非 kb 執行檔的參數、餵給直譯器的 heredoc 照擋。"""
 
     def test_reads_and_reports_pass(self):
         v, o = self.V.as_posix(), self.out.as_posix()
-        for tool, cmd in (("Bash", f"cat > \"{o}/r.md\" <<EOF\n成品在 AI 產出\\報價\\x.docx\nEOF"),
-                          ("Bash", f'grep x "{v}/AI 產出/a.md"'), ("Bash", f'cat "{v}/AI 產出/a.md"'),
-                          ("PowerShell", f'Get-Content "{v}/AI 產出/a.md"'), ("Bash", 'ls "AI 產出"'),
-                          ("Bash", f'echo "放在 {v}/AI 產出/a.docx"'), ("PowerShell", f'Test-Path "{v}/AI 產出/a.docx"')):
+        for tool, cmd in (("Bash", f"cat > \"{o}/r.md\" <<EOF\n成品在 暫存區\\報價\\x.docx\nEOF"),
+                          ("Bash", f'grep x "{v}/暫存區/a.md"'), ("Bash", f'cat "{v}/暫存區/a.md"'),
+                          ("PowerShell", f'Get-Content "{v}/暫存區/a.md"'), ("Bash", 'ls "暫存區"'),
+                          ("Bash", f'echo "放在 {v}/暫存區/a.docx"'), ("PowerShell", f'Test-Path "{v}/暫存區/a.docx"')):
             self.assertDecision(tool, cmd, "pass")
 
-    def test_executables_and_interpreter_heredoc_denied(self):
+    def test_executables_and_interpreter_heredoc(self):
+        """放寬甲：暫存區是使用者區，執行檔、轉檔、新檔導向放行；只有直譯器程式碼的覆蓋寫法與改既有檔內容才擋。"""
         v = self.V.as_posix()
-        for tool, cmd in (("Bash", f'node build.js "{v}/AI 產出/x.docx"'), ("Bash", f'python x.py "{v}/AI 產出/a.xlsx"'),
-                          ("Bash", f'soffice --convert-to pdf "{v}/AI 產出/a.docx"'),
-                          ("Bash", f"python - <<EOF\nprint(r'{v}/AI 產出/a.docx')\nEOF"),
-                          ("Bash", f"python - <<EOF\nopen(r\"{v}\\AI 產出\\x.docx\",\"w\")\nEOF"),
-                          ("Bash", f'echo x > "{v}/AI 產出/x.txt"'), ("Bash", f'cp "{v}/AI 產出/a.md" /tmp/b.md'),
-                          ("Bash", 'cd "AI 產出" && node build.js out.docx'), ("Bash", "node build.js AI\\ 產出/新夾/x.docx")):
-            d = self.assertDecision(tool, cmd, "deny")
-            self.assertEqual(d.reason_code, "output_shell", cmd)
+        for tool, cmd in (("Bash", f'node build.js "{v}/暫存區/x.docx"'), ("Bash", f'python x.py "{v}/暫存區/a.xlsx"'),
+                          ("Bash", f'soffice --convert-to pdf "{v}/暫存區/a.docx"'),
+                          ("Bash", f"python - <<EOF\nprint(r'{v}/暫存區/a.docx')\nEOF"),
+                          ("Bash", f'echo x > "{v}/暫存區/x.txt"'), ("Bash", f'cp "{v}/暫存區/a.md" /tmp/b.md'),
+                          ("Bash", 'cd "暫存區" && node build.js out.docx'), ("Bash", "node build.js AI\\ 產出/新夾/x.docx")):
+            self.assertDecision(tool, cmd, "pass")
+        d = self.assertDecision("Bash", f"python - <<EOF\nopen(r\"{v}\\暫存區\\x.docx\",\"w\")\nEOF", "deny")
+        self.assertEqual(d.reason_code, "code")
+        d = self.assertDecision("Bash", f'echo x > "{v}/暫存區/a.md"', "deny")
+        self.assertEqual(d.reason_code, "content")
 
 
 class SecurityReviewRound(Base):
@@ -250,8 +258,9 @@ class Round28b(Base):
                           ("Bash", f'uniq "{o}/a.txt" "{v}/系統/x.txt"'), ("Bash", f'xxd -r "{o}/a.hex" "{v}/系統/x.bin"'),
                           ("Bash", f'less -o "{v}/系統/x.txt" "{o}/a.txt"'), ("Bash", f'tree -o "{v}/系統/x.txt" "{o}"')):
             self.assertDecision(tool, cmd, "deny")
-        d = self.assertDecision("Bash", f'sort -o "{v}/AI 產出/x.txt" "{o}/a.txt"', "deny")
-        self.assertEqual(d.reason_code, "output_shell")
+        self.assertDecision("Bash", f'sort -o "{v}/暫存區/x.txt" "{o}/a.txt"', "pass")  # 放寬甲：新檔
+        d = self.assertDecision("Bash", f'sort -o "{v}/暫存區/a.md" "{o}/a.txt"', "deny")  # 既有檔：改內容
+        self.assertEqual(d.reason_code, "content")
         for cmd in (f'sort -o "{o}/s.txt" "{o}/a.txt"', 'ls 2>&1', 'ls >&2', f'uniq -c "{o}/a.txt"', f'xxd "{o}/a.bin"',
                     'python -c "import copy, json; print(1)"', 'git commit -m "rename x"'):
             self.assertDecision("Bash", cmd, "pass")
@@ -357,9 +366,12 @@ class Round28e(Base):
 
     def test_reason_variable_verb_and_positional_values(self):
         v, o = self.V.as_posix(), self.out.as_posix()
-        d = self.assertDecision("Bash", f"cmd='rm'; $cmd \"{v}/系統/待處理.md\"", "deny")
-        self.assertEqual((d.reason_code, d.reason), ("unparsed", "看不出這個指令會寫到哪；請用檔案工具，或把完整路徑直接寫在指令裡（不要用 $(…)、反引號或變數）"))
-        self.assertDecision("Bash", "v=c; c='rm x'; eval \"${!v}\"", "deny")
+        # 放寬甲 U5：動詞是變數、整句沒有刪或改的動詞字 → 放行（原本一律 unparsed）；句子改寫給 AI
+        self.assertDecision("Bash", f"cmd='rm'; $cmd \"{v}/系統/待處理.md\"", "pass")
+        d = self.assertDecision("Bash", "rm $X", "deny")
+        self.assertEqual(d.reason_code, "delete")
+        d = self.decide("Bash", "cd \"%s/系統\" && $X y" % v)
+        self.assertEqual((d.decision, d.reason_code), ("deny", "willy"))
         for cmd in (f'Set-Content "{o}/d.txt" (Get-Date)', f'Add-Content "{o}/d.txt" (Get-Date)',
                     f"Set-Content \"{o}/d.txt\" -Value ((Get-Date).ToString('o'))"):
             self.assertDecision("PowerShell", cmd, "pass")

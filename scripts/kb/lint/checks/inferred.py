@@ -76,5 +76,5 @@ def run(ctx):
             "inferred", "decide", "inferred:profile",
             f"設定檔有 {len(rows)} 列是我推測的，放了超過 {limit} 天還沒確認",
             items=rows, data={"rows": rows, "results": [{"label": "一列一列看", "note": "kb profile show 唸出來源是推測的列，"
-                                                                                     "她說對的請她在設定檔把來源改成確認，或照 note skill 改規則"}]}))
+                                                                                     "使用者說對的，用 Edit 改設定檔（rows 裡「節:名稱」那一列的來源欄改成確認），再跑 kb profile apply；或照 note skill 改規則。"}]}))
     return out

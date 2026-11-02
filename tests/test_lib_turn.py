@@ -238,8 +238,8 @@ class RelPath(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_keeps_original_case_and_forward_slashes(self):
-        rel = turn.rel_path(self.V, str(self.V / "AI 產出" / "Draft.MD"), str(self.V))
-        self.assertEqual(rel, "AI 產出/Draft.MD")
+        rel = turn.rel_path(self.V, str(self.V / "暫存區" / "Draft.MD"), str(self.V))
+        self.assertEqual(rel, "暫存區/Draft.MD")
 
     def test_relative_to_cwd(self):
         rel = turn.rel_path(self.V, "案子/信義王/信義王.md", str(self.V))
@@ -291,7 +291,7 @@ class ZoneOf(unittest.TestCase):
 
     def test_zone_of_card_and_output(self):
         self.assertEqual(turn.zone_of(self.V, "案子/信義王/信義王.md"), "Z1")
-        self.assertEqual(turn.zone_of(self.V, "AI 產出/x.md"), "Z3")
+        self.assertEqual(turn.zone_of(self.V, "暫存區/x.md"), "Z4")
         self.assertEqual(turn.zone_of(self.V, "檔案索引/x.md"), "Z5")
 
     def test_zone_of_accepts_preloaded_sources(self):
@@ -492,11 +492,11 @@ class BeforeWrite(unittest.TestCase):
         self.assertIn("big_change_synthesis_max", log)
 
     def test_z3_write_backs_up(self):
-        p = self.V / "AI 產出" / "x.md"
+        p = self.V / "暫存區" / "x.md"
         p.write_text("舊", encoding="utf-8")
-        self.assertEqual(self.write(p, zone="Z3"), (True, "", ""))
+        self.assertEqual(self.write(p, zone="Z4"), (True, "", ""))
         t = turn.current(self.V, SID)
-        self.assertEqual((self.V / ".system" / "versions" / t["turn"] / "files" / "AI 產出" / "x.md").read_text(encoding="utf-8"), "舊")
+        self.assertEqual((self.V / ".system" / "versions" / t["turn"] / "files" / "暫存區" / "x.md").read_text(encoding="utf-8"), "舊")
 
 
 class Inherit(unittest.TestCase):

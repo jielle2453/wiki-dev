@@ -369,7 +369,7 @@ class AgentMessages(unittest.TestCase):
 
 
 class Transcript(unittest.TestCase):
-    """收件匣第 3 點：payload 有 transcript_path 就記進回合檔（kb intake --pasted 從那裡取貼的圖與文字）。"""
+    """暫存區第 3 點：payload 有 transcript_path 就記進回合檔（kb intake --pasted 從那裡取貼的圖與文字）。"""
 
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()

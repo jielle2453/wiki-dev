@@ -129,7 +129,7 @@ class TestRoundOne(Base):
 
     def test_reserved_type_words_allowed_and_fullwidth_comma_refused(self):
         """裁定 19：詞與欄名不套型別保留字；詞另擋全形逗號。"""
-        r = self.kb("add", "標籤", "型別=案子", "欄名=系統", "詞=收件匣、知識庫")
+        r = self.kb("add", "標籤", "型別=案子", "欄名=系統", "詞=暫存區、知識庫")
         self.assertEqual(r.returncode, 0, r.stdout)
         r = self.kb("add", "標籤", "型別=案子", "欄名=工種", "詞=甲，乙")
         self.assertEqual(r.returncode, 3)

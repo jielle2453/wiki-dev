@@ -5,7 +5,7 @@
       "id": "out-1a2b3c4d",
       "origin": "ai_output",
       "locations": [
-        "file://AI 產出/x.md"
+        "file://暫存區/x.md"
       ],
       "created_turn": "20261013-110000-6697",
       "created": "2026-10-13T11:00:00",
@@ -22,7 +22,7 @@
       "id": "out-9e8d7c6b",
       "origin": "ai_output",
       "locations": [
-        "file://AI 產出/舊草稿.md"
+        "file://暫存區/舊草稿.md"
       ],
       "created_turn": "20261012-090000-6697",
       "created": "2026-10-12T09:00:00",

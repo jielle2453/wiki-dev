@@ -27,10 +27,10 @@ class Normalize(unittest.TestCase):
                 self.assertEqual(paths.normalize(f, CWD), want)
 
     def test_result_uses_forward_slash_no_trailing_slash(self):
-        got = paths.normalize("C:\\x\\vault\\AI 產出\\", CWD)
+        got = paths.normalize("C:\\x\\vault\\暫存區\\", CWD)
         self.assertNotIn("\\", got)
         self.assertFalse(got.endswith("/"))
-        self.assertTrue(got.endswith("/ai 產出") if os.name == "nt" else got.endswith("/AI 產出"))
+        self.assertTrue(got.endswith("/暫存區"))
 
     def test_relative_joins_cwd_and_collapses_dots(self):
         self.assertEqual(paths.normalize("./案子/../案子/a.md", CWD), paths.normalize("C:/x/vault/案子/a.md", CWD))
