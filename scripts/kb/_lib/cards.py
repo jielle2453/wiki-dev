@@ -499,10 +499,33 @@ def _profile_or_default(vault):
     return (data, False) if data is not None else (profile.defaults(), True)
 
 
+def defer_why(vault, sources, entry):
+    """改過內容的檔先不重做卡（放寬丙 3b-5，D-329）：同夾有鎖檔（Word、Excel 開著時的 ~$<完整檔名> 或 ~$<檔名去掉前兩個字>）回 "open"，
+    修改時間在 recard_idle_minutes 分鐘內回 "recent"（設 0 就不看修改時間），都不是回 None。link 條目、讀不到檔回 None。"""
+    import time
+    from kb._lib import inventory
+    if entry.get("kind") == "link" or not entry.get("locations"):
+        return None
+    path = inventory.path_of(vault, sources, entry["locations"][0]["uri"])
+    if path is None:
+        return None
+    path = Path(path)
+    try:
+        if any((path.parent / ("~$" + name)).exists() for name in (path.name, path.name[2:])):
+            return "open"
+        minutes = config.get(vault, "recard_idle_minutes")
+        if minutes > 0 and time.time() - path.stat().st_mtime < minutes * 60:
+            return "recent"
+    except OSError:
+        return None
+    return None
+
+
 def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, deadline=None):
     """todo 的檔案分桶（new、stale、moved、duplicates、broken、orphans、unreadable、missing、skipped、unlinked、missing_types）：
     回 (out, groups, 設定檔)。light 給 unsorted：new、stale 只放 {"id"}、不印 header（份數照算，跟 todo 第一行同一個數）；
     deadline（time.monotonic 的時刻）過了丟 TimeoutError（開場 hook 有時限）。不寫檔。
+    改過內容但檔還開著或剛改過的（defer_why）不進 stale，另放 deferred: [{id, why}]（放寬丙 3b-5）。
     produce 第 5 點：AI 產出的（草稿）.md 不列；link 條目的 new 項 kind 是 link、path 是 None、多 url；
     unbacked 是 new 裡掃描補登記的 AI 產出份數（給 tell）。"""
     import time
@@ -529,7 +552,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
     groups, broken = _scan_groups(vault, deadline)
     out = {"new": [], "stale": [], "moved": [], "duplicates": [], "orphans": [], "unreadable": [], "missing": [],
            "skipped": dict({k: 0 for k in SKIPPED_READS}, skipped=0), "broken": list(broken), "pdf_restored": restored,
-           "unlinked": [], "missing_types": {}, "unbacked": 0}
+           "unlinked": [], "missing_types": {}, "unbacked": 0, "deferred": []}
     data, out["profile_missing"] = _profile_or_default(vault)
     out["profile"] = profile.card_types_for_todo(data)
     have_types = {entities.key(t["name"]) for t in data.get("types") or []}
@@ -595,6 +618,8 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
             out["broken"].append(broken_item(entry, keep, codes[0][1]))
         elif "dir" in names or keep["front"].get("原檔") != _uris(entry):
             out["moved"].append({"id": cid, "from": keep["path"], "to": card_dir(entry)})
+        elif "fingerprint" in names and not redo and (why := defer_why(vault, sources, entry)):
+            out["deferred"].append({"id": cid, "why": why})  # 檔還開著或剛改過：先不列、不算份數（D-329）
         elif "fingerprint" in names or redo:  # 客戶說卡讀錯了（kb cards redo）：重寫前一直列著
             out["stale"].append(dict(work_item(entry, keep), **({"reason": REDO_REASON} if redo else {})))
         elif {c[0] for c in others} == {"v1"}:  # 第一版、其他都過：只補掛載（D-116）

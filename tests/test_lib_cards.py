@@ -254,6 +254,7 @@ class Todo(Vault):
             self.assertEqual(todo[k], [], k)
 
     def test_card_written_then_stale_then_fake_change(self):
+        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")  # 這裡的 mtime 是假的未來時間
         item = self.item()
         _cards.write_card(self.V, item, "大安陳會議一")
         todo = self.todo()
@@ -270,6 +271,47 @@ class Todo(Vault):
         stale = self.todo()["stale"]
         self.assertEqual([i["id"] for i in stale], [item["id"]])
         self.assertTrue(stale[0]["existing_card"].endswith(f"大安陳會議一-{item['id'][2:]}.md"))
+
+    def _changed_card(self):
+        item = self.item()
+        _cards.write_card(self.V, item, "大安陳會議一")
+        p = self.raw / _cards.MEETING
+        _ooxml.docx(p, _cards.MEETING_BLOCKS + [("p", "追加一段")])
+        _cards.scan_apply(self.V)
+        return item, p
+
+    def test_recently_changed_file_is_deferred_not_stale(self):
+        """放寬丙 3b-5（D-329）：改過內容、修改時間在 recard_idle_minutes 分鐘內的檔先不列、不算份數，deferred 說 recent。"""
+        item, p = self._changed_card()
+        todo = self.todo()
+        self.assertEqual(todo["stale"], [])
+        self.assertEqual(todo["deferred"], [{"id": item["id"], "why": "recent"}])
+        self.assertNotIn(item["id"], [i["id"] for i in todo["new"]], "新增的檔才不受這條管；這份有舊卡")
+        self.assertEqual(cards.unsorted(self.V), len(todo["new"]) + len(todo["stale"]))
+        old = p.stat().st_mtime - 11 * 60  # 停了 11 分鐘：照常列
+        os.utime(p, (old, old))
+        todo = self.todo()
+        self.assertEqual([i["id"] for i in todo["stale"]], [item["id"]])
+        self.assertEqual(todo["deferred"], [])
+
+    def test_lock_file_defers_even_when_old_and_both_spellings_count(self):
+        item, p = self._changed_card()
+        old = p.stat().st_mtime - 3600
+        os.utime(p, (old, old))
+        for lock in (p.parent / ("~$" + p.name), p.parent / ("~$" + p.name[2:])):
+            with self.subTest(lock=lock.name):
+                lock.write_bytes(b"x")
+                todo = self.todo()
+                self.assertEqual(todo["deferred"], [{"id": item["id"], "why": "open"}])
+                self.assertEqual(todo["stale"], [])
+                lock.unlink()
+        self.assertEqual([i["id"] for i in self.todo()["stale"]], [item["id"]])
+
+    def test_idle_minutes_zero_lists_a_just_changed_file(self):
+        item, _p = self._changed_card()
+        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")
+        todo = self.todo()
+        self.assertEqual(([i["id"] for i in todo["stale"]], todo["deferred"]), ([item["id"]], []))
 
     def test_orphan_and_broken(self):
         item = self.item()

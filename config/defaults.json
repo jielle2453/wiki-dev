@@ -15,6 +15,8 @@
   "_why_changes_quick_hash_budget_bytes": "快速比對（開場）一次最多讀多少位元組算指紋，超過的當修改或新增（I-081）",
   "changes_quick_seconds": 5,
   "_why_changes_quick_seconds": "快速比對走訪的時間上限，超過停下、開場改印還沒比完；SessionStart hook 逾時 10 秒，留一半給讀 core.md 與其他行",
+  "recard_idle_minutes": 10,
+  "_why_recard_idle_minutes": "改過的檔還開著（同夾有鎖檔）或剛改過，先不重做卡，停了這麼久才做（D-329）；使用者可改，設 0 就只看鎖檔",
   "ingest_auto_max": 20,
   "_why_ingest_auto_max": "開場有變動時 AI 不問就整理成卡的份數上限：門檻內開始前先說一聲份數、大約多久、要停跟我說，再直接派 card-maker 在背景做，超過先問客戶（D-100 2026-10-20 修訂、D-196、D-200）；開場指示行與 kb cards todo 的 --limit 預設都讀它",
   "pdf_read_pages_max": 20,
