@@ -932,8 +932,6 @@ def mount(vault, fid, names, turn_id):
             if e["name"] not in new:
                 new.append(e["name"])
         card = card_of(vault, fid)
-        if "實體" not in card["front"]:  # 範本第一版：沒有實體欄可改（測試第一輪後裁定 5）
-            raise CardRefused(f"「{_title(card)}」是舊版的卡，還沒有實體欄；先整理一次補好再改掛")
         was = card["front"].get("實體") if isinstance(card["front"].get("實體"), list) else []
         text = _read(vault, card["path"])
         updated = rewrite_entities(text, new)
@@ -1180,7 +1178,7 @@ def rewrite_entities(text, names):
     """只換檔頭的 實體 欄（kb entity rename／merge 改掛載），其他行原樣。一行清單或「實體:」下接「  - 項」的區塊都換，
     換完一律寫成一行的清單（測試後修正裁定 13，收法同 rewrite_locations）。"""
     lines = text.splitlines(keepends=True)
-    out, i, in_front = [], 0, False
+    out, i, in_front, found = [], 0, False, False
     while i < len(lines):
         line = lines[i]
         bare = line.rstrip("\r\n")
@@ -1188,7 +1186,10 @@ def rewrite_entities(text, names):
             in_front = True
         elif in_front and bare == "---":
             in_front = False
+            if not found:  # 舊版卡沒有實體欄：補一欄再改掛（放寬甲，D-322 第 24 件）
+                out.append(f"實體: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
         elif in_front and bare.startswith("實體:"):
+            found = True
             out.append(f"實體: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
             i += 1
             while i < len(lines) and lines[i].startswith(("  - ", "- ")):

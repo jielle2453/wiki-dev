@@ -746,13 +746,13 @@ class RedoMount(unittest.TestCase):
         self.kb("cards", "sync")
         self.assertEqual(self.redo_listed(), [(self.fid, "客戶說卡讀錯了")])
 
-    def test_mount_refuses_a_first_version_card(self):
-        """測試第一輪後裁定 5（F-3）：檔頭沒有實體欄的舊版卡不寫、exit 3。"""
+    def test_mount_adds_entity_field_to_a_first_version_card(self):
+        """放寬甲（D-322 第 24 件）：檔頭沒有實體欄的舊版卡直接補一欄再改掛，不拒絕。"""
         self.E.to_v1(self.V, self.rel)
-        before = (self.V / self.rel).read_bytes()
-        self.assertEqual(self.kb("cards", "mount", self.fid, "--entity", "信義王", code=3),
-                         ["「信義王報價」是舊版的卡，還沒有實體欄；先整理一次補好再改掛"])
-        self.assertEqual((self.V / self.rel).read_bytes(), before)
+        self.assertNotIn("實體", cards.parse_front((self.V / self.rel).read_text(encoding="utf-8")))
+        self.kb("cards", "mount", self.fid, "--entity", "信義王")
+        front = cards.parse_front((self.V / self.rel).read_text(encoding="utf-8"))
+        self.assertEqual(front["實體"], ["信義王"])
 
     def test_redo_refusals(self):
         self.assertEqual(self.kb("cards", "redo", "f-00000000", code=3), ["清冊沒有 f-00000000"])
