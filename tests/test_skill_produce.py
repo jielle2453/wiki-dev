@@ -14,7 +14,7 @@ SKILL = SKILL_DIR / "SKILL.md"
 REFS = {name: SKILL_DIR / "references" / name for name in ("draft.md", "make.md")}
 EVALS = ROOT / "tests" / "evals" / "produce.json"
 DESC = ("要 AI 做出一份東西都用這個：做成 Word、Excel、PowerPoint、PDF、線上文件或簡報，「幫我做一份報價」「照去年的合約寫新的」"
-        "「合約付款條件改成 30 天」「剛才那個表存成檔」「這週日程印出來」「草稿可以了，定稿」；問資料、記下來、整理檔案、搬檔、寄出去不用這個。")
+        "「合約付款條件改成 30 天」「剛才那個表存成檔」「剛才討論的寫成筆記」「草稿可以了，定稿」；問資料、記下來、整理檔案、搬檔、寄出去不用這個。")
 DESC_MAX = 150
 BODY_MAX_CHARS = 3000
 REFERENCE_MAX_LINES = 150

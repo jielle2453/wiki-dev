@@ -1,6 +1,6 @@
 [
   {"query": "幫我把王宅的報價整理成 Excel，項目、數量、單價、小計都要有", "should_trigger": true},
-  {"query": "照去年信義王的合約，幫大安陳寫一份新的，付款期別照他報價單那三期", "should_trigger": true},
+  {"query": "把剛才討論的王宅那幾件事寫成一份筆記", "should_trigger": true},
   {"query": "用我的報價單範本幫內湖李做一份報價", "should_trigger": true},
   {"query": "王宅合約的付款條件改成 30 天", "should_trigger": true},
   {"query": "把這份估價單轉成 PDF，我要傳給業主", "should_trigger": true},
