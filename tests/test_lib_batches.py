@@ -563,10 +563,10 @@ class ReadLists(unittest.TestCase):
         self.assertEqual(self.names("adopt"), [self.REF + "batch.md", self.REF + "adopt.md"])
 
     def test_synthesis_budget(self):
-        """D-520 是 8,900 字；拆模組後綜合卡批次（沒有 broken）三份合計 ≤ 7,000 + 丙在 rules/synthesis.md 加的 155 字
+        """D-520 是 8,900 字；拆模組後綜合卡批次（沒有 broken）三份合計 ≤ 7,200（D-521 裁定 22）
         （D-521 裁定 1、6）。"""
         total = sum(len(Path(p).read_text(encoding="utf-8")) for p in batches.read_list("synthesis", ["synthesis_stale"]))
-        self.assertLessEqual(total, 7000 + 155)
+        self.assertLessEqual(total, 7200)  # 裁定 22
 
     def test_read_text_lists_names(self):
         self.assertEqual(batches.read_text(batches.read_list("agenda")), "batch.md、agenda-scan.md")

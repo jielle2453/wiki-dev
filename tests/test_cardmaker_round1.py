@@ -146,6 +146,11 @@ class GuardScope(unittest.TestCase):
                 out = self.call(f"{KB} {allowed}")
                 self.assertEqual(out["permissionDecision"], "allow", out)
                 self.assertIn(f"--turn {self.job} --agent {AGENT}", out["updatedInput"]["command"])
+        for cmd in (f"{KB} entity render", f"{KB} entity render --json", f"{KB} entity render --vault 甲",
+                    f"{KB} entity render --vault=甲 --synced"):  # 裁定 18：不帶名稱（重寫全部）擋
+            with self.subTest(cmd=cmd):
+                out = self.call(cmd)
+                self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]), ("deny", "製卡助手不能做這件事"))
         for cmd in (f"{KB} --turn 20990101-000000-xxxx entity log 甲 x", f"{KB} entity render 甲 --synced --turn=x"):
             with self.subTest(cmd=cmd):
                 out = self.call(cmd)

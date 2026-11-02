@@ -263,6 +263,22 @@ class Buckets(Base):
         self.assertEqual(synthesis.read_ranges("---\na: 1\n---\n# x\n\n<!-- willy:檔 開始 -->\n## 相關檔\n- 沒結束\n"),
                          [[4, 2]])  # 沒有結束記號算到檔尾（同 _span）
 
+    def test_marker_counts_only_as_whole_line(self):
+        """裁定 14：行中間的記號字串不算相關檔；render 照樣把真的那段接在最後，那行與後面的段一字不動。"""
+        inline = "- 2026-10-30 備註 " + synthesis.FILE_BEGIN + " x〔f-00000001〕"
+        text = "---\na: 1\n---\n# x\n\n## 紀事\n" + inline + "\n- 2026-10-01 甲\n\n## 時程\n未知\n"
+        self.assertIsNone(synthesis._span(text))
+        got = synthesis.with_file_section(text, self.FILES.rstrip("\n"))
+        self.assertTrue(got.startswith(text.rstrip("\n")))
+        self.assertTrue(got.endswith(self.FILES))
+        self.assertEqual(synthesis._span(got)[0], got.index("\n" + synthesis.FILE_BEGIN + "\n") + 1)
+
+    def test_empty_events_section_gets_blank_line_before_files(self):
+        """裁定 20：紀事段只有標題、下一行就是相關檔記號，新條跟記號之間空一行。"""
+        text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n## 紀事\n" + self.FILES
+        got, _a, _d = synthesis.insert_events(text, [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
+        self.assertEqual(got, text.replace("## 紀事\n", "## 紀事\n- 2026-10-25 開會〔f-00000001〕\n\n"))
+
     def test_insert_events_keeps_file_section(self):
         """D-521 裁定 5：紀事是最後一段、或沒有紀事段而現況是最後一段，加的行都在「相關檔」開始記號之前，那段一字不動。"""
         new = "- 2026-10-25 開會〔f-00000001〕"
