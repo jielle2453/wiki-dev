@@ -87,8 +87,13 @@ class ShellSyntax(Base):
                           ("Bash", f'python -I -c "import os,sys;print(len(os.listdir(sys.argv[1])))" "{self.raw.as_posix()}/行政/請款"'),
                           ("Bash", f'python "{KB}" cards todo --json > "{o}/todo.json"')):
             self.assertDecision(tool, cmd, "pass")
-        # 放寬甲 U6：效用 cwd 在知識庫、程式碼有 open(…, 'w') 的覆蓋寫法 → code（即使參數指到外面）
-        d = self.assertDecision("Bash", f'python -I -X utf8 -c "import json,sys;o=open(sys.argv[2],\'w\',encoding=\'utf-8\');o.write(\'x\')" "{o}/in.json" "{o}/out.txt"', "deny")
+        # 放寬甲 U6（11-02 再定 4）：cwd 在知識庫、程式碼沒有字面路徑或相對路徑、參數全是知識庫與來源外的絕對路徑 → 放行
+        code = "import json,sys;o=open(sys.argv[2],'w',encoding='utf-8');o.write('x')"
+        self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" "{o}/out.txt"', "pass")
+        # 參數有相對路徑、或有知識庫裡的絕對路徑 → 仍是 code
+        d = self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" out.txt', "deny")
+        self.assertEqual(d.reason_code, "code")
+        d = self.assertDecision("Bash", f'python -I -X utf8 -c "{code}" "{o}/in.json" "{self.V.as_posix()}/我的夾/out.txt"', "deny")
         self.assertEqual(d.reason_code, "code")
 
     def test_real_writes_into_vault_denied(self):

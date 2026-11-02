@@ -4337,9 +4337,9 @@
     "description": "Save selected todo items to scratchpad as UTF-8"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "card-maker-spike.md 第 2 題 (f)／對設計的影響第 8 點（hook-log 第 8 行；報告寫第 7 行，差一行）",
-   "note": "誤擋：python -I -X utf8 -c 讀 tool-results、寫知識庫外 scratchpad，被當成寫實體夾（Z2 理由句）；應不表態；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：python -I -X utf8 -c 讀 tool-results、寫知識庫外 scratchpad，被當成寫實體夾（Z2 理由句）；應不表態；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4399,9 +4399,9 @@
     "description": "把整理批次的問題存成暫存檔"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 907 行，主對話）",
-   "note": "誤擋：python -I -c 讀 tool-results、open(sys.argv[2],'w') 寫知識庫外 scratchpad，被當成寫知識庫第一層（Z8 理由句）；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：python -I -c 讀 tool-results、open(sys.argv[2],'w') 寫知識庫外 scratchpad，被當成寫知識庫第一層（Z8 理由句）；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4410,9 +4410,9 @@
     "description": "Extract my items and profile into utf-8 file"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 1011 行，card-maker 子代理）",
-   "note": "誤擋：cat heredoc 寫 py 到 scratchpad 再 python -I 跑（內文有 'w'、[]），被當成寫知識庫第一層（Z8）；D-186 (a) heredoc 內文當資料；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：cat heredoc 寫 py 到 scratchpad 再 python -I 跑（內文有 'w'、[]），被當成寫知識庫第一層（Z8）；D-186 (a) heredoc 內文當資料；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4421,9 +4421,9 @@
     "description": "Save plan fields as UTF-8 to scratchpad"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 1050 行，主對話）",
-   "note": "誤擋：python -c（沒有 -I）讀 tool-results、寫 scratchpad，被當成寫知識庫第一層（Z8）；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：python -c（沒有 -I）讀 tool-results、寫 scratchpad，被當成寫知識庫第一層（Z8）；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4613,12 +4613,12 @@
     "command": "python -I -c \"import sys;p=sys.argv[1];t=open(p,encoding='utf-8').read();open(p,'w',encoding='utf-8').write(t.replace('| 3-2d','| 3-2d'))\" \"<TMP>\\B-093-報告.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<TMP>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-2d",
-   "note": "誤擋：python -I -c open(p,'w') 改知識庫外（上層）的報告，被分到實體夾（Z2 理由句）。報告只給「python -I -c \"…open(p,'w')…\" \"…\\install-spike\\B-093-報告.md\"」，程式碼是重建的；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：python -I -c open(p,'w') 改知識庫外（上層）的報告，被分到實體夾（Z2 理由句）。報告只給「python -I -c \"…open(p,'w')…\" \"…\\install-spike\\B-093-報告.md\"」，程式碼是重建的；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4626,12 +4626,12 @@
     "command": "python -I -c \"import sys;p=sys.argv[1];t=open(p,encoding='utf-8').read();open(p,'w',encoding='utf-8').write(t)\" \"<OUT>\\B-093-報告.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<OUT>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-2d 變體",
-   "note": "同 3-2d，報告放在跟知識庫無關的外部夾；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "同 3-2d，報告放在跟知識庫無關的外部夾；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",
@@ -4639,12 +4639,12 @@
     "command": "python -I -c \"import sys;t=open(sys.argv[1],encoding='utf-8').read();open(sys.argv[2],'w',encoding='utf-8').write(t[:4000])\" \"<TMP>\\B-093-報告.md\" \"<OUT>\\scratchpad\\head.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<TMP>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-4d（第一次）",
-   "note": "誤擋：唯讀 python 寫 scratchpad 暫存檔，被當寫知識庫第一層（Z8）。報告沒給原指令，整條是重建的；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
+   "note": "誤擋：唯讀 python 寫 scratchpad 暫存檔，被當寫知識庫第一層（Z8）。報告沒給原指令，整條是重建的；放寬甲對齊：原 pass；第一輪曾改 deny，11-02 再定 (4)：cwd 在知識庫但程式碼無字面或相對路徑、參數全是知識庫與來源外的絕對路徑，放行（U6）"
   },
   {
    "tool": "Bash",

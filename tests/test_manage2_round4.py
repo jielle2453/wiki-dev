@@ -16,7 +16,7 @@ from kb._lib.paths import plugin_root  # noqa: E402
 
 CURLY = [chr(c) for c in range(0x2018, 0x2020)]
 KB_IN_VAULT = "知識庫裡的夾不能設成不讀；要不讓 AI 看到，先搬到登記的來源夾再設"
-CURLY_DENY = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令；改用「」或直引號，或改用 Bash 再跑"
+CURLY_DENY = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令，這次沒放行：把指令裡的彎引號換成「」或直引號，或改用 Bash 再跑一次"
 
 
 def kb(*args, cwd=None):

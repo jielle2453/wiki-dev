@@ -853,7 +853,7 @@ ASK_PREFIX = "需要客戶按允許才會執行："
 NO_SUCH_FILE = "no_such_file"
 NO_SUCH_FILE_REASON = "找不到這份檔"
 _FILE_ID = re.compile(r"^f-[0-9a-f]{8}$")
-CURLY_REASON = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令；改用「」或直引號，或改用 Bash 再跑"
+CURLY_REASON = "PowerShell 會把彎引號（“ ” ‘ ’）當成引號拆開指令，這次沒放行：把指令裡的彎引號換成「」或直引號，或改用 Bash 再跑一次"
 ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。"
 
 
@@ -1490,6 +1490,8 @@ _SUBPROC = re.compile(
 _STR_LIT = re.compile(r"""(['"])((?:(?!\1).)*)\1""")
 _REL_PATH_IN_CODE = re.compile(r"""['"]([^'"\n]*[/\\][^'"\n]*|[^'"\n/\\\s]+\.\w{1,6})['"]""")
 
+_ESCAPE_ONLY = re.compile(r"\\[ntr0abfv]")
+
 
 def _code_commands(code):
     """直譯器程式碼裡跑別的指令的字串常數（os.system("…")、subprocess.run(["rm", "x"])）：回 ([指令字串], 有沒有不是常數的呼叫)。"""
@@ -1507,11 +1509,10 @@ def _code_commands(code):
     return cmds, len(_SUBPROC_CALL.findall(code)) > seen
 
 
-def _code_touches(code, base, ctx):
-    """程式碼可能碰到知識庫或來源：效用 cwd 在知識庫或來源裡（或推不出來）、程式碼裡有指到它們的路徑、或有相對路徑（spec 設計自定）。"""
+def _code_touches(code, base, ctx, args=None):
+    """程式碼可能碰到知識庫或來源：效用 cwd 在知識庫或來源裡（或推不出來）、程式碼裡有指到它們的路徑、或有相對路徑（spec 設計自定）。
+    例外（放寬甲 11-02 再定 4）：cwd 在知識庫或來源裡，但程式碼沒有字面路徑也沒有相對路徑、而且給的參數全是知識庫與來源外的絕對路徑，放行。"""
     if base is None:
-        return True
-    if classify(base, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(base, ctx.vault_n, ctx.sources)[0]:
         return True
     for raw in cmdparse.code_paths(code):
         p = _norm(raw, base)
@@ -1519,9 +1520,41 @@ def _code_touches(code, base, ctx):
             return True
     for m in _REL_PATH_IN_CODE.finditer(code):
         s = m.group(1)
+        plain = _ESCAPE_ONLY.sub("", s)
+        if plain != s and not re.search(r"[/\\]|\.\w{1,6}$", plain):
+            continue  # '\n'、'\t' 這種跳脫字元不是路徑
         if not cmdparse._ABS_START.match(s) and not cmdparse._URL.match(s):
             return True
+    if classify(base, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(base, ctx.vault_n, ctx.sources)[0]:
+        if args is None:
+            return True
+        for w in args:
+            if not cmdparse._ABS_START.match(w):
+                if re.search(r"[/\\]", w) or re.search(r"\.[A-Za-z0-9]{1,6}$", w):
+                    return True  # 相對路徑
+                continue  # 不像路徑的參數（編號、旗標值）
+            p = _norm(w, base)
+            if p is None or classify(p, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(p, ctx.vault_n, ctx.sources)[0]:
+                return True
     return False
+
+
+def _arg_words(plan, inline, script_path):
+    """直譯器命令列上給程式的參數：-c 的程式碼字串之後、或腳本檔之後的詞（旗標不算）。"""
+    args = plan["args"]
+    rest = []
+    if inline:
+        for i, w in enumerate(args):
+            if w.lower() in cmdparse.CODE_FLAGS and i + 1 < len(args):
+                # 程式碼字串裡有 {a,b} 會被拆成好幾個詞（brace 展開）：跟程式碼開頭長段一樣的詞都不是參數
+                rest = [x for x in args[i + 1:] if len(os.path.commonprefix([x, inline])) < 20 and x != inline]
+                break
+    elif script_path:
+        for i, w in enumerate(args[1:], 1):
+            if not w.startswith("-") and w.lower().endswith(cmdparse.SCRIPT_EXTS):
+                rest = args[i + 1:]
+                break
+    return [w for w in rest if not w.startswith("-")]
 
 
 def _script_of(plan, base, ctx):
@@ -1598,9 +1631,10 @@ def _interp_check(plan, ctx, recurse):
             d = recurse("PowerShell" if runs in ("powershell", "pwsh") else "Bash", c, base)
             if d is not None and d.decision == "deny":
                 return d
-        if cmdparse.DESTRUCTIVE_CODE.search(snip) and _code_touches(snip, base, ctx):
+        argw = _arg_words(plan, inline, path)
+        if cmdparse.DESTRUCTIVE_CODE.search(snip) and _code_touches(snip, base, ctx, argw):
             return ctx.deny("", "code", CODE_REASON)
-        if nonconst and _code_touches(snip, base, ctx):
+        if nonconst and _code_touches(snip, base, ctx, argw):
             what = _u5_words({"text": snip, "code": ""}, ctx)
             if what:
                 return _u5_decision(what, ctx, snip)
