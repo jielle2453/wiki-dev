@@ -815,20 +815,14 @@ def _relocate(vault, args, as_json):
         entry["spec"] = spec
         turn_id, original = _backup_then_write(vault, raw)
         report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, alias, turn_id)
-        got = cards.sync(vault, sources_lib.Sources(vault, raw), turn_id)
-        changed = list(got["changed"])
-        if got["moved"] or got["updated"] or got["dropped"]:
-            cards.render_index(vault, turn_id)
-            changed.append({"path": cards.INDEX_POSIX, "action": "modify"})
-            changed += [{"path": rel, "action": "modify"} for rel in cards.refresh_synthesis(vault, got["touched"], turn_id)]
+        changed = []  # 卡的開原檔是外掛連結、只帶編號（放寬丙 9，D-328）：換位置不用重寫卡
     env.clear_missing(vault, [entry.get("id") or alias])
-    first = (f"已把「{alias}」換到新位置：{_realcase(t)}；卡的原檔連結更新了 {len(got['moved']) + len(got['updated'])} 張；"
-             "說「退回上一版」換得回來")
+    first = f"已把「{alias}」換到新位置：{_realcase(t)}；說「退回上一版」換得回來"
     _journal(vault, first, "folders relocate", inv_changed, changed)
     if as_json:
         print(json.dumps({"alias": alias, "spec": spec, "old_spec": old_spec, "path": str(t), "sampled": total,
                           "matched": ok, "misses": misses, "excludes": [{"spec": s_, "found": f} for s_, f in excludes],
-                          "check": False, "cards_updated": len(got["moved"]) + len(got["updated"])}, ensure_ascii=False))
+                          "check": False}, ensure_ascii=False))
         return 0
     print(first)
     print("\n".join(lines))

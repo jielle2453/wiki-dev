@@ -71,7 +71,7 @@ class MoveFile(Base):
         self.assertFalse((Path(self.V) / self.card_rel).exists())
         front = cards.parse_front(new_card.read_text(encoding="utf-8"))
         self.assertEqual(front["原檔"], ["file://客戶案件/大安陳/估價單.pdf"])
-        self.assertEqual(front["開原檔"], cards.open_link(dest / "估價單.pdf"))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + self.fid)
         self.assertIn("檔案索引/客戶案件/大安陳/", (Path(self.V) / "總目錄.md").read_text(encoding="utf-8"))
         rows = turn.moves(self.V, self.t)
         self.assertEqual([(r["op"], r["kind"], r["from"], r["to"]) for r in rows],

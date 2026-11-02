@@ -20,6 +20,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from kb._lib import credentials, ledger, turn
+from kb._lib import ledger as ledger_mod
 from kb._lib.areas import FREE_DIR, HOLD_DIR
 from kb._lib import io as kio
 from kb._lib.io import FileLock, write_text_atomic
@@ -215,7 +216,7 @@ def _clean_changed(changed):
     return [{"path": c.get("path"), "action": c.get("action")} for c in (changed or [])]
 
 
-def _complete_row(turn_data, result, note, note_by, changed, interrupted, result_truncated=None, vault=None):
+def _complete_row(turn_data, result, note, note_by, changed, interrupted, result_truncated=None, vault=None, actions=None):
     if result_truncated is None:
         result_truncated = str(result or "").endswith(TRUNCATED_TAIL)
     row = _open_row(turn_data, vault)
@@ -229,12 +230,31 @@ def _complete_row(turn_data, result, note, note_by, changed, interrupted, result
         "note_by": note_by,
         "changed": _clean_changed(changed),
     })
+    if actions:  # 位置類動作與 JSON 條目的單欄改動（放寬丙）：永久留，回合備份清掉後搬動、改名、建夾還能照這裡改回；舊行沒有這欄照讀
+        row["actions"] = actions
     return row
+
+
+def actions_for(vault, turn_data):
+    """這一句的 actions 欄（items.actions_of_turn）：journal_key 與目前回合兩個回合夾聯集（跟 finish_fields 一樣）。
+    讀不出來回空清單，不擋日誌。"""
+    from kb._lib import config, items
+    try:
+        limit = config.get(vault, "journal_value_max")
+        ledger = items.Ledger(vault)
+        out = []
+        for tid in dict.fromkeys((turn.journal_key(turn_data), turn_data["turn"])):
+            out.extend(items.actions_of_turn(vault, tid, limit, ledger))
+        return out
+    except Exception as e:  # noqa: BLE001
+        ledger_mod.log_error(vault, f"工作日誌 actions 沒記到：{type(e).__name__}: {e}", source="journal")
+        return []
 
 
 def complete_turn(vault, turn_data, result, note, note_by, changed, interrupted, result_truncated=None):
     """回合補完（Stop 或中斷補記）：同一行換成完整的一行，done true。"""
-    row = _complete_row(turn_data, result, note, note_by, changed, interrupted, result_truncated, vault)
+    row = _complete_row(turn_data, result, note, note_by, changed, interrupted, result_truncated, vault,
+                        actions_for(vault, turn_data))
     _locked_edit(vault, month_of(row["turn"]), _upsert_rows([row]))  # row["turn"] 是 journal_key：跨月的退回寫回原月（R3-L1）
 
 
@@ -275,6 +295,9 @@ def refresh_changed(vault, turn_id):
             return False
         row = dict(items[i][1])
         row["changed"] = _clean_changed(changed)
+        actions = actions_for(vault, data)
+        if actions:
+            row["actions"] = actions
         if row.get("note_by") != "ai":
             row["note"], row["note_by"] = note, note_by
         items[i] = (None, row)
@@ -314,7 +337,8 @@ def begin_turn(vault, previous, turn_data):
     rows = []
     if previous and not previous.get("done", True):
         note, note_by, changed = finish_fields(vault, previous)
-        rows.append(_complete_row(previous, INTERRUPTED_RESULT, note, note_by, changed, True, False, vault))
+        rows.append(_complete_row(previous, INTERRUPTED_RESULT, note, note_by, changed, True, False, vault,
+                                  actions_for(vault, previous)))
     opened = _open_row(turn_data, vault)
     month = month_of(opened["turn"])
     if not rows or month_of(rows[0]["turn"]) == month:
@@ -327,7 +351,7 @@ def begin_turn(vault, previous, turn_data):
         ledger.log_error(vault, f"工作日誌補記上個月中斷沒寫成：{type(e).__name__}: {e}", source="journal")
 
 
-def record_program(vault, note, changed, command):
+def record_program(vault, note, changed, command, actions=None):
     """程式段（D-085）：追加一行 kind program。代號一律用現在時間組（尾 0000，L2），月份就是現在；不碰 turns/。"""
     now = _now()
     tid = f"{now:%Y%m%d-%H%M%S}-0000"
@@ -335,6 +359,8 @@ def record_program(vault, note, changed, command):
         "schema_version": SCHEMA_VERSION, "kind": "program", "turn": tid, "time": _iso(now),
         "command": command, "note": str(note or ""), "changed": _clean_changed(changed),
     }
+    if actions:
+        row["actions"] = actions
     if turn.VIA:
         row["source"] = turn.VIA  # Obsidian 外掛按的：抬頭寫「你在 Obsidian 按的」，不說是她在終端機跑的
 
@@ -483,7 +509,7 @@ def _named(names, unit):
 
 
 def changed_text(changed):
-    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_extras 1 份；日程；其他 2 個檔」；沒有回空字串。"""
+    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_個人 1 份；日程；其他 2 個檔」；沒有回空字串。"""
     synth, cards, outputs, free, words, files, other = [], 0, 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
@@ -555,14 +581,42 @@ def _changed_lines(row):
     return ["- 改了："] + [f"  - {ACTION_TEXT.get(c.get('action'), c.get('action'))} {c.get('path')}" for c in changed]
 
 
-def _block(row):
+ACTION_WORDS = {"move": "把{name}從 {a} 搬到 {b}", "rename": "把{name}改名叫 {b}", "trash": "把{name}丟進資源回收筒",
+                "make": "建了資料夾 {name}", "remove": "拿掉了空夾 {name}", "missing": "{name}不見了（不是 willy 動的）",
+                "added": "多了 {name}", "modified": "{name}被改過", "set": "把 {name} 的 {field} 從 {old} 改成 {new}"}
+DETECTED_SUMMARY = "這一句有 {n} 份檔換了位置"
+
+
+def _action_line(a):
+    from kb._lib import inventory
+    kind_uri = a.get("to") if a.get("op") == "added" else a.get("from")
+    name = a.get("key") if a.get("op") == "set" else str(kind_uri or "").rstrip("/").rpartition("/")[2]
+    where = lambda u: inventory.split_uri(u)[1].rpartition("/")[0].rpartition("/")[2] or inventory.split_uri(u)[0]  # noqa: E731
+    text = ACTION_WORDS.get(a.get("op"), "{name}")
+    show = lambda v: "（太長沒記）" if v is None else str(v)  # noqa: E731
+    return text.format(name=name, a=where(a["from"]) if a.get("from") else "", b=where(a["to"]) if a.get("to") else "",
+                       field=a.get("field"), old=show(a.get("old")), new=show(a.get("new")))
+
+
+def _action_lines(row, detail_max):
+    """actions 欄的白話：認得的逐筆一行；偵測到的（detected：op 是 move、missing、added、modified，不是 kb 記的）超過 detail_max 筆併一行。"""
+    acts = row.get("actions") or []
+    outside = [a for a in acts if a.get("by") in ("turn", "outside")]
+    shown = [a for a in acts if a not in outside] + (outside if len(outside) <= detail_max else [])
+    lines = [f"  - {_action_line(a)}" for a in shown]
+    if len(outside) > detail_max:
+        lines.append("  - " + DETECTED_SUMMARY.format(n=len(outside)))
+    return ["- 動了："] + lines if lines else []
+
+
+def _block(row, detail_max=10):
     when = str(row.get("time", "")).replace("T", " ")
     if row.get("kind") == "program":
-        return [f"## {when}　{program_label(row.get('command'), row.get('source'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+        return [f"## {when}　{program_label(row.get('command'), row.get('source'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row) + _action_lines(row, detail_max)
     lines = [f"## {when}　回合 {row.get('turn', '')}", f"- 問：{_flat(row.get('prompt'))}"]
     if not row.get("done"):
         return lines + [f"- 結果：{IN_PROGRESS}"]
-    return lines + [f"- 結果：{plain(row.get('result'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row)
+    return lines + [f"- 結果：{plain(row.get('result'))}", f"- 做了：{_flat(row.get('note'))}"] + _changed_lines(row) + _action_lines(row, detail_max)
 
 
 def render(vault, month):
@@ -611,6 +665,11 @@ def scrub(vault, mask, mention=None, keep=()):
                     if isinstance(c, dict) and isinstance(c.get("path"), str) and mask(c["path"]) != c["path"]:
                         c, hit = dict(c, path=PURGED_TEXT), True
                     changed.append(c)
+                if row.get("actions"):  # 放寬丙：actions 裡的路徑與值也照 mask 換
+                    acts = [{k: (v if k in ("item", "op", "kind", "by") or not isinstance(v, str) else mask(v))
+                             for k, v in a.items()} if isinstance(a, dict) else a for a in row["actions"]]
+                    if acts != row["actions"]:
+                        row["actions"], hit = acts, True
                 if mention is not None and row.get("kind") == "turn" and (
                         mention(str(row.get("result") or "")) or mention(str(row.get("note") or ""))):
                     hit = True

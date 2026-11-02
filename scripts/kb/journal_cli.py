@@ -147,12 +147,12 @@ def in_conversation(vault):
     return turn.in_conversation(vault)
 
 
-def record_program_or_warn(vault, note, changed, command, conversation):
+def record_program_or_warn(vault, note, changed, command, conversation, actions=None):
     """程式段：conversation（in_conversation 的結果）為真不寫；代號由 record_program 用現在時間組（L2）。
     寫失敗（鎖、IO）印一行到 stderr，不擋指令。"""
     try:
         if conversation:
             return
-        journal.record_program(vault, note, changed, command)
+        journal.record_program(vault, note, changed, command, actions=actions)
     except Exception as e:  # noqa: BLE001  日誌沒記到不能讓指令失敗
         print(f"工作日誌沒記到：{type(e).__name__}: {e}", file=sys.stderr)

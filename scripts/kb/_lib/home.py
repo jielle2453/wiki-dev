@@ -458,10 +458,10 @@ def _one_read():
             memo["get"][k] = get(vault, key)
         return memo["get"][k]
 
-    def cached_mounts(vault, data=None):
-        key = str(vault)
+    def cached_mounts(vault, data=None, mentions=False):
+        key = (str(vault), bool(mentions))
         if key not in memo["mounts"]:
-            memo["mounts"][key] = mounts(vault, data)
+            memo["mounts"][key] = mounts(vault, data, mentions)
         return copy.deepcopy(memo["mounts"][key])
     def no_new_turn(vault, session_id=None):
         """plan 算 tell（這一回合做了什麼）時叫 turn.current，那會開回合；kb home 只讀、不用 tell，給一個空的現況。"""

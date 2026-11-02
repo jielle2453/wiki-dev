@@ -93,7 +93,8 @@ def to_v1(V, rel):
     text = p.read_text(encoding="utf-8")
     text = re.sub(r"^實體: .*\n", "", text, count=1, flags=re.M)
     text = re.sub(r"^待補型別: .*\n", "", text, count=1, flags=re.M)
-    p.write_text(text.replace("範本版本: 2", "範本版本: 1"), encoding="utf-8", newline="\n")
+    text = re.sub(r"^提到: .*\n", "", text, count=1, flags=re.M)
+    p.write_text(text.replace("範本版本: 3", "範本版本: 1"), encoding="utf-8", newline="\n")
 
 
 def synthesis_text(header, name, body="一句講這是什麼。\n\n## 現況\n- 一點〔f-00000000〕\n"):

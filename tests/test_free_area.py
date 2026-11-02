@@ -282,7 +282,8 @@ class Revert(FixtureVault):
         turn.start(self.V, B, "我也改")
         self.write(B, "筆記.md", "B 寫的\n")
         r = run_kb("versions", "revert", cwd=self.V, sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        # 放寬丙 2-3（修訂 D-508）：之後被別的對話動過的那一項不做、列 conflict，exit 0；檔維持 B 寫的
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((self.F / "筆記.md").read_text(encoding="utf-8"), "B 寫的\n")
 
 

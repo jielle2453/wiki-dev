@@ -96,9 +96,11 @@ class Revert(Base):
         rows = json.loads(self.kb("versions", "list", "--json", sid=A).stdout)
         mine = [x for x in rows if any(e["path"] == ".system/agenda.json" for e in x["entries"])]
         self.assertEqual([(x["turn"], x["session"]) for x in mine], [(t_a, "self")])
-        self.assertFalse((self.V / ".system" / "versions" / t_b).exists())
+        # B 開口時每句開頭的比對可能在它的回合夾寫 detected.jsonl（放寬丙），但 A 的寫入不會落進 B 的 manifest
+        self.assertFalse((self.V / ".system" / "versions" / t_b / "manifest.jsonl").exists())
 
-    def test_3_same_card_changed_by_other_conversation_refused(self):
+    def test_3_same_card_changed_by_other_conversation_is_conflict(self):
+        """放寬丙（D-321(4)）：後來別的對話改過同一張卡，那一項不做、列 conflict（取代整個不退的 D-508）。"""
         self.prompt(A, "信義王改一下")
         self.edit_card(A, "A 改的\n")
         self.stop(A)
@@ -106,22 +108,20 @@ class Revert(Base):
         self.edit_card(B, "B 改的\n")
         self.stop(B)
         self.prompt(A, "退回上一步")
-        before = self.snapshot()
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        lines = r.stdout.splitlines()
-        self.assertEqual(lines[0], "退不回去：這一句之後，有別的地方也改過同一份，什麼都沒動")
-        self.assertIn(f"- {CARD_REL}：{said(self.V, t_b)}（另一個對話）", lines)
-        self.assertEqual(lines[-1], "要退得先到那個對話退回它，或直接跟我說要改成什麼。")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"之後又被動過（{said(self.V, t_b)}）", r.stdout)
         self.assertIsNone(TURN_CODE.search(r.stdout), r.stdout)  # B-074
-        self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.card.read_text(encoding="utf-8"), "B 改的\n")
         r = self.kb("versions", "revert", "--json", sid=A)
-        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.returncode, 0, r.stdout)
         got = json.loads(r.stdout)
-        self.assertEqual(got["refused"], "overlap")
-        self.assertIn({"path": CARD_REL, "turn": t_b, "describe": said(self.V, t_b), "session": "other"}, got["files"])
-        self.assertEqual(self.snapshot(), before)
+        hit = [c for c in got["conflict"] if c["now"] == CARD_REL]
+        self.assertEqual(len(hit), 1, got)
+        self.assertEqual(hit[0]["later"][0]["side"], "other")
+        self.assertEqual(hit[0]["later"][0]["said"], said(self.V, t_b))
+        self.assertIn("backup", hit[0]["then"])
+        self.assertEqual(self.card.read_text(encoding="utf-8"), "B 改的\n")
 
     def test_4_same_state_file_refused(self):
         self.prompt(A, "11/25 有個會")
@@ -132,9 +132,8 @@ class Revert(Base):
         self.stop(B)
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn("- 系統/日程.md：", r.stdout)
-        self.assertIn("- .system/agenda.json：", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)  # 全部是 conflict 交 AI 判斷，不算失敗
+        self.assertIn("agenda.json：之後又被動過", r.stdout)
         self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
 
     def test_4b_other_turn_started_earlier_but_wrote_later_refused(self):
@@ -147,7 +146,7 @@ class Revert(Base):
         self.stop(B)
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
         self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
 
     def test_4c_other_conversation_same_second_counts(self):
@@ -164,7 +163,8 @@ class Revert(Base):
         self.stop(B)
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
 
     def test_4e_other_conversation_writes_again_after_us_refused(self):
         """裁定 4：B 先寫 X（manifest 記第一次）→ A 寫 X → B 再寫 X（只記 writes.jsonl）→ A 退回 exit 3、X 不變。"""
@@ -182,8 +182,8 @@ class Revert(Base):
         self.stop(B)
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn(f"- {CARD_REL}：{said(self.V, t_b)}（另一個對話）", r.stdout.splitlines())
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn(f"之後又被動過（{said(self.V, t_b)}）", r.stdout)
         self.assertEqual(self.card.read_text(encoding="utf-8"), "B 第二次\n")
 
     def test_4d_terminal_refusal_does_not_say_other_conversation(self):
@@ -195,9 +195,9 @@ class Revert(Base):
         self.stop(A)
         self.stop(B)
         r = self.kb("versions", "revert")  # 退代號最新的 A，B 那句後來也寫了日程
-        self.assertEqual(r.returncode, 3, r.stdout)
-        self.assertIn("（對話裡）", r.stdout)
-        self.assertNotIn("另一個對話", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("之後又被動過", r.stdout)
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
 
     def test_5_terminal_turn_is_in_range(self):
         self.prompt(A, "信義王改一下")

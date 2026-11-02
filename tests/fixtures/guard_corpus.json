@@ -10631,12 +10631,12 @@
   {
    "tool": "Read",
    "input": {
-    "file_path": "<V>/_extras/筆記.md"
+    "file_path": "<V>/_個人/筆記.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "讀彈性區 → allow Z12"
@@ -10645,12 +10645,12 @@
    "tool": "Glob",
    "input": {
     "pattern": "*.md",
-    "path": "<V>/_extras"
+    "path": "<V>/_個人"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "列彈性區 → allow"
@@ -10659,12 +10659,12 @@
    "tool": "Grep",
    "input": {
     "pattern": "保固",
-    "path": "<V>/_extras"
+    "path": "<V>/_個人"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "搜彈性區、沒有密碼檔 → allow"
@@ -10672,12 +10672,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat \"<V>/_extras/筆記.md\""
+    "command": "cat \"<V>/_個人/筆記.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "指令讀彈性區 → 不擋"
@@ -10685,12 +10685,12 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/_extras/筆記.md"
+    "file_path": "<V>/_個人/筆記.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/_extras/"
+    "<V>/_個人/"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "檔案工具寫彈性區 → allow（hook 先備份）"
@@ -10698,12 +10698,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "echo x > \"<V>/_extras/a.txt\""
+    "command": "echo x > \"<V>/_個人/a.txt\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/_extras/"
+    "<V>/_個人/"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "指令寫彈性區 → deny shell_write；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -10711,12 +10711,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Set-Content -Path '<V>/_extras/a.txt' -Value x"
+    "command": "Set-Content -Path '<V>/_個人/a.txt' -Value x"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/_extras/"
+    "<V>/_個人/"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "PowerShell 寫彈性區 → deny shell_write；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -10724,12 +10724,12 @@
   {
    "tool": "Read",
    "input": {
-    "file_path": "<V>/_extras/密碼.txt"
+    "file_path": "<V>/_個人/密碼.txt"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/_extras/密碼.txt"
+    "<V>/_個人/密碼.txt"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "彈性區不套內部豁免：檔名像密碼 → deny credential"
@@ -10743,7 +10743,7 @@
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/_extras/子夾/帳密.xlsx"
+    "<V>/_個人/子夾/帳密.xlsx"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "搜整個知識庫、彈性區裡有帳密.xlsx → deny credential_inside"
@@ -10757,7 +10757,7 @@
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "對照：彈性區沒有密碼檔 → 整個知識庫照舊不走訪"
@@ -10770,7 +10770,7 @@
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/_extras/帳密.xlsx"
+    "<V>/_個人/帳密.xlsx"
    ],
    "來源": "彈性區（#21，D-510）",
    "note": "指令範圍讀整個知識庫、彈性區有帳密.xlsx → deny"
@@ -10967,12 +10967,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\_extras\\筆記.md'"
+    "command": "Start-Process '<V>\\_個人\\筆記.md'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/_extras/筆記.md"
+    "<V>/_個人/筆記.md"
    ],
    "來源": "開檔與Office一起改 驗收 3",
    "note": "彈性區"

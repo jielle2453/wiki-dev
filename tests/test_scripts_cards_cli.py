@@ -152,7 +152,7 @@ class Sync(Base):
         self.assertTrue(new.is_file())
         front = cards.parse_front(new.read_text(encoding="utf-8"))
         self.assertEqual(front["原檔"], ["file://客戶案件/信義王/會議紀錄_1.docx"])
-        self.assertEqual(front["開原檔"], cards.open_link(dst))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + front["編號"])  # 放寬丙 9
         old_lines = [ln for ln in self.before.splitlines() if not ln.startswith(("  - ", "開原檔:"))]
         new_lines = [ln for ln in new.read_text(encoding="utf-8").splitlines() if not ln.startswith(("  - ", "開原檔:"))]
         self.assertEqual(old_lines, new_lines)
@@ -327,7 +327,7 @@ class Index(Base):
         _cards.write_card(self.V, pick["file://客戶案件/內湖李/估價單.pdf"], "內湖李估價單")
         self.assertEqual(self.kb("cards", "index").stdout.strip(), "總目錄：3 張卡")
         lines = (self.V / "總目錄.md").read_text(encoding="utf-8").splitlines()
-        self.assertIn("    - [大安陳 會議](檔案索引/客戶案件/大安陳/大安陳%20會議-"
+        self.assertIn("    - 📘 [大安陳 會議](檔案索引/客戶案件/大安陳/大安陳%20會議-"
                       f"{pick['file://' + _cards.MEETING]['id'][2:]}.md)", lines)
         self.assertEqual(lines[-1], "共 3 張卡")
         meeting = _cards.card_path(self.V, pick["file://" + _cards.MEETING], "大安陳 會議")
@@ -341,20 +341,35 @@ class Index(Base):
 class AfterTest(Base):
     """測試後修正裁定 19、20、29、30（報告 C2、C3、C9、C10）。"""
 
-    def test_19_source_relocated_sync_rewrites_link(self):
+    def test_19_source_relocated_card_needs_no_rewrite(self):
+        """放寬丙 9：開原檔是外掛連結、只帶編號；來源搬到別處，卡不用重寫（舊卡的 file:/// 換一次見 test_lib_cards 22）。"""
         item = self.item()
         card = _cards.write_card(self.V, item, "大安陳會議一")
         shutil.copytree(self.raw, self.tmp / "raw2")
         p = self.V / ".system" / "sources.json"
         p.write_text(p.read_text(encoding="utf-8").replace("../raw/客戶案件", "../raw2/客戶案件"), encoding="utf-8")
+        before = card.read_bytes()
         self.scan()
-        (moved,) = self.todo()["moved"]
-        self.assertEqual(moved["to"], "檔案索引/客戶案件/大安陳")
-        r = self.kb("cards", "sync")
-        self.assertEqual(r.stdout.strip(), "搬了 0 張卡、更新 1 張卡的原檔位置")
-        front = cards.parse_front(card.read_text(encoding="utf-8"))
-        self.assertEqual(front["開原檔"], cards.open_link(self.tmp / "raw2" / _cards.MEETING))
         self.assertEqual(self.todo()["moved"], [])
+        r = self.kb("cards", "sync")
+        self.assertEqual(r.stdout.strip(), "搬了 0 張卡、更新 0 張卡的原檔位置")
+        self.assertEqual(card.read_bytes(), before)
+
+    def test_sync_rewrites_missing_or_broken_index(self):
+        """放寬丙 6-3：總目錄.md 不見或壞了，kb cards sync 自己重寫（卡檔頭壞走 broken 桶，不在這裡）。"""
+        _cards.write_card(self.V, self.item(), "大安陳會議一")
+        self.assertEqual(self.kb("cards", "index").returncode, 0)
+        index = self.V / "總目錄.md"
+        for label, bad in (("missing", None), ("garbage", b"\xff\xfe\x00bad"), ("empty", b"")):
+            with self.subTest(label):
+                if bad is None:
+                    index.unlink()
+                else:
+                    index.write_bytes(bad)
+                r = self.kb("cards", "sync")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertTrue(index.read_text(encoding="utf-8").startswith("# 總目錄"))
+                self.assertIn("共 1 張卡", index.read_text(encoding="utf-8"))
 
     def test_20_sync_drops_duplicate(self):
         item = self.item()
@@ -588,8 +603,8 @@ class EntityParts(unittest.TestCase):
         data = self.todo()
         fid = _cards.entry_of(self.V, self.E.CONTRACT)["id"]
         header = next(i for i in data["new"] if i["id"] == fid)["header"]
-        self.assertIn("\n實體: [信義王]\n待補型別: []\n", header)
-        self.assertIn("\n範本版本: 2\n", header)
+        self.assertIn("\n實體: [信義王]\n提到: []\n待補型別: []\n", header)
+        self.assertIn("\n範本版本: 3\n", header)
         other = next(i for i in data["new"] if i["id"] != fid)["header"]
         self.assertIn("\n實體: []\n", other)
 
