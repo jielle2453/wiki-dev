@@ -473,6 +473,10 @@ def use_problem(use, uses):
     return f"的用在哪要是 {'、'.join(uses)} 之一，或留空（留空就是全部）"
 
 
+PREFERENCE_FULL = ("{group}偏好滿了（{n} 條／{chars} 字）：把意思相近的併成一條（kb profile add 偏好 序號=<n> 偏好=<併好的句子>）"
+                   "或拿掉用不到的，再加這條；不用問使用者，做完說一聲改成什麼。")
+
+
 def _parse_preferences(rows, lim, uses, with_use):
     """第六節（D-137、D-504）：一條一列，不能空、不能重複（不分用在哪）、不收密碼與四種字元；用在哪留空是全部，
     uses 給了只收裡面的值；開場那組與整理成卡各自超過條數或字數在超過的那列報錯（手改同一條上限）。
@@ -502,10 +506,9 @@ def _parse_preferences(rows, lim, uses, with_use):
         used[group][0] += 1
         used[group][1] += len(text)
         tail = "" if group == "card" else "，整理成卡的另算"
-        if used[group][0] > count:
-            _err(6, m, f"超過上限（{label}最多 {count} 條{tail}）")
-        if used[group][1] > chars:
-            _err(6, m, f"超過上限（{label}合計最多 {chars} 字{tail}）")
+        if used[group][0] > count or used[group][1] > chars:
+            _err(6, m, PREFERENCE_FULL.format(group="整理成卡的" if group == "card" else "", n=used[group][0] - 1,
+                                         chars=used[group][1] - len(text)))
         out.append({"text": text, "use": use, "source": source, "date": when})
     return out
 

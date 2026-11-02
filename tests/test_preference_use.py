@@ -111,7 +111,7 @@ class Limits(unittest.TestCase):
     def test_opening_group_over_count(self):
         with self.assertRaises(profile.ProfileError) as e:
             self.parse(pref("一一"), pref("二二", "做文件"), pref("三三"), pref("四四", "做文件"))
-        self.assertIn("最多 3 條", e.exception.message)
+        self.assertIn("偏好滿了（3 條", e.exception.message)
 
     def test_card_group_over_count_and_chars(self):
         with self.assertRaises(profile.ProfileError) as e:
