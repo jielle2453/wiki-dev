@@ -494,9 +494,10 @@ class OpeningEntityDrift(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         (self.V / ".system" / "entities.json").write_text("{bad", encoding="utf-8")
         self.assertEqual(self.change_lines(self.status()), [CHANGES.format(1, 0, 0)])
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(log), 1)
-        self.assertEqual(log[0].split("\t")[1], "turn")
+        # 放寬丙 6-3：實體清單壞了，沒有備份就從綜合卡檔頭重建，壞的留在 .system/broken/，不再只寫 log
+        (kept,) = list((self.V / ".system" / "broken").iterdir())
+        self.assertEqual(kept.read_text(encoding="utf-8"), "{bad")
+        self.assertIn("entities", json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8")))
 
 
 ASK = "跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
