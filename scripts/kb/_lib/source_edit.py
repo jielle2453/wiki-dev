@@ -58,7 +58,6 @@ BIN_UNAVAILABLE = "資源回收筒用不了（{why}），沒有刪"
 BIN_TOO_BIG = "這份 {size}，資源回收筒放不下"
 NO_ROOM = ("「{name}」進不了資源回收筒，這台電腦也放不下先留的一份（還差 {need}），刪了救不回來："
            "先用白話問使用者確定要刪嗎，說確定才加 --permanent。")
-DRIVE_GONE = "原本放「{name}」的「{place}」現在找不到：先請使用者把隨身碟或磁碟接上再改回。"
 OPEN_TOO_MANY = "一次最多開兩個夾"
 HIDDEN_NAME = "這種名字知識庫不會讀，換個名字"
 NOT_MOVED = "沒有動：{why}"

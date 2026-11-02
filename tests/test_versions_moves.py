@@ -176,3 +176,36 @@ class ListMoves(Base):
         with contextlib.redirect_stdout(out):
             versions._list(self.V, 5, True)
         return out.getvalue()
+
+
+class TrashBackupRevert(Base):
+    """放寬甲 待你決定 1：回收筒進不了先留進回合備份；退回把檔放回原位，隨身碟沒插著先說一句、什麼都不動。"""
+
+    def trash_via_backup(self):
+        src = self.raw / ESTIMATE
+        body = src.read_bytes()
+        with mock.patch.object(se, "shell_trash", side_effect=se.BinUnavailable("x")), \
+                mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+            p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+            got = se.do_trash(self.V, p, self.t)
+        self.assertEqual(got["kept"], "backup")
+        self.assertFalse(src.exists())
+        return src, body
+
+    def test_revert_puts_file_back(self):
+        src, body = self.trash_via_backup()
+        code, _out = revert(self.V)
+        self.assertEqual(code, 0, _out)
+        self.assertEqual(src.read_bytes(), body)
+
+    def test_drive_gone_says_plug_in_and_moves_nothing(self):
+        src, _body = self.trash_via_backup()
+        root = self.raw / "客戶案件"
+        root.rename(self.raw / "客戶案件_拔掉了")  # 模擬來源所在的磁碟沒接著
+        try:
+            code, out = revert(self.V)
+        finally:
+            (self.raw / "客戶案件_拔掉了").rename(root)
+        self.assertEqual(code, 3, out)
+        self.assertEqual(out.strip(), "原本放「估價單.pdf」的「客戶案件」現在找不到：先請使用者把隨身碟或磁碟接上再改回。")
+        self.assertFalse(src.exists())

@@ -689,6 +689,22 @@ def _move_any(src, dst):
             raise
 
 
+DRIVE_GONE = "原本放「{name}」的「{place}」現在找不到：先請使用者把隨身碟或磁碟接上再改回。"
+
+
+def _drive_gone(vault, sources, entries):
+    """要放回登記來源（知識庫外）的備份，來源的根夾現在找不到：回 (檔名, 根夾名) 第一個；都在回 None。"""
+    for e in entries:
+        uri = e.get("uri")
+        if not uri or e.get("action") not in ("modify", "delete"):
+            continue
+        alias, _rel = inventory.split_uri(uri)
+        src = next((x for x in sources.entries if x["alias"] == alias), None)
+        if src is not None and not os.path.isdir(src["root"]):
+            return Path(str(uri)).name, Path(src["root"]).name or alias
+    return None
+
+
 def _undo_source_moves(vault, steps):
     """照檢查過的步驟把客戶的檔或夾搬回去；一步失敗就把已搬的倒回去、丟 _FolderFailed。回搬了的。"""
     done = []
@@ -911,6 +927,10 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     locked = _locked_file(vault, target, delete_outputs, sources_now)
     if locked:  # N-7：不退成一半延伸到檔案階段
         print(FILE_OPEN.format(rel=locked))
+        return 3
+    gone = _drive_gone(vault, sources_now, target["entries"])
+    if gone:  # 放寬甲：原位置在隨身碟、網路磁碟上而現在不在，先請使用者接上，什麼都不動
+        print(DRIVE_GONE.format(name=gone[0], place=gone[1]))
         return 3
     try:
         moved_back = _undo_source_moves(vault, move_steps)
