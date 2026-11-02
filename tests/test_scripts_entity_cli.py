@@ -223,6 +223,23 @@ class EntityLog(Base):
         text = self.p.read_text(encoding="utf-8")
         self.assertIn(f"## 現況\n- 還沒有掛上的檔案卡\n\n## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n\n## 時程\n", text)
 
+    def test_file_section_untouched(self):
+        """裁定 5：紀事是最後一段時，加的行在程式寫的「相關檔」之前，那段一字不動。"""
+        from kb._lib import synthesis
+        text = self.p.read_text(encoding="utf-8")
+        cut = text.index("\n## ", text.index("## 紀事"))  # 紀事之後的段拿掉，紀事變成最後一段
+        self.p.write_text(text[:cut + 1], encoding="utf-8", newline="\n")
+        synthesis.render_cache(self.V, ["信義王"], self.new_turn())
+        text = self.p.read_text(encoding="utf-8")
+        i, j = text.find(synthesis.FILE_BEGIN), text.find(synthesis.FILE_END)
+        self.assertTrue(text.index("## 紀事") < i < j, "render_cache 要在最後寫出相關檔那段")
+        files = text[i:]
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", f"2026-10-01 報價〔{self.fid}〕", "--synced")
+        text = self.p.read_text(encoding="utf-8")
+        self.assertTrue(text.endswith(files))
+        self.assertEqual(self.events()[0], f"- 2026-10-25 開會〔{self.fid}〕")
+        self.assertIn(f"- 2026-10-01 報價〔{self.fid}〕\n\n{synthesis.FILE_BEGIN}", text)
+
     def test_synced_json(self):
         r = run_kb("entity", "log", "信義王宅", f"2026-10-25 開會〔{self.fid}〕", "--synced", "--json", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

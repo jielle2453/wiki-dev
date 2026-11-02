@@ -4,7 +4,7 @@
 
 ## 材料的欄位
 
-- - `agenda_recheck`：`{"id"（日程條目）,"card","card_path","kind","date","text","source"}`，出處卡重做後待重對的條目。`agenda_unscanned`：`{"id"（卡編號）,"card_path","title","existing":[{"id","kind","date","text"}]}`，還沒抽過日期的卡，`existing` 是這張卡已加進日程、還 open 的條目。`agenda_counts`：`{"overdue","today","upcoming"}`，開場日程行的三個數字，做卡時不用管。
+- `agenda_recheck`：`{"id"（日程條目）,"card","card_path","kind","date","text","source"}`，出處卡重做後待重對的條目。`agenda_unscanned`：`{"id"（卡編號）,"card_path","title","existing":[{"id","kind","date","text"}]}`，還沒抽過日期的卡，`existing` 是這張卡已加進日程、還 open 的條目。`agenda_counts`：`{"overdue","today","upcoming"}`，開場日程行的三個數字，做卡時不用管。
 
 ## 抽日程
 
@@ -14,9 +14,8 @@
 - **抽取規則（D-062）**：未來的日期**加一個動作**才進日程（「10/20 前付第二期款」「11/30 交屋」「下次 10/5 開會」）；過去的日期是紀事，只寫進卡正文與綜合卡紀事，不進日程。會議紀錄的開會日是過去，裡面提到的下次開會與期限才是未來。沒有動作的日期（「合約簽於 9/1」）不加。
 - **先查重**：`existing` 已有的不加；別張卡或客戶口述加過的，加之前跑一次 `kb agenda list --json`，已有一條 open 的、日期相同而且說的是同一件事的，就不再加。重做過的卡，舊版抽的條目由程式排在前面的待重對處理（`agenda_recheck`），這裡不要重加一條。
 - **年份**：文件沒寫年份時，取這份文件的 `文件日期` 之後最近的那天；文件日期是「未載」就照 plugin 根的 `skills/note/references/agenda.md` 第二節的換算。
-- **怎麼加**：每個日期跑一次 `kb agenda add --card <這張卡的編號> --kind <到期｜會議｜承諾｜提醒｜期間> --date <YYYY-MM-DD> --text "<一句>"`，掛它講到的實體用 `--entity <名稱>`（要是登記過的名稱）。種類照文意：對方規定的期限是到期，我方答應的是承諾，開會是會議。`--card` 讓程式記出處與那張卡現在的指紋，來源標推測；同一張卡同種類、同日期、同文字再加一次不會重複。
+- **怎麼加**：每個日期跑一次 `kb agenda add --card <這張卡的編號> --kind <到期｜會議｜承諾｜提醒｜期間> --date <YYYY-MM-DD> --text "<一句>"`，掛它講到的實體用 `--entity <名稱>`（要是登記過的名稱）。種類照文意：對方規定的期限是到期，我方答應的是承諾，開會是會議。`--card` 讓程式記出處與那張卡現在的指紋，來源標推測；同一張卡同種類、同日期、同文字再加一次不會重複。加進日程的幾條由 `tell` 帶出來，不用自己列（D-128）。
 - **工期**：合約或進度表寫了開始到結束，加成「期間」，`--start` 填開始日、`--date` 填預計結束，只掛那個案子一個實體；案子還沒登記（程式說實體清單沒有）就先不加期間，照 carding.md 第二節登記後再加。
-- **告知**：加進日程的幾條由 `tell` 帶出來，不用自己列（D-128）。
 - **待重對（`agenda_recheck`，D-130）**：每項是出處卡重做過、還沒結束的日程條目。重讀新版卡後，照 `source` 處理：
   - `inferred`（推測）：新版日期或內容變了就 `kb agenda edit <編號> --date <新日期> --card <那張卡>`（`--card` 讓來源維持推測、記下新版指紋）；新版已經沒有這件事就 `kb agenda cancel <編號>`；沒變就 `kb agenda recheck <編號>`。
   - `confirmed`、`corrected`（客戶說過或改過的）：不自己改，新版沒變就 `recheck <編號>`；新版寫法不同就 `recheck <編號> --propose-date <新日期>`（要改文字再加 `--propose-text "<一句>"`），程式會在 `asks` 問客戶用哪個，你自己不問。

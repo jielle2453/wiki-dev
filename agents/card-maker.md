@@ -19,14 +19,14 @@ background: true
 ## 開始
 
 1. 照 prompt 跑第一個指令 `cards batch <批次> --json`。它的 `prefix` 是之後每個 kb 指令的前綴（規則裡寫 `kb …` 的都換成它）；`kind` 是這批的種類；`items` 是要做的項目（跟 `cards todo --json` 同一組欄位，多一個 `bucket` 說來自哪一桶）；`profile`、`entities` 是卡型、段落、實體清單。`vault` 是總資料夾；寫卡、改卡一律用項目的 `dir_abs`、`existing_card_abs`、`target_abs` 這類絕對路徑，不自己猜總資料夾在哪（寫到知識庫外面守門會擋）。讀舊 wiki 的批次（`kind` 是 adopt）不一樣：`items` 每項只有 `name`（段名）與 `chunk`（段的絕對路徑），另有 `report`（回報格式），沒有 `profile`、`entities`。
-2. 先讀 `read` 列的規則：每項照 `ranges` 用 Read 的 offset、limit 只讀那幾段（空的讀整份），再動手。印「這批已經停了或做完了」就什麼都不做，直接回報。
+2. 先讀 `read` 列的規則檔（絕對路徑），每份整份讀，再動手。印「這批已經停了或做完了」就什麼都不做，直接回報。
 
 ## 四種工作
 
-- **cards**：`bucket` 是 new、stale、broken 照 carding.md 一～六節寫卡（`convert <id>` 讀原檔、檔頭照 `header`），unlinked 照第七節補掛實體。每寫完一張新卡或重做的卡，同一份內容接著照第九節抽日期，抽完跑 `agenda scanned <卡編號>`。
-- **agenda**：`bucket` 是 agenda_recheck 的先做，再做 agenda_unscanned，照 carding.md 第九節。
-- **synthesis**：先讀 `rules/synthesis.md`，照項目寫或改綜合卡（synthesis_new、synthesis_stale）；項目帶 `existing_card` 的目標已經有卡，一定先 Read，現況改寫、紀事只增（R-08，少了會被打回）；待更新的用 Edit 改、不整張重寫，改完跑 `kb entity render <名稱> --synced`（`rules/synthesis.md` S-24），最後「相關檔」那段是程式寫的、不碰；synthesis_broken 照 carding.md 第八節，檔頭照項目的 `header`、寫到 `target`；綜合卡批次裡只補標籤的項目（`tag_only`）跑 `kb entity tag`，不寫綜合卡。
-- **adopt**：照 carding.md 第十二節讀每一段（`items` 的 `chunk`），撈口述、規則、日程、待確認的候選；不寫任何檔，回報照 `report` 的格式（取代下面「回報」那段的格式）。
+- **cards**：`bucket` 是 new、stale、broken 照 carding.md 一～六節寫卡（`convert <id>` 讀原檔、檔頭照 `header`），unlinked 照第七節補掛實體。每寫完一張新卡或重做的卡，同一份內容接著照 agenda-scan.md 抽日期，抽完跑 `agenda scanned <卡編號>`。
+- **agenda**：`bucket` 是 agenda_recheck 的先做，再做 agenda_unscanned，照 agenda-scan.md。
+- **synthesis**：照 `rules/synthesis.md` 與 synthesis-batch.md 寫或改綜合卡（synthesis_new、synthesis_stale）；項目帶 `existing_card` 的目標已經有卡，一定先 Read，現況改寫、紀事只增（R-08，少了會被打回）；待更新的紀事用 `kb entity log` 加、其他段用 Edit 改、不整張重寫，改完自己跑 `--synced`（`rules/synthesis.md` S-22、S-24），主對話不補，最後「相關檔」那段是程式寫的、不碰；synthesis_broken 照 synthesis-broken.md，檔頭照項目的 `header`、寫到 `target`；綜合卡批次裡只補標籤的項目（`tag_only`）跑 `kb entity tag`，不寫綜合卡。
+- **adopt**：照 adopt.md 讀每一段（`items` 的 `chunk`），撈口述、規則、日程、待確認的候選；不寫任何檔，回報照 `report` 的格式（取代下面「回報」那段的格式）。
 
 一次一個指令、路徑加引號、不 cd、不用 && 串接；只跑 kb 指令，不寫臨時 python、不加環境變數前綴。清單只用 `items`，不自己找檔、不跑 `cards todo`。
 

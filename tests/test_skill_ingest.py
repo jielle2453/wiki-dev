@@ -196,6 +196,7 @@ OLD_SECTIONS = {
     "八": ("`synthesis_broken` 每項 `{path, reason}`", "再跑 `kb entity clean <path>`"),
     "九": ("**直接加（D-128）**", "**結束證據（D-127）**", "**待重對（`agenda_recheck`，D-130）**", "**工期**"),
     "十": ("**「可以讀」的密碼檔**", "開的時候印「密碼不對」"), "十一": ("`names` 每項是到門檻",), "十二": ("`items` 每項 `{name, chunk}`",),
+    "十三": ("`stale` 每項帶 `change`", "指路卡（檔頭 `卡式: 指路`", "`pointer_changed`（`{id, title, change, diff}`"),
 }
 SECTION_REF = re.compile(r"carding\.md[^\n。；，、（]{0,6}?第?([一二三四五六七八九十]{1,3})(?:～([一二三四五六七八九十]{1,3}))?節")
 
@@ -213,7 +214,7 @@ class ModuleSplit(unittest.TestCase):
     def test_no_dangling_section_refs(self):
         carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
         heads = set(re.findall(r"^## ([一二三四五六七八九十]+)、", carding, re.M))
-        self.assertEqual(heads, {"一", "二", "三", "四", "五", "六", "七", "十", "十一"})
+        self.assertEqual(heads, {"一", "二", "三", "四", "五", "六", "七", "十", "十一", "十三"})  # 十三 留 carding.md（裁定 4）
         skip = ("design", "tests", ".git")
         for f in list(ROOT.rglob("*.md")) + list(ROOT.rglob("*.py")):
             rel = f.relative_to(ROOT)

@@ -1105,12 +1105,24 @@ def _body_start(lines):
     return next((n + 1 for n, line in enumerate(lines[1:], 1) if line.strip() == "---"), 0)
 
 
+def _section_end(lines, n):
+    """從 n 起第一個「## 」或「相關檔」開始記號的索引，沒有回檔尾（段落到那裡為止，裁定 5）。"""
+    return next((i for i in range(n, len(lines)) if lines[i].startswith("## ") or lines[i].strip() == FILE_BEGIN),
+                len(lines))
+
+
 def _events_span(lines, start=0):
-    """「## 紀事」那段的 (標題索引, 下一個 ## 的索引或檔尾)；沒有回 None。"""
+    """「## 紀事」那段的 (標題索引, 段尾索引)；沒有回 None。"""
     head = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 紀事"), None)
-    if head is None:
+    return None if head is None else (head, _section_end(lines, head + 1))
+
+
+def _file_lines(lines, start=0):
+    """「相關檔」那段的 (開始記號索引, 結束記號下一行)；沒結束記號算到檔尾（同 _span）；沒有回 None。"""
+    i = next((n for n in range(start, len(lines)) if lines[n].strip() == FILE_BEGIN), None)
+    if i is None:
         return None
-    return head, next((n for n in range(head + 1, len(lines)) if lines[n].startswith("## ")), len(lines))
+    return i, next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), len(lines))
 
 
 def _lines(text):
@@ -1122,11 +1134,16 @@ def _lines(text):
 
 
 def read_ranges(text):
-    """AI 要讀的範圍 [[起行（1 起算）, 行數], …]：內文去掉「## 紀事」那段（D-521，紀事由程式加、AI 不讀）。"""
+    """AI 要讀的範圍 [[起行（1 起算）, 行數], …]：內文去掉「## 紀事」那段（D-521，紀事由程式加、AI 不讀）與
+    程式寫的「相關檔」那段（裁定 5）。"""
     lines = _lines(text)
     start = _body_start(lines)
-    span = _events_span(lines, start)
-    parts = [(start, len(lines))] if span is None else [(start, span[0]), (span[1], len(lines))]
+    skip = sorted(s for s in (_events_span(lines, start), _file_lines(lines, start)) if s)
+    parts, at = [], start
+    for a, b in skip:
+        parts.append((at, a))
+        at = max(at, b)
+    parts.append((at, len(lines)))
     return [[a + 1, b - a] for a, b in parts if b > a]
 
 
@@ -1191,8 +1208,8 @@ def insert_events(text, events):
     if span is None:
         block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
         cur = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 現況"), None)
-        at = len(lines) if cur is None else next((n for n in range(cur + 1, len(lines)) if lines[n].startswith("## ")),
-                                                 len(lines))
+        files = _file_lines(lines, start)  # 沒有現況：補在最後（相關檔之前）
+        at = _section_end(lines, cur + 1) if cur is not None else files[0] if files else len(lines)
         head, tail = lines[:at], lines[at:]
         while head and not head[-1].strip():
             head.pop()
