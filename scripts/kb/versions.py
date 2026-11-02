@@ -939,6 +939,26 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         if action == "purged":  # 不讀的夾清掉了：那一版沒有了（D-174）
             purged = True
             continue
+        uri = e.get("uri")
+        if uri:  # 登記的來源（知識庫外）的備份：照 uri 找回原位（放寬甲）
+            ext = inventory.path_of(vault, sources, uri)
+            if ext is None:
+                lost.append(uri)
+                continue
+            src = target["dir"] / "files" / recorded
+            if action in ("modify", "delete"):
+                if not src.is_file():
+                    lost.append(uri)
+                    continue
+                turn.backup_source(vault, ext, None, rt["turn"], sources)
+                Path(ext).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, ext)
+                restored.append(uri)
+            elif action == "create" and Path(ext).is_file():
+                turn.backup_source(vault, ext, None, rt["turn"], sources)
+                os.remove(ext)
+                removed.append(uri)
+            continue
         rel = back(recorded)  # 記在搬過的夾裡的檔，夾改回去之後在舊位置
         dst = Path(vault) / rel
         is_z3 = turn.zone_of(vault, rel, sources) == "Z3"
@@ -984,7 +1004,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     gone_intakes = [o["id"] for o in intakes if not (Path(vault) / back(_rel_of(o))).is_file()]
     if gone_intakes:
         inventory.set_status(vault, gone_intakes, "turn_reverted")
-    card_base.after_revert(vault, restored, removed)  # 退回的卡基準換成那一版，不算她改的（D-270）
+    card_base.after_revert(vault, [r for r in restored if not r.startswith("file://")],
+                           [r for r in removed if not r.startswith("file://")])  # 退回的卡基準換成那一版，不算她改的（D-270）
     if inv_error is None:
         _reconcile(vault, touched_z3, rt["turn"])
         _rescan(vault, target["moves"], rt["turn"])

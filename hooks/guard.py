@@ -36,8 +36,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 SHELL_TOOLS = ("Bash", "PowerShell")
-BACKUP_ZONES = ("Z1", "Z3", "Z5", "Z12")  # 綜合卡、AI 產出、檔案索引、彈性區：寫前回合備份（D-046 補、D-510）
-ERROR_REASON = "守門出錯，這次不放行。說「檢查」我看原因"
+BACKUP_ZONES = ("Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z8", "Z9", "Z12")  # 放行的檔案工具寫前都先回合備份（D-046 補、D-510；放寬甲 D-306：使用者的區與客戶設定檔也備）
+ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。"
 AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent、--session 或 --via"
 GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session", "--via")  # --via 只有 Obsidian 外掛自己帶（#22，D-255），模型帶的照 SELF_FLAGS 擋

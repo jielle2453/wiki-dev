@@ -46,6 +46,25 @@ WRITE_CODE = re.compile(
     r"file_put_contents|fwrite|\bfopen\([^)]*['\"][wax+]|File\.(?:write|open\([^)]*['\"][wax])|FileUtils)",
     re.IGNORECASE,
 )
+# 放寬甲 U6：直譯器程式碼只看刪檔與覆蓋寫法；搬、改名、建夾、touch、開子行程不算（搬檔改名可以照跑）。
+# 跑別的指令的（subprocess、os.system…）另外抽字串常數照指令判（guard._code_commands），不是常數的照 U5
+DESTRUCTIVE_CODE = re.compile(
+    r"(open\([^)]*['\"][wax+]|\.open\(\s*['\"][wax+]|\bmode\s*=\s*['\"][wax+]|"
+    r"(?:zipfile|tarfile|io|codecs|gzip|bz2|lzma)\.\w*\(?[^)]*['\"][wax]|\bZipFile\([^)]*['\"][wax]|"
+    r"\.write_text|\.write_bytes|\.(?:unlink|rmdir|replace)\(|"
+    r"writealltext|writeallbytes|appendalltext|writealllines|appendalllines|\[io\.file\]::delete|"
+    r"shutil\.(?:rmtree|copy\w*)|os\.(?:remove|replace|unlink|rmdir|removedirs|truncate)|"
+    r"\bunlink\(|\bremove_tree\b|\brmtree\b|"
+    r"writefile|appendfile|unlinksync|rmsync|rmdirsync|copyfile|createwritestream|truncatesync|"
+    r"\bfs\.(?:rm|cp|unlink|rmdir|copy)\w*\(|"
+    r"\bopen\s*\(?[^)\n]*['\"]\s*(?:\+?[>|]|>>)|"
+    r"file_put_contents|fwrite|\bfopen\([^)]*['\"][wax+]|File\.(?:write|delete|unlink|open\([^)]*['\"][wax])|"
+    r"FileUtils\.(?:rm|remove|cp|copy|install))",
+    re.IGNORECASE,
+)
+# 腳本檔副檔名：直譯器、殼的第一個存在的腳本檔參數，內容當程式碼判（放寬甲 U6）
+SCRIPT_EXTS = (".py", ".js", ".mjs", ".ts", ".rb", ".pl", ".php", ".ps1", ".bat", ".cmd", ".sh", ".vbs")
+SHELL_SCRIPT_EXTS = (".ps1", ".bat", ".cmd", ".sh")  # 內容是指令，照整套判斷（遞迴）
 # 會把引號裡的字串當指令跑的包裝：出現時整句（含引號內）都看
 WRAPPER = re.compile(
     r"(?:^|[\s;&|(])(?:bash|sh|zsh|dash|ksh|cmd(?:\.exe)?|powershell(?:\.exe)?|pwsh(?:\.exe)?|eval|exec|source|"
