@@ -245,7 +245,7 @@ class OpeningInventory(unittest.TestCase):
 
     def test_missing_source_reported_once_then_cleared(self):
         (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
-        line = "這台電腦找不到來源「客戶案件」，其他照常；搬過的話跟我說。"
+        line = "這台電腦找不到來源「客戶案件」：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
         self.assertIn(line, self.status())
         env_json = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
         self.assertEqual([list(m["missing_sources_reported"]) for m in env_json["machines"].values()], [["src-3f9a"]])
@@ -262,7 +262,7 @@ class OpeningInventory(unittest.TestCase):
     def test_two_missing_sources_joined(self):
         (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
         (self.raw / "行政").rename(self.raw / "行政_舊")
-        self.assertIn("這台電腦找不到來源「客戶案件」、「行政」，其他照常；搬過的話跟我說。", self.status())
+        self.assertIn("這台電腦找不到來源「客戶案件」、「行政」：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。", self.status())
 
     def test_many_missing_sources_list_three_and_count(self):
         """審閱裁定 32：最多列 3 個別名，再多寫「等 N 個」；整段仍在 400 字內、全部都記成報過。"""
@@ -275,7 +275,7 @@ class OpeningInventory(unittest.TestCase):
         lines = self.status("compact")
         line = [ln for ln in lines if "找不到來源" in ln]
         self.assertEqual(line, ["這台電腦找不到來源「很長很長的外接硬碟資料夾第0號」、「很長很長的外接硬碟資料夾第1號」、"
-                                "「很長很長的外接硬碟資料夾第2號」等 5 個，其他照常；搬過的話跟我說。"])
+                                "「很長很長的外接硬碟資料夾第2號」等 5 個：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"])
         self.assertLessEqual(len("\n".join(lines)), 400)
         self.assertLessEqual(len(lines), 8)
         env_json = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
@@ -464,7 +464,7 @@ class OpeningEntityDrift(unittest.TestCase):
         self.assertEqual(log[0].split("\t")[1], "session")
 
 
-ASK = "先 kb profile check 複述，客戶說好才 apply"
+ASK = "跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
 TYPE_ROW = "| 案子 | 事 |  | 推測 | 2026-10-19 |\n"
 
 
@@ -494,7 +494,7 @@ class OpeningProfile(unittest.TestCase):
 
     def test_changed_line(self):
         self.edit(TYPE_ROW, TYPE_ROW + "| 工地 | 事 | x |\n")
-        self.assertEqual(self.profile_lines(), [f"設定檔有改（型別 +1）：{ASK}"])
+        self.assertEqual(self.profile_lines(), [f"設定檔被手改了（型別 +1）：{ASK}"])
 
     def test_whitespace_only_change_no_line(self):
         self.edit(TYPE_ROW, TYPE_ROW + "\n")
@@ -511,20 +511,12 @@ class OpeningProfile(unittest.TestCase):
         self.assertEqual(self.profile_lines(),
                          ["設定檔有改但讀不懂：第 1 節第 2 列欄數不對（要 3 欄或 5 欄）；改好下次再問"])
 
-    def test_unlisted_alone_and_joined(self):
+    def test_unlisted_not_printed(self):
+        """放寬甲：第一層有不在型別表的夾不再印（PROFILE_UNLISTED 拿掉）。"""
         (self.V / "廠商").mkdir()
-        self.assertEqual(self.profile_lines(), ["設定檔：第一層夾「廠商」不在型別表（請客戶補進設定檔）"])
+        self.assertEqual(self.profile_lines(), [])
         self.edit(TYPE_ROW, TYPE_ROW + "| 工地 | 事 | x |\n")
-        self.assertEqual(self.profile_lines(),
-                         [f"設定檔有改（型別 +1）：{ASK}；第一層夾「廠商」不在型別表（請客戶補進設定檔）"])
-
-    def test_long_unlisted_lists_two(self):
-        for i in range(5):
-            (self.V / f"很長很長很長很長的第一層資料夾名稱第{i}號").mkdir()
-        self.edit(TYPE_ROW, TYPE_ROW + "| 工地 | 事 | x |\n")
-        line = self.profile_lines()[0]
-        self.assertLessEqual(len(line), 160)
-        self.assertIn("「很長很長很長很長的第一層資料夾名稱第0號」、「很長很長很長很長的第一層資料夾名稱第1號」等 5 個", line)
+        self.assertEqual(self.profile_lines(), [f"設定檔被手改了（型別 +1）：{ASK}"])
 
     def test_reads_only(self):
         (self.V / "廠商").mkdir()

@@ -27,7 +27,7 @@ SKILL_BODY_MAX_CHARS = 5000
 REFERENCE_MAX_LINES = 150
 RESIDENT_TOTAL_MAX_CHARS = 5000
 OPENING_MAX_LINES = 8
-OPENING_MAX_CHARS = 550  # 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
+OPENING_MAX_CHARS = 600  # 放寬甲：開場兩句改成 spec 的新句（變長），550→600；原註 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
 
 SKILLS_DIR = ROOT / "skills"
 CORE = ROOT / "rules" / "core.md"
@@ -193,7 +193,7 @@ class OpeningAllLines(unittest.TestCase):
             status = opening_status(source, all_lines_vault)
             lines = status.splitlines()
             with self.subTest(source=source):
-                for head in ("變動：", "有變動：", "這台電腦找不到來源", "設定檔有改（", "日程：逾期 1（"):
+                for head in ("變動：", "有變動：", "這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（"):
                     self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, (head, lines))
                 self.assertTrue(next(ln for ln in lines if ln.startswith("變動：")).endswith("、實體夾有變 2"), lines)
                 self.assertLessEqual(count_lines(status), OPENING_MAX_LINES)

@@ -224,7 +224,7 @@ class Alias(Base):
         self.refused("「林小姐」是你自己（關於你）", "信義王", add="林小姐")
         self.refused("名稱「王$董」不能用（含不能用的字元）", "信義王", add="王$董")
         self.refused("實體清單沒有「誰」", "誰", add="王董")
-        self.refused("「林小姐室內設計」是你自己（關於你），要改在客戶設定檔第五節改", "林小姐室內設計", add="林設計")
+        self.refused("「林小姐室內設計」是你自己（關於你），用 Edit 改設定檔第 5 節（關於你那一列），再跑 kb profile apply。", "林小姐室內設計", add="林設計")
 
     def test_add_registered_entity_asks_merge_and_writes_nothing(self):
         before = (self.V / ".system" / "entities.json").read_bytes()

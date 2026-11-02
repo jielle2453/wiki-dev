@@ -101,7 +101,7 @@ def line_moved(vault):
 
 CHANGES_LINE = "變動：新增 {added}、修改 {modified}、不見 {missing}"
 CHANGES_INCOMPLETE = "變動：來源很大還沒比完，說「有什麼變動」我再比"
-MISSING_SOURCES_LINE = "這台電腦找不到來源{names}，其他照常；搬過的話跟我說。"
+MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
 MISSING_SOURCES_SHOWN = 3
 # D-156（note 改規則實作中裁定 1）：先整理、整理完再回答；門檻內開始前照 announce 說一句（D-100 修訂）。
 # 怎麼派 card-maker 只寫在 ingest 的 SKILL.md，開場句不提（開場預算，card-maker 實作疑義 22 定）
@@ -267,11 +267,9 @@ def line_missing_sources(vault):
     return MISSING_SOURCES_LINE.format(names=names)
 
 
-PROFILE_CHANGED = "設定檔有改（{summary}）：先 kb profile check 複述，客戶說好才 apply"
+PROFILE_CHANGED = "設定檔被手改了（{summary}）：跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
 PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
-PROFILE_UNLISTED = "第一層夾{names}不在型別表（請客戶補進設定檔）"
 PROFILE_LINE_MAX = 120
-PROFILE_UNLISTED_SHOWN = 2
 PROFILE_ORDER = "型別順序"  # 只調了型別表的順序（型別夾會改名）：diff 沒有內容差異時的摘要
 
 
@@ -291,17 +289,7 @@ def line_profile(vault):
     if st.get("renamed"):  # 句子跟 kb profile check 同一支（profile.renamed_line，裁定 8）
         text = profile.renamed_line(st["renamed"], with_change=head is not None)
         head = f"{head}；{text}" if head else text
-    if not st["unlisted"]:
-        return head
-
-    def joined(names, more):
-        text = "、".join(f"「{n}」" for n in names) + (f"等 {more} 個" if more else "")
-        tail = PROFILE_UNLISTED.format(names=text)
-        return f"{head.rstrip('。')}；{tail}" if head else f"設定檔：{tail}"
-    line = joined(st["unlisted"], 0)
-    if len(line) > PROFILE_LINE_MAX:
-        line = joined(st["unlisted"][:PROFILE_UNLISTED_SHOWN], len(st["unlisted"]))
-    return line
+    return head
 
 
 TAGS_EDITED = "綜合卡上的標籤你改了 {n} 張（{names}）：先 kb entity tag --from-card 記進去，跟她說一句記了什麼；不合字典的問她"

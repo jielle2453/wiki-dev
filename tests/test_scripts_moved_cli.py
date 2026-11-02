@@ -111,6 +111,7 @@ class Moved(Base):
         self.assertEqual(got["old_copy"], posix(self.V))
         r = run_kb("moved", cwd=NV)
         self.assertIn(f"舊位置還有一份：{posix(self.V)}", r.stdout)
+        self.assertIn(f"問使用者一句要不要刪舊的，說好就 kb source-edit trash {posix(self.V)}。", r.stdout)
         self.assertTrue(self.V.is_dir())
         (self.V / ".system" / "vault.json").write_text(json.dumps(
             {"schema_version": 1, "vault_id": "kb-ffffffff"}), encoding="utf-8")

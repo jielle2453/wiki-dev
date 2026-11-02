@@ -632,7 +632,7 @@ def _need(data, ref):
 def _need_plain(entry, verb):
     """一般實體（不是客戶自己、active）才能 rename／merge／remove。"""
     if is_self(entry):
-        raise EntityRefused(f"「{entry['name']}」是你自己（關於你），要改在客戶設定檔第五節改")
+        raise EntityRefused(f"「{entry['name']}」是你自己（關於你），用 Edit 改設定檔第 5 節（關於你那一列），再跑 kb profile apply。")
     if entry.get("status") != "active":
         raise EntityRefused(f"「{entry['name']}」已移除，不能{verb}")
 
