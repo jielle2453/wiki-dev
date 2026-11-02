@@ -1006,3 +1006,48 @@ class FoldersInventory(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedAndLocate(Base):
+    """放寬甲 D-334(3)、D-322 第 8 件：folders add --shared、folders set --shared、list 帶 shared；locate 找搬走的來源夾。"""
+
+    def test_add_shared_set_and_list(self):
+        r = self.add("../raw/客戶案件", "--shared")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.sources()["sources"][0]["shared"])
+        listed = json.loads(self.folders("list", "--json").stdout)
+        self.assertTrue(listed["sources"][0]["shared"])
+        r = self.folders("set", "客戶案件", "--shared", "no")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("shared", self.sources()["sources"][0])
+        self.assertFalse(json.loads(self.folders("list", "--json").stdout)["sources"][0]["shared"])
+        r = self.folders("set", "客戶案件", "--shared", "yes")
+        self.assertTrue(self.sources()["sources"][0]["shared"])
+        r = self.folders("set", "沒有這個", "--shared", "yes")
+        self.assertEqual(r.returncode, 3)
+
+    def test_locate_finds_moved_source(self):
+        self.assertEqual(self.add("../raw/客戶案件").returncode, 0)
+        home = self.tmp / "home"
+        new = home / "文件" / "客戶案件"
+        new.parent.mkdir(parents=True)
+        shutil.move(str(self.raw / "客戶案件"), str(new))
+        (self.V / ".system" / "config.json").write_text(
+            json.dumps({"relocate_search_seconds": 3, "relocate_search_depth": 3}), encoding="utf-8")
+        r = self.folders("locate", "客戶案件", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(Path(got["candidates"][0]["path"]).resolve(), new.resolve())
+        self.assertGreater(got["candidates"][0]["hit"], 0)
+        self.assertIn("找到了：", got["message"])
+        self.assertIn("kb folders relocate 客戶案件 <路徑>", got["message"])
+        self.assertIn("searched_seconds", got)
+
+    def test_locate_nothing(self):
+        self.assertEqual(self.add("../raw/客戶案件").returncode, 0)
+        shutil.rmtree(self.raw / "客戶案件")
+        (self.V / ".system" / "config.json").write_text(
+            json.dumps({"relocate_search_seconds": 2, "relocate_search_depth": 2}), encoding="utf-8")
+        r = self.folders("locate", "客戶案件")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "找不到；問使用者「客戶案件」搬到哪了。")
