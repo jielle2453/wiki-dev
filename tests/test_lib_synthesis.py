@@ -593,9 +593,11 @@ class Layout(Base):
                          ["## 現況", "## 時程", "## 金額", "## 推算", synthesis.FILE_BEGIN, "## 相關檔", "## 紀事"])
         self.assertTrue(p.read_text(encoding="utf-8").endswith(self.EVENTS))
         self.assertEqual(synthesis.render_cache(self.V, ["信義王"], self.t), [])  # 穩定
-        old = self.old(self.NOW, self.EVENTS, self.CUSTOM)
+        old = self.old(self.NOW, self.EVENTS, self.CUSTOM)  # review：紀事不在最後也插在紀事前面（spec 第 2 點）
         self.assertEqual(heads(synthesis.with_file_section(old, self.FILES)),
-                         ["## 現況", "## 紀事", "## 時程", "## 金額", synthesis.FILE_BEGIN, "## 相關檔"])
+                         ["## 現況", synthesis.FILE_BEGIN, "## 相關檔", "## 紀事", "## 時程", "## 金額"])
+        self.assertEqual(heads(synthesis.with_file_section(self.old(self.NOW), self.FILES)),
+                         ["## 現況", synthesis.FILE_BEGIN, "## 相關檔"], "沒有紀事段才接在最後")
 
     def test_read_ranges_one_part_and_log_goes_last(self):
         """驗收 3：新版面 read_ranges 是一段（不含相關檔、紀事）；沒有紀事段就補在最後。"""
@@ -647,6 +649,35 @@ class Layout(Base):
         for bad in ("沒有檔頭\n## 紀事\n", "---\n名稱: x\n---\n# x\n"):  # 沒檔頭、檔頭沒有範本版本
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 synthesis.migrate_layout(bad)
+
+    def test_migrate_layout_refuses_unclosed_files(self):
+        """review：相關檔少了結束記號（算到檔尾）不遷，免得紀事排進那段、下次 render 被換掉。"""
+        with self.assertRaises(ValueError):
+            synthesis.migrate_layout(self.old(self.NOW, self.EVENTS, synthesis.FILE_BEGIN + "\n## 相關檔\n- x\n"))
+
+    def test_insert_events_before_unclosed_files(self):
+        """review：沒有紀事段、相關檔沒結束記號時，紀事段補在相關檔前面（補在檔尾會被算進那段）。"""
+        files = synthesis.FILE_BEGIN + "\n## 相關檔\n- x\n"
+        new, _a, _d = synthesis.insert_events(self.old(self.NOW, files), [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
+        self.assertEqual(new, self.old(self.NOW, "## 紀事\n- 2026-10-25 開會〔f-00000001〕\n", files))
+
+    def test_migrate_layout_mixed_eol_keeps_file_bytes(self):
+        """review：CRLF 卡、相關檔是 LF（混用）：每行照原本的換行，相關檔那段一個位元組都不變。"""
+        crlf = self.old(self.NOW, self.EVENTS, self.GUESS).replace("\n", "\r\n")
+        text = crlf + "\n" + self.FILES + "\n"
+        new = synthesis.migrate_layout(text)
+        self.assertIn("\n" + self.FILES + "\n", new)
+        self.assertIn("## 現況\r\n- 一點〔f-00000001〕\r\n", new)
+        self.assertIn("範本版本: 2\r\n", new)
+        self.assertEqual(heads(new.replace("\r\n", "\n"))[-1], "## 紀事")
+        self.assertEqual(synthesis.migrate_layout(new), new)
+
+    def test_migrate_layout_text_after_files_stays_with_it(self):
+        """review：相關檔結束記號後面她打的字跟著那段，不被搬到別段底下。"""
+        new = synthesis.migrate_layout(self.old(self.NOW, self.EVENTS, self.GUESS, self.FILES + "\n\n她打的字\n"))
+        self.assertLess(new.index(synthesis.FILE_END), new.index("她打的字"))
+        self.assertLess(new.index("她打的字"), new.index("## 紀事"))
+        self.assertLess(new.index("## 推算"), new.index(synthesis.FILE_BEGIN))
 
 
 if __name__ == "__main__":

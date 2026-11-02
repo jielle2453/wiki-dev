@@ -29,8 +29,9 @@ def run_kb(*args, cwd):
 
 
 def new_prompt(md):
-    """舊 md 的第一節提示句換成現在的（型別夾編號改了那一句，裁定 4）：升級重寫 md 時只有這一句不同。"""
-    return md.replace("型別名會變成知識庫第一層的資料夾名", "型別名前面會加上編號當資料夾名（例：01 案子）")
+    """舊 md 的提示句換成現在的（第一節型別夾編號那句，裁定 4；第四節段順序那句，D-523）：升級重寫 md 時只有這兩句不同。"""
+    return (md.replace("型別名會變成知識庫第一層的資料夾名", "型別名前面會加上編號當資料夾名（例：01 案子）")
+            .replace("除了現況、紀事、推算，", "除了現況、推算、紀事，"))
 
 class Skeleton(unittest.TestCase):
     def test_skeleton_has_exactly_these_files(self):

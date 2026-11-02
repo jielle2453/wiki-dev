@@ -733,17 +733,15 @@ def _mark_line(mark):
 
 
 def with_file_section(text, section):
-    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段時，最後一段是「## 紀事」就插在它前面（D-523），
-    不然接在最後（遷移前的舊版面）；其他字原樣。"""
+    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段時插在「## 紀事」前面（D-523），沒有紀事段才接在最後；
+    其他字原樣。"""
     span = _span(text)
     if span is None:
         if not section:
             return text
-        last = None
-        for m in re.finditer(r"(?m)^## [^\r\n]*", text):
-            last = m
-        if last is not None and last.group().rstrip() == "## 紀事":
-            return text[:last.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[last.start():]
+        ev = re.search(r"(?m)^## 紀事[ \t]*\r?$", text)
+        if ev is not None:
+            return text[:ev.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[ev.start():]
         return text.rstrip("\n") + "\n\n" + section + "\n"
     head, tail = text[:span[0]].rstrip("\n"), text[span[1]:].strip("\n")
     return head + ("\n\n" + section if section else "") + ("\n\n" + tail if tail else "") + "\n"
@@ -1238,10 +1236,14 @@ def insert_events(text, events):
         return text, added, dup
     if span is None:
         block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
-        head = list(lines)
+        fb = next((i for i in range(start, len(lines)) if lines[i].strip() == FILE_BEGIN), None)
+        if fb is not None and not any(l.strip() == FILE_END for l in lines[fb + 1:]):
+            head, tail = lines[:fb], [""] + lines[fb:]  # 沒收尾的相關檔算到檔尾，補在檔尾會被算進那段
+        else:
+            head, tail = list(lines), []
         while head and not head[-1].strip():
             head.pop()
-        return _join(head + [""] + block, True, crlf), added, dup
+        return _join(head + [""] + block + tail, True, crlf), added, dup
     sec = lines[span[0] + 1:span[1]]
     for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
         at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
@@ -1263,41 +1265,46 @@ def _join(lines, end_nl, crlf):
 
 def _blocks(body):
     """內文切成 [(種類, 行)]：開頭（標題與第一個 ## 之前）"pre"、每個 ## 段（種類是標題行）、相關檔 "file"
-    （開始到結束記號，沒結束記號算到檔尾）、相關檔之後到下一個 ## 之前的字 "after"。"""
+    （開始到結束記號，連同之後到下一個 ## 之前的字；沒結束記號算到檔尾，種類是 "open"）。行可以帶行尾 \r。"""
     out, kind, buf, in_file = [], "pre", [], False
     for line in body:
         if in_file:
             buf.append(line)
-            if line.strip() == FILE_END:
-                out.append(("file", buf))
-                kind, buf, in_file = "after", [], False
+            in_file = line.strip() != FILE_END
             continue
         if line.strip() == FILE_BEGIN or line.startswith("## "):
             out.append((kind, buf))
             kind, buf, in_file = ("file", [line], True) if line.strip() == FILE_BEGIN else (line.rstrip(), [line], False)
             continue
         buf.append(line)
-    out.append((kind, buf))
+    out.append(("open" if in_file else kind, buf))
     return out
 
 
 def migrate_layout(text):
     """範本版本 1 → 2（D-523）：「## 推算」整段搬到其他段後面（相關檔前）、「## 紀事」整段搬到全卡最後（相關檔後）；
     一段 = 標題到下一個「## 」或相關檔記號之前。她自己加的段照原來的先後；段與段之間一個空行；檔頭只改範本版本，
-    段的內容一字不動。沒檔頭、檔頭沒有範本版本丟 ValueError（migrate 列進 skipped）。"""
+    段的內容一字不動、每行照原本的換行（混用的不整檔轉）。沒檔頭、檔頭沒有範本版本、相關檔沒結束記號丟 ValueError
+    （migrate 列進 skipped）。"""
     raw = str(text)
     bom = "﻿" if raw.startswith("﻿") else ""
-    lines = _lines(raw[len(bom):])
+    rl = raw[len(bom):].split("\n")  # 每行留著自己的 \r
+    if rl and rl[-1] == "":
+        rl.pop()
+    lines = [l[:-1] if l.endswith("\r") else l for l in rl]
     start = _body_start(lines)
     if start == 0:
         raise ValueError("沒有檔頭")
     ver = next((n for n in range(1, start - 1) if re.match(r"^範本版本\s*:", lines[n])), None)
     if ver is None:
         raise ValueError("檔頭沒有範本版本")
-    head = lines[:start]
-    head[ver] = f"範本版本: {TEMPLATE_VERSION}"
+    cr = "\r" if _all_crlf(raw) else ""
+    head = rl[:start]
+    head[ver] = f"範本版本: {TEMPLATE_VERSION}" + ("\r" if rl[ver].endswith("\r") else "")
     blocks = []
-    for kind, buf in _blocks(lines[start:]):
+    for kind, buf in _blocks(rl[start:]):
+        if kind == "open":
+            raise ValueError("相關檔少了結束記號")
         while buf and not buf[-1].strip():
             buf = buf[:-1]
         if buf or kind == "pre":
@@ -1308,8 +1315,11 @@ def migrate_layout(text):
              + [b for k, b in blocks if k == "## 紀事"])
     body = pre[0] if pre else []
     for b in order:
-        body = body + ([""] if body else []) + b
-    return bom + _join(head + body, True, "\r\n" in raw)
+        body = body + ([cr] if body else []) + b
+    out = head + body
+    if cr and out and not out[-1].endswith("\r"):
+        out[-1] += "\r"
+    return bom + "\n".join(out) + "\n"
 
 
 def add_events(vault, name, lines, turn_id, synced=False):

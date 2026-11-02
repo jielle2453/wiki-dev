@@ -244,12 +244,14 @@ SYNTHESIS_MIGRATIONS = [{"from": "1", "to": "2", "fn": _synthesis_v2}]  # D-523�
 
 
 def _synthesis_cards(vault):
-    """[(rel, 範本版本)]：active、有綜合卡的實體（客戶自己不算）；讀不懂的卡範本版本是那個例外。實體清單讀不了回 []。"""
+    """[(rel, 範本版本)]：active、有綜合卡的實體（客戶自己不算）；讀不懂、檔頭沒有範本版本的卡範本版本是那個例外
+    （讀不懂但那行已是現行版本的不算例外，不在遷移範圍）。實體清單讀不了回 None。"""
+    import re
     from kb._lib import synthesis
     try:
         data = entities.load(vault)
     except (ValueError, OSError):
-        return []
+        return None
     out = []
     for e in data["entities"]:
         if e.get("status") != "active" or entities.is_self(e) or not e.get("card"):
@@ -257,10 +259,16 @@ def _synthesis_cards(vault):
         rel = entities.locate(vault, e)
         if not rel:
             continue
+        p = Path(vault) / rel
         try:
-            version = str(synthesis.read_front((Path(vault) / rel).read_text(encoding="utf-8")).get("範本版本"))
+            version = synthesis.read_front(p.read_text(encoding="utf-8")).get("範本版本")
+            version = ValueError("檔頭沒有範本版本") if version is None else str(version)
         except (OSError, UnicodeDecodeError, ValueError) as err:
-            version = err
+            try:
+                m = re.search(b"(?m)^" + "範本版本".encode("utf-8") + rb"[ \t]*:[ \t]*(\S+)", p.read_bytes())
+            except OSError:
+                m = None
+            version = synthesis.TEMPLATE_VERSION if m and m.group(1).strip() == synthesis.TEMPLATE_VERSION.encode() else err
         out.append((rel, version))
     return out
 
@@ -270,11 +278,15 @@ def _synthesis_due(version):
 
 
 def _migrate_synthesis(vault, turn_id, skipped):
-    """綜合卡的版面遷移（D-523）；回遷了幾張。寫前備進回合（by program）；她沒有沒處理的手改時基準跟著換（D-270），
+    """綜合卡的版面遷移（D-523）；回遷了幾張。寫前備進回合（by program）；基準照 card_base.record_write 換成搬完的、她沒處理的手改留成待處理（D-270），
     不算她手改。一張讀不懂、遷壞（版本沒變成 to）不寫、列進 skipped，不擋其他張。"""
     from kb._lib import card_base, synthesis, turn
     count = 0
-    for rel, version in _synthesis_cards(vault):
+    found = _synthesis_cards(vault)
+    if found is None:
+        skipped.append({"rel": entities.ENTITIES_POSIX, "why": "綜合卡版面沒遷成（實體清單讀不了）"})
+        return 0
+    for rel, version in found:
         if isinstance(version, Exception):
             skipped.append({"rel": rel, "why": f"綜合卡版面沒遷成（{_first_line(version)}）"})
             continue
@@ -286,14 +298,13 @@ def _migrate_synthesis(vault, turn_id, skipped):
             new = mig["fn"](target.read_text(encoding="utf-8"))
             if str(synthesis.read_front(new).get("範本版本")) != str(mig["to"]):
                 raise ValueError("遷移後範本版本不對")
-            synced = card_base.in_sync(vault, rel)
             turn.backup(vault, rel, turn_id, by="program")
             write_text_atomic(target, new)
         except (ValueError, OSError, UnicodeDecodeError) as e:
             skipped.append({"rel": rel, "why": f"綜合卡版面沒遷成（{_first_line(e)}）"})
             continue
-        if synced:
-            card_base.record_safe(vault, rel)
+        # 同 add_events：她沒處理的手改留成待處理，基準換成搬完的（搬的段不算她改）
+        card_base.record_write(vault, rel, turn_id, Path(vault) / turn.VERSIONS_REL / turn_id / "files" / rel)
         count += 1
     return count
 
@@ -312,7 +323,7 @@ def pending(vault):
         if due:
             was = out.get(m.rel)
             out[m.rel] = {"rel": m.rel, "from": min(due[0], was["from"]) if was else due[0], "to": due[1]}
-    for rel, version in _synthesis_cards(vault):
+    for rel, version in _synthesis_cards(vault) or []:
         mig = _synthesis_due(version)
         if mig:
             out.setdefault(rel, {"rel": rel, "from": int(mig["from"]), "to": int(mig["to"])})

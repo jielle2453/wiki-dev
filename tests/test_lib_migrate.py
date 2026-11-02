@@ -272,6 +272,37 @@ class SynthesisLayout(unittest.TestCase):
         self.assertEqual(self.heads(self.XINYI), ["## 現況", "## 時程", synthesis.FILE_BEGIN, "## 相關檔",
                                                   synthesis.FILE_END, "## 紀事"])
 
+    def test_pending_hand_edit_stays_hers_only(self):
+        """review：遷移當下她有沒處理的手改：留成待處理，搬動的推算、紀事不算她改的。"""
+        from kb._lib import card_base
+        card_base.record(self.V, self.XINYI)
+        p = self.V / self.XINYI
+        p.write_text(self.text(self.XINYI).replace("## 現況\n", "## 現況\n- 她加的一句\n"), encoding="utf-8", newline="\n")
+        migrate.apply(self.V, self.turn)
+        (got,) = card_base.edits(self.V)["edits"]
+        self.assertEqual(got["hunks"], [{"before": "", "after": "- 她加的一句"}])
+
+    def test_no_version_and_unreadable_entities_are_listed(self):
+        """review：檔頭沒有範本版本的卡列進 skipped；實體清單讀不了也列，不默默當成沒卡。"""
+        p = self.V / self.DAAN
+        p.write_text("\n".join(l for l in self.text(self.DAAN).split("\n") if not l.startswith("範本版本")),
+                     encoding="utf-8", newline="\n")
+        got = migrate.apply(self.V, self.turn)
+        self.assertEqual([s["rel"] for s in got["skipped"]], [self.DAAN])
+        self.assertIn("範本版本", got["skipped"][0]["why"])
+        skipped = []
+        with mock.patch.object(migrate.entities, "load", side_effect=ValueError("壞了")):
+            self.assertEqual(migrate._migrate_synthesis(self.V, self.turn, skipped), 0)
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("實體清單", skipped[0]["why"])
+
+    def test_broken_card_already_new_not_reported(self):
+        """review：讀不懂但範本版本已是 2 的卡不在遷移範圍，不每次升級都報。"""
+        p = self.V / self.DAAN
+        p.write_bytes(self.text(self.DAAN).replace("範本版本: 1", "範本版本: 2").encode("utf-8") + b"\xff\n")
+        got = migrate.apply(self.V, self.turn)
+        self.assertNotIn(self.DAAN, [s["rel"] for s in got["skipped"]])
+
 
 class FreeRename(Base):
     """放寬丙 4：_extras 改名 _個人。"""
