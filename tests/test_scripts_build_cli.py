@@ -420,7 +420,7 @@ class Adopt(Base):
         view = json.loads(self.ok("cards", "batch", b["batch"], "--json"))
         self.assertEqual([i["chunk"] for i in view["items"]], chunks[:4])
         self.assertIn("口述｜<實體名稱或「無」>｜<YYYY-MM-DD 或「未載」>｜<一句>", view["report"])
-        self.assertTrue(view["read"][0].endswith("carding.md 批次、第十二節"))
+        self.assertEqual([Path(p).name for p in view["read"]], ["batch.md", "adopt.md"])
         self.assertEqual(self.refused("--session", SID, "cards", "dispatch", "--adopt", "--ids", "f-1"),
                          "--adopt 不跟 --source、--ids 一起用")
 

@@ -932,15 +932,162 @@ def buckets(vault, data, mounts, prof):
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}
 
 
-def body_line(text):
-    """綜合卡內文第一行的行號（1 起算）：檔頭結尾 --- 的下一行（D-520，AI 只讀內文用）；沒有檔頭回 1。"""
-    lines = str(text or "").splitlines()
-    if not lines or lines[0].strip() != "---":
-        return 1
-    for n, line in enumerate(lines[1:], 2):
-        if line.strip() == "---":
-            return min(n + 1, len(lines))
-    return 1
+def _body_start(lines):
+    """內文第一行的索引（0 起算）：檔頭結尾 --- 的下一行；沒有檔頭回 0。"""
+    if not lines or lines[0].lstrip("﻿").strip() != "---":
+        return 0
+    return next((n + 1 for n, line in enumerate(lines[1:], 1) if line.strip() == "---"), 0)
+
+
+def _events_span(lines, start=0):
+    """「## 紀事」那段的 (標題索引, 下一個 ## 的索引或檔尾)；沒有回 None。"""
+    head = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 紀事"), None)
+    if head is None:
+        return None
+    return head, next((n for n in range(head + 1, len(lines)) if lines[n].startswith("## ")), len(lines))
+
+
+def _lines(text):
+    """只照 \n 切行（Read 也是；splitlines 會在 U+2028、換頁字元這類字切開）；\r\n 當一個換行，檔尾換行不算一行。"""
+    lines = str(text or "").replace("\r\n", "\n").split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def read_ranges(text):
+    """AI 要讀的範圍 [[起行（1 起算）, 行數], …]：內文去掉「## 紀事」那段（D-521，紀事由程式加、AI 不讀）。"""
+    lines = _lines(text)
+    start = _body_start(lines)
+    span = _events_span(lines, start)
+    parts = [(start, len(lines))] if span is None else [(start, span[0]), (span[1], len(lines))]
+    return [[a + 1, b - a] for a, b in parts if b > a]
+
+
+# ---------- 紀事（entity log，D-521）----------
+
+_EVENT = re.compile(r"^(\S+)\s+(.*?\S)\s*((?:〔[^〔〕]*〕)+)$")
+_CITE_ID = re.compile(r"^[fscr]-[0-9a-f]{8}$")
+EVENT_FORMAT = "紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：{}"
+CITE_FORMAT = "出處編號格式不對：〔{}〕（要寫成〔f-xxxxxxxx〕這樣）"
+NOT_BASIS = "〔{cite}〕不是{name}的依據（掛的檔案卡、口述、裁示、推算）"
+
+
+def parse_event(line, allowed, name):
+    """一行紀事（S-14 去掉開頭「- 」）→ (日期, 正規化的行)；格式不對或出處不在 allowed 丟 EntityRefused。"""
+    from kb._lib import agenda
+    raw = str(line).strip()
+    m = _EVENT.match(raw[2:].strip() if raw.startswith("- ") else raw)
+    if m is None:
+        raise entities.EntityRefused(EVENT_FORMAT.format(line))
+    try:
+        day = agenda.parse_date(m.group(1)).isoformat()
+    except agenda.AgendaRefused:
+        raise entities.EntityRefused(EVENT_FORMAT.format(line)) from None
+    cites = [c.strip() for c in re.findall(r"〔([^〔〕]*)〕", m.group(3))]
+    every = [c.strip() for c in re.findall(r"〔([^〔〕]*)〕", m.group(2))] + cites  # 行中間的〔〕也驗
+    bad = next((c for c in every if not _CITE_ID.match(c)), None)
+    if bad is not None:
+        raise entities.EntityRefused(CITE_FORMAT.format(bad))
+    foreign = next((c for c in every if c not in allowed), None)
+    if foreign is not None:
+        raise entities.EntityRefused(NOT_BASIS.format(cite=foreign, name=name))
+    return day, f"{day} {m.group(2)}{''.join(f'〔{c}〕' for c in cites)}"
+
+
+def _same_event(line):
+    """去重用：行尾空白、〔前的空白不算。"""
+    return re.sub(r"\s+〔", "〔", line.rstrip())
+
+
+def _event_day(line):
+    m = re.match(r"^- (\d{4}-\d{2}-\d{2})(?:\s|$)", line)
+    return m.group(1) if m else None
+
+
+def insert_events(text, events):
+    """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加。
+    沒有紀事段就在「## 現況」那段之後補一段（S-08）。回 (新內文, 加了的行, 已經有的行)。"""
+    crlf = "\r\n" in text
+    lines = _lines(text)
+    start = _body_start(lines)
+    span = _events_span(lines, start)
+    have = {_same_event(l) for l in lines[span[0] + 1:span[1]]} if span else set()
+    added, dup, todo = [], [], []
+    for day, line in events:
+        if _same_event(f"- {line}") in have or line in added:
+            dup.append(line)
+        else:
+            added.append(line)
+            todo.append((day, f"- {line}"))
+    if not todo:
+        return text, added, dup
+    if span is None:
+        block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
+        cur = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 現況"), None)
+        at = len(lines) if cur is None else next((n for n in range(cur + 1, len(lines)) if lines[n].startswith("## ")),
+                                                 len(lines))
+        head, tail = lines[:at], lines[at:]
+        while head and not head[-1].strip():
+            head.pop()
+        new = head + [""] + block + ([""] + tail if tail else [])
+        return _join(new, True, crlf), added, dup
+    sec = lines[span[0] + 1:span[1]]
+    for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
+        at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
+        if at is None:
+            at = max((i for i, l in enumerate(sec) if l.strip()), default=-1) + 1
+        sec.insert(at, line)
+    new = lines[:span[0] + 1] + sec + lines[span[1]:]
+    return _join(new, text.endswith("\n"), crlf), added, dup
+
+
+def _join(lines, end_nl, crlf):
+    out = "\n".join(lines) + ("\n" if end_nl else "")
+    return out.replace("\n", "\r\n") if crlf else out
+
+
+def add_events(vault, name, lines, turn_id, synced=False):
+    """kb entity log（D-521）：lines 照 insert_events 加進實體綜合卡的紀事；寫前 turn.backup(by="program")，寫完驗 validate；
+    照 hook 的做法記基準（程式加的不算她手改，她沒處理的手改留成待處理，D-270）。synced 再照 mark_synced 標記整理到。
+    拒絕（什麼都不寫）丟 EntityRefused：找不到、沒卡、綜合卡有整理到以外的錯、行的格式不對、出處不在依據裡。
+    回 {"name","rel","added","skipped","written","synced","synced_reason"}。"""
+    from kb._lib import card_base, turn
+    data = entities.load(vault)
+    e, _hit = entities.find(data, name)
+    if e is None:
+        raise entities.EntityRefused(f"{NO_ENTITY}：{name}")
+    mounts = entities.mounts(vault, data)
+    prof = entities._profile(vault)
+    know = knowledge(vault)
+    rel, text, reason = _synced_card(vault, e, data, mounts, prof, know)
+    if reason == NO_CARD:
+        raise entities.EntityRefused(f"{e['name']}{NO_CARD}")
+    if reason:
+        raise entities.EntityRefused(f"{e['name']}的綜合卡有錯：{reason}")
+    stmts, ruls, finds = basis(know, e["name"], mounts)
+    allowed = {m["id"] for m in mounts.get(e["name"], [])} | {x["id"] for x in list(stmts) + list(ruls) + list(finds)}
+    events = [parse_event(line, allowed, e["name"]) for line in lines]
+    p = Path(vault) / rel
+    text = p.read_bytes().decode("utf-8")  # 不經 read_text：\r\n 照原樣留
+    new, added, dup = insert_events(text, events)
+    out = {"name": e["name"], "rel": rel, "added": added, "skipped": dup, "written": [], "synced": False,
+           "synced_reason": None}
+    if new != text:
+        turn.backup(vault, rel, turn_id, by="program")
+        write_text_atomic(p, new)
+        out["written"].append(rel)
+        # 同 hook 的做法：她有沒處理的手改（回合備份的內文跟基準不同）留成待處理，基準換成程式寫完的，加的紀事不算她改
+        card_base.record_write(vault, rel, turn_id, Path(vault) / turn.VERSIONS_REL / turn_id / "files" / rel)
+        ok, why = validate(vault, rel, allow_stale=True)
+        if not ok:  # 加之前驗過，照理不會到這裡；只記 log
+            from kb._lib import ledger
+            ledger.log_error(vault, f"entity log 之後綜合卡驗不過 {rel}：{why}", source="synthesis")
+    if synced:
+        got, skipped = mark_synced(vault, [e["name"]], turn_id)
+        out["synced"], out["synced_reason"] = not skipped, (skipped[0]["reason"] if skipped else None)
+        out["written"] += [r for r in got if r not in out["written"]]
+    return out
 
 
 def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
@@ -977,7 +1124,7 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
         else:
             removed.append({"id": c, "path": groups[c][0]["path"] if c in groups else None, "title": titles.get(c),
                             "source": "card"})
-    return {"entity_id": e["id"], "name": e["name"], "path": rel, "body_line": body_line(text),
+    return {"entity_id": e["id"], "name": e["name"], "path": rel, "read_ranges": read_ranges(text),
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}

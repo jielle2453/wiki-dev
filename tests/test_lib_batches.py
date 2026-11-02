@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tests._guard_fixture import ROOT  # noqa: F401  （把 scripts/ 放進 sys.path）
 from kb._lib import batches, turn  # noqa: E402
+from kb._lib.paths import plugin_root  # noqa: E402
 
 SID = "sid-1"
 
@@ -621,37 +622,33 @@ class NameQuestion(unittest.TestCase):
                          "我要幫「王宅」（案子，掛了 3 份檔）整理一頁現況：名字這樣叫對嗎？它跟其他案子是同一件嗎？")
 
 
-class SectionRanges(unittest.TestCase):
-    """D-520：批次的 read 給行號範圍。"""
+class ReadLists(unittest.TestCase):
+    """D-521 驗收 4：批次的 read 是每種批次整份要讀的檔（絕對路徑）；綜合卡批次有 broken 才多 synthesis-broken.md。"""
+    REF = "skills/ingest/references/"
 
-    def setUp(self):
-        import tempfile
-        self.d = Path(tempfile.mkdtemp())
-        self.f = self.d / "r.md"
-        self.f.write_text("\n".join(['# 標題', '前言', '## 批次', 'a', 'b', '## 材料的欄位', 'c', '## 一、讀', 'd', '## 八、壞', 'e', 'f']) + "\n", encoding="utf-8")
+    def names(self, kind, buckets=()):
+        root = plugin_root().as_posix() + "/"
+        got = batches.read_list(kind, buckets)
+        self.assertTrue(all(isinstance(p, str) and p.startswith(root) and Path(p).is_file() for p in got), got)
+        return [p[len(root):] for p in got]
 
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
+    def test_each_kind(self):
+        self.assertEqual(self.names("synthesis", ["synthesis_new", "synthesis_stale"]),
+                         ["rules/synthesis.md", self.REF + "batch.md", self.REF + "synthesis-batch.md"])
+        self.assertEqual(self.names("synthesis", ["synthesis_stale", "synthesis_broken"]),
+                         ["rules/synthesis.md", self.REF + "batch.md", self.REF + "synthesis-batch.md",
+                          self.REF + "synthesis-broken.md"])
+        self.assertEqual(self.names("cards", ["new"]), [self.REF + "batch.md", self.REF + "carding.md", self.REF + "agenda-scan.md"])
+        self.assertEqual(self.names("agenda", ["agenda_unscanned"]), [self.REF + "batch.md", self.REF + "agenda-scan.md"])
+        self.assertEqual(self.names("adopt"), [self.REF + "batch.md", self.REF + "adopt.md"])
 
-    def test_adjacent_merged_and_gap_kept(self):
-        self.assertEqual(batches.section_ranges(self.f, ("## 批次", "## 材料的欄位", "## 八、")), [[3, 5], [10, 3]])
+    def test_synthesis_budget(self):
+        """D-520 是 8,900 字；拆模組後綜合卡批次（沒有 broken）三份合計 ≤ 7,000（D-521 裁定 1）。"""
+        total = sum(len(Path(p).read_text(encoding="utf-8")) for p in batches.read_list("synthesis", ["synthesis_stale"]))
+        self.assertLessEqual(total, 7000)
 
-    def test_missing_head_or_none_reads_whole(self):
-        self.assertEqual(batches.section_ranges(self.f, ("## 批次", "## 九、")), [])
-        self.assertEqual(batches.section_ranges(self.f, None), [])
-        self.assertEqual(batches.section_ranges(self.d / "沒有.md", ("## 批次",)), [])
-
-    def test_real_read_lists_point_at_headings(self):
-        for kind in batches.READ:
-            for r in batches.read_list(kind):
-                lines = Path(r["path"]).read_text(encoding="utf-8").splitlines()
-                for start, _n in r["ranges"]:
-                    with self.subTest(kind=kind, start=start):
-                        self.assertTrue(lines[start - 1].startswith("## "))
-        syn = batches.read_list("synthesis")
-        self.assertEqual(syn[0]["ranges"], [])
-        self.assertTrue(syn[1]["ranges"])
+    def test_read_text_lists_names(self):
+        self.assertEqual(batches.read_text(batches.read_list("agenda")), "batch.md、agenda-scan.md")
 
 
 if __name__ == "__main__":

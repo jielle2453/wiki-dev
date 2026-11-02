@@ -186,7 +186,7 @@ def _synthesis_rules():
 
 
 MAIN_CARDS = ("照 files 自己做（這幾份不交給製卡助手）：編號是線上文件、檔名像密碼的、有密碼的，照 new、stale 的材料寫卡；"
-              "路徑是找不到屬於哪個實體的壞綜合卡，照 synthesis_broken 的 reason 與 carding.md 第八節處理，處理不了就跟客戶說")
+              "路徑是找不到屬於哪個實體的壞綜合卡，照 synthesis_broken 的 reason 與 references/synthesis-broken.md 處理，處理不了就跟客戶說")
 
 
 def _names(out, vault):

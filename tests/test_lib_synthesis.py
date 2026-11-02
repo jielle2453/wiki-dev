@@ -236,6 +236,20 @@ class Buckets(Base):
             E.write_card(self.V, rel, title, ["林小姐室內設計", "順發水電"])
         self.assertEqual(self.buckets()["synthesis_new"], [])
 
+    def test_read_ranges_skip_events(self):
+        """D-521 驗收 3：read_ranges 是內文去掉 ## 紀事 那段（標題到下一個 ## 之前）。"""
+        text = ("---\na: 1\n---\n# 信義王\n\n一句。\n\n## 現況\n- 一點\n\n## 紀事\n- 2026-10-20 甲\n- 2026-10-01 乙\n\n"
+                "## 時程\n未知\n")
+        lines = text.splitlines()
+        got = synthesis.read_ranges(text)
+        self.assertEqual(got, [[4, 7], [15, 2]])
+        kept = [lines[a - 1 + i] for a, n in got for i in range(n)]
+        self.assertFalse([l for l in kept if "紀事" in l or l.startswith("- 2026")])
+        self.assertEqual(synthesis.read_ranges(text.split("\n## 時程")[0] + "\n"), [[4, 7]])  # 紀事在最後
+        self.assertEqual(synthesis.read_ranges("---\na: 1\n---\n# x\n\n## 現況\n- 一\n"), [[4, 4]])
+        self.assertEqual(synthesis.read_ranges("---\na: 1\n---\n"), [])
+        self.assertEqual(synthesis.read_ranges("沒有檔頭\n## 紀事\n- x\n"), [[1, 1]])
+
     def test_stale_added_changed_removed(self):
         a = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
         E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
@@ -247,11 +261,10 @@ class Buckets(Base):
         self.assertEqual([x["title"] for x in item["added"]], ["信義王會議"])
         self.assertEqual((item["changed"], item["removed"]), ([], []))
         self.assertNotIn("header", item)  # D-520：檔頭程式管，不給
+        self.assertNotIn("body_line", item)
         lines = card.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(lines[item["body_line"] - 2], "---")
-        self.assertNotEqual(item["body_line"], 2)
-        self.assertEqual(synthesis.body_line("---\na: 1\n---\n"), 3)  # 只有檔頭：不超出檔尾
-        self.assertEqual(synthesis.body_line("沒有檔頭\n"), 1)
+        ((start, n),) = item["read_ranges"]  # 沒有紀事段：一段到檔尾（D-521）
+        self.assertEqual((lines[start - 2], start + n - 1), ("---", len(lines)))
         p = self.V / a
         p.write_text(p.read_text(encoding="utf-8").replace("實體: [信義王]", "實體: []"), encoding="utf-8")
         (item,) = self.buckets()["synthesis_stale"]

@@ -55,13 +55,25 @@ class SynthesisRules(unittest.TestCase):
         for word in ("Edit", "kb entity render <名稱> --synced", "不整張重寫"):
             self.assertIn(word, self.rules["S-24"])
         self.assertIn("待更新的照 S-24，不抄", self.rules["S-06"])
-        for rel in ("agents/card-maker.md", "skills/ingest/references/carding.md"):
+        for rel in ("agents/card-maker.md", "skills/ingest/references/synthesis-batch.md"):  # D-521：綜合卡批次的說明搬了
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8").count("--synced"), 1, rel)
         row = next(l for l in (ROOT / "skills/ingest/references/commands.md").read_text(encoding="utf-8").splitlines()
                    if "`entity render`" in l)
         self.assertIn("改完待更新的綜合卡跑 `kb entity render <名稱> --synced`", row)  # 裁定 11
         self.assertNotIn("平常不用 render", row)
 
+
+    def test_events_by_program(self):
+        """D-521：S-21 照 read_ranges 平行讀、紀事不讀；S-22、S-24 紀事用 entity log；S-14、S-16 待更新的由程式加。"""
+        for word in ("read_ranges", "平行 Read", "紀事不讀"):
+            self.assertIn(word, self.rules["S-21"])
+        self.assertIn('kb entity log <名稱> "<行>"… --synced', self.rules["S-22"])
+        self.assertIn("不用 Edit", self.rules["S-22"])
+        for word in ("entity log … --synced", "kb entity render <名稱> --synced"):
+            self.assertIn(word, self.rules["S-24"])
+        for rule in ("S-14", "S-16"):
+            self.assertIn("待更新的由程式加（`entity log`）", self.rules[rule])
+        self.assertNotIn("body_line", self.text)
 
 if __name__ == "__main__":
     unittest.main()
