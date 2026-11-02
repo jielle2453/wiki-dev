@@ -92,6 +92,19 @@ class SynthesisRules(unittest.TestCase):
         pointer = files["carding"].split("`pointer_changed`", 1)[1].split("\n", 1)[0]
         self.assertIn("kb entity log", pointer)
         self.assertIn("合成一條", pointer)
+        self.assertNotIn("紀事多一行", (ROOT / "README.md").read_text(encoding="utf-8"))  # 裁定 13
+
+    def test_pointer_and_purge_rulings(self):
+        """D-521 裁定 10～12：指路卡紀事只由主對話加；第十三節被拒怎麼辦；purge 不是待更新流程；重排不動紀事。"""
+        self.assertIn("由主對話照 carding.md 第十三節加紀事，綜合卡批次不加", self.rules["S-22"])
+        self.assertIn("`purge_synthesis`，整張重寫", self.rules["S-16"])
+        self.assertIn("紀事要刪（同 S-16）", self.rules["S-23"])
+        ref = ROOT / "skills" / "ingest" / "references"
+        self.assertIn("重排紀事以外的段", (ref / "synthesis-batch.md").read_text(encoding="utf-8"))
+        pointer = (ref / "carding.md").read_text(encoding="utf-8").split("`pointer_changed`", 1)[1].split("\n", 1)[0]
+        for word in ("沒有綜合卡的不記、照常跑 `cards seen`", "照拒絕句改好再跑一次", "還是被拒就不跑 `cards seen`",
+                     "跟她說那件還沒記到"):
+            self.assertIn(word, pointer)
 
 if __name__ == "__main__":
     unittest.main()
