@@ -939,7 +939,7 @@ def body_line(text):
         return 1
     for n, line in enumerate(lines[1:], 2):
         if line.strip() == "---":
-            return n + 1
+            return min(n + 1, len(lines))
     return 1
 
 

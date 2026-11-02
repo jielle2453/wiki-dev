@@ -250,6 +250,8 @@ class Buckets(Base):
         lines = card.read_text(encoding="utf-8").splitlines()
         self.assertEqual(lines[item["body_line"] - 2], "---")
         self.assertNotEqual(item["body_line"], 2)
+        self.assertEqual(synthesis.body_line("---\na: 1\n---\n"), 3)  # 只有檔頭：不超出檔尾
+        self.assertEqual(synthesis.body_line("沒有檔頭\n"), 1)
         p = self.V / a
         p.write_text(p.read_text(encoding="utf-8").replace("實體: [信義王]", "實體: []"), encoding="utf-8")
         (item,) = self.buckets()["synthesis_stale"]
