@@ -10,13 +10,11 @@ from kb._lib.paths import plugin_root
 
 DEFAULTS_REL = Path("config") / "defaults.json"
 # 使用者說一句就改的門檻與頻率（kb config show／set／reset，放寬甲 D-322 第 2 件）；其他鍵是保護用的，不給改。
-# inbox_remind_days、inbox_remind_every_days 之後（spec 丙）拿掉時一起拿。
 USER_KEYS = (
     "ingest_auto_max", "answer_verify_max", "agenda_window_days", "agenda_past_days", "lint_background_days",
     "pending_set_aside_days", "set_aside_wake_days", "lint_inferred_days", "preference_lint_days", "versions_keep_days",
     "versions_keep_turns", "backup_keep", "snapshots_keep", "home_timeline_days", "home_recent_max", "find_recent_days",
-    "find_results_max", "card_parallel", "preference_max", "preference_max_chars", "inbox_remind_days",
-    "inbox_remind_every_days", "ask_expire_days",
+    "find_results_max", "card_parallel", "preference_max", "preference_max_chars", "ask_expire_days",
 )
 CLIENT_REL = Path(".system") / "config.json"
 

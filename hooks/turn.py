@@ -9,6 +9,8 @@ payload 有 source 且不是 user／sdk。
 主對話自己整理時按了停止鈕：上一句是中斷補記的、且那句的回合檔記了 ingest（kb cards todo 跑過）→ 這一句的回合檔記
 ingest_stopped，印一次 additionalContext。之後每句把 ingest_stopped 帶下去，同一個 session 不再印。
 payload 的 transcript_path 記進回合檔（收件匣第 3 點，只存路徑）。
+每句開頭的檢查（放寬丙 3b，D-327）：hooks/_checks.py 的 turn_lines 照順序做（這台每天第一句的版本／搬家／日程、檔案比對、
+卡與標籤手改、設定檔手改、找不到的來源、整理提示），時間到就停、下一句接著；跟「整理被停了」那句併成同一個 additionalContext 輸出。
 其餘不輸出。任何例外寫 .system/hook-errors.log，永遠 exit 0，不能擋住客戶提問。
 hook 不是從 scripts/ 跑的，所以這裡動 sys.path（hooks/*.py 是唯一例外，CLAUDE.md 三）。
 """
@@ -24,11 +26,16 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)  # 共用的 _checks.py 在同一夾
+
+import _checks  # noqa: E402
+
+_checks.SOURCE = "turn"
 
 USER_SOURCES = ("user", "sdk")
 # 不是客戶說的話：背景代理通知（I-035）、跨 session 訊息與系統提醒（確認後裁定 L-3），都不開回合
 NOT_A_PROMPT = ("<task-notification", "<cross-session-message", "<system-reminder", "<agent-message", "[SYSTEM NOTIFICATION")
-STOPPED = "上一句的整理被你停了：這個對話不再自動整理，你說整理才做；回答用現有的資料，末尾一句還有幾份沒整理。"
+STOPPED = "上一句的整理被你停了：這個對話不再自動整理，你說整理才做；回答用現有的資料。"
 
 
 def main():
@@ -66,34 +73,46 @@ def main():
             journal.begin_turn(vault, previous, data)  # 補記上一句的中斷與這一句開口，同月一把鎖（L1）
         except BaseException as e:  # noqa: BLE001  日誌失敗不影響開回合
             _log(e, payload)
+        lines = []
         if sid and previous:
             try:
-                _ingest_stopped(vault, previous)
+                lines += _ingest_stopped(vault, previous)
             except BaseException as e:  # noqa: BLE001  沒提醒到只是多整理一次，回合照開
                 _log(e, payload)
             try:
                 _secret_carried(vault, previous)
             except BaseException as e:  # noqa: BLE001  沒帶到還有 Stop 的遮值與存值比對，回合照開
                 _log(e, payload)
+        if sid:
+            try:
+                lines += _checks.turn_lines(vault, sid)
+            except BaseException as e:  # noqa: BLE001  檢查失敗只少提醒，回合照開
+                _log(e, payload)
+        if lines:
+            _emit("\n".join(lines))
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
         _log(e, payload)
 
 
 def _ingest_stopped(vault, previous):
-    """上一句已記過 ingest_stopped：帶到這一句、不印。上一句沒等到 Stop 且跑過 cards todo：記下並印一次。"""
+    """上一句已記過 ingest_stopped：帶到這一句、不印。上一句沒等到 Stop 且跑過 cards todo：記下，回要印的行（只印一次）。"""
     from kb._lib import turn
     if previous.get("ingest_stopped"):
         turn.mark(vault, "ingest_stopped")
-        return
+        return []
     if previous.get("done", True) or not previous.get("ingest"):
-        return
+        return []
     from kb._lib import batches
     if batches.active_job(vault, previous.get("session_id")):
-        return  # 背景整理中客戶打字不是按停止（D-200：要停走 kb cards stop）
+        return []  # 背景整理中客戶打字不是按停止（D-200：要停走 kb cards stop）
     if _building(vault):
-        return  # 建置中各步都跑 cards todo（抽樣、名字），上一句沒等到 Stop 多半是客戶在回答途中又打了一句（桌面版會排進同一句），不是按停止
+        return []  # 建置中各步都跑 cards todo（抽樣、名字），上一句沒等到 Stop 多半是客戶在回答途中又打了一句（桌面版會排進同一句），不是按停止
     turn.mark(vault, "ingest_stopped")
-    out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": STOPPED}}
+    return [STOPPED]
+
+
+def _emit(context):
+    out = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}
     sys.stdout.write(json.dumps(out, ensure_ascii=True) + "\n")
     sys.stdout.flush()
 

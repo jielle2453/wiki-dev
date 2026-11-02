@@ -26,6 +26,23 @@ def run(data, cwd=None):
                           encoding="utf-8", cwd=str(cwd or ROOT), env=env)
 
 
+TURN_HOOK = ROOT / "hooks" / "turn.py"
+_SID = [0]
+
+
+def turn_lines(cwd, sid=None):
+    """每句開頭給 AI 的行（放寬丙 3b：變動、卡、標籤、設定檔、找不到的來源、整理提示都挪到 hooks/turn.py）。
+    每次換一個 session，不被「這個對話講過了」擋掉。"""
+    _SID[0] += 1
+    data = {"session_id": sid or f"t{_SID[0]}", "cwd": str(cwd), "prompt": "問", "hook_event_name": "UserPromptSubmit"}
+    r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(data, ensure_ascii=False), capture_output=True,
+                       text=True, encoding="utf-8", cwd=str(cwd), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+    assert r.returncode == 0, r.stderr
+    if not r.stdout:
+        return []
+    return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"].split("\n")
+
+
 def payload(cwd, source="startup"):
     data = {"session_id": "abc", "transcript_path": "x.jsonl", "cwd": str(cwd), "hook_event_name": "SessionStart"}
     if source is not None:
@@ -85,6 +102,7 @@ class SessionHook(unittest.TestCase):
         plugin = self.tmp / "plugin"
         (plugin / "hooks").mkdir(parents=True)
         shutil.copy2(HOOK, plugin / "hooks" / "session.py")
+        shutil.copy2(HOOK.parent / "_checks.py", plugin / "hooks" / "_checks.py")
         shutil.copytree(ROOT / "scripts", plugin / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / ".claude-plugin", plugin / ".claude-plugin")
         shutil.copytree(ROOT / "config", plugin / "config")  # 清冊題：變動行要讀設定，缺它會多一行 log
@@ -138,7 +156,9 @@ class SessionHook(unittest.TestCase):
 
 
 KB = ROOT / "scripts" / "kb.py"
-CHANGES_INCOMPLETE = "變動：來源很大還沒比完，說「有什麼變動」我再比"
+CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
+CHANGES = ("有變動（新增 {}、修改 {}、不見 {}）：照 ingest 整理，要做卡的不超過 20 份就在背景做、"
+           "不跟客戶報數字；超過先問一句要不要全部做（額度）。")
 SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
 
@@ -183,14 +203,12 @@ class OpeningBigOoxml(unittest.TestCase):
         st = p.stat()
         os.utime(p, (st.st_atime, st.st_mtime + 100))
         start = time.monotonic()
-        r = run(payload(self.V))
+        lines = turn_lines(self.V)  # 變動比對挪到每句開頭（放寬丙 3b）
         elapsed = time.monotonic() - start
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertLess(elapsed, 10.0, f"開場 hook 花了 {elapsed:.1f} 秒")
+        self.assertLess(elapsed, 10.0, f"每句開頭花了 {elapsed:.1f} 秒")
+        self.assertTrue(set(lines) & {CHANGES_INCOMPLETE, CHANGES.format(0, 1, 0)}, lines)
+        r = run(payload(self.V))  # 開場本身不比對、不印變動
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-        status = ctx.split("\n\n", 1)[0].split("\n")
-        self.assertEqual(status[0], KB_LINE)
-        self.assertTrue(set(status) & {CHANGES_INCOMPLETE, "變動：新增 0、修改 1、不見 0"}, status)
         self.assertTrue(ctx.endswith(CORE.read_text(encoding="utf-8")))
 
 
@@ -213,10 +231,12 @@ class OpeningInventory(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         r.stdout.encode("ascii")
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-        return ctx.split("\n\n", 1)[0].split("\n")
+        lines = ctx.split("\n\n", 1)[0].split("\n")
+        more = turn_lines(self.V)  # 開場之後的第一句：每句開頭的行排在開場的行後面（摺疊行仍是最後一行）
+        return lines[:-1] + more + lines[-1:] if lines[-1] == COMPACT_LINE else lines + more
 
     def change_lines(self, lines):
-        return [ln for ln in lines if ln.startswith("變動：")]
+        return [ln for ln in lines if ln.startswith(("變動：", "有變動（", "變動還沒比完"))]
 
     def test_no_change_no_line(self):
         self.assertEqual(self.change_lines(self.status()), [])
@@ -225,7 +245,7 @@ class OpeningInventory(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣\n", encoding="utf-8")
         (self.raw / "行政" / "請款" / "r.docx").unlink()
-        self.assertEqual(self.change_lines(self.status()), ["變動：新增 1、修改 1、不見 1"])
+        self.assertEqual(self.change_lines(self.status()), [CHANGES.format(1, 1, 1)])
 
     def test_moves_and_duplicates_are_not_counted(self):
         shutil.copy2(self.raw / "客戶案件" / "a.txt", self.raw / "客戶案件" / "a 副本.txt")
@@ -237,7 +257,7 @@ class OpeningInventory(unittest.TestCase):
         (self.V / ".system" / "inventory.json").unlink()
         lines = self.change_lines(self.status())
         self.assertEqual(len(lines), 1)
-        self.assertRegex(lines[0], r"^變動：新增 [1-9]\d*、修改 0、不見 0$")
+        self.assertRegex(lines[0], r"^有變動（新增 [1-9]\d*、修改 0、不見 0）：")
 
     def test_incomplete_line(self):
         (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_seconds": 0}), encoding="utf-8")
@@ -290,7 +310,7 @@ class OpeningInventory(unittest.TestCase):
         self.assertFalse(any("找不到來源" in ln for ln in lines))
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(log), 1)
-        self.assertEqual(log[0].split("\t")[1], "session")
+        self.assertEqual(log[0].split("\t")[1], "turn")
 
     def test_opening_writes_only_env_json(self):
         (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
@@ -302,11 +322,13 @@ class OpeningInventory(unittest.TestCase):
         before = stamps()
         self.status()
         after = stamps()
-        self.assertEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
+        changed = {k for k in after if before.get(k) != after[k]}  # 每句開頭的 hook 還會開回合（turns、journal、renders），檢查本身只讀
+        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))},
+                         {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
 INGEST_HINT = ("有變動：先照 ingest skill 整理（開始前照 announce 說一句），整理完再完整回答客戶；"
-               "超過 {n} 份不整理，先用現有資料答、末尾問要不要整理。")  # D-156、note 改規則實作中裁定 1
+               "超過 {n} 份先在回答最後問一句要不要全部整理，理由講額度、不講內部名詞。")  # D-156、note 改規則實作中裁定 1
 UNSORTED_HINT = INGEST_HINT[len("有變動："):]  # answer 裁定 14：「還有 N 份沒整理完」後面那句不寫「有變動：」
 
 
@@ -316,6 +338,7 @@ class OpeningIngestHint(unittest.TestCase):
     setUp = OpeningInventory.setUp
     tearDown = OpeningInventory.tearDown
     status = OpeningInventory.status
+    change_lines = OpeningInventory.change_lines
 
     def hint_lines(self, lines):
         return [ln for ln in lines if ln.startswith("有變動：")]
@@ -334,75 +357,69 @@ class OpeningIngestHint(unittest.TestCase):
         self.assertEqual(self.hint_lines(lines), [])
         self.assertEqual([ln for ln in lines if ln.startswith("還有 ")], [])
 
-    def test_unsorted_without_change_then_hint(self):
-        """answer 第 9b 點、驗收 12（D-161）：沒有新變動、清冊還有沒做成卡的 → 「還有 N 份沒整理完」接整理指示。"""
+    def test_unsorted_without_change_prints_nothing(self):
+        """放寬丙 3（D-310(2)）：沒有新變動、清冊還有沒做成卡的 → 不再報「還有 N 份沒整理完」，也沒有整理指示。"""
         sys.path.insert(0, str(ROOT / "scripts"))
         from kb._lib import cards
-        n = cards.unsorted(self.V)
-        self.assertGreater(n, 0)
-        before = {p.relative_to(self.V).as_posix(): p.stat().st_mtime_ns
-                  for p in (self.V / ".system").rglob("*") if p.is_file()}
+        self.assertGreater(cards.unsorted(self.V), 0)
         lines = self.status()
-        i = lines.index(f"還有 {n} 份沒整理完")
-        self.assertEqual(lines[i + 1], UNSORTED_HINT.format(n=20), "裁定 14：這一種的指示開頭不寫「有變動：」")
+        self.assertEqual([ln for ln in lines if "沒整理" in ln or "要跟著搬" in ln or "要改寫" in ln], [])
         self.assertEqual(self.hint_lines(lines), [])
-        after = {p.relative_to(self.V).as_posix(): p.stat().st_mtime_ns
-                 for p in (self.V / ".system").rglob("*") if p.is_file()}
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
-        (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 1}), encoding="utf-8")
-        self.assertIn(UNSORTED_HINT.format(n=1), self.status())
+        self.assertEqual(self.change_lines(lines), [])
 
-    def stop_session(self):
-        """payload 的 session（abc）在這個對話按過停止：session 檔記著 ingest_stopped。"""
+    def stop_session(self, sid="abc"):
+        """sid 那個對話在上一句按過停止：session 檔記著 ingest_stopped。"""
         turns = self.V / ".system" / "turns"
         turns.mkdir(parents=True, exist_ok=True)
-        (turns / "abc.json").write_text(json.dumps({
-            "schema_version": 1, "turn": "20261021-100000-abc", "session_id": "abc", "started": "2026-10-21T10:00:00",
-            "prompt_head": "", "approved": False, "note": "", "done": True, "ingest_stopped": True}), encoding="utf-8")
+        (turns / f"{sid}.json").write_text(json.dumps({
+            "schema_version": 1, "turn": "20261021-100000-abc", "session_id": sid, "started": "2026-10-21T10:00:00",
+            "prompt_head": "", "note": "", "done": True, "ingest_stopped": True}), encoding="utf-8")
 
     def test_unreadable_session_file_counts_as_not_stopped(self):
         """answer 測試第二輪後裁定 34（G-7）：session 檔讀不到（OSError）當沒按過停止，指示照印，寫一行 log。"""
-        (self.V / ".system" / "turns" / "abc.json").mkdir(parents=True)
-        lines = self.status("compact")
-        self.assertTrue(any(ln.startswith("還有 ") for ln in lines), lines)
-        self.assertEqual([ln for ln in lines if ln.startswith("先照 ingest skill 整理")], [UNSORTED_HINT.format(n=20)])
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(log), 1, log)
-        self.assertEqual(log[0].split("\t")[1], "session")
-
-    def test_stopped_session_gets_no_hint(self):
-        """answer 測試後修正裁定 14（F-2）：同一個 session 按過停止，compact／resume 照 D-156 不再叫 AI 整理。"""
-        self.stop_session()
-        for source in ("compact", "resume"):
-            with self.subTest(source=source):
-                lines = self.status(source)
-                self.assertTrue(any(ln.startswith("還有 ") for ln in lines), lines)
-                self.assertEqual([ln for ln in lines if "先照 ingest skill 整理" in ln], [])
-        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
-        lines = self.status("compact")
-        self.assertIn("變動：新增 1、修改 0、不見 0", lines)
-        self.assertEqual(self.hint_lines(lines), [])
-
-    def test_unsorted_over_time_limit_not_printed_and_logged(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("session_hook", HOOK)
+        sys.path.insert(0, str(ROOT / "scripts"))
+        spec = importlib.util.spec_from_file_location("hook_checks_stopped", ROOT / "hooks" / "_checks.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        mod._START = time.monotonic() - 1000
-        lines = mod.status_lines(self.V, "startup")
-        self.assertEqual([ln for ln in lines if ln.startswith(("還有 ", "有變動："))], [])
+        (self.V / ".system" / "turns" / "abc.json").mkdir(parents=True)
+        self.assertFalse(mod._stopped(self.V, "abc"))
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(log), 1)
-        self.assertIn("TimeoutError", log[0])
+        self.assertEqual(len(log), 1, log)
+
+    def test_stopped_session_gets_no_hint(self):
+        """answer 測試後修正裁定 14（F-2）：同一個 session 按過停止，照 D-156 不再叫 AI 整理（變動行還是印）。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        self.stop_session()
+        lines = turn_lines(self.V, "abc")
+        self.assertIn(CHANGES.format(1, 0, 0), lines)
+        self.assertEqual(self.hint_lines(lines), [])
+
+    def test_over_time_budget_prints_no_change_lines(self):
+        """每句開頭時間到就停（_checks.TURN_BUDGET），下一句接著做；停的那句沒有變動行也不報錯。"""
+        import importlib.util
+        sys.path.insert(0, str(ROOT / "scripts"))
+        spec = importlib.util.spec_from_file_location("hook_checks", ROOT / "hooks" / "_checks.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.START = time.monotonic() - 1000
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        self.assertEqual(mod.turn_lines(self.V, "s-late"), [])
 
     def test_hint_right_after_change_line(self):
-        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
         lines = self.status()
-        i = lines.index("變動：新增 1、修改 0、不見 0")
+        i = lines.index(CHANGES.format(1, 0, 0))
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         self.assertEqual(len(self.hint_lines(lines)), 1)
         self.assertLessEqual(len(lines), 8)
-        self.assertLessEqual(len("\n".join(lines)), 400)
+
+    def test_same_change_is_told_once_per_conversation(self):
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        self.assertIn(CHANGES.format(1, 0, 0), turn_lines(self.V, "same"))
+        self.assertEqual(turn_lines(self.V, "same"), [])  # 同一件同一個對話講過就不再印
+        (self.raw / "客戶案件" / "新2.txt").write_text("新二" + chr(10), encoding="utf-8")
+        self.assertIn(CHANGES.format(2, 0, 0), turn_lines(self.V, "same"))
 
     def test_hint_after_incomplete_line(self):
         (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_seconds": 0}), encoding="utf-8")
@@ -411,8 +428,10 @@ class OpeningIngestHint(unittest.TestCase):
 
     def test_hint_reads_ingest_auto_max(self):
         (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 3}), encoding="utf-8")
-        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
-        self.assertEqual(self.hint_lines(self.status()), [INGEST_HINT.format(n=3)])
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        lines = self.status()
+        self.assertEqual(self.hint_lines(lines), [INGEST_HINT.format(n=3)])
+        self.assertIn(CHANGES.replace("20", "3").format(1, 0, 0), lines)
 
 
 class OpeningEntityDrift(unittest.TestCase):
@@ -446,22 +465,22 @@ class OpeningEntityDrift(unittest.TestCase):
         i = lines.index("變動：實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k]}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
+        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         shutil.rmtree(self.V / "案子" / "大安陳")
         lines = self.status()
-        i = lines.index("變動：新增 1、修改 0、不見 0、實體夾有變 1")
+        i = lines.index(CHANGES.format(1, 0, 0) + "、實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
 
     def test_broken_entities_change_line_still_printed(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         (self.V / ".system" / "entities.json").write_text("{bad", encoding="utf-8")
-        self.assertEqual(self.change_lines(self.status()), ["變動：新增 1、修改 0、不見 0"])
+        self.assertEqual(self.change_lines(self.status()), [CHANGES.format(1, 0, 0)])
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(log), 1)
-        self.assertEqual(log[0].split("\t")[1], "session")
+        self.assertEqual(log[0].split("\t")[1], "turn")
 
 
 ASK = "跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
@@ -529,7 +548,8 @@ class OpeningProfile(unittest.TestCase):
             self.edit(*change)
             self.assertTrue(self.profile_lines())
             after = stamps()
-            self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
+            self.assertEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))}
+                             - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertEqual(self.md.read_text(encoding="utf-8").count("| 工地 | 事 |"), 1)
 
     def test_broken_profile_json_other_lines_printed(self):
@@ -539,7 +559,7 @@ class OpeningProfile(unittest.TestCase):
         self.assertEqual(self.profile_lines(lines), [])
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(log), 2, "設定檔那行與偏好段（note 改規則第 4 點）各自 try、各記一行（I-046）")
-        self.assertEqual({ln.split("\t")[1] for ln in log}, {"session"})
+        self.assertEqual({ln.split("\t")[1] for ln in log}, {"session", "turn"})
 
 
 if __name__ == "__main__":
@@ -693,7 +713,8 @@ class OpeningLeftAndMoved(unittest.TestCase):
     def status(self):
         r = run(payload(self.V))
         self.assertEqual(r.returncode, 0, r.stderr)
-        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"].split("\n\n", 1)[0].split("\n")
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        return ctx.split("\n\n", 1)[0].split("\n") + turn_lines(self.V)
 
     def test_left_and_moved(self):
         from kb._lib import inventory, pending, turn
@@ -719,9 +740,9 @@ class OpeningLeftAndMoved(unittest.TestCase):
         self.assertEqual(len(data["moved"]), 5)
         left = len(data["new"]) + len(data["stale"])
         self.assertNotIn(locked, [i["id"] for i in data["new"]])
-        lines = self.status()
-        i = lines.index(f"還有 {left} 份沒整理完、5 張卡要跟著搬")
-        self.assertEqual(lines[i + 1], UNSORTED_HINT.format(n=20))
+        self.assertGreater(left, 0)
+        lines = self.status()  # 放寬丙 3（D-310(2)）：不再報份數與要跟著搬的卡
+        self.assertEqual([ln for ln in lines if "沒整理完" in ln or "要跟著搬" in ln or "要改寫" in ln], [])
 
     def test_only_moved(self):
         p = self.V / ".system" / "inventory.json"
@@ -741,7 +762,7 @@ class OpeningLeftAndMoved(unittest.TestCase):
             src.rename(src.parent / "搬過" / src.name)
         self._cards.scan_apply(self.V)
         self._cards.mark_dates_scanned(self.V)
-        self.assertIn("還有 2 張卡要跟著搬", self.status())
+        self.assertEqual([ln for ln in self.status() if "要跟著搬" in ln], [])
 
 
 class OpeningMoved(unittest.TestCase):
@@ -785,6 +806,7 @@ class OpeningMoved(unittest.TestCase):
         self.status()  # 第一次：記下位置
         data = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
         data["machines"][self.me()]["vault_path"] = "D:/lin/舊位置/知識庫"  # 模擬記的是搬家之前的位置
+        data["machines"][self.me()].pop("daily_done", None)  # 每天第一次才印（放寬丙 3b）：換一天
         (self.V / ".system" / "env.json").write_text(json.dumps(data), encoding="utf-8")
         self.assertIn(self.MOVED, self.status())
 
@@ -800,11 +822,12 @@ class OpeningMoved(unittest.TestCase):
         before = (self.V / ".system" / "env.json").read_bytes()
         lines = self.status()
         self.assertIn(self.MOVED, lines)
-        changes = [i for i, ln in enumerate(lines) if ln.startswith("變動：")]
+        changes = [i for i, ln in enumerate(lines) if ln.startswith(("變動：", "有變動（"))]
         self.assertTrue(changes)
         self.assertLess(lines.index(self.MOVED), changes[0])
         self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
-        self.assertEqual((self.V / ".system" / "env.json").read_bytes(), before, "開場只讀，不寫 vault_path")
+        env_after = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        self.assertEqual(env_after["machines"][self.me()]["vault_path"], "D:/lin/桌面/知識庫", "只讀，不寫 vault_path")
 
     def test_without_moved_the_ingest_hint_is_still_there(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
@@ -873,7 +896,7 @@ class OpeningUpgrade(unittest.TestCase):
         lines = self.status()
         want = f"已換到 {self.plugin()}：先跑 kb upgrade --finish 再做別的。"
         self.assertEqual(lines[1], want)
-        changes = [i for i, ln in enumerate(lines) if ln.startswith("變動：")]
+        changes = [i for i, ln in enumerate(lines) if ln.startswith(("變動：", "有變動（"))]
         self.assertTrue(changes)
         self.assertLess(1, changes[0])
 
@@ -882,7 +905,7 @@ class OpeningUpgrade(unittest.TestCase):
         self.put_history("0.1.0")
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         lines = self.status()
-        self.assertTrue([ln for ln in lines if ln.startswith("變動：")])
+        self.assertTrue([ln for ln in lines if ln.startswith(("變動：", "有變動（"))])
         self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
 
     def test_same_version_keeps_the_ingest_hint(self):
@@ -925,7 +948,7 @@ class OpeningUpgrade(unittest.TestCase):
         self.assertEqual(self.version_lines(lines), [])
         self.assertTrue([ln for ln in lines if ln.startswith("有變動：")], "壞檔不影響整理指示")
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
-        self.assertEqual(log.count("upgrade-history.json"), 1)
+        self.assertEqual(log.count("upgrade-history.json"), 2)  # 開場一次、第一句開頭一次（各自的行程只記一行）
         self.assertEqual((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"), "{壞")
 
     def test_no_background_env_never_spawns_so_black_box_runs_stay_offline(self):
@@ -1008,6 +1031,14 @@ class OpeningSpawn(unittest.TestCase):
             self.assertEqual(len(calls), 1)
 
 
+def _checks_module():
+    """hooks/_checks.py（session.py 載入時 import 的那一份）。"""
+    sys.path.insert(0, str(ROOT / "hooks"))
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import _checks
+    return _checks
+
+
 class BackgroundLint(unittest.TestCase):
     """lint 題驗收 20（D-221、D-227）：lint.json 的 last_background 超過 lint_background_days → 開場背景開 kb lint --background
     （替身記參數）、不等它、開場 < 1 秒；沒超過不開；同一天第二次開場不再開；開場不多印一行。"""
@@ -1065,9 +1096,10 @@ class BackgroundLint(unittest.TestCase):
     def test_not_when_opening_asks_to_fix_first(self):
         """換了位置（先 kb moved）或換了版（先 --finish）的開場不開：健檢會把只是搬家造成的出處點不開記成要決定的事。"""
         from unittest import mock
-        with mock.patch.object(self.session, "line_moved", return_value="知識庫換了位置：先跑 kb moved 補好再做別的。"):
+        with mock.patch.object(_checks_module(), "line_moved", return_value="知識庫換了位置：先跑 kb moved 補好再做別的。"):
             self.assertEqual(self.spawn_calls()[0], [])
-        with mock.patch.object(self.session, "_upgrade_state", return_value={"finish": True, "line": "x"}):
+        (self.V / ".system" / "env.json").unlink(missing_ok=True)  # 上一個呼叫已記今天做過了
+        with mock.patch.object(_checks_module(), "upgrade_state", return_value={"finish": True, "line": "x"}):
             self.assertEqual(self.spawn_calls()[0], [])
 
     def test_lock_busy_does_not_wait_long(self):
@@ -1105,26 +1137,16 @@ class LintFixCounted(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def line(self, left, moved, fixes):
+    def test_no_unsorted_or_fix_lines_any_more(self):
+        """放寬丙 3（D-310(2)）：變動行不再報「還有 N 份沒整理完」「N 張綜合卡要改寫」「N 張卡要跟著搬」。"""
         from unittest import mock
-        from kb._lib import batches, synthesis
+        checks = _checks_module()
         report = {"incomplete": False, "added": [], "modified": [], "missing": [], "missing_sources": []}
-        for cache in (self.session._UNSORTED, self.session._DRIFT, self.session._SCAN):
+        for cache in (checks._DRIFT, checks._SCAN):
             cache.clear()
-        with mock.patch.object(self.session, "_quick_scan", return_value=(None, report)), \
-                mock.patch.object(self.session, "_drift_count", return_value=0), \
-                mock.patch.object(batches, "opening_counts", return_value=(left, moved)), \
-                mock.patch.object(synthesis, "lint_fix_count", return_value=fixes):
-            return self.session.line_changes(self.V), self.session.line_ingest_hint(self.V)
-
-    def test_three_halves(self):
-        self.assertEqual(self.line(0, 0, 2)[0], "還有 2 張綜合卡要改寫")
-        self.assertEqual(self.line(3, 0, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫")
-        self.assertEqual(self.line(3, 5, 2)[0], "還有 3 份沒整理完、2 張綜合卡要改寫、5 張卡要跟著搬")
-        self.assertEqual(self.line(3, 0, 0)[0], "還有 3 份沒整理完")
-        self.assertIsNone(self.line(0, 0, 0)[0])
-        _line, hint = self.line(0, 0, 2)
-        self.assertTrue(hint and hint.startswith("先照 ingest skill 整理"), hint)
+        with mock.patch.object(checks, "file_compare", return_value=(None, report)),                 mock.patch.object(checks, "drift_count", return_value=0):
+            self.assertIsNone(checks.line_changes(self.V))
+            self.assertIsNone(checks.line_ingest_hint(self.V))
 
     def test_cards_unsorted_counts_files_only(self):
         from tests import _lint as L
@@ -1139,113 +1161,41 @@ class LintFixCounted(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-class InboxLine(unittest.TestCase):
-    """暫存區第 6 點（D-045）：暫存區最上層放太久或太多，開場提醒一行，每台電腦每 inbox_remind_every_days 天最多一次。"""
+class NoInboxLine(unittest.TestCase):
+    """放寬丙 3（D-318）：收件匣放很久的提醒拿掉了；開場不再有那行，defaults 沒有 inbox_remind_ 的鍵，env.json 舊欄略過。"""
 
     def setUp(self):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("session_hook_inbox", HOOK)
-        self.session = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.session)
         self.tmp, self.V, self.raw = make_vault()
-        self.inbox = self.V / "暫存區"
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def files(self, n, days_old=0):
-        stamp = time.time() - days_old * 86400
-        for i in range(n):
-            p = self.inbox / f"f{i}-{days_old}.txt"
-            p.write_text("x", encoding="utf-8")
-            os.utime(p, (stamp, stamp))
+    def test_twenty_old_files_print_no_line(self):
+        hold = self.V / "暫存區"
+        hold.mkdir(exist_ok=True)
+        for i in range(20):
+            f = hold / f"舊{i}.txt"
+            f.write_text("x", encoding="utf-8")
+            os.utime(f, (time.time() - 30 * 86400, time.time() - 30 * 86400))
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {"X": {"inbox_reminded": "2020-01-01"}}}), encoding="utf-8")
+        r = run(payload(self.V))
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("沒歸位", ctx)
+        self.assertFalse(hasattr(_checks_module(), "line_inbox"))
 
-    def test_ten_files_prints_once_then_after_seven_days(self):
-        from datetime import date, timedelta
-        from kb._lib import env
-        self.files(10)
-        today = date.today().isoformat()
-        self.assertEqual(self.session.line_inbox(self.V),  # 裁定 8 #4：0 天不講「最久」那半句
-                         "暫存區：10 份沒歸位；回答末尾問她要不要一起看，說好再跑 kb asks --all")
-        self.assertEqual(env.inbox_reminded(self.V), today)
-        self.assertIsNone(self.session.line_inbox(self.V))
-        env.set_inbox_reminded(self.V, (date.today() - timedelta(days=7)).isoformat())
-        self.assertIsNotNone(self.session.line_inbox(self.V))
-        env.set_inbox_reminded(self.V, (date.today() - timedelta(days=6)).isoformat())
-        self.assertIsNone(self.session.line_inbox(self.V))
+    def test_opening_does_not_compare_files(self):
+        """放寬丙 3b：開場不再比對來源；有新檔也沒有變動行、沒有整理指示（每句開頭才比）。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新", encoding="utf-8")
+        r = run(payload(self.V))
+        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+        head = ctx.split(chr(10) + chr(10), 1)[0]
+        self.assertNotIn("有變動", head)
+        self.assertEqual(head.split(chr(10)), [KB_LINE])
 
-    def test_nine_new_files_not_printed_and_not_recorded(self):
-        from kb._lib import env
-        self.files(9)
-        self.assertIsNone(self.session.line_inbox(self.V))
-        self.assertIsNone(env.inbox_reminded(self.V))
-
-    def test_one_old_file_prints(self):
-        """裁定 6 #4：天數只算清冊有 first_seen 的；修改時間舊、還沒入清冊的不算天數。"""
-        from datetime import datetime, timedelta
-        from kb._lib import inventory, turn
-        from kb._lib import sources as sources_lib
-        self.files(1, days_old=8)
-        self.assertIsNone(self.session.line_inbox(self.V))
-        inventory.apply(self.V, inventory.scan(self.V, sources_lib.load(self.V)), turn.start(self.V, None, "")["turn"])
-        p = self.V / ".system" / "inventory.json"
-        data = json.loads(p.read_text(encoding="utf-8"))
-        old = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%S")
-        for e in data["entries"]:
-            if any("暫存區" in l["uri"] for l in e["locations"]):
-                e["first_seen"] = old
-        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        self.assertEqual(self.session.line_inbox(self.V),
-                         "暫存區：1 份沒歸位、最久 8 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
-
-    def test_subfolders_and_dot_files_do_not_count(self):
-        sub = self.inbox / "公司系統"
-        sub.mkdir()
-        stamp = time.time() - 30 * 86400
-        for i in range(12):
-            p = sub / f"{i}.md"
-            p.write_text("x", encoding="utf-8")
-            os.utime(p, (stamp, stamp))
-        (self.inbox / ".hidden").write_text("x", encoding="utf-8")
-        self.assertIsNone(self.session.line_inbox(self.V))
-
-    def test_files_the_inventory_skips_do_not_count(self):
-        """code review：清冊不讀的（~$、desktop.ini、Thumbs.db 這類）不算進份數與天數。"""
-        stamp = time.time() - 30 * 86400
-        for name in ("~$報價.docx", "desktop.ini", "Thumbs.db", "x.tmp"):
-            p = self.inbox / name
-            p.write_text("x", encoding="utf-8")
-            os.utime(p, (stamp, stamp))
-        self.assertIsNone(self.session.line_inbox(self.V))
-
-    def test_inventory_first_seen_wins_over_mtime(self):
-        from kb._lib import inventory, turn
-        self.files(1)
-        t = turn.start(self.V, None, "")["turn"]
-        report = inventory.scan(self.V, __import__("kb._lib.sources", fromlist=["load"]).load(self.V))
-        inventory.apply(self.V, report, t)
-        p = self.V / ".system" / "inventory.json"
-        data = json.loads(p.read_text(encoding="utf-8"))
-        for e in data["entries"]:
-            if any("暫存區" in l["uri"] for l in e["locations"]):
-                e["first_seen"] = "2020-01-01T00:00:00"
-        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        self.assertIn("份沒歸位、最久", self.session.line_inbox(self.V))
-
-    def test_version_line_hides_it_and_does_not_record(self):
-        """裁定 2：版本那行印了就不印暫存區那行、不記 inbox_reminded（下次開場再提醒）。"""
-        from unittest import mock
-        from kb._lib import env
-        self.files(10)
-        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；客戶說「升級」再帶他做，這行只講一次。"):
-            self.assertIsNone(self.session.line_inbox(self.V))
-        self.assertIsNone(env.inbox_reminded(self.V))
-        self.assertIsNotNone(self.session.line_inbox(self.V))
-
-    def test_in_status_lines_after_agenda(self):
-        self.files(10)
-        lines = self.session.status_lines(self.V, "startup", "sid")
-        self.assertTrue(any(ln.startswith("暫存區：10 份") for ln in lines), lines)
+    def test_defaults_have_no_inbox_remind_keys(self):
+        data = json.loads((ROOT / "config" / "defaults.json").read_text(encoding="utf-8"))
+        self.assertEqual([k for k in data if "inbox_remind" in k], [])
 
 
 class OpeningCardEdits(unittest.TestCase):
@@ -1264,10 +1214,7 @@ class OpeningCardEdits(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def lines(self):
-        r = run(payload(self.V))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
-        return ctx.split("\n\n", 1)[0].split("\n")
+        return turn_lines(self.V)  # 放寬丙 3b：手改卡的提醒挪到每句開頭
 
     def edit_lines(self, lines):
         return [ln for ln in lines if "kb cards edits" in ln]
@@ -1295,18 +1242,17 @@ class OpeningCardEdits(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.edit_lines(self.lines()), [])
 
-    def test_over_time_budget_still_prints_opening_and_says_maybe_more(self):
+    def test_over_time_budget_says_maybe_more(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("session_hook_edits", HOOK)
+        spec = importlib.util.spec_from_file_location("hook_checks_edits", ROOT / "hooks" / "_checks.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        run(payload(self.V))  # 補基準
+        self.lines()  # 補基準
         self.hand_edit()
-        mod._START = time.monotonic() - 1000  # 假時鐘：時限早就過了
-        lines = mod.status_lines(self.V, "startup")
-        self.assertIn("kb.py", lines[0])
-        self.assertEqual(self.edit_lines(lines),  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
-                         ["可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"])
+        line, done = mod.line_card_edits(self.V, deadline=time.monotonic() - 1000)  # 假時鐘：時限早就過了
+        self.assertFalse(done)
+        self.assertEqual(line,  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
+                         "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。")
         log = (self.V / ".system" / "hook-errors.log")
         self.assertFalse(log.exists() and "card_base" in log.read_text(encoding="utf-8"))
 
@@ -1314,14 +1260,14 @@ class OpeningCardEdits(unittest.TestCase):
         """時限內沒比完、已經找到的先講，加「可能還有」。"""
         import importlib.util
         from kb._lib import card_base
-        spec = importlib.util.spec_from_file_location("session_hook_more", HOOK)
+        spec = importlib.util.spec_from_file_location("hook_checks_more", ROOT / "hooks" / "_checks.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        run(payload(self.V))
+        self.lines()
         orig = card_base.edits
         card_base.edits = lambda vault, deadline=None, persist=True: {"edits": [{"path": self.CARD}] * 2, "more": True}
         try:
-            self.assertEqual(mod.line_card_edits(self.V),
+            self.assertEqual(mod.line_card_edits(self.V)[0],
                              "客戶在 Obsidian 改了 2 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。")
         finally:
             card_base.edits = orig

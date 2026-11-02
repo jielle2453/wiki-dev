@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 import unittest
-from datetime import date
+from datetime import date, timedelta
 
 from tests._guard_fixture import ROOT, make_vault
 from kb._lib import journal  # noqa: E402
@@ -23,6 +23,13 @@ def run_hook(data, cwd=None):
                           encoding="utf-8", cwd=str(cwd or ROOT), env=env)
 
 
+def settle(vault):
+    """把假知識庫的來源套進清冊：每句開頭才不會印「有變動」（放寬丙 3b 把變動行挪到每句開頭）。"""
+    from kb._lib import inventory, sources as sources_lib, turn
+    inventory.apply(vault, inventory.scan(vault, sources_lib.load(vault)), turn.start(vault, None, "")["turn"])
+    shutil.rmtree(vault / ".system" / "turns")  # 還沒有任何回合的樣子
+
+
 def prompt_payload(cwd, prompt, **extra):
     data = {"session_id": SID, "cwd": str(cwd), "prompt": prompt, "hook_event_name": "UserPromptSubmit"}
     data.update(extra)
@@ -33,6 +40,7 @@ class TurnHook(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
         self.turns = self.V / ".system" / "turns"
+        settle(self.V)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -45,7 +53,7 @@ class TurnHook(unittest.TestCase):
         cur = json.loads((self.turns / "current.json").read_text(encoding="utf-8"))
         self.assertEqual(sess["turn"], cur["turn"])
         self.assertEqual(sess["prompt_head"], "改一下")
-        self.assertFalse(sess["approved"])
+        self.assertNotIn("approved", sess)
 
     def test_61_63_prompt_head_is_masked_everywhere(self):
         """D-081、B-027：帳密不進回合檔；versions list 印的問也是遮過的。"""
@@ -266,7 +274,7 @@ class TurnHook(unittest.TestCase):
         self.assertEqual(second["prompt_head"], "第二句")
 
 
-STOPPED = "上一句的整理被你停了：這個對話不再自動整理，你說整理才做；回答用現有的資料，末尾一句還有幾份沒整理。"
+STOPPED = "上一句的整理被你停了：這個對話不再自動整理，你說整理才做；回答用現有的資料。"
 
 
 class IngestStopped(unittest.TestCase):
@@ -276,6 +284,7 @@ class IngestStopped(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
         self.sess = self.V / ".system" / "turns" / f"{SID}.json"
+        settle(self.V)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -322,7 +331,7 @@ class IngestStopped(unittest.TestCase):
     def test_hooks_json_description_mentions_it(self):
         """answer 測試後修正裁定 20（F-8）：hooks.json 的 description 補開場接著整理與按停止兩句。"""
         desc = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["description"]
-        self.assertIn("還有沒整理完的照樣接著整理", desc)
+        self.assertIn("每句開頭比對清冊印變動行與整理指示", desc)
         self.assertIn("整理中按了停止，這個對話不再自動整理", desc)
 
     def test_terminal_todo_does_not_mark(self):
@@ -388,3 +397,59 @@ class Transcript(unittest.TestCase):
         run_hook(prompt_payload(self.V, "存起來"))
         sess = json.loads((self.turns / f"{SID}.json").read_text(encoding="utf-8"))
         self.assertNotIn("transcript", sess)
+
+
+class EachTurnChecks(unittest.TestCase):
+    """放寬丙 3b（D-327）：變動以外的檢查挪到每句開頭；先比修改時間、沒變不讀；講過就不再印；每天第一句做日程。"""
+
+    CARD = "檔案索引/公司行政/報稅時程表-647d76ee.md"
+    TEXT = ("---" + chr(10) + "編號: f-647d76ee" + chr(10) + "標題: 報稅時程表" + chr(10) + "卡型: 表單" + chr(10) + "---" + chr(10)
+            + "# 報稅時程表" + chr(10) + chr(10) + "- 總價 5.5 萬〔第 1 段〕" + chr(10))
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        settle(self.V)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def say(self, prompt="問"):
+        r = run_hook(prompt_payload(self.V, prompt))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        if not r.stdout:
+            return []
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"].split(chr(10))
+
+    def test_daily_agenda_line_only_on_the_first_sentence_of_the_day(self):
+        item = {"id": "a-00000001", "kind": "deadline", "start": None, "date": (date.today() - timedelta(days=3)).isoformat(),
+                "ended": None, "time": None, "text": "事", "entities": [], "status": "open", "source": "confirmed",
+                "origin": None, "lead_days": None, "created_turn": "t", "history": []}
+        (self.V / ".system" / "agenda.json").write_text(json.dumps({"schema_version": 1, "items": [item]}), encoding="utf-8")
+        first = self.say()
+        self.assertTrue([ln for ln in first if ln.startswith("日程：逾期 1")], first)
+        env = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
+        self.assertEqual([m["daily_done"] for m in env["machines"].values()], [date.today().isoformat()])
+        self.assertEqual(self.say(), [])
+        # 昨天做的：換一天又做一次
+        for m in env["machines"].values():
+            m["daily_done"] = (date.today() - timedelta(days=1)).isoformat()
+        (self.V / ".system" / "env.json").write_text(json.dumps(env), encoding="utf-8")
+        self.assertTrue([ln for ln in self.say() if ln.startswith("日程：逾期 1")])
+
+    def test_card_edit_line_once_then_quiet_until_changed_again(self):
+        p = self.V / self.CARD
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(self.TEXT, encoding="utf-8", newline=chr(10))
+        self.assertEqual(self.say(), [])  # 補基準
+        time.sleep(0.05)
+        p.write_text(self.TEXT.replace("5.5 萬", "6 萬"), encoding="utf-8", newline=chr(10))
+        got = self.say()
+        self.assertEqual(len([ln for ln in got if "kb cards edits" in ln]), 1, got)
+        self.assertEqual(self.say(), [], "沒有新的修改：比修改時間後不讀卡、也不重印")
+        checks = json.loads((self.V / ".system" / "turns" / f"{SID}.json").read_text(encoding="utf-8"))["checks"]
+        self.assertIn("cards", checks["stamps"])
+
+    def test_no_session_id_means_no_checks(self):
+        (self.raw / "客戶案件" / "新.txt").write_text("新", encoding="utf-8")
+        r = run_hook({"cwd": str(self.V), "prompt": "問", "hook_event_name": "UserPromptSubmit"})
+        self.assertEqual((r.returncode, r.stdout), (0, ""))

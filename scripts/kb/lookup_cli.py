@@ -49,8 +49,6 @@ def _summary(got):
         if got[key]:
             parts.append(f"{label} {len(got[key])} {unit}")
     line = f"{e['name']}（{_kind(e)}）：" + "、".join(parts)
-    if got["unsorted"]:
-        line += f"；還沒整理 {got['unsorted']} 份"
     return line
 
 
@@ -61,10 +59,9 @@ def _card_line(c):
 
 def _lines(got):
     if got["entity"] is None:
-        tail = f"；還沒整理 {got['unsorted']} 份" if got["unsorted"] else ""
         if not got["mentions"]:
-            return [lookup_lib.NOTHING + tail]
-        out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它{tail}"]
+            return [lookup_lib.NOTHING]
+        out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它"]
         out += [f"- {m['title']}（{m['where']}）" for m in got["mentions"]]
         if got["mentions_total"] > len(got["mentions"]):
             out.append(f"……還有 {got['mentions_total'] - len(got['mentions'])} 張")

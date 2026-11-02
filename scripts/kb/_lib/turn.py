@@ -91,6 +91,8 @@ def start(vault, session_id, prompt, inherit=None, transcript=None):
         old = _read_turn(_session_file(vault, session_id))
         if old and old.get(SESSION_FLAG):
             data[SESSION_FLAG] = True  # 「還有 N 件…」一個對話只說一次（D-225）：跟著每一句帶下去
+        if old and isinstance(old.get("checks"), dict):
+            data["checks"] = old["checks"]  # 每句開頭的檢查記的上次時間與講過的事（hooks/_checks.py，放寬丙 3b）
         _keep(vault, old)
         write_json_atomic(_session_file(vault, session_id), data)
     write_json_atomic(_current_file(vault), data)
@@ -398,6 +400,21 @@ def _set(vault, session_id, **fields):
 
 def set_note(vault, session_id, text):
     return _set(vault, session_id, note=text)
+
+
+def get_checks(vault, session_id):
+    """每句開頭檢查的記號（hooks/_checks.py）：{"stamps": {檢查名: 上次檢查的時間}, "told": [這個對話講過的行]}；沒有回 {}。只讀。"""
+    data = _read_turn(_session_file(vault, session_id)) if session_id else None
+    checks = (data or {}).get("checks")
+    return dict(checks) if isinstance(checks, dict) else {}
+
+
+def set_checks(vault, session_id, checks):
+    """寫回 get_checks 那份；在 session 檔的鎖裡讀改寫，回合不存在不開新的。"""
+    if not session_id:
+        return None
+    with FileLock(_session_file(vault, session_id)):
+        return _set(vault, session_id, checks=dict(checks))
 
 
 def set_done(vault, session_id):

@@ -27,6 +27,8 @@ SKILL_BODY_MAX_CHARS = 5000
 REFERENCE_MAX_LINES = 150
 RESIDENT_TOTAL_MAX_CHARS = 5050  # 放寬乙：core 與 CLAUDE.md 換成新說法（變長），5000→5050；實測 5021
 OPENING_MAX_LINES = 8
+TURN_MAX_LINES = 8  # 放寬丙 3b：每句開頭（第一句最壞：變動、整理指示、找不到來源、設定檔、日程都在）
+TURN_MAX_CHARS = 1000
 OPENING_MAX_CHARS = 600  # 放寬甲：開場兩句改成 spec 的新句（變長），550→600；原註 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
 
 SKILLS_DIR = ROOT / "skills"
@@ -34,6 +36,7 @@ CORE = ROOT / "rules" / "core.md"
 CLIENT_CLAUDE_MD = ROOT / "skeleton" / "CLAUDE.md"
 FIXTURE_TOO_LONG = ROOT / "tests" / "fixtures" / "budget" / "too_long_SKILL.md"
 SESSION_HOOK = ROOT / "hooks" / "session.py"
+TURN_HOOK = ROOT / "hooks" / "turn.py"
 FIXTURE_VAULT = ROOT / "tests" / "fixtures" / "vault"
 # B-060：開場 kb 那行要照客戶電腦上最長的合理路徑量（plugin 裝在 ~/.claude/plugins/cache/<市集>/wiki-with-willy/<版本>/ 底下，
 # 比開發機的 worktree 路徑長）：20 字的使用者名稱、20 字的市集名、9 字的版本。刻意拆開拼，讓本檔不含開發機路徑字串
@@ -160,6 +163,23 @@ class OpeningBudget(unittest.TestCase):
                 self.assertLessEqual(len(status), OPENING_MAX_CHARS)
 
 
+def turn_status(prepare=None, session_id="budget-turn"):
+    """跑 hooks/turn.py（每句開頭，放寬丙 3b），回 additionalContext 的行（沒有輸出回 []）。"""
+    tmp = Path(tempfile.mkdtemp(prefix="kbbudget-"))
+    try:
+        vault = tmp / "vault"
+        shutil.copytree(FIXTURE_VAULT, vault)
+        if prepare is not None:
+            prepare(vault)
+        data = {"session_id": session_id, "cwd": str(vault), "prompt": "問", "hook_event_name": "UserPromptSubmit"}
+        r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(data), capture_output=True,
+                           text=True, encoding="utf-8", cwd=str(vault), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        assert r.returncode == 0, r.stderr
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"].splitlines() if r.stdout else []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def all_lines_vault(vault):
     """變動、有變動、找不到來源、設定檔四行同時在（客戶設定檔與型別第 12 點）：fixture 沒複製 raw，兩個來源都找不到、
     清冊是空的（知識庫裡的檔都算新增）；設定檔三節各改一處，再加一個不在型別表的第一層夾。
@@ -186,18 +206,27 @@ def all_lines_vault(vault):
 
 
 class OpeningAllLines(unittest.TestCase):
-    def test_seven_lines_within_budget(self):
+    def test_opening_lines_within_budget(self):
+        """開場只留 kb 行、這台每天第一次的日程／版本／搬家、摺疊行（放寬丙 3b）：最壞情況在預算內。"""
         if not SESSION_HOOK.exists():
             self.skipTest("hooks/session.py 尚未建立")
         for source in ("startup", "compact"):
             status = opening_status(source, all_lines_vault)
             lines = status.splitlines()
             with self.subTest(source=source):
-                for head in ("變動：", "有變動：", "這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（"):
-                    self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, (head, lines))
-                self.assertTrue(next(ln for ln in lines if ln.startswith("變動：")).endswith("、實體夾有變 2"), lines)
+                self.assertEqual(sum(1 for ln in lines if ln.startswith("日程：逾期 1（")), 1, lines)
+                self.assertFalse([ln for ln in lines if "變動" in ln], lines)
                 self.assertLessEqual(count_lines(status), OPENING_MAX_LINES)
                 self.assertLessEqual(len(status), OPENING_MAX_CHARS, (len(status), lines))
+
+    def test_turn_lines_within_budget(self):
+        """每句開頭的行（變動、整理指示、找不到來源、設定檔、日程）同時都在的第一句：守 TURN_MAX_LINES、TURN_MAX_CHARS。"""
+        lines = turn_status(all_lines_vault)
+        for head in ("有變動（", "有變動：", "這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（"):
+            self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, (head, lines))
+        self.assertTrue(next(ln for ln in lines if ln.startswith("有變動（")).endswith("、實體夾有變 2"), lines)
+        self.assertLessEqual(len(lines), TURN_MAX_LINES)
+        self.assertLessEqual(len("\n".join(lines)), TURN_MAX_CHARS, len("\n".join(lines)))
 
 
 def version_line_vault(kind):
@@ -220,23 +249,6 @@ def version_line_vault(kind):
     return prepare
 
 
-class OpeningLeftLine(unittest.TestCase):
-    """lint 題（桌面版確認後）：沒有新變動時變動行換成「還有 N 份沒整理完、K 張綜合卡要改寫、M 張卡要跟著搬」；
-    三半都有、數字都是四位數的那句換掉七行情況裡的變動行，照樣在預算內。"""
-
-    def test_worst_left_line_within_budget(self):
-        if not SESSION_HOOK.exists():
-            self.skipTest("hooks/session.py 尚未建立")
-        status = opening_status("compact", all_lines_vault)
-        lines = status.splitlines()
-        worst = "還有 9999 份沒整理完、9999 張綜合卡要改寫、9999 張卡要跟著搬"
-        i = next(n for n, ln in enumerate(lines) if ln.startswith("變動："))
-        swapped = lines[:i] + [worst] + lines[i + 1:]
-        text = "\n".join(swapped)
-        self.assertLessEqual(count_lines(text), OPENING_MAX_LINES)
-        self.assertLessEqual(len(text), OPENING_MAX_CHARS, (len(text), swapped))
-
-
 class OpeningVersionLines(unittest.TestCase):
     def test_each_version_line_worst_case_within_budget(self):
         if not SESSION_HOOK.exists():
@@ -252,41 +264,8 @@ class OpeningVersionLines(unittest.TestCase):
                 self.assertLessEqual(len(status), OPENING_MAX_CHARS, (len(status), lines))
 
     def test_finish_line_hides_the_ingest_hint_so_it_is_not_the_worst_case(self):
-        status = opening_status("compact", version_line_vault("a"))
-        self.assertFalse([ln for ln in status.splitlines() if ln.startswith("有變動：")])
-
-
-class OpeningInboxLine(unittest.TestCase):
-    """暫存區第 6 點（D-045）與裁定 2：版本那行在時暫存區那行不印；沒有版本那行時，暫存區那行（份數、天數都四位數）
-    疊在七行情況（摺疊）上照樣在預算內。"""
-    WORST = "暫存區：9999 份沒歸位、最久 9999 天；回答末尾問她要不要一起看，說好再跑 kb asks --all"
-
-    @staticmethod
-    def with_inbox(prepare):
-        def go(vault):
-            prepare(vault)
-            for i in range(10):
-                (vault / "暫存區" / f"{i}.txt").write_text("x", encoding="utf-8")
-        return go
-
-    def test_inbox_line_worst_case_within_budget(self):
-        if not SESSION_HOOK.exists():
-            self.skipTest("hooks/session.py 尚未建立")
-        for source in ("startup", "compact"):
-            lines = opening_status(source, self.with_inbox(all_lines_vault)).splitlines()
-            i = next(n for n, ln in enumerate(lines) if ln.startswith("暫存區："))
-            text = "\n".join(lines[:i] + [self.WORST] + lines[i + 1:])
-            with self.subTest(source=source):
-                self.assertLessEqual(count_lines(text), OPENING_MAX_LINES, text)
-                self.assertLessEqual(len(text), OPENING_MAX_CHARS, (len(text), text))
-
-    def test_version_line_hides_inbox_line(self):
-        if not SESSION_HOOK.exists():
-            self.skipTest("hooks/session.py 尚未建立")
-        for kind in ("a", "b", "c"):
-            lines = opening_status("compact", self.with_inbox(version_line_vault(kind))).splitlines()
-            with self.subTest(kind=kind):
-                self.assertFalse([ln for ln in lines if ln.startswith("暫存區：")], lines)
+        lines = turn_status(version_line_vault("a"))
+        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
 
 
 PREFERENCE_MAX = 20  # 開場那組（整理成卡以外，D-504）；整理成卡那組不進開場

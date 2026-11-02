@@ -388,8 +388,8 @@ class SameExclusionsEverywhere(unittest.TestCase):
 
 
 class OnlyOneLinkLeft(unittest.TestCase):
-    """22 第一輪驗後：只剩一份線上文件時，開場「還有 1 份沒整理完」、plan 有 cards 步沒有 dispatch 步；
-    cards unreadable 記過之後開場不算它（13c）。"""
+    """22 第一輪驗後：只剩一份線上文件時，plan 有 cards 步沒有 dispatch 步（開場不再報份數，放寬丙 3）；
+    cards unreadable 記過之後不算它（13c）。"""
 
     def setUp(self):
         self.tmp, self.V, self.raw = _cards.make_card_vault()
@@ -410,13 +410,12 @@ class OnlyOneLinkLeft(unittest.TestCase):
         return json.loads(out)["hookSpecificOutput"]["additionalContext"].split("\n\n", 1)[0].split("\n")
 
     def test_link_counted_until_marked_unreadable(self):
-        self.assertIn("還有 1 份沒整理完", self.opening())
+        self.assertEqual([ln for ln in self.opening() if "沒整理完" in ln], [])  # 放寬丙 3：開場不再報份數
         todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
         self.assertEqual([(s["step"], s.get("files")) for s in todo["plan"]], [("cards", [self.link["id"]])])
         self.assertEqual(todo["announce"], "有 1 份要整理，大約一兩分鐘；要停的話跟我說一聲")
         r = run_kb("cards", "unreadable", self.link["id"], "--reason", "線上文件打不開", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertFalse(any(ln.startswith("還有 ") for ln in self.opening()))
         todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
         self.assertEqual(todo["plan"], [])
 
