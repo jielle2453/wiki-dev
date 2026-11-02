@@ -101,6 +101,7 @@
 - B-517（要做、低）手改卡測試第 2 輪低項：退回型別改名沒換回鍵、擋回時不通知、成本沒量
 - B-516（要做、中）#22 首頁沒在真的 Obsidian 驗的五類（同時改日程.md、桌面版退回、換版提示、網路磁碟、注音與縮放等），下一個碰首頁的題確認時驗
 - B-515（要做、中）Obsidian 裡給客戶的對話框（不是終端機），先 spike 權限確認與接回舊對話
+- B-658（要做、低）`kb obsidian open` 在 PYTHONUTF8=1 時崩潰：`_running()` 讀 tasklist 用 UTF-8…
 - B-634（要做、中）製卡助手讀不到 plugin 規則檔、kb --help 被擋時每句重派、每句多 0.2～0.3 美元…
 - B-522（待決、－）排程一題：整理、備份、掃描、健檢改成排程，不靠開場（11-01 擴大）…
 
@@ -469,6 +470,7 @@
 | B-654 | 2026-10-31 | 要做 | 低 | 做文件 | PowerShell 附著改 Word 時 `Range(int,int)` 報錯，AI 要改寫一次 | 開檔與Office一起改（spec 裁定 30） |
 | B-655 | 2026-10-31 | 要做 | 低 | 健檢與待處理 | 同一則回答裡「哪一段 1／2」跟過期日程「1 完成了」撞號，客戶回「1」要多問一輪 | 開檔與Office一起改（spec 裁定 35） |
 | B-656 | 2026-10-31 | 要做 | 低 | 架構與共通 | code-review 7～9：`open_stage` 一個 stage 叫兩次、遞迴內層後再 `_analyze`、引號處理（`raw_words` 與既有 split）兩套並存 | 開檔與Office一起改（spec 裁定 5） |
+| B-658 | 2026-11-02 | 要做 | 低 | Obsidian | `scripts/kb/_lib/obsidian.py` `_running()` 用 `text=True` 讀 `tasklist` 輸出，環境有 `PYTHONUTF8=1` 時照 UTF-8 解 cp950 的輸出解不開，`stdout` 是 None，`out.lower()` AttributeError、`kb obsidian open` 崩潰（主管 2026-11-02 在 C003 演練庫 0.31.1 快照實測）。客戶一般不設這個變數；改法候選：`encoding` 照主控台字碼頁並 `errors="replace"`、或用 bytes 比對 | 主管 C003 演練 |
 | B-511 | 2026-10-30 | 做完 | 中 | 整理成卡 | 她在 Obsidian 手改綜合卡內文（D-256 准什麼都能改），下次 Claude 更新那張卡時「現況」照 S-22 改寫、檔頭整個換新（標籤行照 D-505 正本），她改的字可能不見、沒有提示；「紀事」只增，她加的會留、她刪的 hook 會要求補回。候選：更新前比對上次寫的版本，她改過的段先問或照她的寫；或 Obsidian 裡綜合卡內文唯讀、改要經對話。10-30 使用者選前者（A）：更新前比對上次寫的版本，她改過的段先問或照她的寫；#22 之後另開題做。10-31 擴大成 D-270：檔案卡也算，她改的算她說的、相關的跟著改，下次開對話時 Claude 先處理 | #22 實作回報待查 1 |
 | B-512 | 2026-10-30 | 要做 | 低 | 健檢與待處理 | #22 起日程、待處理、裁示重新產生時認出手改直接照做，`renders.handle_list` 沒人叫、handedit 待處理只剩升級前的舊件；`kb lint handedit` 與 lint 的 handedits 那項之後拿掉，或改成列「你加的（還沒處理）」 | #22 實作回報 |
 | B-513 | 2026-10-30 | 要做 | 中 | 守門與密碼 | `hooks/guard.py` 的 `_has_flag` 只認字面的旗標，`kb_args` 在 PowerShell 只剝整個 token 被引號包住的；`--v"ia" obsidian`（或 `--t"urn"`、`--s"ession"`）守門 allow、PowerShell 交給 python 的是 `--via`，模型做的事記成別的回合、對話退回挑不到。Bash 的 `{--via,x}`、`--via$X` 回 ask。候選：PowerShell 比對旗標前先去掉 token 裡的引號與反引號 | #22 測試第 1 輪 #1 |
