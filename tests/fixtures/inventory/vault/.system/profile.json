@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "applied": null,
-  "md_sha256": "1fa1422282a476240dfbbfd302339a00f81918a49c9db708a37f6d7d9e1b6dcc",
+  "md_sha256": "d2f67c1e93850726ca5a658a9d5e1b46c22dcadb700d3f156da6517583412755",
   "types": [
     {
       "name": "案子",

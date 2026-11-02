@@ -5492,9 +5492,9 @@
     "command": "python -c \"print(open('暫存區/x.md',encoding='utf-8').read())\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md L-6",
-   "note": "python -c 程式碼裡出現 暫存區路徑：當時 deny unparsed；D-186 補：非 kb 執行檔的參數裡有 暫存區照擋。程式碼是重建的"
+   "note": "python -c 程式碼裡出現 暫存區路徑：當時 deny unparsed；D-186 補：非 kb 執行檔的參數裡有 暫存區照擋。程式碼是重建的｜放寬甲對齊：只讀，pass（舊路徑 AI 產出/x.md 會 deny 是 DESTRUCTIVE_CODE 把 open('A… 的 A 當寫入模式誤判，見回報）"
   },
   {
    "tool": "Write",

@@ -245,7 +245,7 @@ def uri_of(vault, sources, path):
         if not parts:
             return None
         first = parts[0].casefold()
-        for alias in (inventory.INBOX, inventory.OUTPUT):
+        for alias in (inventory.HOLD,):
             if first == alias.casefold():
                 return inventory.make_uri(alias, "/".join(parts[1:])) if len(parts) > 1 else f"file://{alias}"
         return inventory.make_uri(inventory.KNOWLEDGE, "/".join(parts))

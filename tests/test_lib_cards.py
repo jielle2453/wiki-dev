@@ -1,5 +1,6 @@
 """_lib/cards（D-101、D-104、D-105，ingest 製卡第 3 點）：檔頭解析、位置、開原檔、標題與檔名、header_for、validate 的原因句、
 render_index（總目錄）、todo 的分桶。fixture 是 tests/fixtures/cards（兩張合法卡、一張檔頭壞的）與 tests/_cards 組的知識庫。"""
+import json
 import os
 import shutil
 import unittest
@@ -620,9 +621,14 @@ class Produce(unittest.TestCase):
         self.assertEqual(cards.card_dir(e), "檔案索引/暫存區/線上")
 
     def test_unbacked_counted(self):
-        before = self.todo()["unbacked"]  # fixture 的 暫存區/x.md 也是沒經程式放進來的
+        """升級前舊清冊裡標過 unbacked 的條目（掃描補登記的 AI 產出，D-324 之後掃描不再標）照舊數給 tell。"""
+        before = self.todo()["unbacked"]
         (self.V / "暫存區" / "a.docx").write_bytes(b"x")
         _cards.scan_apply(self.V)
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        next(e for e in data["entries"] if e["locations"][0]["uri"] == "file://暫存區/a.docx")["unbacked"] = True
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(self.todo()["unbacked"], before + 1)
 
 

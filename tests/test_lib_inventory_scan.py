@@ -187,7 +187,8 @@ class Scope(Base):
         self.assertEqual(self.entry_at("file://知識庫/案子/說明.txt")["origin"], "client_file")
         self.assertEqual(self.entry_at("file://客戶案件/空檔.bin")["origin"], "client_file")
         self.assertEqual(self.entry_at("file://暫存區/貼文.txt")["origin"], "intake")
-        self.assertEqual(self.entry_at("file://暫存區/x.md")["origin"], "ai_output")
+        # 暫存區裡掃描才看到的檔誰放的看不出來（D-324），當使用者放的；AI 經 kb output／hook 放的已登記成 ai_output
+        self.assertEqual(self.entry_at("file://暫存區/x.md")["origin"], "intake")
 
     def test_entry_shape(self):
         self.full()
@@ -237,8 +238,7 @@ class Scope(Base):
         self.assertEqual(r["by_source"]["報價與合約"]["files"], 2)
         self.assertEqual(r["by_source"]["公司行政"]["files"], 3)
         self.assertEqual(r["by_source"]["知識庫"]["files"], 2)
-        self.assertEqual(r["by_source"]["暫存區"]["files"], 1)
-        self.assertEqual(r["by_source"]["暫存區"]["files"], 1)
+        self.assertEqual(r["by_source"]["暫存區"]["files"], 2)
         pdf = os.stat(self.raw / "客戶案件" / "信義王" / "報價_v2.pdf").st_size
         self.assertGreaterEqual(r["by_source"]["報價與合約"]["bytes"], pdf)
         self.assertEqual(set(r), {"added", "modified", "missing", "still_missing", "moved", "duplicates", "restored",

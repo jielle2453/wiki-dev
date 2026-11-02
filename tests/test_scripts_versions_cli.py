@@ -444,7 +444,7 @@ class DeleteOutputs(Base):
         self.assertTrue(outside.is_file(), "知識庫外的檔還在")
         self.assertEqual(self.card.read_bytes(), self.original, "知識庫裡、暫存區外的檔不刪")
         self.assertFalse((self.V / rel).exists(), "合法的成品照刪")
-        self.assertEqual(r.stdout.splitlines().count("這份不在 暫存區裡，沒有刪"), 3)
+        self.assertEqual(r.stdout.splitlines().count("這份不在暫存區裡，沒有刪"), 3)
         self.assertNotIn("OUTSIDE", r.stdout)
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertEqual(sum("delete-outputs 路徑不對" in ln for ln in log.splitlines()), 3)
@@ -1316,7 +1316,7 @@ class FileStageAfterTest(Base):
                 {"op": "move", "from": "檔案索引", "to": "stolen"},
                 {"op": "move", "from": "stolen", "to": "暫存區"},
                 {"op": "make", "from": ".system", "to": None},
-                {"op": "remove", "from": "ai 產出", "to": None},
+                {"op": "remove", "from": "暫存區", "to": None},
                 {"op": "remove", "from": ".", "to": None})
         for row in rows:
             with self.subTest(row=row):

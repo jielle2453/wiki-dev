@@ -112,6 +112,16 @@ class Save(Base):
         out = self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx", "--replace")
         self.assertTrue(out.startswith("已放進 暫存區\\報價\\a.xlsx"), out)
 
+    def test_no_to_lands_in_hold_with_original_name(self):
+        """D-324：沒給 --to 落暫存區、檔名照原檔，照樣登記成 AI 產出。"""
+        r = run_kb("output", "save", str(self.work("報告.docx", b"PK docx")), "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["path"], "暫存區/報告.docx")
+        self.assertEqual((self.V / "暫存區" / "報告.docx").read_bytes(), b"PK docx")
+        e = next(x for x in inventory.load(self.V)["entries"] if x["id"] == data["id"])
+        self.assertEqual((e["origin"], e["locations"][0]["uri"]), ("ai_output", "file://暫存區/報告.docx"))
+
     def test_to_any_folder_registers_as_ai_output(self):
         """驗收 17：--to 收任何使用者的夾，清冊有這份、出處類別 AI 產出。"""
         (self.V / "我的夾").mkdir()
@@ -137,7 +147,7 @@ class Save(Base):
         self.assertEqual(self.refused("save", str(inside), "--to", "暫存區/說明.txt"),
                          "只收工作區或知識庫外的檔，這份在知識庫裡")
         self.assertEqual(self.refused("save", str(src), "--to", "暫存區/a.xlsx", "--draft", "案子/說明.txt"),
-                         "草稿不在 暫存區：案子/說明.txt")
+                         "草稿不在暫存區：案子/說明.txt")
         self.assertEqual(self.refused("save", str(src), "--to", "暫存區/a.xlsx", "--link", "https://example.com/x"),
                          "網址要是 claude.ai 的 artifact")
         self.assertTrue(src.exists())
@@ -205,8 +215,8 @@ class Draft(Base):
         self.assertEqual(self.ok("drop-draft", rel), "草稿收起來了：2026-10-21 內湖李 報價（草稿）.md（說「退回」會回來）")
         self.assertFalse((self.V / rel).exists())
         self.assertEqual(self.manifest()[rel], "delete")
-        self.assertEqual(self.refused("drop-draft", rel), f"草稿不在 暫存區：{rel}")
-        self.assertEqual(self.refused("drop-draft", "案子/說明.txt"), "草稿不在 暫存區：案子/說明.txt")
+        self.assertEqual(self.refused("drop-draft", rel), f"草稿不在暫存區：{rel}")
+        self.assertEqual(self.refused("drop-draft", "案子/說明.txt"), "草稿不在暫存區：案子/說明.txt")
 
 
 class Link(Base):

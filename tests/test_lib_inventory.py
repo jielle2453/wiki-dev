@@ -296,7 +296,7 @@ class SynthesisCardNotInventoried(unittest.TestCase):
 
 
 class Produce(unittest.TestCase):
-    """produce 第 4 點：選填欄 kind link、derived_from、unbacked；暫存區裡沒登記的新檔掃描時照 暫存區登記、標 unbacked；
+    """produce 第 4 點：選填欄 kind link、derived_from、unbacked；暫存區裡沒登記的新檔掃描時登記成使用者放的（不標 unbacked）；
     link 條目不走訪、不算不見，folders exclude／remove 也不動它。"""
 
     def setUp(self):
@@ -311,12 +311,13 @@ class Produce(unittest.TestCase):
     def entry(self, uri):
         return inventory.entry_for(self.V, uri)
 
-    def test_unlisted_file_in_output_is_unbacked(self):
+    def test_unlisted_file_in_hold_is_registered_as_intake(self):
+        """D-324：暫存區裡沒登記的新檔掃描時登記成使用者放的（對話收件）；不再標 unbacked（AI 經程式放的本來就已登記）。"""
         (self.V / "暫存區" / "報價").mkdir()
         (self.V / "暫存區" / "報價" / "a.xlsx").write_bytes(b"PK fake")
         self.scan_apply(self.V)
         e = self.entry("file://暫存區/報價/a.xlsx")
-        self.assertEqual((e["origin"], e["status"], e.get("unbacked")), ("ai_output", "active", True))
+        self.assertEqual((e["origin"], e["status"], e.get("unbacked")), ("intake", "active", None))
         raw = self.entry("file://客戶案件/大安陳/會議紀錄_1.docx")
         self.assertNotIn("unbacked", raw)
 

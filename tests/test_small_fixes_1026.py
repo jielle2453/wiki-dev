@@ -111,7 +111,7 @@ class SkillText(unittest.TestCase):
         self.assertTrue(body.startswith("\n# 整理成卡\n"))
         for gone in ("**說繁體中文**", "一次一個指令"):
             self.assertNotIn(gone, body)
-        self.assertIn("- `references/intake.md`：暫存區怎麼收、拿不到怎麼說、放哪怎麼問。", body)
+        self.assertIn("- `references/intake.md`：收件匣怎麼收、拿不到怎麼說、放哪怎麼問。", body)  # skills 的字由 spec 乙改成暫存區
 
     def test_14_commands_dispatch_line(self):
         text = self.read("skills", "ingest", "references", "commands.md")

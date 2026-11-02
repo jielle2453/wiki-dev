@@ -308,7 +308,7 @@ class Registered(Base):
     def test_3_reading(self):
         src = self.raw / "客戶案件" / "大安陳" / "會議紀錄_1.docx"
         self.assertEqual(self.ok(str(src)), ["這份我已經在讀了：客戶案件/大安陳/會議紀錄_1.docx"])
-        self.assertEqual(self.inbox_files(), ["貼文.txt"])
+        self.assertEqual(self.inbox_files(), ["x.md", "貼文.txt"])  # fixture 的暫存區原本有 AI 產出的 x.md 與收件匣的貼文.txt
 
     def test_3_excluded(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -575,7 +575,7 @@ class MoveCheck(Base):
         self.ok(str(self.outside("a.md", b"x")), "--from", "公司系統", "--name", "客戶王先生")
         r = run("source-edit", "move", "暫存區/公司系統/客戶王先生.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("這份是 公司系統 定期交來的；搬走之後下次交來會在暫存區再收一份", r.stdout.splitlines())
+        self.assertIn("這份是 公司系統 定期交來的；搬走之後下次交來會直接覆蓋搬過去的那份", r.stdout.splitlines())
         self.ok(str(self.outside("b.md", b"y")))
         r = run("source-edit", "move", "暫存區/b.md", "--to", "客戶案件/大安陳", "--check", cwd=self.V)
         self.assertNotIn("定期交來", r.stdout)

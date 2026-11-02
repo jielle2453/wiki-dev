@@ -157,7 +157,7 @@ class ChangedText(unittest.TestCase):
             ".system/rulings.json", "系統/裁示.md", ".system/x.json", "系統/y.md", ".system/z.json", ".system/w.json",
             "暫存區/貼文.txt", "案子/信義王/合約.docx")]
         self.assertEqual(journal.changed_text(rows),
-                         "綜合卡 信義王、王先生、大安陳等 4 張；檔案卡 2 張；暫存區 1 份；口述；裁示；x、y、z等 4 個；其他 2 個檔")
+                         "綜合卡 信義王、王先生、大安陳等 4 張；檔案卡 2 張；暫存區 2 份；口述；裁示；x、y、z等 4 個；其他 1 個檔")
         self.assertEqual(journal.changed_text([]), "")
 
 

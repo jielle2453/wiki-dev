@@ -357,7 +357,7 @@ class ProfileFrom(Base):
             sep, sep + "| 工程 | 不存在的大類 |  |  |  |" + chr(10), 1), encoding="utf-8")
         before = tree_hashes(self.D / "系統"), (self.D / ".system" / "profile.json").read_bytes()
         out = self.refused("profile", "apply", "--from", str(self.filled))
-        self.assertTrue(out.startswith("客戶設定檔讀不懂：第 1 節"), out)
+        self.assertTrue(out.startswith("設定檔讀不懂：第 1 節"), out)  # 放寬甲第一輪六.1 改成寫給 AI 的句子
         self.assertEqual((tree_hashes(self.D / "系統"), (self.D / ".system" / "profile.json").read_bytes()), before)
         self.assertFalse((self.D / "工程").exists())
 

@@ -57,7 +57,7 @@ def program_label(command, source=None):
 _FLOOR_COUNTED = (
     ("Z1", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張綜合卡"),
     ("Z5", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張檔案卡"),
-    ("Z4", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份" + HOLD_DIR + "的檔"),
+    ("Z4", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份 " + HOLD_DIR),
 )
 _FLOOR_SETTINGS = "改了設定與狀態檔"
 

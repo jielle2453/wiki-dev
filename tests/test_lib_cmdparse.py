@@ -375,7 +375,7 @@ class Round2(unittest.TestCase):
         got = cmdparse.extract_paths("cat C:/x/raw/行政/薪\\資/s.xlsx", CWD)
         self.assertIn(n("C:/x/raw/行政/薪資/s.xlsx"), got)
         got = cmdparse.extract_paths("ls C:/x/vault/AI\\ 產出", CWD)
-        self.assertIn(n("C:/x/vault/暫存區"), got)
+        self.assertIn(n("C:/x/vault/AI 產出"), got)  # 跳脫空白的寫法跟夾名無關，借舊名當含空白的非 ASCII 例子
 
 
 class CodePaths(unittest.TestCase):
@@ -442,7 +442,7 @@ class OpenStage(unittest.TestCase):
 
     def test_cmd_start_skips_title(self):
         for text, ps, targets in (('start "" "C:/x/暫存區/a.docx"', False, ["C:/x/暫存區/a.docx"]),
-                                  ('start "C:/x/暫存區/a.docx"', False, []),
+                                  ('start "C:/x/my docs/a.docx"', False, []),
                                   ('start /b /wait /min "" C:/x/a.docx', False, ["C:/x/a.docx"]),
                                   ('cmd //c start "" "C:/x/暫存區/a.docx"', False, ["C:/x/暫存區/a.docx"]),
                                   ('cmd /c start "" "C:\\x\\暫存區\\a.docx"', True, ["C:\\x\\暫存區\\a.docx"]),

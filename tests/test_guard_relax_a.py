@@ -135,6 +135,31 @@ class ShellRules(Base):
         self.assertEqual([r["reason_code"] for r in d.ledger_rows], ["delete"])
 
 
+class HoldZone(Base):
+    """放寬甲第二輪 9（D-324）：Z3 併進 Z4（暫存區），Z3 不再出現；規則照第一輪的 Z4。舊夾名收件匣、AI 產出 現在只是使用者的夾（Z8）。"""
+
+    def test_zone_table_has_no_z3(self):
+        self.assertNotIn("Z3", guard.ZONES)
+        self.assertNotIn("Z3", set(guard.RESERVED.values()))
+        self.assertEqual(guard.ZONES["Z4"]["name"], "暫存區")
+
+    def test_hold_is_z4_and_old_names_are_user_folders(self):
+        from kb._lib.paths import normalize
+        v = normalize(str(self.V), None)
+        from kb._lib import sources as sources_lib
+        sources = sources_lib.load(self.V)
+        self.assertEqual(guard.classify(normalize(str(self.V / "暫存區" / "c.txt"), None), v, sources)[0], "Z4")
+        for old in ("收件匣", "AI 產出"):
+            self.assertEqual(guard.classify(normalize(str(self.V / old / "a.txt"), None), v, sources)[0], "Z2", old)
+
+    def test_file_tools_and_shell_follow_user_zone_rules(self):
+        d = self.d("Edit", self.V / "暫存區" / "c.txt")
+        self.assertEqual((d.decision, d.zone), ("allow", "Z4"), d)
+        self.passes("Bash", 'rmdir "暫存區/空夾"')
+        self.denies("Bash", "rm 暫存區/c.txt", "delete")
+        self.passes("Bash", "cat 暫存區/c.txt")
+
+
 class VaultExcludes(Base):
     """一.6：知識庫裡使用者的夾設成不讀（sources.json 頂層 vault_excludes），由 Sources 解析，守門回 Z10／Z10b。"""
 

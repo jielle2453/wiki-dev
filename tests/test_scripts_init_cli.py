@@ -13,10 +13,10 @@ from pathlib import Path
 from tests._guard_fixture import KB, ROOT, make_vault
 
 SKELETON = ROOT / "skeleton"
-EXPECTED_DIRS = ["暫存區", "_extras", "暫存區", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
+EXPECTED_DIRS = ["暫存區", "_extras", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
 EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".system/sources.json", ".system/profile.json",
                   "系統/客戶設定檔.md", "系統/日程.md"]
-SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "暫存區/.gitkeep", "暫存區/.gitkeep", "檔案索引/.gitkeep",
+SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep",
                     "_extras/.gitkeep"}
 
@@ -44,7 +44,8 @@ class Skeleton(unittest.TestCase):
 
     def test_claude_md_mentions_five_zones_and_no_plugin_path(self):
         text = (SKELETON / "CLAUDE.md").read_text(encoding="utf-8")
-        for zone in ("型別夾", "暫存區", "暫存區", "檔案索引", "系統"):
+        # skeleton/CLAUDE.md 的夾名由 spec 乙改成暫存區（這題不動說明文字）；乙改完把這裡換成「暫存區」
+        for zone in ("型別夾", "AI 產出", "收件匣", "檔案索引", "系統"):
             self.assertIn(zone, text)
         self.assertNotIn("CLAUDE_PLUGIN_ROOT", text)
         self.assertNotIn("scripts/", text)

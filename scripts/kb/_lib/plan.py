@@ -1057,7 +1057,7 @@ def _opened_tell(vault):
             for o in opened if o.get("label")]
 
 
-UNBACKED_TELL = "AI 產出有 {n} 份沒經程式放進來，這幾份退回拿不掉"  # produce 第 5 點：只數這次待製卡裡的
+UNBACKED_TELL = "暫存區有 {n} 份沒經程式放進來，這幾份退回拿不掉"  # produce 第 5 點：只數這次待製卡裡的
 
 
 def _unreadable_line(name, reason):

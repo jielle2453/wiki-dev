@@ -177,7 +177,7 @@ class RealLibreOffice(Base):
 class Places(Base):
     def test_pdf_only_workspace_or_output(self):
         raw_file = self.raw / _cards.MEETING
-        self.assertEqual(self.refused("pdf", str(raw_file)), f"只收工作區或 暫存區裡的檔：{raw_file}")
+        self.assertEqual(self.refused("pdf", str(raw_file)), f"只收工作區或暫存區裡的檔：{raw_file}")
         self.assertTrue(self.refused("recalc", str(raw_file)).startswith("只收工作區裡的檔"))
 
 
