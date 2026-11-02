@@ -889,7 +889,7 @@ function cleanFill(fill, raw) {
 }
 
 // ---- 隨手記便條（D-267 修訂、裁定 37、39）：首頁右上角一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
-const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
+const FREE_DIR = '_個人'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
 const NOTE_REL = `${FREE_DIR}/隨手記.md`;
 const NOTE_DELAY_MS = 1500; // 停手這麼久就存回那一頁
 

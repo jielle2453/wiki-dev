@@ -483,7 +483,7 @@ def _named(names, unit):
 
 
 def changed_text(changed):
-    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_extras 1 份；日程；其他 2 個檔」；沒有回空字串。"""
+    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_個人 1 份；日程；其他 2 個檔」；沒有回空字串。"""
     synth, cards, outputs, free, words, files, other = [], 0, 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
