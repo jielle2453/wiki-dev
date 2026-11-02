@@ -188,6 +188,7 @@ class SimpleCardForAiNotes(unittest.TestCase):
         for want in ("md 檔（不管誰寫的）", "## 重點", "三到五點", "D-519"):
             with self.subTest(want=want):
                 self.assertIn(want, line)
+        self.assertIn("2. md 檔例外：只寫第 1 點的簡單版", carding)
 
 
 if __name__ == "__main__":
