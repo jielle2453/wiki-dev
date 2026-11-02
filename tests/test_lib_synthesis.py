@@ -275,11 +275,12 @@ class Buckets(Base):
         text = "---\na: 1\n---\n# x\n\n## 現況\n- 一\n\n" + self.FILES
         got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
         self.assertEqual(got, text.replace("- 一\n\n", f"- 一\n\n## 紀事\n{new}\n\n"))
-        text = "---\na: 1\n---\n# x\n\n## 摘要\n- 一\n\n" + self.FILES  # 沒有現況：補在相關檔之前（不是內文最前面）
+        text = "---\na: 1\n---\n# x\n\n## 推算\n- 一\n\n" + self.FILES  # 沒有現況：照 S-08 紀事排在其他段前面
         got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
-        self.assertEqual(got, text.replace("- 一\n\n", f"- 一\n\n## 紀事\n{new}\n\n"))
-        got, _a, _d = synthesis.insert_events("---\na: 1\n---\n# x\n\n## 摘要\n- 一\n", [("2026-10-25", new[2:])])
-        self.assertEqual(got, f"---\na: 1\n---\n# x\n\n## 摘要\n- 一\n\n## 紀事\n{new}\n")
+        self.assertEqual(got, text.replace("# x\n\n", f"# x\n\n## 紀事\n{new}\n\n"))
+        text = "---\na: 1\n---\n# x\n一句。\n\n" + self.FILES  # 一段都沒有：補在相關檔之前
+        got, _a, _d = synthesis.insert_events(text, [("2026-10-25", new[2:])])
+        self.assertEqual(got, text.replace("一句。\n\n", f"一句。\n\n## 紀事\n{new}\n\n"))
 
     def test_stale_added_changed_removed(self):
         a = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])

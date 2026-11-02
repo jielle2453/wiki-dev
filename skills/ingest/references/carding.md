@@ -117,4 +117,4 @@
 
 - `stale` 每項帶 `change`（`changes_7d`、`changes_30d`、`days_since`、`open`、`entity_done`、`mode`、`track`）：照它判斷這份做完整卡還是指路卡。參考做法：新檔先完整；一週改好幾次的換指路（`kb cards mode <編號> pointer`）；停兩週或掛的實體結案了，換回完整（`mode <編號> full`）再做一次完整卡。客戶說「這份不會再改」「這份每週更新」「這份不用記過程」照做（不記過程是 `--track no`）。
 - 指路卡（檔頭 `卡式: 指路`，不要求「日期與數字」段）只寫：這是什麼、在哪、有哪些工作表與欄位、多久更新；不抄數字，要數字回原檔讀。
-- `pointer_changed`（`{id, title, change, diff}`：指路卡的檔改了，不算進份數）：讀 `diff`（`track` 是 false 沒有）。差別是「事」就用 `kb entity log <名稱> "<條>"` 在綜合卡紀事加一條（寫法照 `rules/synthesis.md` S-14；一天改很多次可合成一條）；數字跳動不記，一直只是數字的跑 `mode <編號> pointer --track no`。看完（寫了紀事、換了卡式、什麼都不做都算）跑 `kb cards seen <編號>`，不跑下次照樣列。
+- `pointer_changed`（`{id, title, change, diff}`：指路卡的檔改了，不算進份數）：讀 `diff`（`track` 是 false 沒有）。差別是「事」就用 `kb entity log <那張卡掛的實體> "YYYY-MM-DD 事〔<卡編號>〕"` 在綜合卡紀事加一條（寫清楚重點、不換行；一天改很多次可合成一條）；數字跳動不記，一直只是數字的跑 `mode <編號> pointer --track no`。看完（寫了紀事、換了卡式、什麼都不做都算）跑 `kb cards seen <編號>`，不跑下次照樣列。

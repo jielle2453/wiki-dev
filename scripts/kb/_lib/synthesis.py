@@ -1208,8 +1208,7 @@ def insert_events(text, events):
     if span is None:
         block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
         cur = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 現況"), None)
-        files = _file_lines(lines, start)  # 沒有現況：補在最後（相關檔之前）
-        at = _section_end(lines, cur + 1) if cur is not None else files[0] if files else len(lines)
+        at = _section_end(lines, start if cur is None else cur + 1)  # 沒有現況：照 S-08 紀事排在其他段前面
         head, tail = lines[:at], lines[at:]
         while head and not head[-1].strip():
             head.pop()
