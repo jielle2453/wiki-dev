@@ -42,9 +42,9 @@
     "file_path": "<V>/../raw/客戶案件/a.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-測試.md 第一輪 第4條",
-   "note": "Write registered source -> deny Z9 readonly_source"
+   "note": "Write registered source -> deny Z9 readonly_source；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -62,9 +62,9 @@
     "file_path": "<V>/案子/信義王/合約.docx"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-測試.md 第一輪 第5條",
-   "note": "Write entity-folder original -> deny Z2 entity_file"
+   "note": "Write entity-folder original -> deny Z2 entity_file；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -72,9 +72,9 @@
     "file_path": "<V>/收件匣/x.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-測試.md 第一輪 第6條",
-   "note": "Write inbox -> deny Z4"
+   "note": "Write inbox -> deny Z4；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -407,9 +407,9 @@
     "file_path": "<V>/x.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-測試.md 疑義裁定 2",
-   "note": "Write at vault top level -> deny Z8 protected"
+   "note": "Write at vault top level -> deny Z8 protected；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -417,9 +417,9 @@
     "command": "cat a.txt > b.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 疑義裁定 3",
-   "note": "Bash redirect to relative file at vault top level -> deny Z8"
+   "note": "Bash redirect to relative file at vault top level -> deny Z8；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -427,9 +427,9 @@
     "command": "cp <RAW>/客戶案件/a.txt \"<V>/AI 產出/a.txt\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 疑義裁定 5",
-   "note": "Bash copy source file into AI 產出 -> deny Z9"
+   "note": "Bash copy source file into AI 產出 -> deny Z9；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -447,9 +447,9 @@
     "command": "mkdir \"<V>/案子/新案\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 疑義裁定 6",
-   "note": "Bash mkdir new entity folder (absolute) -> deny Z2"
+   "note": "Bash mkdir new entity folder (absolute) -> deny Z2；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -457,9 +457,9 @@
     "command": "mkdir 案子/新案"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 疑義裁定 6",
-   "note": "Bash mkdir new entity folder (relative) -> deny Z2"
+   "note": "Bash mkdir new entity folder (relative) -> deny Z2；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -855,9 +855,9 @@
     "command": "sed -i s/a/b/ \"<V>/AI 產出/x.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 第一輪 B3；第二輪 第28條",
-   "note": "s/a/b/ must not be read as vault path -> pass; unsure: later Z3 shell rule (OUTPUT_SHELL) may deny｜密碼與守門：produce 之後指令寫 AI 產出一律擋（output_shell），照 D-186 補只放讀"
+   "note": "s/a/b/ must not be read as vault path -> pass; unsure: later Z3 shell rule (OUTPUT_SHELL) may deny｜密碼與守門：produce 之後指令寫 AI 產出一律擋（output_shell），照 D-186 補只放讀；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -865,9 +865,9 @@
     "command": "echo \"2026/10/12\" > \"<V>/AI 產出/x.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 第一輪 B3",
-   "note": "date with slashes must not be a path -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上，echo 導向寫 AI 產出是寫"
+   "note": "date with slashes must not be a path -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上，echo 導向寫 AI 產出是寫；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -875,9 +875,9 @@
     "command": "echo 2026/10/12 > \"<V>/AI 產出/x.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "守門-測試.md 第二輪 第28條；事務層-測試.md 第一輪 驗收 18 表（守門 28）",
-   "note": "unquoted date with slashes -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上"
+   "note": "unquoted date with slashes -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -1281,9 +1281,9 @@
     "new_string": "hello (guard-check)"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-確認.md 第3步",
-   "note": "real session: Edit source -> deny Z9"
+   "note": "real session: Edit source -> deny Z9；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -1301,9 +1301,9 @@
     "file_path": "<V>\\收件匣\\test.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "守門-確認.md 第5步",
-   "note": "Write inbox (backslash form) -> deny Z4"
+   "note": "Write inbox (backslash form) -> deny Z4；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -1372,9 +1372,9 @@
     "file_path": "<V>/案子/信義王/新卡.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "事務層-測試.md 第一輪 驗收 5",
-   "note": "實體夾裡非同名的 .md 是 Z2，只有同名綜合卡能寫"
+   "note": "實體夾裡非同名的 .md 是 Z2，只有同名綜合卡能寫；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -1438,9 +1438,9 @@
     "command": "echo x > \"<V>/AI 產出/x.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "事務層-測試.md 第一輪 驗收 9",
-   "note": "指令寫 Z3，deny shell_write（現在也落在 OUTPUT_SHELL）"
+   "note": "指令寫 Z3，deny shell_write（現在也落在 OUTPUT_SHELL）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -2465,12 +2465,12 @@
     "command": "powershell -Command \"Get-Content ..\\raw\\客戶案件\\*\""
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "needs": [
     "<RAW>/客戶案件/.env"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 security-review（剔除）",
-   "note": "known-gap: 外殼引號裡的相對路徑不重新解析（原 ..\\..\\r3\\甲\\*）；deny 也可接受；unsure"
+   "note": "known-gap: 外殼引號裡的相對路徑不重新解析（原 ..\\..\\r3\\甲\\*）；deny 也可接受；unsure；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -2478,12 +2478,12 @@
     "command": "bash -c \"grep -r K ../raw/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "needs": [
     "<RAW>/客戶案件/.env"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 security-review（剔除）",
-   "note": "known-gap: bash -c 引號裡的相對路徑；deny 也可接受；unsure"
+   "note": "known-gap: bash -c 引號裡的相對路徑；deny 也可接受；unsure；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -3042,9 +3042,9 @@
     "command": "tar czf ../bak.tgz ."
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "骨架與來源登記-測試.md 第四輪 Q8／第九輪 驗收 52（改寫）；骨架與來源登記-測試.md 第六輪 52（第八輪起 Z8 protected）",
-   "note": "Q8：寫入指令裡的 . 算寫入目標 → Z8 protected；第六輪曾改 pass，第九輪回到原守門並寫進驗收（誤擋併 B-110）"
+   "note": "Q8：寫入指令裡的 . 算寫入目標 → Z8 protected；第六輪曾改 pass，第九輪回到原守門並寫進驗收（誤擋併 B-110）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -3065,12 +3065,12 @@
     "command": "cd \"<RAW>/客戶案件\" && tar czf ../bak.tgz ."
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/.env"
    ],
    "來源": "骨架與來源登記-測試.md 第五輪 驗收 52（改寫）；骨架與來源登記-測試.md 第六輪 52",
-   "note": "cd 進含 .env 的來源"
+   "note": "cd 進含 .env 的來源；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4090,12 +4090,12 @@
     "command": "mkdir -p \"<OUT>/kb9\" ; cp \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" \"<OUT>/kb9/合約複本.docx\" ; python -m zipfile -e \"<OUT>/kb9/合約複本.docx\" \"<OUT>/kb9/unpacked\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #2",
-   "note": "cp 客戶原檔（登記來源）到知識庫外：deny Z9 readonly_source；理由句現在應指到 kb office copy"
+   "note": "cp 客戶原檔（登記來源）到知識庫外：deny Z9 readonly_source；理由句現在應指到 kb office copy；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4103,12 +4103,12 @@
     "command": "cp \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" \"<OUT>/kb9/合約複本.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #2（kb guard decide 模擬）",
-   "note": "單獨 cp 原檔→工作夾 deny Z9；unsure: 報告建議原檔只當來源的 cp 應放行，設計改走 kb office copy，未見放行"
+   "note": "單獨 cp 原檔→工作夾 deny Z9；unsure: 報告建議原檔只當來源的 cp 應放行，設計改走 kb office copy，未見放行；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4155,12 +4155,12 @@
     "command": "PYTHONPATH=\"<OUT>/pylib\" python \"<OUT>/skills/docx/scripts/office/validate.py\" \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\" --original \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" --author \"AI 助理\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #4",
-   "note": "unsure: 報告裡是分類器擋；照現行守門（produce D-170），非 kb 的 shell 指令碰到 AI 產出（Z3）讀寫都擋（OUTPUT_SHELL）"
+   "note": "unsure: 報告裡是分類器擋；照現行守門（produce D-170），非 kb 的 shell 指令碰到 AI 產出（Z3）讀寫都擋（OUTPUT_SHELL）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4168,12 +4168,12 @@
     "command": "python - <<'EOF'\nimport zipfile\nfor p in [\"<RAW>/客戶案件/信義王室內裝修工程合約.docx\", \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\"]:\n    x = zipfile.ZipFile(p).read(\"word/document.xml\").decode(\"utf-8\")\n    print(p, x.count(\"<w:ins \"), x.count(\"<w:del \"))\nEOF"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #5",
-   "note": "唯讀 heredoc 比對原檔與修訂檔；報告當時 deny Z8（推測把 << 當寫檔重導向）；unsure: 程式本文是重建的，因含 AI 產出路徑，現行 OUTPUT_SHELL 照樣擋"
+   "note": "唯讀 heredoc 比對原檔與修訂檔；報告當時 deny Z8（推測把 << 當寫檔重導向）；unsure: 程式本文是重建的，因含 AI 產出路徑，現行 OUTPUT_SHELL 照樣擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4217,9 +4217,9 @@
     "command": "NODE_PATH=\"<OUT>/node/node_modules\" node \"<OUT>/腳本/make_report_docx_kb.js\" \"<V>/AI 產出/內湖李進度報告.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "B-081-spike-守門.md 沒擋表第 1 列",
-   "note": "node 直接寫 AI 產出：報告當時過（沒備份沒登記，觀察 1）；unsure: 照現行 produce 守門 shell 碰 Z3 一律擋，改走 kb office run／output save"
+   "note": "node 直接寫 AI 產出：報告當時過（沒備份沒登記，觀察 1）；unsure: 照現行 produce 守門 shell 碰 Z3 一律擋，改走 kb office run／output save；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4227,12 +4227,12 @@
     "command": "python \"<OUT>/腳本/repack.py\" \"<OUT>/kb9/unpacked\" \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 沒擋表第 2 列",
-   "note": "python 讀原檔寫 AI 產出：報告當時過；unsure: 照現行 shell 碰 Z3 擋"
+   "note": "python 讀原檔寫 AI 產出：報告當時過；unsure: 照現行 shell 碰 Z3 擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4253,12 +4253,12 @@
     "command": "soffice.exe --headless --norestore -env:UserInstallation=file:///<OUT>/lo --convert-to pdf --outdir \"<OUT>/pdf_kb\" \"<V>/AI 產出/內湖李進度報告.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/內湖李進度報告.docx"
    ],
    "來源": "B-081-spike-守門.md 沒擋表第 5 列",
-   "note": "soffice 讀 AI 產出轉 PDF 到工作夾：報告當時過；unsure: 現行 shell 碰 Z3 讀也擋，改走 kb office pdf；UserInstallation 原值省略"
+   "note": "soffice 讀 AI 產出轉 PDF 到工作夾：報告當時過；unsure: 現行 shell 碰 Z3 讀也擋，改走 kb office pdf；UserInstallation 原值省略；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4326,9 +4326,9 @@
     "file_path": "<RAW>\\客戶案件\\spike-test.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "card-maker-spike.md 第 2 題（hook-log 第 34、40 行）",
-   "note": "子代理寫來源夾（原為 card-maker-spike\\來源）：Z9 擋"
+   "note": "子代理寫來源夾（原為 card-maker-spike\\來源）：Z9 擋；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4337,9 +4337,9 @@
     "description": "Save selected todo items to scratchpad as UTF-8"
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "來源": "card-maker-spike.md 第 2 題 (f)／對設計的影響第 8 點（hook-log 第 8 行；報告寫第 7 行，差一行）",
-   "note": "誤擋：python -I -X utf8 -c 讀 tool-results、寫知識庫外 scratchpad，被當成寫實體夾（Z2 理由句）；應不表態"
+   "note": "誤擋：python -I -X utf8 -c 讀 tool-results、寫知識庫外 scratchpad，被當成寫實體夾（Z2 理由句）；應不表態；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4388,9 +4388,9 @@
     "command": "python \"<PLUGIN>/scripts/kb.py\" cards todo --json > \"<V>/todo.json\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "card-maker-spike.md 第 2 題 (h) 變體",
-   "note": "單一 kb 呼叫、stdout 導進知識庫第一層：照擋"
+   "note": "單一 kb 呼叫、stdout 導進知識庫第一層：照擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4399,9 +4399,9 @@
     "description": "把整理批次的問題存成暫存檔"
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 907 行，主對話）",
-   "note": "誤擋：python -I -c 讀 tool-results、open(sys.argv[2],'w') 寫知識庫外 scratchpad，被當成寫知識庫第一層（Z8 理由句）"
+   "note": "誤擋：python -I -c 讀 tool-results、open(sys.argv[2],'w') 寫知識庫外 scratchpad，被當成寫知識庫第一層（Z8 理由句）；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4410,9 +4410,9 @@
     "description": "Extract my items and profile into utf-8 file"
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 1011 行，card-maker 子代理）",
-   "note": "誤擋：cat heredoc 寫 py 到 scratchpad 再 python -I 跑（內文有 'w'、[]），被當成寫知識庫第一層（Z8）；D-186 (a) heredoc 內文當資料"
+   "note": "誤擋：cat heredoc 寫 py 到 scratchpad 再 python -I 跑（內文有 'w'、[]），被當成寫知識庫第一層（Z8）；D-186 (a) heredoc 內文當資料；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4421,9 +4421,9 @@
     "description": "Save plan fields as UTF-8 to scratchpad"
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "來源": "card-maker-spike.md 桌面版段（hook-log 第 1050 行，主對話）",
-   "note": "誤擋：python -c（沒有 -I）讀 tool-results、寫 scratchpad，被當成寫知識庫第一層（Z8）"
+   "note": "誤擋：python -c（沒有 -I）讀 tool-results、寫 scratchpad，被當成寫知識庫第一層（Z8）；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4543,9 +4543,9 @@
     "file_path": "<RAW>\\客戶案件\\test.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "B-093-spike.md 2-4c",
-   "note": "在來源夾新增檔（原 來源\\案子\\test.txt）：Z9 擋；理由句應改成「…要放新檔進去用 kb source-edit move…」（釐清 (e)）"
+   "note": "在來源夾新增檔（原 來源\\案子\\test.txt）：Z9 擋；理由句應改成「…要放新檔進去用 kb source-edit move…」（釐清 (e)）；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -4613,12 +4613,12 @@
     "command": "python -I -c \"import sys;p=sys.argv[1];t=open(p,encoding='utf-8').read();open(p,'w',encoding='utf-8').write(t.replace('| 3-2d','| 3-2d'))\" \"<TMP>\\B-093-報告.md\""
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "needs": [
     "<TMP>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-2d",
-   "note": "誤擋：python -I -c open(p,'w') 改知識庫外（上層）的報告，被分到實體夾（Z2 理由句）。報告只給「python -I -c \"…open(p,'w')…\" \"…\\install-spike\\B-093-報告.md\"」，程式碼是重建的"
+   "note": "誤擋：python -I -c open(p,'w') 改知識庫外（上層）的報告，被分到實體夾（Z2 理由句）。報告只給「python -I -c \"…open(p,'w')…\" \"…\\install-spike\\B-093-報告.md\"」，程式碼是重建的；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4626,12 +4626,12 @@
     "command": "python -I -c \"import sys;p=sys.argv[1];t=open(p,encoding='utf-8').read();open(p,'w',encoding='utf-8').write(t)\" \"<OUT>\\B-093-報告.md\""
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "needs": [
     "<OUT>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-2d 變體",
-   "note": "同 3-2d，報告放在跟知識庫無關的外部夾"
+   "note": "同 3-2d，報告放在跟知識庫無關的外部夾；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4639,12 +4639,12 @@
     "command": "python -I -c \"import sys;t=open(sys.argv[1],encoding='utf-8').read();open(sys.argv[2],'w',encoding='utf-8').write(t[:4000])\" \"<TMP>\\B-093-報告.md\" \"<OUT>\\scratchpad\\head.md\""
    },
    "cwd": "<V>",
-   "expect": "pass",
+   "expect": "deny",
    "needs": [
     "<TMP>/B-093-報告.md"
    ],
    "來源": "B-093-spike.md 3-4d（第一次）",
-   "note": "誤擋：唯讀 python 寫 scratchpad 暫存檔，被當寫知識庫第一層（Z8）。報告沒給原指令，整條是重建的"
+   "note": "誤擋：唯讀 python 寫 scratchpad 暫存檔，被當寫知識庫第一層（Z8）。報告沒給原指令，整條是重建的；放寬甲對齊：原 pass，改 deny（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5040,9 +5040,9 @@
     "command": "node x.js \"<V>/AI 產出/a.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "AI 產出路徑當非 kb 程式的參數：Z3 output_shell"
+   "note": "AI 產出路徑當非 kb 程式的參數：Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5050,9 +5050,9 @@
     "command": "python x.py \"<V>/AI 產出/a.xlsx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "同上，python 腳本"
+   "note": "同上，python 腳本；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5060,9 +5060,9 @@
     "command": "soffice --convert-to pdf \"<V>/AI 產出/a.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "同上，soffice"
+   "note": "同上，soffice；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5070,9 +5070,9 @@
     "command": "node x.js AI\\ 產出/a.docx"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "反斜線跳脫空白的相對路徑"
+   "note": "反斜線跳脫空白的相對路徑；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -5080,9 +5080,9 @@
     "command": "node x.js \"AI 產出\\a.docx\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "PowerShell 的 node；報告只寫 PowerShell `node …`，參數照 Bash 那條補"
+   "note": "PowerShell 的 node；報告只寫 PowerShell `node …`，參數照 Bash 那條補；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5120,9 +5120,9 @@
     "file_path": "<RAW>\\行政\\請款\\r.docx"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "produce-測試.md 驗收 10",
-   "note": "Write 客戶原檔：Z9 擋"
+   "note": "Write 客戶原檔：Z9 擋；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Edit",
@@ -5132,9 +5132,9 @@
     "new_string": "b"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "produce-測試.md 驗收 10",
-   "note": "Edit 實體夾裡的原檔：Z2 擋"
+   "note": "Edit 實體夾裡的原檔：Z2 擋；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -5262,9 +5262,9 @@
     "file_path": "<V>/.system/temp/office/../../../inventory.json"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "produce-測試.md 驗收 10／第二輪驗收 12",
-   "note": "工作區例外不放行：多層 .. 跳到知識庫根（Z7）"
+   "note": "工作區例外不放行：多層 .. 跳到知識庫根（Z7）；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -5651,9 +5651,9 @@
     "file_path": "<RAW>\\客戶案件\\報價_v5.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "整理ingest-確認.md 第 4 步",
-   "note": "AI 想自己在來源放新檔：Z9「客戶原檔只讀」擋，沒有繞"
+   "note": "AI 想自己在來源放新檔：Z9「客戶原檔只讀」擋，沒有繞；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Edit",
@@ -5663,9 +5663,9 @@
     "new_string": "| 案子 |"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "allow",
    "來源": "客戶設定檔與型別-確認.md Z6",
-   "note": "Edit 系統區設定檔：Z6 system_render 擋"
+   "note": "Edit 系統區設定檔：Z6 system_render 擋；放寬甲對齊：原 deny，改 allow（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6049,8 +6049,9 @@
     "command": "cp ../raw/客戶案件/a.txt ."
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第六輪 52 對照"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第六輪 52 對照",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6179,8 +6180,9 @@
     "command": "tar xzf <OUT>/a.tgz -C ."
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 73／第八輪 73／第九輪 73"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 73／第八輪 73／第九輪 73",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6188,8 +6190,9 @@
     "command": "cp C:/tmp/zip/a.txt ."
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 73"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 73",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -6197,8 +6200,9 @@
     "command": "Copy-Item <OUT>/a.txt ."
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 73"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 73",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6206,8 +6210,9 @@
     "command": "tar -C . -xzf <OUT>/a.tgz"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 73"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 73",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6215,8 +6220,9 @@
     "command": "cp <OUT>/a 新檔.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第九輪 73／第十輪 86"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第九輪 73／第十輪 86",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6224,8 +6230,9 @@
     "command": "tar czf <OUT>/b.tgz 收件匣"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 73（第九輪 Z2 起 Z4 inbox）／第十輪 84"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 73（第九輪 Z2 起 Z4 inbox）／第十輪 84",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6233,8 +6240,9 @@
     "command": "mv \"<RAW>/客戶案件/a.txt\" <OUT>/a.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6251,8 +6259,9 @@
     "command": "Move-Item -Path \"<RAW>/客戶案件/a.txt\" -Destination <OUT>/"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6260,8 +6269,9 @@
     "command": "mv \"<RAW>/客戶案件\" <OUT>/x"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X1／第八輪 75",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6269,8 +6279,9 @@
     "command": "tar -C \"<RAW>/客戶案件\" -xzf <OUT>/x.tgz"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6278,8 +6289,9 @@
     "command": "tar xf <OUT>/x.tar --directory \"<RAW>/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6287,8 +6299,9 @@
     "command": "cp -t \"<RAW>/客戶案件\" <OUT>/t.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -6296,8 +6309,9 @@
     "command": "Copy-Item -Destination \"<RAW>/客戶案件\" -Path <OUT>/t.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6305,8 +6319,9 @@
     "command": "rsync -a --remove-source-files \"<RAW>/客戶案件/\" <OUT>/t/"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2／第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6314,8 +6329,9 @@
     "command": "tar --extract -f <OUT>/x.tar -C \"<RAW>/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6323,8 +6339,9 @@
     "command": "rsync -a <OUT>/ \"<RAW>/客戶案件/\" --exclude tmp"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6332,8 +6349,9 @@
     "command": "cp -v <OUT>/t.txt \"<RAW>/客戶案件/\" > <OUT>/log.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 X2 子代理另驗",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6350,8 +6368,9 @@
     "command": "robocopy \"<RAW>/客戶案件\" <OUT>/t /MIR"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6359,8 +6378,9 @@
     "command": "xcopy \"<RAW>/客戶案件\" <OUT>/t /s"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -6368,8 +6388,9 @@
     "command": "Expand-Archive <OUT>/x.zip -DestinationPath \"<RAW>/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 76"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 76",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6405,8 +6426,9 @@
     "command": "cp <OUT>/t.txt \"<RAW>/客戶案件/\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6414,8 +6436,9 @@
     "command": "cp --target-directory=\"<RAW>/客戶案件\" <OUT>/t.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6423,8 +6446,9 @@
     "command": "tar czf \"<RAW>/客戶案件/o.tgz\" <OUT>/x"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6432,8 +6456,9 @@
     "command": "unzip <OUT>/a.zip -d \"<RAW>/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第七輪 security-review 沒問題清單",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6450,9 +6475,9 @@
     "command": "cp \"<RAW>/客戶案件/a.txt\" <OUT>/"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "骨架與來源登記-測試.md 第七輪 security-review 誤擋修好了",
-   "note": "cp 的參數都算寫入目標（第八輪起回到原守門：寫入指令所有路徑套寫入欄；D-186 照段分，但 cp 那段的來源照算寫）"
+   "note": "cp 的參數都算寫入目標（第八輪起回到原守門：寫入指令所有路徑套寫入欄；D-186 照段分，但 cp 那段的來源照算寫）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6568,8 +6593,9 @@
     "command": "cd \"<RAW>/客戶案件\" && git checkout -- ."
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 Y1 子代理另驗"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 Y1 子代理另驗",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6577,8 +6603,9 @@
     "command": "tar.exe -xf <OUT>/x.tar -C \"<RAW>/客戶案件\""
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 Y1 子代理另驗"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 Y1 子代理另驗",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6763,8 +6790,9 @@
     "command": "echo x > 新檔.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪特探／第十輪 86"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪特探／第十輪 86",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6772,8 +6800,9 @@
     "command": "echo x > 收件匣/x.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪特探"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪特探",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6808,11 +6837,12 @@
     "command": "mv \"<RAW>/客戶案件/\"*.docx <OUT>/"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<RAW>/客戶案件/b.docx"
    ],
-   "來源": "骨架與來源登記-測試.md 第八輪特探"
+   "來源": "骨架與來源登記-測試.md 第八輪特探",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -6883,8 +6913,9 @@
     "command": "Rename-Item \"<RAW>/客戶案件/a.txt\" b.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第八輪 security-review 沒問題清單"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第八輪 security-review 沒問題清單",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -7027,8 +7058,9 @@
     "command": "mv ../raw/客戶案件/* <OUT>/"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第九輪 Z1 security-review"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第九輪 Z1 security-review",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -7054,8 +7086,9 @@
     "command": "mv 案子 <OUT>/"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第九輪 Z2"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第九輪 Z2",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -7072,8 +7105,9 @@
     "command": "mv 收件匣 <OUT>/inbox"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第九輪 Z2／第十輪 84"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第九輪 Z2／第十輪 84",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -7569,8 +7603,9 @@
     "command": "echo $HOME > <OUT>/x"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第十輪 A5／第十一輪（設計接受）"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第十輪 A5／第十一輪（設計接受）",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -7596,8 +7631,9 @@
     "command": "echo $PASSWORD > <OUT>/x"
    },
    "cwd": "<V>",
-   "expect": "deny",
-   "來源": "骨架與來源登記-測試.md 第十輪 88"
+   "expect": "pass",
+   "來源": "骨架與來源登記-測試.md 第十輪 88",
+   "note": "；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -8389,9 +8425,9 @@
     "command": "sort -o \"<V>/AI 產出/x.txt\" \"<OUT>/a.txt\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 完整報告附錄 A，第二輪）",
-   "note": "F2-5：sort -o 寫 AI 產出"
+   "note": "F2-5：sort -o 寫 AI 產出；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -8819,9 +8855,9 @@
     "command": "python \"<PLUGIN>/scripts/kb.py\" folders find 信義王 | Move-Item -Destination \"<OUT>\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 第二輪，附錄 B）",
-   "note": "N2：PowerShell 管線綁來源"
+   "note": "N2：PowerShell 管線綁來源；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -9069,9 +9105,9 @@
     "command": "cmd='rm'; $cmd \"<V>/系統/待處理.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 第四輪）",
-   "note": "R1 小：動詞是變數（底版擋）"
+   "note": "R1 小：動詞是變數（底版擋）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -9079,9 +9115,9 @@
     "command": "cmd='rm'; \"$cmd\" \"<V>/系統/待處理.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 第四輪）",
-   "note": "R1 小：動詞是加引號的變數"
+   "note": "R1 小：動詞是加引號的變數；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -9089,9 +9125,9 @@
     "command": "cmd='rm'; ${cmd} \"<V>/系統/待處理.md\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 第四輪）",
-   "note": "R1 小：${cmd}"
+   "note": "R1 小：${cmd}；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -9099,9 +9135,9 @@
     "command": "v=c; c='rm x'; eval \"${!v}\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "密碼與守門-測試.md（28 第四輪）",
-   "note": "R1 小：eval 間接展開（底版擋）"
+   "note": "R1 小：eval 間接展開（底版擋）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -10578,9 +10614,9 @@
     "command": "cp -t '<V>' a.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
-   "note": "T-11 對照：目的地是知識庫根（放進去）→ 照舊擋（Z8 protected，不是搬家句）"
+   "note": "T-11 對照：目的地是知識庫根（放進去）→ 照舊擋（Z8 protected，不是搬家句）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -10588,9 +10624,9 @@
     "command": "Copy-Item -Destination '<V>' -Path a.txt"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "備份還原與換電腦 T-7、T-11（測試 10-24）",
-   "note": "T-11 對照：PowerShell 放進知識庫根 → 照舊擋"
+   "note": "T-11 對照：PowerShell 放進知識庫根 → 照舊擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Read",
@@ -10665,12 +10701,12 @@
     "command": "echo x > \"<V>/_extras/a.txt\""
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/_extras/"
    ],
    "來源": "彈性區（#21，D-510）",
-   "note": "指令寫彈性區 → deny shell_write"
+   "note": "指令寫彈性區 → deny shell_write；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -10678,12 +10714,12 @@
     "command": "Set-Content -Path '<V>/_extras/a.txt' -Value x"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/_extras/"
    ],
    "來源": "彈性區（#21，D-510）",
-   "note": "PowerShell 寫彈性區 → deny shell_write"
+   "note": "PowerShell 寫彈性區 → deny shell_write；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Read",
@@ -11059,9 +11095,9 @@
     "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<V>\\x.txt'"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 7",
-   "note": "導向寫第一層 → Z8 protected"
+   "note": "導向寫第一層 → Z8 protected；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11069,9 +11105,9 @@
     "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardError '<V>\\AI 產出\\e.txt'"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 7",
-   "note": "導向寫 AI 產出 → Z3 output_shell"
+   "note": "導向寫 AI 產出 → Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11079,9 +11115,9 @@
     "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardOutput '<RAW>\\客戶案件\\o.txt'"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 7",
-   "note": "導向寫原檔 → Z9"
+   "note": "導向寫原檔 → Z9；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11287,9 +11323,9 @@
     "command": "Start-Process $f"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 11",
-   "note": "unparsed"
+   "note": "unparsed；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11297,9 +11333,9 @@
     "command": "Start-Process powershell -ArgumentList $a"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 11",
-   "note": "unparsed"
+   "note": "unparsed；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11307,9 +11343,9 @@
     "command": "Start-Process (Get-Item x)"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "開檔與Office一起改 驗收 11",
-   "note": "unparsed"
+   "note": "unparsed；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11317,12 +11353,12 @@
     "command": "Start-Process '<V>\\AI 產出\\x.docx'; Remove-Item '<V>\\AI 產出\\y.docx'"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 12",
-   "note": "後半照舊"
+   "note": "後半照舊；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11343,12 +11379,12 @@
     "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $w.Documents.Open('<V>\\AI 產出\\x.docx')"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 13",
-   "note": "COM 開檔照擋（D-514 放棄了）"
+   "note": "COM 開檔照擋（D-514 放棄了）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11536,12 +11572,12 @@
     "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save(); $x.SaveAs('<V>\\AI 產出\\y.docx') } }"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
-   "note": "(e) 同 (a) 加 SaveAs"
+   "note": "(e) 同 (a) 加 SaveAs；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11549,12 +11585,12 @@
     "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }; $w.Documents.Open('<V>\\AI 產出\\x.docx')"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
-   "note": "(f) 同 (a) 加 Documents.Open（驗收 13 不變）"
+   "note": "(f) 同 (a) 加 Documents.Open（驗收 13 不變）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11601,12 +11637,12 @@
     "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Save() } }; [void]$w.Documents.Add()"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "needs": [
     "<V>/AI 產出/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 31",
-   "note": "(5) 開新檔的 Documents.Add( 照擋"
+   "note": "(5) 開新檔的 Documents.Add( 照擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   }
  ]
 }

@@ -1454,7 +1454,8 @@ def _check_plan(plan, ctx):
     if plan["kind"] != "write":
         return None
     targets = _target_paths(plan, ctx)
-    if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or (verb == "find" and re.search(r"(?:^|\s)-delete\b", plan["text"])):
+    find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
+    if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
         tg = targets or ([base] if verb == "git clean" and base else [])
         for p in tg:
             z = _user_zone_of(p, ctx.vault_n, ctx.sources)
@@ -1610,6 +1611,30 @@ def _interp_check(plan, ctx, recurse):
     return None
 
 
+def _perl_inplace(plan, ctx):
+    """perl 帶 -i（-pi、-i.bak）：參數裡存在的使用者檔照 U4 回 content；沒有回 None。"""
+    if plan["runs"] != "perl":
+        return None
+    args = plan["args"][1:]
+    if not any(re.fullmatch(r"-[a-zA-Z]*i\S*", w) for w in args):
+        return None
+    skip = False
+    for w in args:
+        if skip:
+            skip = False
+            continue
+        if w in ("-e", "-E"):
+            skip = True
+            continue
+        if w.startswith("-"):
+            continue
+        for p in _resolved(w, plan.get("base")) or []:
+            z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+            if z and z != "ANC" and os.path.isfile(p):
+                return ctx.content(p, z)
+    return None
+
+
 def _user_rules(info, ctx, base0, classified_zones, recurse):
     """每一段寫入照使用者區規則判；回 Decision 或 None。
     U5 只在整句碰到的路徑（含效用 cwd）有使用者區、或推不出效用 cwd 時才套用；cwd 在 willy 自己的區又看不出目標，擋 willy。"""
@@ -1635,6 +1660,9 @@ def _user_rules(info, ctx, base0, classified_zones, recurse):
     pending = []
     for plan in info["stages"]:
         if plan.get("interp"):
+            d = _perl_inplace(plan, ctx)  # perl -pi -e …：直譯器的 -i 是改既有檔內容（U4），不是程式碼判斷
+            if d is not None:
+                return d
             d = _interp_check(plan, ctx, recurse)
             if d is not None:
                 return d
