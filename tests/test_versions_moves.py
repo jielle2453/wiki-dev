@@ -235,7 +235,7 @@ class OutsideMove(Base):
         self.assertTrue(card.is_file(), "卡留著")
         front = cards.parse_front(card.read_text(encoding="utf-8"))
         self.assertEqual(front["原檔"], ["file://~/Desktop/估價單.pdf"])
-        self.assertEqual(front["開原檔"], cards.open_link(desk / "估價單.pdf"))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + self.fid)  # 放寬丙 9：不隨位置變
         self.assertNotEqual(front["原檔"], before_card_front["原檔"])
         self.assertEqual(cards.todo(self.V, sources_lib.load(self.V))["moved"], [])
         # 不掃描：再掃一次，狀態不被改成 missing

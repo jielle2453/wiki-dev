@@ -190,6 +190,10 @@ def _check_synthesis(vault, rel, turn_id, payload):
     except BaseException as e:  # noqa: BLE001  快取與 card 旗標沒更新不影響卡
         _log(e, payload)
     try:
+        cards.render_index(vault, turn_id)  # 總目錄「摘要」那節列有綜合卡的實體（放寬丙 8）
+    except BaseException as e:  # noqa: BLE001  總目錄沒更新不影響卡
+        _log(e, payload)
+    try:
         synthesis.copy_tags(vault, rel, turn_id)
     except BaseException as e:  # noqa: BLE001  標籤正本沒抄成只記 log（I-046）
         _log(e, payload)

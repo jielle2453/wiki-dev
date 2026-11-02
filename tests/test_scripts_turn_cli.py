@@ -30,16 +30,15 @@ class Current(unittest.TestCase):
         turn.backup(self.V, "案子/信義王/信義王.md", t["turn"])
         r = run_kb("turn", "current", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), f"{t['turn']}｜問：「改一下」｜已備份 1 檔｜未解除上限")
+        self.assertEqual(r.stdout.strip(), f"{t['turn']}｜問：「改一下」｜已備份 1 檔")
 
-    def test_json_has_four_keys(self):
+    def test_json_has_three_keys(self):
         t = turn.start(self.V, SID, "改一下")
         r = run_kb("turn", "current", "--json", cwd=self.V)
         data = json.loads(r.stdout)
-        self.assertEqual(set(data), {"turn", "prompt_head", "backed_up", "approved"})
+        self.assertEqual(set(data), {"turn", "prompt_head", "backed_up"})
         self.assertEqual(data["turn"], t["turn"])
         self.assertEqual(data["backed_up"], 0)
-        self.assertFalse(data["approved"])
 
     def test_no_turn_yet_starts_one(self):
         r = run_kb("turn", "current", cwd=self.V)
@@ -60,21 +59,18 @@ class Approve(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_approve_sets_flag_and_prints(self):
+    def test_approve_is_a_noop(self):
+        """放寬丙 5：綜合卡大改動攔截拿掉了，approve 留著只印「不用了」，不寫回合檔。"""
         turn.start(self.V, SID, "全部加一行")
         r = run_kb("turn", "approve", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.strip(), "這一題解除綜合卡張數上限")
-        self.assertTrue(turn.current(self.V, SID)["approved"])
-        self.assertTrue(turn.current(self.V)["approved"])
-        r = run_kb("turn", "current", cwd=self.V)
-        self.assertIn("已解除上限", r.stdout)
+        self.assertEqual(r.stdout.strip(), "不用了")
+        self.assertNotIn("approved", turn.current(self.V, SID))
 
     def test_approve_json(self):
-        t = turn.start(self.V, SID, "全部加一行")
+        turn.start(self.V, SID, "全部加一行")
         r = run_kb("turn", "approve", "--json", cwd=self.V)
-        data = json.loads(r.stdout)
-        self.assertEqual(data, {"turn": t["turn"], "approved": True})
+        self.assertEqual(json.loads(r.stdout), {"approved": None, "note": "不用了"})
 
 
 class JournalBase(unittest.TestCase):

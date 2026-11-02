@@ -849,6 +849,7 @@ def _scrub_writes(vdir, prefix, shorts, counts):
 
 
 _NODE = re.compile(r"^( *)- (.*?)\r?\n?$")
+_LINK = re.compile(r"^(?:[^\s\[]+ )?\[")  # 連結行：前面可以有一個種類圖示（放寬丙 8）
 
 
 def _drop_index_node(lines, path):
@@ -869,7 +870,7 @@ def _drop_index_node(lines, path):
         del stack[depth:]
         label = m.group(2)
         stack.append(label.casefold())
-        if not label.startswith("[") and stack == want:
+        if not _LINK.match(label) and stack == want:
             skip_at = depth
             continue
         out.append(ln)
@@ -882,7 +883,7 @@ def _drop_empty_nodes(lines):
         out = []
         for i, ln in enumerate(lines):
             m = _NODE.match(ln)
-            if m and not m.group(2).startswith("["):
+            if m and not _LINK.match(m.group(2)):
                 nxt = next((x for x in lines[i + 1:] if x.strip()), "")
                 n = _NODE.match(nxt)
                 if not n or len(n.group(1)) <= len(m.group(1)):

@@ -74,7 +74,7 @@ class Find(Base):
         self.assertIsNone(got["synthesis"])
         self.assertEqual([c["id"] for c in got["cards"]], [self.quote])
         self.assertEqual(set(got["cards"][0]), {"id", "title", "card_type", "date", "entities", "read", "path", "stale",
-                                                "redo", "ruled_out"})
+                                                "redo", "ruled_out", "archived"})
         self.assertEqual((got["statements"], got["rulings"], got["findings"], got["agenda"], got["mentions"]),
                          ([], [], [], [], []))
         self.assertEqual(got["unsorted"], self.todo_unsorted())
@@ -115,8 +115,7 @@ class NotRegistered(Base):
 
     def test_nothing_human_line(self):
         out = self.kb("沒這個").splitlines()
-        want = lookup.NOTHING + (f"；還沒整理 {self.todo_unsorted()} 份" if self.todo_unsorted() else "")
-        self.assertEqual(out, [want])
+        self.assertEqual(out, [lookup.NOTHING])  # 放寬丙 3-4：人讀那行不再帶「還沒整理 N 份」，--json 的 unsorted 還在
         got = json.loads(self.kb("沒這個", "--json"))
         self.assertEqual((got["entity"], got["cards"], got["mentions"], got["mentions_total"]), (None, [], [], 0))
 
@@ -194,11 +193,10 @@ class Human(Base):
         rulings.add(self.V, "不採用", [], [self.contract], "合約是舊的，別信", self.t)  # 先記推算、後說別信（裁定 15 之後依據不能是別信的卡）
         agenda.add(self.V, "到期", "2030-01-05", "交平面圖", ["信義王"], self.t)
         self.change_contract()
-        n = self.todo_unsorted()
         out = self.kb("信義王宅")
         lines = out.splitlines()
         self.assertEqual(lines[0], "信義王（案子，進行中）：綜合卡有、檔案卡 2 張（1 張原檔改過、1 張你說別信）、口述 1 條、"
-                                   f"裁示 1 條、推算 1 筆、日程 1 條；還沒整理 {n} 份")
+                                   "裁示 1 條、推算 1 筆、日程 1 條")
         self.assertIn("- 2026-10-01 信義王報價第二版（報價，完整）", lines)
         self.assertIn("- 2026-09-20 信義王合約（合約，完整）〔原檔改過〕〔你說別信〕", lines)
         self.assertIn("- 不採用：合約是舊的，別信（「信義王合約」）", lines)
@@ -233,6 +231,22 @@ class Round2(Base):
         self.assertNotIn(str(self.V), out)
         self.assertNotIn(str(self.V).replace("\\", "/"), out)
         self.assertEqual(len(out.strip().splitlines()), 1, out)
+
+    def test_id_gives_open_location_and_card_path(self):
+        """放寬丙 9：kb lookup --id <編號> --json 回 open（這台原檔的位置）與卡路徑，給 Obsidian 外掛的開原檔連結用；只讀。"""
+        fid = self.quote
+        rel = next(c["path"] for c in lookup.lookup(self.V, "信義王")["cards"] if c["id"] == fid)
+        before = tree_hash(self.V)
+        got = json.loads(self.kb("--id", fid, "--json"))
+        self.assertEqual(got["id"], fid)
+        self.assertEqual(got["card_path"], rel)
+        self.assertTrue(got["open"]["path"].endswith("/信義王/報價_v2.pdf"), got)
+        self.assertEqual(tree_hash(self.V), before)
+        (self.raw / E.ESTIMATE).unlink()  # 這台找不到原檔：open 是 null，卡路徑還在
+        gone = json.loads(self.kb("--id", self.est, "--json"))
+        self.assertIsNone(gone["open"])
+        self.assertTrue(gone["card_path"])
+        self.assertIsNone(json.loads(self.kb("--id", "f-00000000", "--json"))["open"])
 
 
 if __name__ == "__main__":

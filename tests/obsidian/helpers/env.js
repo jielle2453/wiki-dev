@@ -35,6 +35,10 @@ function makeFakeObsidian() {
     registerDomEvent() {}
 
     registerInterval() {}
+
+    registerObsidianProtocolHandler(action, fn) {
+      this.protocols = Object.assign(this.protocols || {}, { [action]: fn });
+    }
   }
 
   class ItemView {

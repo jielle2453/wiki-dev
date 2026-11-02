@@ -12,7 +12,7 @@ import re
 import unicodedata
 from pathlib import Path
 
-from kb._lib import agenda, cards, config, entities, home, inventory, rulings
+from kb._lib import agenda, cards, config, entities, home, inventory, lookup, rulings
 from kb._lib import sources as sources_lib
 
 KIND_RANK = {"entity": 0, "type": 1, "tag": 2, "time": 3}
@@ -267,7 +267,8 @@ def _search(vault, q, parsed, cond, ent_data):
     types = {entities.key(t) for t in cond["type"]}
     words = cond["word"]
     rows = []
-    ruled = cards.ruled_out_ids(rulings.load(vault))
+    rul = rulings.load(vault)
+    ruled = cards.ruled_out_ids(rul)
     for entry, card in cards.active_cards(vault):
         brief = cards.card_brief(vault, entry, card, ruled)
         front = card["front"]
@@ -298,14 +299,17 @@ def _search(vault, q, parsed, cond, ent_data):
     first = {r[1]["id"]: r for r in rows}
     titled = [b for b in ordered if first[b["id"]][0] == "title"]
     rest = [b for b in ordered if first[b["id"]][0] != "title"]
-    final = titled + rest
+    final = sorted(titled + rest, key=lambda b: b["archived"])  # 封存的排在後面（放寬丙 12）
+    spoken = lookup.spoken_by_card(vault, rul) if final else {}
     out["total"] = len(final)
     out["more"] = len(final) > cap
     for brief in final[:cap]:
         hit, _b, entry = first[brief["id"]]
         out["files"].append({"card": brief["id"], "title": brief["title"], "type": brief["card_type"], "date": brief["date"],
                              "entities": brief["entities"], "open": home._open_target(vault, sources, entry),
-                             "card_path": brief["path"], "hit": hit})
+                             "card_path": brief["path"], "hit": hit, "archived": brief["archived"]})
+        if brief["id"] in spoken:  # 卡上有口述為準裁示（放寬丙 13）：沒有就不帶這欄
+            out["files"][-1]["rulings"] = spoken[brief["id"]]
     if words:
         out["entities"] += _synthesis_hits(vault, ent_data, words, seen)
     return out

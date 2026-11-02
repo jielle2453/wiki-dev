@@ -21,19 +21,23 @@ from kb._lib.io import FileLock, write_text_atomic
 
 CARDS_DIR = "檔案索引"
 INDEX_POSIX = "總目錄.md"
-KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別", "文件日期", "讀取", "製卡日期",
+KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別", "文件日期", "讀取", "製卡日期",
         "範本版本", "敏感資料種類", "開原檔")
-OPTIONAL = ("內容指紋", "收件")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）
+OPTIONAL = ("內容指紋", "收件", "提到")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）；提到：範本第三版加的選填欄，舊卡沒有全算主要（放寬丙 7）
 V2_KEYS = ("實體", "待補型別")  # 範本第二版加的兩欄（實體與綜合卡第 4 點）；第一版的卡沒有，不算少鍵
-LIST_KEYS = ("原檔", "敏感資料種類", "實體", "待補型別")
+LIST_KEYS = ("原檔", "敏感資料種類", "實體", "提到", "待補型別")
+# 程式照清冊補的選填欄（不在 KEYS：範本、header、對帳都不管它們，只驗型別）：卡式只有指路卡寫「指路」（kb cards mode，放寬丙 11，D-331）；
+# 封存寫 YYYY-MM-DD（kb archive，放寬丙 12，D-332）；兩欄都由 cards sync_fronts 照清冊補或拿掉。指路卡不要求「日期與數字」段（段落本來就不驗）
+PROGRAM_KEYS = ("卡式", "封存")
 # 檔頭值的型別（測試後修正裁定 21）：這些要是字串，LIST_KEYS 要是清單
-STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔")
+STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔", *PROGRAM_KEYS)
 ORIGIN_TEXT = {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"}
 FILL = "（填）"
 DATE_FILL = "（填，YYYY-MM-DD 或 未載）"
 READ_FILL = "（填，完整 或 部分）"
 READ_VALUES = ("完整", "部分")
-TEMPLATE_VERSION = "2"
+TEMPLATE_VERSION = "3"
+OK_VERSIONS = ("2", "3")  # 第二版的卡照舊有效：只少「提到」一欄，全部算主要，不重做（放寬丙 7，設計自定）
 OLD_TEMPLATE_VERSION = "1"  # 第一版的卡只補掛載（D-116），不算檔頭有問題
 SKIPPED_READS = ("credential", "placeholder", "too_large", "error")  # error 也列份數（裁定 29）
 REDO_REASON = "客戶說卡讀錯了"
@@ -44,6 +48,11 @@ INDEX_HEAD = ("# 總目錄\n"
               "怎麼用：可以摺疊；找不到的就問我。\n"
               "由程式產生，改了會被覆蓋。\n")
 INDEX_EMPTY = "還沒有卡；加資料夾後說「整理」就會有。"
+INDEX_NO_SUMMARY = "還沒有綜合卡。"
+# 總目錄「檔案」那節葉子前面的種類圖示（放寬丙 8，D-313）：副檔名 → 圖示，認不得的用 DEFAULT_ICON；設定值 index_icons 設 false 就不印
+INDEX_ICONS = (((".pdf",), "📕"), ((".doc", ".docx"), "📘"), ((".xls", ".xlsx", ".csv"), "📗"), ((".ppt", ".pptx"), "📙"),
+               ((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff"), "🖼️"))
+DEFAULT_ICON = "📄"
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # 總目錄連結目標要編碼的字（實作疑義裁定 3）；% 先編，中文照原樣
@@ -154,13 +163,15 @@ def open_link(path):
     return "file:" + urllib.request.pathname2url(p)
 
 
+OPEN_PROTOCOL = "obsidian://wiki-with-willy-open?id="
+
+
 def entry_link(vault, sources, entry):
-    """開原檔：主位置的 file: 連結；link 條目是網址本身。"""
-    from kb._lib import inventory
+    """開原檔（放寬丙 9，D-328）：Obsidian 外掛連結 obsidian://wiki-with-willy-open?id=<清冊編號>，點了由外掛叫 kb 查這台的位置再開，
+    所以來源搬家、換電腦卡不用重寫；link 條目是網址本身。連結不帶 vault=（開的是目前這個知識庫；多個知識庫同時開的情形待 Obsidian 實跑確認）。"""
     if entry.get("kind") == "link":
         return entry["locations"][0].get("uri", "")
-    path = inventory.path_of(vault, sources, entry["locations"][0].get("uri", ""))
-    return open_link(path) if path is not None else ""
+    return OPEN_PROTOCOL + str(entry.get("id", ""))
 
 
 def safe_title(title, max_chars):
@@ -185,7 +196,9 @@ def filename_ok(name, entry_id, title, max_chars):
 def prefill_entities(entry, ent_data, vault=None):
     """原檔主位置在知識庫實體夾裡（file://知識庫/<型別夾>/<名稱>/…）且 <名稱> 是登記的 active 實體（型別也對）→ [<名稱>]，
     否則 []（D-043：位置決定掛哪個）。link 條目取 output link 給的 --entity 裡還登記著的（produce 第 5 點）。
-    型別夾名照設定檔換成型別名（profile.type_of_folder，型別夾編號）；vault 沒給或不是型別夾照夾名比。"""
+    型別夾名照設定檔換成型別名（profile.type_of_folder，型別夾編號）；vault 沒給或不是型別夾照夾名比。
+    只在製卡時預填（header_for、todo 的 prefill）：之後任何地方都不得照位置重算「實體」（放寬丙 5-1，D-308）——
+    原檔被搬了，掛哪個實體交 AI 判斷（kb changes --moved、kb cards mount），sync 只搬卡、不動「實體」。"""
     from kb._lib import entities
     from kb._lib.inventory import KNOWLEDGE
     if entry.get("kind") == "link":
@@ -262,7 +275,7 @@ def header_for(vault, sources, entry, today=None, ent_data=False):
     if fp.get("text_sha256"):
         front["內容指紋"] = fp["text_sha256"]
     title = safe_title(entry.get("title"), config.get(vault, "card_title_max_chars")) if entry.get("kind") == "link" else None
-    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data, vault), "待補型別": [],
+    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data, vault), "提到": [], "待補型別": [],
                   "文件日期": DATE_FILL, "讀取": READ_FILL,
                   "製卡日期": today or date.today().isoformat(),
                   "範本版本": TEMPLATE_VERSION, "敏感資料種類": [], "開原檔": entry_link(vault, sources, entry)})
@@ -337,7 +350,7 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
     for key in KEYS:
         if key not in OPTIONAL and key not in front and not (key in V2_KEYS and _is_v1(front)):
             return [("missing_key", f"檔頭少了「{key}」")]
-    for key in KEYS:  # 型別先驗（裁定 21）：不對的值不拿去查清冊、比字串
+    for key in KEYS + PROGRAM_KEYS:  # 型別先驗（裁定 21）：不對的值不拿去查清冊、比字串
         if key not in front:
             continue
         if (key in LIST_KEYS and not isinstance(front[key], list)) or (key in STR_KEYS and not isinstance(front[key], str)):
@@ -381,7 +394,7 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
         out.append(("read", "讀取要寫 完整 或 部分"))
     if _is_v1(front):
         out.append(("v1", f"範本版本該是 {TEMPLATE_VERSION}"))
-    elif front["範本版本"] != TEMPLATE_VERSION:
+    elif front["範本版本"] not in OK_VERSIONS:
         out.append(("version", f"範本版本該是 {TEMPLATE_VERSION}"))
     else:
         out.extend(_entity_problems(vault, front, ent_data, prof))
@@ -394,7 +407,7 @@ def _entity_problems(vault, front, ent_data, prof):
     if ent_data is False:
         ent_data = entities.load(vault)
     out = []
-    for name in front["實體"]:
+    for name in list(front["實體"]) + list(front.get("提到") or []):
         found, _hit = entities.find(ent_data, name)
         if found is None:
             out.append(("entity", f"實體「{name}」還沒登記，先跑 kb entity add"))
@@ -499,10 +512,243 @@ def _profile_or_default(vault):
     return (data, False) if data is not None else (profile.defaults(), True)
 
 
+def defer_why(vault, sources, entry):
+    """改過內容的檔先不重做卡（放寬丙 3b-5，D-329）：同夾有鎖檔（Word、Excel 開著時的 ~$<完整檔名> 或 ~$<檔名去掉前兩個字>）回 "open"，
+    修改時間在 recard_idle_minutes 分鐘內回 "recent"（設 0 就不看修改時間），都不是回 None。link 條目、讀不到檔回 None。"""
+    import time
+    from kb._lib import inventory
+    if entry.get("kind") == "link" or not entry.get("locations"):
+        return None
+    path = inventory.path_of(vault, sources, entry["locations"][0]["uri"])
+    if path is None:
+        return None
+    path = Path(path)
+    try:
+        if any((path.parent / ("~$" + name)).exists() for name in (path.name, path.name[2:])):
+            return "open"
+        minutes = config.get(vault, "recard_idle_minutes")
+        if minutes > 0 and time.time() - path.stat().st_mtime < minutes * 60:
+            return "recent"
+    except OSError:
+        return None
+    return None
+
+
+# ---------- 會一直改的檔（放寬丙 11，D-331）：程式只記與給依據，判斷交 AI ----------
+
+TEXTCACHE_DIR = ".system/local/textcache"  # 本機：每台自己存上次看過的文字（多人時不進 git）
+POINTER = "pointer"
+FULL = "full"
+POINTER_TEXT = "指路"  # 檔案卡檔頭「卡式」的值
+
+
+def _parse_time(text):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(text))
+    except ValueError:
+        return None
+
+
+def entity_done(ent_data, front):
+    """卡主要掛的實體都結案或封存了嗎（沒掛實體算 False）。"""
+    from kb._lib import entities
+    names = front.get("實體")
+    names = [n for n in names if isinstance(n, str)] if isinstance(names, list) else []
+    if not names or ent_data is None:
+        return False
+    for name in names:
+        e, _hit = entities.find(ent_data, name)
+        if e is None or not (e.get("archived") or e.get("progress") == "closed"):
+            return False
+    return True
+
+
+def change_info(vault, sources, entry, card, ent_data):
+    """這份檔改得多勤，給 AI 判斷完整卡或指路卡（D-331）：changes_7d、changes_30d（清冊 fingerprints 的 time，第一筆是登記不算改）、
+    days_since（最近一次改到現在幾天）、open（有鎖檔）、entity_done（掛的實體結案或封存）、mode、track。"""
+    from datetime import datetime
+    now = datetime.now()
+    times = [t for t in (_parse_time(fp.get("time")) for fp in (entry.get("fingerprints") or [])[1:]) if t is not None]
+    days = [(now - t).total_seconds() / 86400 for t in times]
+    return {"changes_7d": sum(1 for d in days if d <= 7), "changes_30d": sum(1 for d in days if d <= 30),
+            "days_since": int(min(days)) if days else None, "open": defer_why(vault, sources, entry) == "open",
+            "entity_done": entity_done(ent_data, card["front"]), "mode": entry.get("card_mode") or FULL,
+            "track": entry.get("track") is not False}
+
+
+def current_text(vault, sources, entry):
+    """現在抽出的文字（跟 kb convert 同一套抽字，不寫暫存檔、不做守門）；線上文件、圖片、讀不到回 None。"""
+    from kb import convert
+    from kb._lib import extract, inventory
+    if entry.get("kind") == "link" or not entry.get("locations"):
+        return None
+    path = inventory.path_of(vault, sources, entry["locations"][0]["uri"])
+    try:
+        if path is None or not Path(path).is_file():
+            return None
+        kind = extract.probe(path)
+        if kind in ("docx", "xlsx", "pptx", "text"):
+            return convert._extract(vault, kind, path)[0]
+        if kind == "pdf":
+            return extract.pdf_pages_text(path, config.get(vault, "pdf_page_min_chars"))[0]
+    except (extract.Unreadable, OSError, ValueError):
+        return None
+    return None
+
+
+def _textcache(vault, fid):
+    return Path(vault) / TEXTCACHE_DIR / f"{fid}.txt"
+
+
+def read_textcache(vault, fid):
+    try:
+        return _textcache(vault, fid).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def write_textcache(vault, fid, text):
+    p = _textcache(vault, fid)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(p, text)
+
+
+def drop_textcache(vault, fid):
+    try:
+        _textcache(vault, fid).unlink()
+    except OSError:
+        pass
+
+
+def pointer_diff(vault, sources, entry):
+    """指路卡的檔改了：textcache 跟現在抽出文字的差（difflib 統一格式，最多 pointer_diff_max_chars，超過截斷並標 diff_truncated）。
+    track 是 false 沒有 diff；沒有 textcache 或現在讀不到文字回空的 diff 與 diff_missing。"""
+    import difflib
+    if entry.get("track") is False:
+        return {}
+    old, new = read_textcache(vault, entry["id"]), current_text(vault, sources, entry)
+    if old is None or new is None:
+        return {"diff": "", "diff_missing": True}
+    text = "\n".join(difflib.unified_diff(old.splitlines(), new.splitlines(), "上次看過", "現在", lineterm="", n=1))
+    cap = config.get(vault, "pointer_diff_max_chars")
+    return {"diff": text[:cap], "diff_truncated": True} if len(text) > cap else {"diff": text}
+
+
+def set_front_value(text, key, value):
+    """只換檔頭一個單行欄位（value 是 None 就拿掉那一行；沒有這欄就接在檔頭最後），其他行原樣。"""
+    lines = text.splitlines(keepends=True)
+    nl = "\r\n" if lines and lines[0].endswith("\r\n") else "\n"
+    out, in_front, done = [], False, False
+    for i, line in enumerate(lines):
+        bare = line.rstrip("\r\n")
+        if i == 0 and bare.lstrip("\ufeff") == "---":
+            in_front = True
+        elif in_front and bare == "---":
+            in_front = False
+            if not done and value is not None:
+                out.append(f"{key}: {value}{nl}")
+            done = True
+        elif in_front and bare.startswith(f"{key}:"):
+            if value is not None and not done:
+                out.append(f"{key}: {value}{nl}")
+            done = True
+            continue
+        out.append(line)
+    return "".join(out)
+
+
+def sync_fronts(vault, turn_id, ids=None, undo=None):
+    """檔案卡檔頭的「卡式」「封存」照清冊補或拿掉（kb cards sync、kb cards mode、kb archive 用）；ids 給了只動那幾張。
+    卡重寫過，redo 記號跟著換。回 changed（給日誌的 [{"path","action"}]）。"""
+    from kb._lib import inventory, turn
+    by_id = {e["id"]: e for e in inventory.load(vault)["entries"] if e.get("id")}
+    changed, shas = [], {}
+    for cid, group in _scan_groups(vault)[0].items():
+        entry = by_id.get(cid)
+        if entry is None or entry.get("status") != "active" or (ids is not None and cid not in ids):
+            continue
+        want = {"卡式": POINTER_TEXT if entry.get("card_mode") == POINTER else None,
+                "封存": (entry.get("archived") or {}).get("date") or None}
+        card = group[0]
+        text = _read(vault, card["path"])
+        new = text
+        for key_, value in want.items():
+            if card["front"].get(key_) != value:
+                new = set_front_value(new, key_, value)
+        if new == text:
+            continue
+        before = inventory.card_sha(vault, card["path"])
+        if undo is not None:
+            undo.file(card["path"])
+        turn.backup(vault, card["path"], turn_id, by="program")
+        write_text_atomic(Path(vault) / card["path"], new)
+        shas[cid] = (before, inventory.card_sha(vault, card["path"]))
+        changed.append({"path": card["path"], "action": "modify"})
+    if inventory.follow_redo(vault, shas, turn_id, undo):
+        changed.append({"path": inventory.INVENTORY_POSIX, "action": "modify"})
+    return changed
+
+
+def mode(vault, sources, fid, card_mode, track, turn_id):
+    """kb cards mode：清冊記 card_mode 與 track（記進回合，退得回）；指路卡且記過程時，現在抽出的文字存 textcache，
+    換回完整卡或不記過程就刪。卡檔頭的「卡式」同時照清冊補或拿掉。回 {"id","mode","track","textcache","changed"}。"""
+    from kb._lib import inventory
+    entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == fid), None)
+    if entry is None:
+        raise CardRefused(f"清冊沒有 {fid}")
+    if entry.get("status") != "active":
+        raise CardRefused("這份的原檔已不在")
+    wrote = inventory.set_card_mode(vault, fid, card_mode, track, turn_id)
+    entry = next(e for e in inventory.load(vault)["entries"] if e.get("id") == fid)
+    tracked = entry.get("card_mode") == POINTER and entry.get("track") is not False
+    cached = False
+    if tracked:
+        text = current_text(vault, sources, entry)
+        if text is not None:
+            write_textcache(vault, fid, text)
+            cached = True
+    else:
+        drop_textcache(vault, fid)
+    changed = ([{"path": inventory.INVENTORY_POSIX, "action": "modify"}] if wrote else []) + sync_fronts(vault, turn_id, {fid})
+    return {"id": fid, "mode": entry.get("card_mode") or FULL, "track": entry.get("track") is not False, "textcache": cached,
+            "changed": changed}
+
+
+def seen(vault, sources, fid, turn_id):
+    """kb cards seen：AI 看完指路卡的檔改了什麼：卡檔頭的指紋換成現在的（不再列進 pointer_changed）、textcache 換成現在的文字。
+    不是指路卡丟 CardRefused。回 {"id","title","changed"}。"""
+    from kb._lib import inventory, turn
+    card = card_of(vault, fid)
+    entry = next(e for e in inventory.load(vault)["entries"] if e.get("id") == fid)
+    if entry.get("card_mode") != POINTER:
+        raise CardRefused("這份不是指路卡，沒有要看的差別")
+    fp = (entry.get("fingerprints") or [{}])[-1]
+    text = _read(vault, card["path"])
+    new = set_front_value(text, "指紋", current_fp(entry))
+    new = set_front_value(new, "內容指紋", fp.get("text_sha256") or None)
+    changed = []
+    if new != text:
+        before = inventory.card_sha(vault, card["path"])
+        turn.backup(vault, card["path"], turn_id, by="program")
+        write_text_atomic(Path(vault) / card["path"], new)
+        changed.append({"path": card["path"], "action": "modify"})
+        if inventory.follow_redo(vault, {fid: (before, inventory.card_sha(vault, card["path"]))}, turn_id):
+            changed.append({"path": inventory.INVENTORY_POSIX, "action": "modify"})
+    if entry.get("track") is not False:
+        now = current_text(vault, sources, entry)
+        if now is not None:
+            write_textcache(vault, fid, now)
+    return {"id": fid, "title": _title(card), "changed": changed}
+
+
 def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, deadline=None):
     """todo 的檔案分桶（new、stale、moved、duplicates、broken、orphans、unreadable、missing、skipped、unlinked、missing_types）：
     回 (out, groups, 設定檔)。light 給 unsorted：new、stale 只放 {"id"}、不印 header（份數照算，跟 todo 第一行同一個數）；
     deadline（time.monotonic 的時刻）過了丟 TimeoutError（開場 hook 有時限）。不寫檔。
+    改過內容但檔還開著或剛改過的（defer_why）不進 stale，另放 deferred: [{id, why}]（放寬丙 3b-5）。
+    stale 每項多 change（改得多勤，放寬丙 11）；指路卡（清冊 card_mode pointer）的檔改了不進 stale，改放 pointer_changed: [{id, title, change, diff}]；
+    清冊封存（archived）的檔不進 new、stale，也不算份數（放寬丙 12）。
     produce 第 5 點：AI 產出的（草稿）.md 不列；link 條目的 new 項 kind 是 link、path 是 None、多 url；
     unbacked 是 new 裡掃描補登記的 AI 產出份數（給 tell）。"""
     import time
@@ -529,7 +775,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
     groups, broken = _scan_groups(vault, deadline)
     out = {"new": [], "stale": [], "moved": [], "duplicates": [], "orphans": [], "unreadable": [], "missing": [],
            "skipped": dict({k: 0 for k in SKIPPED_READS}, skipped=0), "broken": list(broken), "pdf_restored": restored,
-           "unlinked": [], "missing_types": {}, "unbacked": 0}
+           "unlinked": [], "missing_types": {}, "unbacked": 0, "deferred": [], "pointer_changed": []}
     data, out["profile_missing"] = _profile_or_default(vault)
     out["profile"] = profile.card_types_for_todo(data)
     have_types = {entities.key(t["name"]) for t in data.get("types") or []}
@@ -586,7 +832,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
         codes = codes_of[keep["path"]]
         names = dict(codes)
         others = [c for c in codes if c[0] != "link"]
-        if keep["front"].get("範本版本") == TEMPLATE_VERSION and isinstance(keep["front"].get("待補型別"), list):
+        if keep["front"].get("範本版本") in OK_VERSIONS and isinstance(keep["front"].get("待補型別"), list):
             for t in dict.fromkeys(keep["front"]["待補型別"]):
                 if isinstance(t, str) and t and entities.key(t) not in have_types:
                     out["missing_types"][t] = out["missing_types"].get(t, 0) + 1
@@ -595,8 +841,19 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
             out["broken"].append(broken_item(entry, keep, codes[0][1]))
         elif "dir" in names or keep["front"].get("原檔") != _uris(entry):
             out["moved"].append({"id": cid, "from": keep["path"], "to": card_dir(entry)})
+        elif entry.get("archived") and ("fingerprint" in names or redo):
+            continue  # 封存的：不重做、不算份數（放寬丙 12，D-332）
+        elif "fingerprint" in names and not redo and (why := defer_why(vault, sources, entry)):
+            out["deferred"].append({"id": cid, "why": why})  # 檔還開著或剛改過：先不列、不算份數（D-329）
+        elif "fingerprint" in names and not redo and entry.get("card_mode") == "pointer":  # 指路卡：不重做，交 AI 看差別（放寬丙 11）
+            out["pointer_changed"].append({"id": cid} if light else dict(
+                {"id": cid, "title": _title(keep), "change": change_info(vault, sources, entry, keep, ent_data)},
+                **pointer_diff(vault, sources, entry)))
         elif "fingerprint" in names or redo:  # 客戶說卡讀錯了（kb cards redo）：重寫前一直列著
-            out["stale"].append(dict(work_item(entry, keep), **({"reason": REDO_REASON} if redo else {})))
+            item = work_item(entry, keep)
+            if not light:
+                item["change"] = change_info(vault, sources, entry, keep, ent_data)
+            out["stale"].append(dict(item, **({"reason": REDO_REASON} if redo else {})))
         elif {c[0] for c in others} == {"v1"}:  # 第一版、其他都過：只補掛載（D-116）
             out["unlinked"].append(unlinked_item(entry, keep, "v1"))
         elif {c[0] for c in others} == {"missing_type"}:  # 待補型別後來進了型別表（D-124）
@@ -632,7 +889,8 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
             continue
         if is_draft(entry["locations"][0].get("uri", "")):
             continue  # 草稿還在改，定稿才製卡（produce 第 5 點）
-        if ok and eid not in carded and eid not in unreadable_skip and not not_for_card(vault, sources, entry):
+        if (ok and eid not in carded and eid not in unreadable_skip and not entry.get("archived")
+                and not not_for_card(vault, sources, entry)):
             out["new"].append(work_item(entry, None))
             if entry.get("unbacked"):
                 out["unbacked"] += 1
@@ -737,20 +995,21 @@ def _text_or(front, key, default=""):
 
 def card_brief(vault, entry, card, ruled_out):
     """lookup 與 cards list 的一張卡：編號、標題、卡型、文件日期、實體、讀取、卡的路徑、stale（原檔改過或標了重做）、
-    redo（是標了重做的那種）、ruled_out。"""
+    redo（是標了重做的那種）、ruled_out、archived（清冊封存的，放寬丙 12）。"""
     front = card["front"]
     state = card_state(vault, entry, card)
     names = front.get("實體")
     return {"id": entry["id"], "title": _title(card), "card_type": _text_or(front, "卡型"),
             "date": _text_or(front, "文件日期", "未載"), "entities": list(names) if isinstance(names, list) else [],
             "read": _text_or(front, "讀取"), "path": card["path"], "stale": state is not None, "redo": state == "redo",
-            "ruled_out": entry["id"] in ruled_out}
+            "ruled_out": entry["id"] in ruled_out, "archived": bool(entry.get("archived"))}
 
 
 def newest_first(items):
-    """文件日期新的在前、未載的排最後，同日照標題。"""
+    """文件日期新的在前、未載的排最後，同日照標題；封存的（archived）排在沒封存的後面。"""
     ordered = sorted(items, key=lambda c: (c["title"], c["id"]))
-    return sorted(ordered, key=lambda c: (1, c["date"]) if _DATE.match(c["date"]) else (0, ""), reverse=True)
+    dated = sorted(ordered, key=lambda c: (1, c["date"]) if _DATE.match(c["date"]) else (0, ""), reverse=True)
+    return sorted(dated, key=lambda c: bool(c.get("archived")))
 
 
 def active_cards(vault):
@@ -1007,13 +1266,14 @@ def skip(vault, sources, fid, kind, turn_id):
 
 
 def entity_names_of(group):
-    """這幾張卡檔頭 實體 欄的名稱（去重）。"""
+    """這幾張卡檔頭 實體 與 提到 欄的名稱（去重）：這些實體的綜合卡「相關檔」要跟著重算。"""
     out = []
     for c in group:
-        names = c["front"].get("實體")
-        for n in names if isinstance(names, list) else []:
-            if n not in out:
-                out.append(n)
+        for key_ in ("實體", "提到"):
+            names = c["front"].get(key_)
+            for n in names if isinstance(names, list) else []:
+                if n not in out:
+                    out.append(n)
     return out
 
 
@@ -1099,6 +1359,7 @@ def sync(vault, sources, turn_id, undo=None):
         changed += [{"path": old, "action": "delete"}, {"path": new, "action": "create"}]
     if inventory.follow_redo(vault, shas, turn_id, undo):
         changed.append({"path": inventory.INVENTORY_POSIX, "action": "modify"})
+    changed += sync_fronts(vault, turn_id, undo=undo)  # 卡式、封存照清冊補或拿掉（放寬丙 11、12）
     return {"moved": moved, "updated": updated, "dropped": dropped, "skipped": skipped, "changed": changed,
             "touched": touched}
 
@@ -1225,6 +1486,28 @@ def rewrite_entities(text, names):
     return "".join(out)
 
 
+def rewrite_mentions(text, names):
+    """只換檔頭的 提到 欄（改名、合併跟著換），其他行原樣；沒有這欄的卡不補（放寬丙 7）。"""
+    lines = text.splitlines(keepends=True)
+    out, i, in_front = [], 0, False
+    while i < len(lines):
+        line = lines[i]
+        bare = line.rstrip("\r\n")
+        if i == 0 and bare.lstrip("﻿") == "---":
+            in_front = True
+        elif in_front and bare == "---":
+            in_front = False
+        elif in_front and bare.startswith("提到:"):
+            out.append(f"提到: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
+            i += 1
+            while i < len(lines) and lines[i].startswith(("  - ", "- ")):
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
 # ---------- 總目錄 ----------
 
 def _link_target(rel):
@@ -1240,6 +1523,15 @@ def _link_text(text):
     return text
 
 
+def index_broken(vault):
+    """總目錄.md 不見、讀不了（不是 UTF-8）或開頭不是總目錄的標題（放寬丙 6-3，D-311(2)）：該由 render_index 重寫。"""
+    try:
+        text = (Path(vault) / INDEX_POSIX).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return True
+    return not text.startswith(INDEX_HEAD.split("\n", 1)[0])
+
+
 def render_index(vault, turn_id=None):
     """寫總資料夾根的 總目錄.md：巢狀清單（第一層來源別名、往下鏡射夾、葉子是卡），同層夾在前卡在後、各自按名稱排；
     解析不了的卡用檔名當標題。有 turn_id 就先備進回合（實作疑義裁定 4）。整段在 總目錄.md 的鎖裡（裁定 26）。回卡數。"""
@@ -1247,21 +1539,68 @@ def render_index(vault, turn_id=None):
         return _render_index(vault, turn_id)
 
 
+def icon_of(name):
+    """原檔名的種類圖示（放寬丙 8，D-313）；沒有副檔名、認不得的用 📄。"""
+    ext = os.path.splitext(str(name).lower())[1]
+    for exts, mark in INDEX_ICONS:
+        if ext in exts:
+            return mark
+    return DEFAULT_ICON
+
+
+def _summary_lines(vault):
+    """## 摘要：照型別表順序，每個型別一個子清單，列 active 實體連到它的綜合卡（有綜合卡的才列）。實體清單讀不到就空的。"""
+    from kb._lib import entities
+    try:
+        data = entities.load(vault)
+    except ValueError:
+        return []
+    prof, _missing = _profile_or_default(vault)
+    by_type = {}
+    for e in data["entities"]:
+        if e.get("status") != "active" or entities.is_self(e) or not e.get("type"):
+            continue
+        by_type.setdefault(entities.key(e["type"]), []).append(e)
+    out, old = [], []
+    for t in prof.get("types") or []:
+        rows = []
+        for e in sorted(by_type.get(entities.key(t["name"]), []), key=lambda x: x["name"]):
+            loc = entities.locate(vault, e)
+            if not loc:
+                continue
+            if e.get("archived"):  # 封存的實體收進最後的摺疊框「已封存」（放寬丙 12，D-332）
+                old.append(f"> - [{_link_text(e['name'])}]({_link_target(loc)})")
+            else:
+                rows.append(f"  - [{_link_text(e['name'])}]({_link_target(loc)})")
+        if rows:
+            out += [f"- {_link_text(t['name'])}"] + rows
+    if old:
+        out += ["", "> [!note]- 已封存"] + old
+    return out
+
+
 def _render_index(vault, turn_id):
     tree = {}
     count = 0
+    icons = config.get(vault, "index_icons")
     for rel in _walk_cards(vault):
         parts = rel.split("/")[1:]
         node = tree
         for folder in parts[:-1]:
             node = node.setdefault(("d", folder), {})
+        mark = ""
         try:
-            title = parse_front(_read(vault, rel)).get("標題")
+            front = parse_front(_read(vault, rel))
+            title = front.get("標題")
+            first = (front.get("原檔") or [""])[0] if isinstance(front.get("原檔"), list) else ""
+            if icons:
+                mark = icon_of(first) + " "
         except (ValueError, OSError, UnicodeDecodeError):
             title = None
+            mark = (DEFAULT_ICON + " ") if icons else ""
         if not _filled(title):
             title = parts[-1][:-3]
-        node[("c", parts[-1])] = (title, rel)
+        node[("c", parts[-1])] = (title, rel, mark)
         count += 1
     lines = []
 
@@ -1272,11 +1611,15 @@ def _render_index(vault, turn_id):
                 lines.append(f"{pad}- {_link_text(key[1])}")
                 emit(node[key], depth + 1)
             else:
-                title, rel = node[key]
-                lines.append(f"{pad}- [{_link_text(title)}]({_link_target(rel)})")
+                title, rel, mark = node[key]
+                lines.append(f"{pad}- {mark}[{_link_text(title)}]({_link_target(rel)})")
     emit(tree, 0)
-    body = "\n".join(lines) if lines else INDEX_EMPTY
-    text = f"{INDEX_HEAD}\n{body}\n\n共 {count} 張卡\n"
+    summary = "\n".join(_summary_lines(vault)) or INDEX_NO_SUMMARY
+    files = "\n".join(lines) if lines else INDEX_EMPTY
+    sections = [f"## 摘要\n\n{summary}", f"## 檔案\n\n{files}"]
+    if config.get(vault, "index_order") == "files_first":
+        sections.reverse()
+    text = f"{INDEX_HEAD}\n" + "\n\n".join(sections) + f"\n\n共 {count} 張卡\n"
     from kb._lib import renders
     if renders.keep_only(vault, INDEX_POSIX) == renders.KEEP_FAILED:  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
         return count  # 她那份沒存成就不蓋掉（測試 T-10）
@@ -1286,3 +1629,106 @@ def _render_index(vault, turn_id):
     write_text_atomic(Path(vault) / INDEX_POSIX, text)
     renders.record(vault, INDEX_POSIX, text)
     return count
+
+
+# ---------- 搬動（放寬丙 5-2，D-308）：給 kb changes --moved 與每句開頭的搬動提示 ----------
+
+def group_moves(vault, moved):
+    """scan 報告的 moved（[(舊 uri, 新 uri)]）→ 整夾搬算一件：舊夾底下清冊上全部的檔都搬到同一個新夾（相對位置不變）→
+    {"kind":"folder","from","to","count","pairs"}，其他 {"kind":"file","from","to"}。程式不判斷算不算換分類。
+    從最淺的夾開始試（根夾不算）；只有一個檔的夾當一個檔。只讀清冊。"""
+    from kb._lib import inventory
+    pairs = {inventory.uri_key(a): (a, b) for a, b in moved}
+    under = [loc["uri"] for e in inventory.load(vault)["entries"] if e.get("status") == "active"
+             for loc in e.get("locations") or []]
+    done, out = set(), []
+    for old, new in moved:
+        k = inventory.uri_key(old)
+        if k in done:
+            continue
+        o_parts, n_parts = old[len("file://"):].split("/"), new[len("file://"):].split("/")
+        hit = None
+        for depth in range(2, len(o_parts)):  # o_parts[0] 是別名；夾至少一層
+            rest = o_parts[depth:]
+            if len(n_parts) <= len(rest) + 1 or n_parts[-len(rest):] != rest:
+                continue
+            f_old, f_new = "file://" + "/".join(o_parts[:depth]), "file://" + "/".join(n_parts[:-len(rest)])
+            if inventory.uri_key(f_old) == inventory.uri_key(f_new):
+                continue
+            kids = [u for u in under if inventory.uri_key(u).startswith(inventory.uri_key(f_old) + "/")]
+            if len(kids) < 2:
+                continue
+            ok = True
+            for u in kids:
+                got = pairs.get(inventory.uri_key(u))
+                if got is None or inventory.uri_key(got[1]) != inventory.uri_key(f_new + u[len(f_old):]):
+                    ok = False
+                    break
+            if ok:
+                hit = (f_old, f_new, kids)
+                break
+        if hit:
+            done.update(inventory.uri_key(u) for u in hit[2])
+            out.append({"kind": "folder", "from": hit[0], "to": hit[1], "count": len(hit[2]),
+                        "pairs": [pairs[inventory.uri_key(u)] for u in hit[2]]})
+        else:
+            done.add(k)
+            out.append({"kind": "file", "from": old, "to": new, "pairs": [(old, new)]})
+    return out
+
+
+def _entity_folder_of(vault, ent_data, uri, is_dir):
+    """新位置的夾若是知識庫某個型別夾底下的 active 實體夾 → 實體名稱，否則 None。"""
+    from kb._lib import entities
+    from kb._lib.inventory import KNOWLEDGE
+    alias, rel = _split(uri)
+    parts = rel.split("/") if is_dir else rel.split("/")[:-1]
+    if alias != KNOWLEDGE or len(parts) < 2 or ent_data is None:
+        return None
+    found, _hit = entities.find(ent_data, parts[1])
+    type_ = profile.type_of_folder(vault, parts[0]) or parts[0]
+    if (found is None or found.get("status") != "active" or entities.is_self(found)
+            or entities.key(found.get("type")) != entities.key(type_)):
+        return None
+    return found["name"]
+
+
+def moved_changes(vault, moved):
+    """kb changes --moved --json 的 moved 清單：group_moves 之後每筆帶 name、id（檔）、entities（卡上現在掛的 main／mention，
+    夾是裡面全部卡的聯集）、folder_entity（新位置在某個實體夾底下就帶那個實體）、user_folder（新位置的夾不是實體夾、清冊上本來也沒有任何檔：
+    使用者自己開的）。只讀。"""
+    from kb._lib import inventory
+    groups = group_moves(vault, moved)
+    if not groups:
+        return []
+    ent_data = _entities_or_none(vault)
+    by_uri = {inventory.uri_key(loc["uri"]): e["id"] for e in inventory.load(vault)["entries"]
+              for loc in e.get("locations") or []}
+    known = [inventory.uri_key(u) for u in by_uri]
+    cards_by_id = _scan_groups(vault)[0]
+    out = []
+    for g in groups:
+        main, mention, ids = [], [], []
+        for old, _new in g["pairs"]:
+            fid = by_uri.get(inventory.uri_key(old))
+            ids.append(fid)
+            group = cards_by_id.get(fid) if fid else None
+            front = group[0]["front"] if group else {}
+            for key_, bucket in (("實體", main), ("提到", mention)):
+                for n in front.get(key_) if isinstance(front.get(key_), list) else []:
+                    if n not in bucket:
+                        bucket.append(n)
+        is_dir = g["kind"] == "folder"
+        parent = g["to"].rsplit("/", 1)[0]
+        pk = inventory.uri_key(parent) + "/"
+        name = g["to"].rsplit("/", 1)[-1]
+        item = {"kind": g["kind"], "name": name, "from": g["from"], "to": g["to"]}
+        if is_dir:
+            item["count"] = g["count"]
+        else:
+            item["id"] = ids[0]
+        fe = _entity_folder_of(vault, ent_data, g["to"], is_dir)
+        item.update(entities={"main": main, "mention": mention}, folder_entity=fe,
+                    user_folder=fe is None and not any(k.startswith(pk) for k in known))
+        out.append(item)
+    return out

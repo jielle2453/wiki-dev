@@ -129,6 +129,34 @@ class Changes(unittest.TestCase):
         r = run_kb("changes", "--vault", str(self.V), "--json", cwd=self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_moved_json_folder_counts_once(self):
+        """放寬丙 5-2（驗收 16）：整夾搬進別的夾算一件 kind folder、count 對。"""
+        self.applied()
+        (self.raw / "客戶案件" / "2025 結案").mkdir()
+        shutil.move(self.raw / "客戶案件" / "大安陳", self.raw / "客戶案件" / "2025 結案" / "大安陳")
+        r = self.changes("--moved", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)["moved"]
+        self.assertEqual(len(got), 1, got)
+        self.assertEqual((got[0]["kind"], got[0]["count"]), ("folder", 2))
+        self.assertEqual(got[0]["from"], "file://客戶案件/大安陳")
+        self.assertEqual(got[0]["to"], "file://客戶案件/2025 結案/大安陳")
+        self.assertTrue(got[0]["user_folder"])
+        self.assertIsNone(got[0]["folder_entity"])
+
+    def test_moved_single_file_and_text(self):
+        self.applied()
+        shutil.move(self.raw / "客戶案件" / "內湖李" / "估價單.pdf", self.raw / "客戶案件" / "信義王" / "估價單.pdf")
+        got = json.loads(self.changes("--moved", "--json").stdout)["moved"]
+        self.assertEqual([(g["kind"], g["name"]) for g in got], [("file", "估價單.pdf")])
+        self.assertEqual(got[0]["entities"], {"main": [], "mention": []})
+        self.assertFalse(got[0]["user_folder"])
+        self.assertIn("→", self.changes("--moved").stdout)
+
+    def test_moved_none(self):
+        self.applied()
+        self.assertEqual(json.loads(self.changes("--moved", "--json").stdout)["moved"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

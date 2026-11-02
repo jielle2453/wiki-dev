@@ -222,9 +222,8 @@ class GlobalTurn(Base):
     def test_turn_note_and_approve_take_turn(self):
         self.ok("cards", "dispatch")
         turn.start(self.V, SID, "下一句")
-        self.assertEqual(self.ok("turn", "approve", "--turn", self.t), "這一題解除綜合卡張數上限")
-        self.assertTrue(turn.turn_data(self.V, self.t)["approved"])
-        self.assertFalse(turn.current(self.V, SID).get("approved"))
+        self.assertEqual(self.ok("turn", "approve", "--turn", self.t), "不用了")
+        self.assertFalse(turn.turn_data(self.V, self.t).get("approved"))
         r = self.kb("turn", "note", "--turn", "20990101-000000-xxxx", "x")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "回合不存在：20990101-000000-xxxx"))
 

@@ -9,6 +9,7 @@ first_seen、created_turn、missing_since。選填欄 skip_kind、agenda_fp、re
 produce 第 4 點的三個選填欄同樣保留：kind（只有 "link"：Claude artifact，位置是網址，不算指紋、不走訪、不算不見）、
 derived_from（成品改自哪份原檔的清冊編號）、unbacked（AI 產出裡沒經程式放進來、掃描才看到的檔，退回拿不掉）；
 link 條目另帶 title、type、entities、basis（output link 給的，製卡時預填）。
+放寬丙第三輪的選填欄同樣保留：card_mode／track（kb cards mode，會一直改的檔記成指路卡，D-331）、archived（kb archive，D-332）。
 redo（note 改知識第 5 點）記的是標記當時卡檔的 sha256 前 12 碼，卡重寫過就不算，下一次寫清冊時拿掉（_drop_stale_redo）。
 密碼與守門（D-183、D-184）：有效「可以讀」裁示掛的條目，掃描不記 credential（照一般檔算指紋）；搬到別處、改名後檔名仍像密碼的新位置，
 只要內容指紋對得上那筆有裁示的條目就認成同一份（裁示跟著檔走）。選填欄 credential_declined（客戶說這份不要讀的日期，
@@ -53,6 +54,7 @@ HIDDEN_OR_SYSTEM = 0x2 | 0x4
 REPARSE_POINT = 0x400
 # 雲端占位檔（照舊 kbcommon.is_cloud_placeholder，I-020）：讀它會觸發下載
 PLACEHOLDER_ATTRS = 0x40000 | 0x400000 | 0x1000
+SF_DATALESS = 0x40000000  # Mac st_flags：內容只在雲端
 LIVE = ("active", "turn_reverted")  # 位置索引收這兩種；turn_reverted 的成品檔還在 AI 產出
 DORMANT = ("missing", "excluded")  # 位置全沒了：保留最後的位置清單
 READ_PROBLEMS = ("placeholder", "credential", "too_large", "error")
@@ -175,6 +177,14 @@ def _attrs_now(path):
     """現在的檔案屬性（os.stat 只讀中繼資料，不下載）；讀不到回 0。"""
     try:
         return getattr(os.stat(long_path(path)), "st_file_attributes", 0)
+    except OSError:
+        return 0
+
+
+def _flags_now(path):
+    """Mac 的 st_flags（SF_DATALESS 看內容在不在本機）；其他系統沒有這欄回 0。"""
+    try:
+        return getattr(os.stat(long_path(path)), "st_flags", 0)
     except OSError:
         return 0
 
@@ -436,6 +446,54 @@ def set_skip(vault, ids, kind, locked=False):
         change()
 
 
+def set_card_mode(vault, fid, mode, track, turn_id):
+    """選填欄 card_mode（"pointer" 指路卡；沒有或 "full" 是完整卡）與 track（指路卡要不要記過程，沒有當 true；放寬丙 11，D-331）。
+    mode 是 "full" 就拿掉 card_mode；track 是 None 不動那欄。鎖裡備份再寫，沒變什麼都不做；回有沒有寫。清冊沒有這個編號丟 KeyError。"""
+    p = _path(vault)
+    with FileLock(p):
+        data = load(vault)
+        entry = next((e for e in data["entries"] if e.get("id") == fid), None)
+        if entry is None:
+            raise KeyError(fid)
+        before = (entry.get("card_mode"), entry.get("track"))
+        if mode == "pointer":
+            entry["card_mode"] = "pointer"
+        else:
+            entry.pop("card_mode", None)
+        if track is not None:
+            entry["track"] = bool(track)
+        if before == (entry.get("card_mode"), entry.get("track")):
+            return False
+        from kb._lib import turn
+        turn.backup(vault, INVENTORY_POSIX, turn_id)
+        _write(vault, data["entries"])
+    return True
+
+
+def set_archived(vault, ids, info, turn_id):
+    """選填欄 archived（{"date","reason","turn"}；放寬丙 12，D-332）：info 是 None 就拿掉欄。鎖裡備份再寫，沒變不寫；
+    回真的改了的編號。清冊沒有的編號丟 KeyError。"""
+    p = _path(vault)
+    with FileLock(p):
+        data = load(vault)
+        by_id = {e.get("id"): e for e in data["entries"]}
+        missing = [fid for fid in ids if fid not in by_id]
+        if missing:
+            raise KeyError(missing[0])
+        hit = [fid for fid in ids if bool(by_id[fid].get("archived")) == (info is None)]  # 已封存的再封存、沒封存的拿掉，都不動
+        if not hit:
+            return []
+        from kb._lib import turn
+        turn.backup(vault, INVENTORY_POSIX, turn_id)
+        for fid in hit:
+            if info is None:
+                by_id[fid].pop("archived", None)
+            else:
+                by_id[fid]["archived"] = dict(info)
+        _write(vault, data["entries"])
+    return hit
+
+
 def set_agenda_fp(vault, fid, fp, turn_id):
     """選填欄 agenda_fp（D-140）：製卡者對這張卡抽完日期時，那張卡的指紋（前 12 碼，同日程條目的 origin.fp）。
     卡重做指紋就變，記號自然不算。scan／apply／reconcile 對既有條目原樣保留它（同 skip_kind）。
@@ -621,7 +679,7 @@ def read_kind(rel_segments, st, size_cap, credential=True):
     """回 (read, error)：占位檔 → placeholder；來源根以下的段命中憑證樣式 → credential（總資料夾內部 credential=False，D-081）；
     超過 size_cap → too_large；其餘 ok。error 只有算指紋失敗才有，這裡一律 None。"""
     attrs = getattr(st, "st_file_attributes", 0)
-    if attrs & PLACEHOLDER_ATTRS:
+    if attrs & PLACEHOLDER_ATTRS or getattr(st, "st_flags", 0) & SF_DATALESS:
         return "placeholder", None
     if credential and credentials.match_segment(rel_segments) is not None:
         return "credential", None
@@ -757,14 +815,18 @@ class _Stopper:
 
 # ---------- 比對 ----------
 
-def scan(vault, sources, *, quick=False, only_roots=None, now=None):
+def scan(vault, sources, *, quick=False, only_roots=None, now=None, seconds=None, hash_budget=None):
     """D-094 的比對，不寫檔、不碰回合（審閱裁定 6）。回 Report dict（見 spec「資料與介面格式」，多 still_missing、restored）。
     quick：開場用；新檔只在大小等於這次不見的位置、休眠條目或任何已知位置時才算指紋，受讀取預算與時間預算。
-    only_roots：別名清單，只掃那些根；total、by_source、added 等都只算掃到的（審閱裁定 8）。"""
+    only_roots：別名清單，只掃那些根；total、by_source、added 等都只算掃到的（審閱裁定 8）。
+    seconds、hash_budget：quick 時蓋過 changes_quick_seconds、changes_quick_hash_budget_bytes（每句開頭與答完的比對用自己的上限，放寬丙）。"""
     now = now or _now()
     size_cap = config.get(vault, "fingerprint_max_bytes")
-    budget = {"left": config.get(vault, "changes_quick_hash_budget_bytes") if quick else None, "out": False}
-    stopper = _Stopper(config.get(vault, "changes_quick_seconds") if quick else None)
+    if quick:
+        hash_budget = config.get(vault, "changes_quick_hash_budget_bytes") if hash_budget is None else hash_budget
+        seconds = config.get(vault, "changes_quick_seconds") if seconds is None else seconds
+    budget = {"left": hash_budget if quick else None, "out": False}
+    stopper = _Stopper(seconds if quick else None)
     entries = copy.deepcopy(load(vault)["entries"])
     readable = _readable_ids(vault)  # 密碼與守門：有「可以讀」裁示的條目
     all_roots, missing_sources, root_errors = roots(vault, sources)
@@ -815,7 +877,7 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
     def cloud(rec):
         """讀內容之前一刻再看一次屬性：只在雲端（RECALL_ON_DATA_ACCESS、OFFLINE…）就不讀，記成 placeholder
         （manage 第二版第五輪：指紋、內容指紋、快速比對預算都不碰）。"""
-        if _attrs_now(rec["path"]) & PLACEHOLDER_ATTRS:
+        if _attrs_now(rec["path"]) & PLACEHOLDER_ATTRS or _flags_now(rec["path"]) & SF_DATALESS:
             rec["read"] = "placeholder"
             return True
         return False
@@ -1056,6 +1118,39 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
             if len(examples) < EXAMPLES_MAX:
                 examples.append(rec["uri"])
     return report
+
+
+DETECTED_SKIP_ALIASES = (KNOWLEDGE,)  # 知識庫自己的檔（卡、系統檔）由 kb 與守門記，不進事後偵測
+
+
+def detected_rows(sources, report, *, by, now=None):
+    """scan 的 report → detected.jsonl 的行（放寬丙 要做的事 1）：move／missing／added／modified，各帶清冊編號（added 沒有）、by、時間。
+    來源登記成共用夾（shared）的多 shared: true。沒比完（report["incomplete"]）時不給 added：沒認出搬動的新檔會被當新增，等下一次接著比。
+    只讀 report，不寫任何東西。"""
+    now = now or _now()
+    ids = {}
+    for e in report.get("entries") or []:
+        for loc in e.get("locations") or []:
+            ids.setdefault(uri_key(loc.get("uri", "")), e.get("id"))
+    shared = {s["alias"].casefold() for s in getattr(sources, "entries", []) if s.get("shared")}
+    skip = {a.casefold() for a in DETECTED_SKIP_ALIASES}
+
+    def row(op, frm, to):
+        alias = split_uri(to or frm)[0]
+        if alias.casefold() in skip:
+            return None
+        out = {"op": op, "kind": "file", "from": frm, "to": to, "id": None if op == "added" else ids.get(uri_key(to or frm)),
+               "by": by, "time": now}
+        if alias.casefold() in shared:
+            out["shared"] = True
+        return out
+
+    got = [row("move", old, new) for old, new in report.get("moved") or []]
+    got += [row("missing", u, None) for u in report.get("missing") or []]
+    if not report.get("incomplete"):
+        got += [row("added", None, u) for u in report.get("added") or []]
+    got += [row("modified", u, None) for u in report.get("modified") or []]
+    return [r for r in got if r]
 
 
 def public(report):
