@@ -864,7 +864,12 @@ def annotate(vault, asks, config_mod=None):
 
 
 def visible(vault, asks):
-    """去掉先放著的（有時間性的照留）：pending 的 set_aside 還沒該回來、set_aside.json 記的鍵。回 (留下的, 藏了幾題)。"""
+    """去掉先放著的（有時間性的照留）：pending 的 set_aside 還沒該回來、set_aside.json 記的鍵。回 (留下的, 藏了幾題)。
+    跟封存的檔或實體有關的題先拿掉，不算藏了的（放寬丙 12，D-332）。"""
+    from kb._lib import archive
+    af, ae = archive.sets(vault)
+    if af or ae:
+        asks = [a for a in asks if not archive.hides((a.get("about") or {}).get("files"), (a.get("about") or {}).get("entities"), af, ae)]
     try:
         items = pending.load(vault)["items"]
     except ValueError:

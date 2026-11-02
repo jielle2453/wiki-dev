@@ -13,7 +13,7 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 def _marks(c):
     out = "〔要重做〕" if c["redo"] else ("〔原檔改過〕" if c["stale"] else "")
-    return out + ("〔你說別信〕" if c["ruled_out"] else "")
+    return out + ("〔你說別信〕" if c["ruled_out"] else "") + ("〔已封存〕" if c.get("archived") else "")
 
 
 def add_arguments(sub):
@@ -49,7 +49,7 @@ def _summary(got):
                              ("agenda", "日程", "條")):
         if got[key]:
             parts.append(f"{label} {len(got[key])} {unit}")
-    line = f"{e['name']}（{_kind(e)}）：" + "、".join(parts)
+    line = f"{e['name']}（{_kind(e)}{'，已封存' if got.get('archived') else ''}）：" + "、".join(parts)
     return line
 
 

@@ -12,6 +12,9 @@ todo 在對話裡跑時在目前回合記 ingest（turn.mark，回合狀態不�
 整批製卡（card-maker，D-195～D-200）：dispatch 開或沿用 job、切批、回每批給 Agent 工具的 prompt（終端機跑拒絕）；
 batch <批次> 給 card-maker 自己那批的材料（只讀，帶 --agent 記上 agent_id）；status 看進度（只讀）；
 stop 放掉這個 session 的批次、關 job、目前回合記 ingest_stopped（背景整理要停：說一聲，D-200）。
+mode <編號> full|pointer [--track yes|no]：會一直改的檔記成指路卡或完整卡（放寬丙 11，D-331）：只記清冊 card_mode、track（記進回合），
+指路卡且記過程時現在的抽字存本機 .system/local/textcache/<編號>.txt；seen <編號>：AI 看完指路卡的檔改了什麼，卡檔頭指紋與 textcache 換成現在的。
+todo --json 的 stale 每項多 change，指路卡的檔改了改列進 pointer_changed（帶 diff）；封存（kb archive）的不列。
 unreadable <編號> --reason：線上文件（link 條目）讀不到記進待處理（B-415；檔案讀不到由 convert 記）。
 build（第 6 點）：dispatch --ids f-…,f-… 只派那幾份做卡（建置抽樣）；dispatch --adopt 派第四種工作（讀舊 wiki 切好的段）。
 todo 的第一行接 待掛實體、綜合卡（待建、待更新、有問題）、實體夾有變、日程待重對、日程待抽；drop 拿掉卡也把從那張卡抽的推測日程改成取消（D-130）；sync、drop、skip 動到卡之後重渲染相關綜合卡的快取（實體與綜合卡第 4、5 點）。
@@ -84,10 +87,16 @@ def add_arguments(sub):
     bt.add_argument("batch", help="批次編號（b-…）")
     st = subs.add_parser("status", help="背景整理到哪了（只讀）", description="還在跑幾批、這次做好幾份、還剩幾份。")
     sp = subs.add_parser("stop", help="停背景整理", description="放掉這個對話的批次；回要停的子代理。")
+    mo = subs.add_parser("mode", help="這份檔記成完整卡或指路卡", description="會一直改的檔：記成指路卡（pointer）或完整卡（full）；只記清冊，判斷交 AI。")
+    mo.add_argument("id", help="清冊編號（f-…）")
+    mo.add_argument("state", choices=["full", "pointer"], help="full 完整卡、pointer 指路卡")
+    mo.add_argument("--track", choices=["yes", "no"], help="指路卡要不要記過程（沒給不改，預設記）")
+    sn = subs.add_parser("seen", help="指路卡的檔改了，我看過了", description="指路卡的檔改了、AI 看完差別之後跑：卡的指紋與上次看過的文字換成現在的。")
+    sn.add_argument("id", help="清冊編號（f-…）")
     ur = subs.add_parser("unreadable", help="線上文件讀不到，記進待處理", description="只收線上文件（link 條目）。")
     ur.add_argument("id", help="清冊編號（out-… 或 f-…）")
     ur.add_argument("--reason", required=True, help="讀不到的原因，例：線上文件打不開")
-    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, ur):
+    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, mo, sn, ur):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -150,6 +159,8 @@ def _entity_parts(data):
         parts.append(f"日程待重對 {len(data['agenda_recheck'])}")
     if data.get("agenda_unscanned"):
         parts.append(f"日程待抽 {len(data['agenda_unscanned'])}")
+    if data.get("pointer_changed"):
+        parts.append(f"指路卡的檔有變 {len(data['pointer_changed'])}")
     return parts
 
 
@@ -458,6 +469,29 @@ def _edits(vault, args, as_json):
     return 0
 
 
+def _mode(vault, args, as_json, conversation):
+    track = {"yes": True, "no": False}.get(args.track)
+    got = cards.mode(vault, sources_lib.load(vault), args.id, args.state, track, turn.current(vault)["turn"])
+    if got["changed"]:
+        journal_cli.record_program_or_warn(vault, f"記成{'指路卡' if got['mode'] == cards.POINTER else '完整卡'}：{args.id}",
+                                           got["changed"], "cards mode", conversation)
+    if as_json:
+        print(json.dumps(got, ensure_ascii=False))
+    elif got["mode"] == cards.POINTER:
+        print(f"已記成指路卡（{'記過程' if got['track'] else '不記過程'}）：{args.id}")
+    else:
+        print(f"已記成完整卡：{args.id}")
+    return 0
+
+
+def _seen(vault, args, as_json, conversation):
+    got = cards.seen(vault, sources_lib.load(vault), args.id, turn.current(vault)["turn"])
+    if got["changed"]:
+        journal_cli.record_program_or_warn(vault, f"看過指路卡的改動：{got['title']}", got["changed"], "cards seen", conversation)
+    print(json.dumps(got, ensure_ascii=False) if as_json else f"記下了：「{got['title']}」的改動看過了")
+    return 0
+
+
 def _redo(vault, fid, as_json, conversation):
     got = cards.mark_redo(vault, fid, turn.current(vault)["turn"])
     if got["changed"] or got["synthesis_paths"]:
@@ -711,6 +745,10 @@ def run(args):
             if args.job:
                 return _redo_jobs(vault, args.job, args.check, as_json, conversation)
             return _redo(vault, args.id, as_json, conversation)
+        if command == "mode":
+            return _mode(vault, args, as_json, conversation)
+        if command == "seen":
+            return _seen(vault, args, as_json, conversation)
         if command == "mount":
             return _mount(vault, args.id, [n.strip() for n in args.entity], as_json, conversation)
         if command == "unreadable":

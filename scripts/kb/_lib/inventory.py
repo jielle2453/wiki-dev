@@ -9,6 +9,7 @@ first_seen、created_turn、missing_since。選填欄 skip_kind、agenda_fp、re
 produce 第 4 點的三個選填欄同樣保留：kind（只有 "link"：Claude artifact，位置是網址，不算指紋、不走訪、不算不見）、
 derived_from（成品改自哪份原檔的清冊編號）、unbacked（AI 產出裡沒經程式放進來、掃描才看到的檔，退回拿不掉）；
 link 條目另帶 title、type、entities、basis（output link 給的，製卡時預填）。
+放寬丙第三輪的選填欄同樣保留：card_mode／track（kb cards mode，會一直改的檔記成指路卡，D-331）、archived（kb archive，D-332）。
 redo（note 改知識第 5 點）記的是標記當時卡檔的 sha256 前 12 碼，卡重寫過就不算，下一次寫清冊時拿掉（_drop_stale_redo）。
 密碼與守門（D-183、D-184）：有效「可以讀」裁示掛的條目，掃描不記 credential（照一般檔算指紋）；搬到別處、改名後檔名仍像密碼的新位置，
 只要內容指紋對得上那筆有裁示的條目就認成同一份（裁示跟著檔走）。選填欄 credential_declined（客戶說這份不要讀的日期，
@@ -443,6 +444,54 @@ def set_skip(vault, ids, kind, locked=False):
         return
     with FileLock(p):
         change()
+
+
+def set_card_mode(vault, fid, mode, track, turn_id):
+    """選填欄 card_mode（"pointer" 指路卡；沒有或 "full" 是完整卡）與 track（指路卡要不要記過程，沒有當 true；放寬丙 11，D-331）。
+    mode 是 "full" 就拿掉 card_mode；track 是 None 不動那欄。鎖裡備份再寫，沒變什麼都不做；回有沒有寫。清冊沒有這個編號丟 KeyError。"""
+    p = _path(vault)
+    with FileLock(p):
+        data = load(vault)
+        entry = next((e for e in data["entries"] if e.get("id") == fid), None)
+        if entry is None:
+            raise KeyError(fid)
+        before = (entry.get("card_mode"), entry.get("track"))
+        if mode == "pointer":
+            entry["card_mode"] = "pointer"
+        else:
+            entry.pop("card_mode", None)
+        if track is not None:
+            entry["track"] = bool(track)
+        if before == (entry.get("card_mode"), entry.get("track")):
+            return False
+        from kb._lib import turn
+        turn.backup(vault, INVENTORY_POSIX, turn_id)
+        _write(vault, data["entries"])
+    return True
+
+
+def set_archived(vault, ids, info, turn_id):
+    """選填欄 archived（{"date","reason","turn"}；放寬丙 12，D-332）：info 是 None 就拿掉欄。鎖裡備份再寫，沒變不寫；
+    回真的改了的編號。清冊沒有的編號丟 KeyError。"""
+    p = _path(vault)
+    with FileLock(p):
+        data = load(vault)
+        by_id = {e.get("id"): e for e in data["entries"]}
+        missing = [fid for fid in ids if fid not in by_id]
+        if missing:
+            raise KeyError(missing[0])
+        hit = [fid for fid in ids if bool(by_id[fid].get("archived")) == (info is None)]  # 已封存的再封存、沒封存的拿掉，都不動
+        if not hit:
+            return []
+        from kb._lib import turn
+        turn.backup(vault, INVENTORY_POSIX, turn_id)
+        for fid in hit:
+            if info is None:
+                by_id[fid].pop("archived", None)
+            else:
+                by_id[fid]["archived"] = dict(info)
+        _write(vault, data["entries"])
+    return hit
 
 
 def set_agenda_fp(vault, fid, fp, turn_id):

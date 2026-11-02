@@ -723,7 +723,7 @@ def set_card(vault, entity_id, value, turn_id):
 # ---------- 掛載 ----------
 
 def mounts(vault, data=None, mentions=False):
-    """檔案索引/ 全部卡的檔頭 實體 → {實體名稱: [{"id","path","title","fp","date","card_type","relation"}]}；relation 是 main。
+    """檔案索引/ 全部卡的檔頭 實體 → {實體名稱: [{"id","path","title","fp","date","card_type","relation"}]}；relation 是 main；清冊封存的檔多 "archived": True。
     mentions=True 再把檔頭 提到 欄的也放進去（relation 是 mention，放寬丙 7，同一張卡同一實體主要優先）；預設只算主要的。只算清冊條目 active 的檔案卡
     （同編號多張取第一張）與 active 的實體；名稱照登記的（別名、合併過的轉到目標）；fp 是內容指紋（沒有取指紋）前 12 碼。
     B-069：原檔不見（missing）、「是不是刪了」還沒答（missing_file 待處理 open）的照算掛載，客戶答之前卡先留著。"""
@@ -740,6 +740,7 @@ def mounts(vault, data=None, mentions=False):
         asking = set()
     active = {e.get("id") for e in entries
               if e.get("status") == "active" or (e.get("status") == "missing" and e.get("id") in asking)}
+    archived = {e.get("id") for e in entries if e.get("archived")}
     groups, _broken = cards._scan_groups(vault)
     out = {}
     for cid in sorted(groups):
@@ -756,6 +757,8 @@ def mounts(vault, data=None, mentions=False):
                 "date": front.get("文件日期") if isinstance(front.get("文件日期"), str) else "",
                 "card_type": front.get("卡型") if isinstance(front.get("卡型"), str) else "",
                 "relation": "main"}
+        if cid in archived:  # 封存的檔：綜合卡「相關檔」放進「其他」框（放寬丙 12）
+            item["archived"] = True
         seen = set()
         for name in names:
             entry, _hit = find(data, name)
@@ -1578,6 +1581,28 @@ def suggest_close(vault, ref, evidence, turn_id):
     pid = pending.add(vault, CLOSE_KIND, fresh, f"「{entry['name']}」看起來已經結束了，要記成結案嗎？",
                       "依據" + "".join(f"〔{f}〕" for f in fresh), turn_id, entity_ids=[entry["id"]])
     return {"entity": entry, "recorded": True, "skipped": None, "pending_id": pid}
+
+
+# ---------- 封存（放寬丙 12，D-332） ----------
+
+def set_archived(vault, ref, info, turn_id):
+    """kb archive 實體：選填欄 archived（{"date","reason","turn"}），info 是 None 就拿掉。跟事類的結案狀態並存、不改它。
+    鎖裡備份再寫，沒變不寫；回 (條目, 有沒有寫)。客戶自己、已移除的丟 EntityRefused。"""
+    with lock(vault):
+        data = load(vault)
+        entry, _hit = _need(data, ref)
+        if is_self(entry):
+            raise EntityRefused(f"「{entry['name']}」是你自己，不能封存")
+        if entry.get("status") != "active":
+            raise EntityRefused(f"「{entry['name']}」已移除，不用封存")
+        if bool(entry.get("archived")) != (info is None):  # 已封存的再封存、沒封存的拿掉，都不動
+            return entry, False
+        if info is None:
+            entry.pop("archived", None)
+        else:
+            entry["archived"] = dict(info)
+        _save(vault, data, turn_id)
+    return entry, True
 
 
 # ---------- 客戶自己（D-120） ----------

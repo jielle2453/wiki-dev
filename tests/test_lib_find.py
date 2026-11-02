@@ -175,7 +175,7 @@ class Matching(Base):
 
     def test_file_fields(self):
         f = self.find("信義王")["files"][0]
-        self.assertEqual(set(f), {"card", "title", "type", "date", "entities", "open", "card_path", "hit"})
+        self.assertEqual(set(f), {"card", "title", "type", "date", "entities", "open", "card_path", "hit", "archived"})
         self.assertEqual((f["title"], f["type"], f["date"], f["entities"]), ("報價單", "報價", "2026-09-12", ["信義王"]))
         self.assertTrue(f["card_path"].startswith("檔案索引/"))
         self.assertIn("path", f["open"])

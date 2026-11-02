@@ -35,7 +35,7 @@ class ParseFront(unittest.TestCase):
 
     def test_keys_and_origin_text(self):
         self.assertEqual(cards.KEYS, ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別",
-                                      "文件日期", "讀取", "製卡日期", "範本版本", "敏感資料種類", "開原檔"))
+                                      "文件日期", "讀取", "製卡日期", "範本版本", "敏感資料種類", "開原檔", "卡式", "封存"))
         self.assertEqual(cards.ORIGIN_TEXT, {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"})
 
 
@@ -114,7 +114,7 @@ class Header(Vault):
         self.assertEqual((front["實體"], front["提到"], front["待補型別"]), ([], [], []))
         self.assertEqual(front["敏感資料種類"], [])
         self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + e["id"])  # 放寬丙 9：外掛連結、只帶編號
-        self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
+        self.assertEqual(list(front), [k for k in cards.KEYS if k not in ("收件", "卡式", "封存")])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
         self.assertEqual(item["dir"], "檔案索引/客戶案件/大安陳")
         self.assertEqual(item["filename_pattern"], f"<標題>-{e['id'][2:]}.md")
         self.assertEqual(item["kind"], "docx")
@@ -578,7 +578,7 @@ class TemplateTwo(unittest.TestCase):
         front = cards.parse_front((self.E.FIX / "範本第一版-0f0f0f0f.md").read_text(encoding="utf-8"))
         self.assertEqual(front["範本版本"], cards.OLD_TEMPLATE_VERSION)
         self.assertFalse(set(cards.V2_KEYS) & set(front))
-        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "提到", "待補型別"])
+        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "提到", "待補型別", "卡式", "封存"])
 
     def test_prefill_from_entity_folder(self):
         front = cards.parse_front(self.E.new_item(self.V, self.E.CONTRACT)["header"])

@@ -687,11 +687,11 @@ def _wiki(m):
 
 def file_section(mounts_of_it):
     """綜合卡最後一段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
-    `> [!note]- 舊版`，只是提到的（relation 是 mention）全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
+    `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
     ordered = sorted(sorted(mounts_of_it, key=lambda m: m["id"]), key=_date_key, reverse=True)
     main, old, other, seen = [], [], [], set()
     for m in ordered:
-        if m.get("relation") == "mention":
+        if m.get("relation") == "mention" or m.get("archived"):  # 封存的檔也收進「其他」（放寬丙 12）
             other.append(m)
             continue
         k = entities.key(m.get("title") or m["id"])
@@ -964,16 +964,18 @@ def buckets(vault, data, mounts, prof):
     min_cards = config.get(vault, "synthesis_min_cards")
     know = knowledge(vault)
     types = {entities.key(t["name"]) for t in prof.get("types") or []}
-    drift_list = entities.drift(vault, data)
+    archived_ents = {e.get("id") for e in data["entities"] if e.get("archived")}
+    drift_all = entities.drift(vault, data)
+    drift_list = [d for d in drift_all if d["entity_id"] not in archived_ents]
     drift_ids = {d["entity_id"] for d in drift_list}
-    drift_found = {d["found"].casefold() for d in drift_list if d["found"]}
+    drift_found = {d["found"].casefold() for d in drift_all if d["found"]}
     today = date.today().isoformat()
     new, stale, broken = [], [], []
     listed = set()
     fixes = _lint_fixes(vault)
     for e in data["entities"]:
-        if e.get("status") == "merged" or entities.is_self(e) or not e.get("type"):
-            continue
+        if e.get("status") == "merged" or entities.is_self(e) or not e.get("type") or e.get("archived"):
+            continue  # 封存的實體不再整理、不出題（放寬丙 12，D-332）
         rel = card_rel(e, vault)
         ms = mounts.get(e["name"], [])
         p = Path(vault) / rel

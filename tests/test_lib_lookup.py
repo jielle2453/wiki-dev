@@ -74,7 +74,7 @@ class Find(Base):
         self.assertIsNone(got["synthesis"])
         self.assertEqual([c["id"] for c in got["cards"]], [self.quote])
         self.assertEqual(set(got["cards"][0]), {"id", "title", "card_type", "date", "entities", "read", "path", "stale",
-                                                "redo", "ruled_out"})
+                                                "redo", "ruled_out", "archived"})
         self.assertEqual((got["statements"], got["rulings"], got["findings"], got["agenda"], got["mentions"]),
                          ([], [], [], [], []))
         self.assertEqual(got["unsorted"], self.todo_unsorted())
