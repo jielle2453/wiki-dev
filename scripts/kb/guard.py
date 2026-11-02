@@ -1349,7 +1349,7 @@ def _no_clobber(verb, flags, force, ctx):
         return not force
     if flat & _NO_CLOBBER:
         return True
-    if verb in ("cp", "mv", "install", "move", "copy"):
+    if verb in ("cp", "mv", "install", "move", "copy") and not ctx.powershell:  # PowerShell 的 -Destination 之類具名參數含 n，不是 -n
         for f in flags:
             if f.startswith("-") and not f.startswith("--") and "n" in f[1:]:
                 return True
@@ -1527,6 +1527,10 @@ def _code_touches(code, base, ctx, args=None):
     if classify(base, ctx.vault_n, ctx.sources)[0] != "Z11" or _ancestor_zone(base, ctx.vault_n, ctx.sources)[0]:
         if args is None:
             return True
+        for _q, lit in _STR_LIT.findall(code):
+            if lit and len(lit) <= 255 and "\n" not in lit and not cmdparse._ABS_START.match(lit) \
+                    and not cmdparse._URL.match(lit) and os.path.lexists(os.path.join(base, lit)):
+                return True  # 字串常數剛好是 cwd 底下存在的名字（沒斜線沒副檔名的檔或夾）
         for w in args:
             if not cmdparse._ABS_START.match(w):
                 if re.search(r"[/\\]", w) or re.search(r"\.[A-Za-z0-9]{1,6}$", w):

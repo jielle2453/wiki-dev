@@ -104,6 +104,20 @@ class ShellRules(Base):
         d = self.passes("Bash", "python ../ext/big.py")
         self.assertIn("script_unread", [r["reason_code"] for r in d.ledger_rows])
 
+    def test_6c_bare_name_in_code(self):
+        # 測試報告 #1：程式碼裡的名字沒斜線沒副檔名（'notes'），cwd 在知識庫時也要擋
+        (self.V / "notes").write_text("n", encoding="utf-8")
+        self.denies("Bash", "python -c \"import os; os.remove('notes')\"", "code")
+        out = str(self.tmp / "ext" / "o.csv")
+        self.denies("Bash", f"python -c \"import os,sys; os.remove('notes'); open(sys.argv[1],'w')\" {out}", "code")
+        self.passes("Bash", f"python -c \"import sys; open(sys.argv[1],'w').write('x')\" {out}")
+
+    def test_3b_powershell_named_param_is_not_noclobber(self):
+        # 測試報告 #2：-Destination 含 n，不能當 -n
+        self.denies("PowerShell", "copy 我的夾/a.txt -Destination 我的夾/b.txt", "overwrite")
+        self.denies("PowerShell", "cp 我的夾/a.txt -Destination 我的夾/b.txt", "overwrite")
+        self.passes("Bash", "cp -n 我的夾/a.txt 我的夾/b.txt")
+
     def test_7_file_tools(self):
         for tool, rel in (("Write", "我的夾/c.md"), ("Edit", "暫存區/c.txt"), ("Edit", "系統/客戶設定檔.md"),
                           ("Write", "01 案子/清單.xlsx"), ("Write", "_extras/x.md")):
