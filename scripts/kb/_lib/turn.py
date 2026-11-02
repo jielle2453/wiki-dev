@@ -777,6 +777,43 @@ def moves(vault, turn_id):
     return rows
 
 
+DETECTED_OPS = ("move", "missing", "added", "modified")
+
+
+def record_detected(vault, turn_id, rows):
+    """hook 事後偵測（放寬丙 要做的事 1）：versions/<turn>/detected.jsonl 追加，一行一筆 {"op","kind","from","to","id","by","time"}
+    （shared 的來源多 shared: true）。只在有 rows 時才建回合夾；跟 record_move 同一把 manifest 鎖。"""
+    rows = [r for r in rows if r.get("op") in DETECTED_OPS]
+    if not rows:
+        return
+    vdir = turn_dir(vault, turn_id)
+    with FileLock(vdir / "manifest.jsonl"):
+        for row in rows:
+            _append_line(vdir / "detected.jsonl", row)
+
+
+def detected(vault, turn_id):
+    """讀 detected.jsonl（照記的順序）；壞行跳過並寫一行 hook-errors.log（同 moves）。"""
+    path = Path(vault) / VERSIONS_REL / turn_id / "detected.jsonl"
+    if not path.is_file():
+        return []
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for lineno, ln in enumerate(f, 1):
+            if not ln.strip():
+                continue
+            try:
+                row = json.loads(ln)
+            except ValueError as e:
+                ledger.log_error(vault, f"detected 壞行跳過 {turn_id}:{lineno}: {type(e).__name__}: {e}")
+                continue
+            if isinstance(row, dict) and row.get("op") in DETECTED_OPS and (row.get("from") or row.get("to")):
+                rows.append(row)
+            else:
+                ledger.log_error(vault, f"detected 壞行跳過 {turn_id}:{lineno}: 不是偵測紀錄")
+    return rows
+
+
 def zone_of(vault, rel, sources=None):
     """相對路徑落在哪一區，判斷只有這一份（第一輪 L8）；sources 可先載好傳進來，省得每行重讀。"""
     from kb import guard

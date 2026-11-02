@@ -21,7 +21,8 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 START = time.monotonic()  # hook 的時限從 import 這支算（呼叫端是 hook 的第一件事）
-TURN_BUDGET = 1.5  # 秒，每句開頭所有檢查共用；下一位實作者換成設定 turn_scan_seconds
+TURN_BUDGET = 1.5  # 秒，每句開頭所有檢查共用；turn_lines 開頭換成設定 turn_scan_seconds
+DETECTED_SEEN_KEEP = 300  # session 檔 checks.detected 最多留幾條（已記過的偵測鍵）
 SOURCE = "session"  # log 的 source；turn.py 改成 "turn"
 
 CHANGES_LINE = ("有變動（新增 {added}、修改 {modified}、不見 {missing}）：照 ingest 整理，要做卡的不超過 {max} 份就在背景做、"
@@ -58,8 +59,8 @@ def log_vault(vault, e):
         pass
 
 
-def over_budget(seconds=TURN_BUDGET):
-    return time.monotonic() - START > seconds
+def over_budget(seconds=None):
+    return time.monotonic() - START > (TURN_BUDGET if seconds is None else seconds)
 
 
 # ---------- 升級、搬家（讓位判斷共用） ----------
@@ -119,21 +120,93 @@ def yield_to_upgrade(vault):
 _SCAN = {}  # vault → (sources, report) 或 None（scan 出錯）
 
 
-def file_compare(vault):
-    """每句開頭的檔案比對（放寬丙 要做的事 1，下一位實作者接手）：目前先沿用開場的快速比對（只讀，不 apply）。
-    回 (sources, report) 或 None。"""
+def file_compare(vault, seconds=None):
+    """每句開頭與答完的檔案比對（放寬丙 要做的事 1）：inventory.scan(quick) 只讀、不 apply。時間上限預設是每句開頭預算剩下的，
+    讀取上限 turn_scan_hash_budget_bytes。回 (sources, report) 或 None（scan 出錯，記一行 log）。同一個行程只比一次。"""
     key = str(vault)
     if key not in _SCAN:
         try:
-            from kb._lib import inventory
+            from kb._lib import config, inventory
             from kb._lib import sources as sources_lib
 
             sources = sources_lib.load(vault)
-            _SCAN[key] = (sources, inventory.scan(vault, sources, quick=True))
+            left = max(0.0, TURN_BUDGET - (time.monotonic() - START)) if seconds is None else seconds
+            _SCAN[key] = (sources, inventory.scan(vault, sources, quick=True, seconds=left,
+                                                  hash_budget=config.get(vault, "turn_scan_hash_budget_bytes")))
         except Exception as e:  # noqa: BLE001
             _SCAN[key] = None
             log_vault(vault, e)
     return _SCAN[key]
+
+
+def _session_turn(vault, session_id):
+    """這個對話現在的回合代號；讀不到回 None。"""
+    from kb._lib import turn
+
+    data = turn._read_turn(turn._session_file(vault, session_id)) if session_id else None
+    return (data or {}).get("turn")
+
+
+def _kb_keys(vault, turn_id):
+    """這一句 kb 或守門已記的路徑（moves.jsonl、folders.jsonl、manifest.jsonl），換成清冊 uri 的比對鍵。"""
+    from kb._lib import inventory, turn
+
+    keys = set()
+    for m in turn.moves(vault, turn_id):
+        keys.update(inventory.uri_key(m[k]) for k in ("from", "to") if m.get(k))
+    for f in turn.folders(vault, turn_id):
+        keys.update(inventory.uri_key(inventory.make_uri(inventory.KNOWLEDGE, f[k])) for k in ("from", "to") if f.get(k))
+    for e in turn.entries(vault, turn_id):
+        if e.get("uri"):
+            keys.add(inventory.uri_key(e["uri"]))
+        if e.get("path"):
+            keys.add(inventory.uri_key(inventory.make_uri(inventory.KNOWLEDGE, e["path"])))
+    return keys
+
+
+def record_detected(vault, session_id, got, by, seen):
+    """把這次比對的結果寫進這一句的 detected.jsonl（只寫這個檔）。by：outside（兩句之間）｜turn（這一句 AI 用自己的方法）。
+    沒比完不記 added（inventory.detected_rows）；seen（已記過的 op|from|to）有的不重記；by turn 時 kb 或守門已記的同路徑跳過。
+    回更新後的 seen（清單，呼叫端存回 session 檔的 checks.detected）。"""
+    seen = list(seen or [])
+    if got is None or yield_to_upgrade(vault):  # 要先補位置、先 --finish 轉格式時，整個知識庫看起來都不見，不記
+        return seen
+    tid = _session_turn(vault, session_id)
+    if not tid:
+        return seen
+    from kb._lib import inventory, turn
+
+    rows = inventory.detected_rows(got[0], got[1], by=by)
+    skip = _kb_keys(vault, tid) if by == "turn" else set()
+    fresh = []
+    for r in rows:
+        key = f"{r['op']}|{r['from']}|{r['to']}"
+        if key in seen:
+            continue
+        if any(inventory.uri_key(r[k]) in skip for k in ("from", "to") if r.get(k)):
+            continue
+        fresh.append(r)
+        seen.append(key)
+    turn.record_detected(vault, tid, fresh)
+    return seen[-DETECTED_SEEN_KEEP:]
+
+
+def after_answer(vault, session_id):
+    """Stop 用：答完再比一次（stop_scan_seconds），這一句期間出現、又不是 kb 或守門記過的變動寫進同一個 detected.jsonl（by turn）。
+    只讀清冊、只寫 detected.jsonl 與 session 檔的已記鍵；任何例外只寫 log。"""
+    try:
+        from kb._lib import config, turn
+
+        if not session_id or _session_turn(vault, session_id) is None:
+            return
+        got = file_compare(vault, seconds=config.get(vault, "stop_scan_seconds"))
+        checks = turn.get_checks(vault, session_id)
+        seen = record_detected(vault, session_id, got, "turn", checks.get("detected"))
+        if seen != list(checks.get("detected") or []):
+            checks["detected"] = seen
+            turn.set_checks(vault, session_id, checks)
+    except Exception as e:  # noqa: BLE001
+        log_vault(vault, e)
 
 
 _DRIFT = {}  # vault → 實體夾有變的筆數或 None（出錯）
@@ -392,6 +465,13 @@ def turn_lines(vault, session_id):
         return []
     from kb._lib import turn
 
+    try:
+        global TURN_BUDGET
+        from kb._lib import config
+
+        TURN_BUDGET = config.get(vault, "turn_scan_seconds")
+    except Exception as e:  # noqa: BLE001  讀不到設定就用預設
+        log_vault(vault, e)
     checks = turn.get_checks(vault, session_id)
     stamps = dict(checks.get("stamps") or {})
     told = list(checks.get("told") or [])
@@ -415,7 +495,12 @@ def turn_lines(vault, session_id):
     if daily_pending(vault):
         for line in guarded(daily_lines, vault) or []:
             tell(line)
-    # 1. 檔案比對（hook 點）：變動行與整理提示在最後一步用它的結果
+    # 1. 檔案比對：搬動、不見、新增寫進這一句的 detected.jsonl（by outside）；變動行與整理提示在最後一步用它的結果
+    got = None
+    detected = list(checks.get("detected") or [])
+    if not over_budget():
+        got = guarded(file_compare, vault)
+        detected = guarded(record_detected, vault, session_id, got, "outside", detected) or detected
     # 2. 卡、標籤：比修改時間，沒變不讀
     stamp_now = time.time()
     if not over_budget():
@@ -432,13 +517,13 @@ def turn_lines(vault, session_id):
         if newest > stamps.get("profile", 0.0):
             tell(guarded(line_profile, vault))
             stamps["profile"] = stamp_now
-    if not over_budget():  # 比對本身有自己的時限（changes_quick_seconds）；比完後組句子很快，不再看這裡的預算
+    if got is not None or not over_budget():  # 比對本身有自己的時限；比完後組句子很快，比過了就不再看這裡的預算
         tell(guarded(line_missing_sources, vault))
         line = guarded(line_changes, vault)
         if line is not None and line not in told:
             tell(line, once=True)
             tell(guarded(line_ingest_hint, vault, session_id))
-    checks = {"stamps": stamps, "told": told[-TOLD_KEEP:]}
+    checks = {"stamps": stamps, "told": told[-TOLD_KEEP:], "detected": detected}
     try:
         turn.set_checks(vault, session_id, checks)
     except Exception as e:  # noqa: BLE001

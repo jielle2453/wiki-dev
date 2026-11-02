@@ -53,6 +53,7 @@ HIDDEN_OR_SYSTEM = 0x2 | 0x4
 REPARSE_POINT = 0x400
 # 雲端占位檔（照舊 kbcommon.is_cloud_placeholder，I-020）：讀它會觸發下載
 PLACEHOLDER_ATTRS = 0x40000 | 0x400000 | 0x1000
+SF_DATALESS = 0x40000000  # Mac st_flags：內容只在雲端
 LIVE = ("active", "turn_reverted")  # 位置索引收這兩種；turn_reverted 的成品檔還在 AI 產出
 DORMANT = ("missing", "excluded")  # 位置全沒了：保留最後的位置清單
 READ_PROBLEMS = ("placeholder", "credential", "too_large", "error")
@@ -175,6 +176,14 @@ def _attrs_now(path):
     """現在的檔案屬性（os.stat 只讀中繼資料，不下載）；讀不到回 0。"""
     try:
         return getattr(os.stat(long_path(path)), "st_file_attributes", 0)
+    except OSError:
+        return 0
+
+
+def _flags_now(path):
+    """Mac 的 st_flags（SF_DATALESS 看內容在不在本機）；其他系統沒有這欄回 0。"""
+    try:
+        return getattr(os.stat(long_path(path)), "st_flags", 0)
     except OSError:
         return 0
 
@@ -621,7 +630,7 @@ def read_kind(rel_segments, st, size_cap, credential=True):
     """回 (read, error)：占位檔 → placeholder；來源根以下的段命中憑證樣式 → credential（總資料夾內部 credential=False，D-081）；
     超過 size_cap → too_large；其餘 ok。error 只有算指紋失敗才有，這裡一律 None。"""
     attrs = getattr(st, "st_file_attributes", 0)
-    if attrs & PLACEHOLDER_ATTRS:
+    if attrs & PLACEHOLDER_ATTRS or getattr(st, "st_flags", 0) & SF_DATALESS:
         return "placeholder", None
     if credential and credentials.match_segment(rel_segments) is not None:
         return "credential", None
@@ -757,14 +766,18 @@ class _Stopper:
 
 # ---------- 比對 ----------
 
-def scan(vault, sources, *, quick=False, only_roots=None, now=None):
+def scan(vault, sources, *, quick=False, only_roots=None, now=None, seconds=None, hash_budget=None):
     """D-094 的比對，不寫檔、不碰回合（審閱裁定 6）。回 Report dict（見 spec「資料與介面格式」，多 still_missing、restored）。
     quick：開場用；新檔只在大小等於這次不見的位置、休眠條目或任何已知位置時才算指紋，受讀取預算與時間預算。
-    only_roots：別名清單，只掃那些根；total、by_source、added 等都只算掃到的（審閱裁定 8）。"""
+    only_roots：別名清單，只掃那些根；total、by_source、added 等都只算掃到的（審閱裁定 8）。
+    seconds、hash_budget：quick 時蓋過 changes_quick_seconds、changes_quick_hash_budget_bytes（每句開頭與答完的比對用自己的上限，放寬丙）。"""
     now = now or _now()
     size_cap = config.get(vault, "fingerprint_max_bytes")
-    budget = {"left": config.get(vault, "changes_quick_hash_budget_bytes") if quick else None, "out": False}
-    stopper = _Stopper(config.get(vault, "changes_quick_seconds") if quick else None)
+    if quick:
+        hash_budget = config.get(vault, "changes_quick_hash_budget_bytes") if hash_budget is None else hash_budget
+        seconds = config.get(vault, "changes_quick_seconds") if seconds is None else seconds
+    budget = {"left": hash_budget if quick else None, "out": False}
+    stopper = _Stopper(seconds if quick else None)
     entries = copy.deepcopy(load(vault)["entries"])
     readable = _readable_ids(vault)  # 密碼與守門：有「可以讀」裁示的條目
     all_roots, missing_sources, root_errors = roots(vault, sources)
@@ -815,7 +828,7 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
     def cloud(rec):
         """讀內容之前一刻再看一次屬性：只在雲端（RECALL_ON_DATA_ACCESS、OFFLINE…）就不讀，記成 placeholder
         （manage 第二版第五輪：指紋、內容指紋、快速比對預算都不碰）。"""
-        if _attrs_now(rec["path"]) & PLACEHOLDER_ATTRS:
+        if _attrs_now(rec["path"]) & PLACEHOLDER_ATTRS or _flags_now(rec["path"]) & SF_DATALESS:
             rec["read"] = "placeholder"
             return True
         return False
@@ -1056,6 +1069,39 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
             if len(examples) < EXAMPLES_MAX:
                 examples.append(rec["uri"])
     return report
+
+
+DETECTED_SKIP_ALIASES = (KNOWLEDGE,)  # 知識庫自己的檔（卡、系統檔）由 kb 與守門記，不進事後偵測
+
+
+def detected_rows(sources, report, *, by, now=None):
+    """scan 的 report → detected.jsonl 的行（放寬丙 要做的事 1）：move／missing／added／modified，各帶清冊編號（added 沒有）、by、時間。
+    來源登記成共用夾（shared）的多 shared: true。沒比完（report["incomplete"]）時不給 added：沒認出搬動的新檔會被當新增，等下一次接著比。
+    只讀 report，不寫任何東西。"""
+    now = now or _now()
+    ids = {}
+    for e in report.get("entries") or []:
+        for loc in e.get("locations") or []:
+            ids.setdefault(uri_key(loc.get("uri", "")), e.get("id"))
+    shared = {s["alias"].casefold() for s in getattr(sources, "entries", []) if s.get("shared")}
+    skip = {a.casefold() for a in DETECTED_SKIP_ALIASES}
+
+    def row(op, frm, to):
+        alias = split_uri(to or frm)[0]
+        if alias.casefold() in skip:
+            return None
+        out = {"op": op, "kind": "file", "from": frm, "to": to, "id": None if op == "added" else ids.get(uri_key(to or frm)),
+               "by": by, "time": now}
+        if alias.casefold() in shared:
+            out["shared"] = True
+        return out
+
+    got = [row("move", old, new) for old, new in report.get("moved") or []]
+    got += [row("missing", u, None) for u in report.get("missing") or []]
+    if not report.get("incomplete"):
+        got += [row("added", None, u) for u in report.get("added") or []]
+    got += [row("modified", u, None) for u in report.get("modified") or []]
+    return [r for r in got if r]
 
 
 def public(report):

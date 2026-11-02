@@ -272,7 +272,9 @@ class OpeningInventory(unittest.TestCase):
         self.assertRegex(lines[0], r"^有變動（新增 [1-9]\d*、修改 0、不見 0）：")
 
     def test_incomplete_line(self):
-        (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_seconds": 0}), encoding="utf-8")
+        # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
+        (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")
+        (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣" + chr(10), encoding="utf-8")
         self.assertEqual(self.change_lines(self.status()), [CHANGES_INCOMPLETE])
 
     def test_missing_source_reported_once_then_cleared(self):
@@ -335,7 +337,7 @@ class OpeningInventory(unittest.TestCase):
         self.status()
         after = stamps()
         changed = {k for k in after if before.get(k) != after[k]}  # 每句開頭的 hook 還會開回合（turns、journal、renders），檢查本身只讀
-        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))},
+        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))},
                          {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
@@ -434,7 +436,9 @@ class OpeningIngestHint(unittest.TestCase):
         self.assertIn(CHANGES.format(2, 0, 0), turn_lines(self.V, "same"))
 
     def test_hint_after_incomplete_line(self):
-        (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_seconds": 0}), encoding="utf-8")
+        # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
+        (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")
+        (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣" + chr(10), encoding="utf-8")
         lines = self.status()
         self.assertEqual(lines[lines.index(CHANGES_INCOMPLETE) + 1], INGEST_HINT.format(n=20))
 
@@ -477,7 +481,7 @@ class OpeningEntityDrift(unittest.TestCase):
         i = lines.index("變動：實體夾有變 1")
         self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
+        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
@@ -560,7 +564,7 @@ class OpeningProfile(unittest.TestCase):
             self.edit(*change)
             self.assertTrue(self.profile_lines())
             after = stamps()
-            self.assertEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders"))}
+            self.assertEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}
                              - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertEqual(self.md.read_text(encoding="utf-8").count("| 工地 | 事 |"), 1)
 
