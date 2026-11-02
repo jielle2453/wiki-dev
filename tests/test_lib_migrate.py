@@ -315,6 +315,13 @@ class SynthesisLayout(unittest.TestCase):
         p.write_bytes(self.text(self.XINYI).replace("範本版本: 2", '範本版本: "2"').encode("utf-8") + b"\xff\n")
         self.assertNotIn(self.DAAN, [s["rel"] for s in migrate.apply(self.V, turn.start(self.V, None, "再")["turn"])["skipped"]])
 
+    def test_header_without_closing_line(self):
+        """review：檔頭沒有結尾的 ---，內文剛好有「範本版本: 2」那行：不當成版本 2，列進 skipped。"""
+        p = self.V / self.DAAN
+        p.write_bytes(b"---\n\xe5\x90\x8d\xe7\xa8\xb1: x\n# x\n" + "範本版本: 2\n".encode("utf-8") + b"\xff\n")
+        self.assertIsNone(migrate._header_version(p))
+        self.assertIn(self.DAAN, [s["rel"] for s in migrate.apply(self.V, self.turn)["skipped"]])
+
     def test_broken_card_already_new_not_reported(self):
         """review：讀不懂但範本版本已是 2 的卡不在遷移範圍，不每次升級都報。"""
         p = self.V / self.DAAN

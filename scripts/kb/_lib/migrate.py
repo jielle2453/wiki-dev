@@ -269,17 +269,18 @@ def _synthesis_cards(vault):
 
 
 def _header_version(p):
-    """讀不懂的卡：只在檔頭（開頭 --- 到下一個 ---）找「範本版本:」那行的值（去引號）；找不到回 None。"""
+    """讀不懂的卡：只在檔頭（開頭 --- 到下一個 ---）找「範本版本:」那行的值（去引號）；找不到、檔頭沒收尾回 None。"""
     try:
         lines = p.read_bytes().split(b"\n")
     except OSError:
         return None
     if not lines or lines[0].strip().lstrip(b"\xef\xbb\xbf") != b"---":
         return None
+    end = next((n for n in range(1, len(lines)) if lines[n].strip() == b"---"), None)
+    if end is None:
+        return None
     key = "範本版本".encode("utf-8")
-    for line in lines[1:]:
-        if line.strip() == b"---":
-            return None
+    for line in lines[1:end]:
         if line.startswith(key):
             k, sep, v = line.partition(b":")
             if sep and k.strip() == key:
