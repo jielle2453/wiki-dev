@@ -389,7 +389,7 @@ class RunUpdate(Base):
         with mock.patch.object(upgrade, "find_claude", return_value=None):
             with self.assertRaises(upgrade.UpdateError) as cm:
                 upgrade.run_update({"market": MARKET, "scope": "user", "project": None})
-        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式，請服務人員幫忙")
+        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式：自己找 claude.exe（%LOCALAPPDATA%、Program Files），找到就照它的路徑再跑；找不到才請服務人員。")
         self.assertEqual(self.fake.calls, [])
 
     def test_nonzero_exit_gives_first_error_line(self):
@@ -408,7 +408,7 @@ class RunUpdate(Base):
         with mock.patch.object(upgrade, "_call", side_effect=FileNotFoundError("沒有")):
             with self.assertRaises(upgrade.UpdateError) as cm:
                 upgrade.run_update({"market": MARKET, "scope": "user", "project": None})
-        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式，請服務人員幫忙")
+        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式：自己找 claude.exe（%LOCALAPPDATA%、Program Files），找到就照它的路徑再跑；找不到才請服務人員。")
 
     def test_installed_version_reads_the_same_record(self):
         ident = {"market": MARKET, "scope": "user", "project": None}
@@ -789,7 +789,7 @@ class UpgradeFlow(Base):
         with mock.patch.object(upgrade, "find_claude", return_value=None):
             with self.assertRaises(backup.Refused) as cm:
                 self.go()
-        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式，請服務人員幫忙")
+        self.assertEqual(str(cm.exception), "這台找不到 Claude 的更新程式：自己找 claude.exe（%LOCALAPPDATA%、Program Files），找到就照它的路徑再跑；找不到才請服務人員。")
         self.assertIsNone(self.history()["pending"])
 
     def test_upgrade_records_first_history_when_none(self):
@@ -1224,7 +1224,34 @@ class Opening(Base):
                                       "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None})
         got, _ = self.open()
         self.assertFalse(got["finish"])
-        self.assertEqual(got["line"], "有新版 0.21.0：日程可以匯出成 Excel；說「升級」我帶你做。")
+        self.assertEqual(got["line"], "有新版 0.21.0：日程可以匯出成 Excel；客戶說「升級」再帶他做，這行只講一次。")
+
+    def test_new_version_line_told_only_once(self):
+        """放寬乙 D-322 第 5 件：同一個版本只講一次，env.json 的 update_check 記 told；latest 換成更新的又講一次。"""
+        self.put_history("0.20.1")
+        chk = {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True, "note": "x", "auto_patched": None, "error": None}
+        env.set_update_check(self.V, chk)
+        self.assertTrue(self.open()[0]["line"].startswith("有新版 0.21.0"))
+        self.assertEqual(env.update_check(self.V)["told"], "0.21.0")
+        self.assertIsNone(self.open()[0]["line"])
+        env.set_update_check(self.V, dict(env.update_check(self.V), latest="0.22.0"))
+        self.assertTrue(self.open()[0]["line"].startswith("有新版 0.22.0"))
+        self.assertEqual(env.update_check(self.V)["told"], "0.22.0")
+
+    def test_pending_line_told_only_once(self):
+        self.put_history("0.20.1", pending={"to": "0.21.0", "snapshot": "x.zip", "started": "2026-10-24T10:00:00"})
+        self.assertTrue(self.open()[0]["line"].startswith("上次升級到 0.21.0 還沒換好"))
+        self.assertEqual(env.update_check(self.V)["told"], "0.21.0")
+        self.assertIsNone(self.open()[0]["line"])
+
+    def test_withdrawn_line_told_only_once(self):
+        """待你決定 1 的 (b)：撤回也只講一次，told 記 withdrawn:<這台的版本>。"""
+        self.put_history("0.20.1")
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.20.0", "kind": "downgrade", "allowed": True,
+                                      "note": None, "auto_patched": None, "error": None})
+        self.assertTrue(self.open()[0]["line"].startswith("這一版 0.20.1 撤回了"))
+        self.assertEqual(env.update_check(self.V)["told"], "withdrawn:0.20.1")
+        self.assertIsNone(self.open()[0]["line"])
 
     def test_note_is_cleaned_again_before_the_opening_prints_it(self):
         """測試 L-3：env.json 是本機檔，被改成多行或帶方向字元，開場也只印一行乾淨的。"""
@@ -1232,7 +1259,7 @@ class Opening(Base):
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
                                       "note": "第一行\n第二行\u202e\x1b[31m", "auto_patched": None, "error": None})
         line = self.open()[0]["line"]
-        self.assertEqual(line, "有新版 0.21.0：第一行 第二行 [31m；說「升級」我帶你做。")
+        self.assertEqual(line, "有新版 0.21.0：第一行 第二行 [31m；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_pending_not_yet_applied_does_not_offer_the_upgrade_again(self):
         """桌面版確認 B-3：升級記了 pending、載入的還是舊版 → 講還沒換好，不再邀她升級。"""
@@ -1241,7 +1268,7 @@ class Opening(Base):
                                       "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None})
         got, _ = self.open()
         self.assertFalse(got["finish"])
-        self.assertEqual(got["line"], "上次升級到 0.21.0 還沒換好；說「升級」我再試一次。")
+        self.assertEqual(got["line"], "上次升級到 0.21.0 還沒換好：客戶說「升級」就再試一次，這行只講一次。")
 
     def test_odd_pending_target_is_not_printed(self):
         """測試 L-7：pending.to 被改成多行、亂字或比現在舊的版本 → 不印「還沒換好」那句。"""
@@ -1257,20 +1284,20 @@ class Opening(Base):
         self.put_history("0.20.1")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
                                       "note": "多了一點新功能。", "auto_patched": None, "error": None})
-        self.assertEqual(self.open()[0]["line"], "有新版 0.21.0：多了一點新功能；說「升級」我帶你做。")
+        self.assertEqual(self.open()[0]["line"], "有新版 0.21.0：多了一點新功能；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_new_version_line_truncates_the_note(self):
         self.put_history("0.20.1")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
                                       "note": "字" * 80, "auto_patched": None, "error": None})
         line = self.open()[0]["line"]
-        self.assertEqual(line, f"有新版 0.21.0：{'字' * 40}；說「升級」我帶你做。")
+        self.assertEqual(line, f"有新版 0.21.0：{'字' * 40}；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_new_version_line_without_note(self):
         self.put_history("0.20.1")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.21.0", "kind": "major", "allowed": True,
                                       "note": None, "auto_patched": None, "error": None})
-        self.assertEqual(self.open()[0]["line"], "有新版 0.21.0；說「升級」我帶你做。")
+        self.assertEqual(self.open()[0]["line"], "有新版 0.21.0；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_not_allowed_or_patch_prints_nothing(self):
         self.put_history("0.20.1")

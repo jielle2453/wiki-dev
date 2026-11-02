@@ -44,17 +44,17 @@ class Skeleton(unittest.TestCase):
 
     def test_claude_md_mentions_five_zones_and_no_plugin_path(self):
         text = (SKELETON / "CLAUDE.md").read_text(encoding="utf-8")
-        # skeleton/CLAUDE.md 的夾名由 spec 乙改成暫存區（這題不動說明文字）；乙改完把這裡換成「暫存區」
-        for zone in ("型別夾", "AI 產出", "收件匣", "檔案索引", "系統"):
+        for zone in ("型別夾", "暫存區", "檔案索引", "系統"):  # 放寬乙：AI 產出、收件匣併成暫存區（D-324）
             self.assertIn(zone, text)
         self.assertNotIn("CLAUDE_PLUGIN_ROOT", text)
         self.assertNotIn("scripts/", text)
 
     def test_claude_md_has_sentinel(self):
-        """D-088：沒有「【wiki-with-willy】」開場段就是程式沒跑起來，這個對話不改任何檔。"""
+        """D-088：沒有「【wiki-with-willy】」開場段就是程式沒跑起來；放寬乙 D-319：自己查、自己裝，只有改檔先停，試過還是不行才請服務人員。"""
         text = (SKELETON / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("【wiki-with-willy】", text)
-        self.assertIn("不改任何檔", text)
+        self.assertIn("只有改檔先停", text)
+        self.assertIn("試過還是不行才請服務人員", text)
         self.assertIn("（子代理沒有開場段，這段不適用）", text)  # 第一輪 D1
 
     def test_claude_md_identity_says_answer_in_traditional_chinese(self):

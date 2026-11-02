@@ -8,7 +8,7 @@
 - `ingest`：整理擱著的件數。整理做得了的是 `unsorted` 待整理、`unlinked` 沒掛實體、`synthesis_stale` 綜合卡待更新、
   `duplicates` 同一份檔在兩處，有大於 0 的就交 ingest 整理；`missing`、`unreadable`、`overdue`、`conflicts` 是要她決定的，
   已經在待處理，不交整理。她問「檢查要多久」時，交整理的那段照整理的估法講。
-- `failed_checks`：這次沒查成的項目名，說一句、不展開（記在 hook-errors.log，服務人員看）。
+- `failed_checks`：這次沒查成的項目名，說一句、不展開（記在 hook-errors.log，自己讀 log 看原因，講一句白話）。
 - 人讀輸出第一行同 `summary`，接「替你做了：…」、「要你決定的 N 件（最急：…）」、「整理還有：…」。
 
 ## 二、看健檢報告
@@ -22,23 +22,23 @@
 
 - `guard_stale`：守門好像沒在跑。請服務人員看，她不用做什麼；「你直接修」時也只能交服務人員。
 - `versions_unwritable`：回合備份夾寫不進去，改了東西沒辦法退回。請服務人員看，在那之前先別大改。
-- `system_link`：系統夾裡有捷徑。請服務人員看。
+- `system_link`：系統夾裡有捷徑。先自己看是什麼（`kb selftest`），講給她聽；是什麼說不準再問她。
 - `inferred:agenda`、`inferred:entity`、`inferred:profile`：我猜的放太久沒確認。照結果的 `note` 一條一條唸給她聽，對的確認（日程是 `kb agenda edit <編號>` 不帶欄位，印「記成確認了：…」）、
   不對的照她說的改（日程照 note 的 `references/agenda.md`、名字 `kb entity confirm`、設定檔照 note 的 `references/preference.md`）。
 - `skeleton:<檔>:…`：她改過那份系統檔。要留她的跑結果裡的 `kb upgrade skeleton <檔> --keep`（之後升級才不再問），再 resolve；換回程式的照 `do` 跑
   `kb upgrade skeleton <檔> --replace`（她那份備進回合，說「退回」就回來），再 resolve。
 - `synthesis_big:<路徑>`：綜合卡太長。她說好就記下（resolve），下次整理改寫時精簡現況、紀事保留。
 - `redo_by_profile:<卡型>:<日期>`：設定檔那類改過之後，之前做的卡。她說好跑 `do`（`kb cards redo --ids …`），
-  再照 ingest 整理（交製卡助手背景做），跟她說幾張、大約多久，她說停就停、做好的留著（D-200）。
+  再照 ingest 整理（交製卡助手背景做），跟她說在背景做，她說停就停、做好的留著（D-200）。
 - `promote:<種類>:<卡型>`：同一種裁示說了很多次，提議升格。見第四節。
 - `pending_handedit`：她手改了待處理、日程或裁示。見第五節。
-- 做完一件跑那件的 resolve；她說不用管跑 dismiss（條件沒變下週不會再開，變了才會）；她說先不要跑 `kb asks set-aside <key>`（快到期的程式不收，照它回的那句改問）。條件消失的（推測確認了、捷徑拿掉了）下次健檢自己關。
+- 做完一件跑那件的 resolve；她說不用管跑 dismiss（條件沒變下週不會再開，變了才會）；她說先不要跑 `kb asks set-aside <key>`（逾期的先放著就不再拿出來，除非她問）。條件消失的（推測確認了、捷徑拿掉了）下次健檢自己關。
 
 ## 四、升格怎麼擬
 
 `data.texts` 是她說過的那幾條原話、`card_type` 是卡型、`kind` 是 spoken_wins（以你說的為準）或 ruled_out（別信）。
-擬一句用她的字的偏好，例：「報價單的金額以我口頭說的為準」；問她「要改成一條規則嗎？以後的報價單都這樣」。
-她說好：`kb profile add 偏好 偏好=<那句>`（拒絕照 note 的 `references/preference.md` 講），成功後照 `data.rulings` 逐條
+擬一句用她的字的偏好，例：「報價單的金額以我口頭說的為準」；問她「要改成一條規則嗎？以後的報價單都這樣」（偏好照記）。
+她說好：`kb profile add 偏好 偏好=<那句>`（被擋照 note 的 `references/preference.md` 接著做），成功後照 `data.rulings` 逐條
 `kb ruling remove <編號>`，最後 resolve。她要改字就照她的字再擬一次。只提議，不自動做（D-150）。
 
 ## 五、`handedit` 怎麼處理

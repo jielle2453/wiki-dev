@@ -1,14 +1,18 @@
-"""kb asks [--about <名稱>…] [--all] [--json]、kb asks set-aside <key>（日程第 2 點，D-134、D-135；回答末尾的問法 lint 題，D-225、D-226）。
+"""kb asks [--about <名稱>…] [--all] [--json]、kb asks set-aside <key>（日程第 2 點，D-134、D-135；回答末尾的問法 lint 題，D-225、D-226；
+放寬乙 D-310(4)、D-322 第 6 件、D-334(7)(8)：一次一件、同一題一個對話只問一次、沒回的到期關掉）。
 
 asks 跟 kb cards todo --json 裡的同一支（plan.build，跑一次 cards.todo）再加上 pending.json 裡沒有整理題的那幾種（plan.pending_asks）；
-每題帶 key（穩定的鍵）、about（對象的實體與檔）、urgent（有時間性）。先放著的不列（有時間性的照列）。
-沒帶 --all：只回跟這一句有關的（--about 給的實體，別名也認；加上這一回合碰過的：回合帳改到的卡與綜合卡、kb lookup／convert／cards
-在對話裡記的 touched）與有時間性的，照急的排、最多 ASKS_MAX 題；others 是其餘的件數（不含先放著），others_line 是這個 session
-還沒說過、others 大於 0 時給 AI 原樣貼的一句，印了就在回合記 asks_told（同一個對話之後都帶著，不再說）。
---all（「看待處理」「有沒有要我確認的」，answer）：全部照急的排，set_aside 是先放著的件數，沒有 others_line。
+每題帶 key（穩定的鍵）、about（對象的實體與檔）、urgent（有時間性）。先放著的不列（有時間性且快到期的照列；逾期的先放著就不再拿出來）。
+沒帶 --all：asks 只放跟這一句有關的（--about 給的實體，別名也認；加上這一回合碰過的：回合帳改到的卡與綜合卡、kb lookup／convert／cards
+在對話裡記的 touched）與有時間性的，照急的排、最多 ASKS_MAX（1）題；later 是跟這一句無關、最急的一題（沒有 null），給 AI 在一段事說完時帶一句；
+others 是其餘的件數（不含先放著）。同一個 session（--session）回過的題（asks、later）記進 .system/asks_seen.json
+（{key: {first, sessions}}，寫前不備進回合，跟 set_aside.json 同一把鎖），之後同 session 不再回傳；終端機沒有 session 不記。答了（題目自己消失）就從 asks_seen 拿掉。
+first 超過 ask_expire_days 還在的題不再回傳並關掉：p- 開頭的交 pending 標 closed（reason「沒回，照推測」）、其他的記進 set_aside.json（by expired）；
+逾期日程的那筆資料不動。--json 的 expired 是這次關掉的鍵。
+--all（「看待處理」「有沒有要我確認的」，answer）：全部照急的排（同 session 回過的照列），set_aside 是先放著的件數，沒有 later、others。
 set-aside <key>：p- 開頭的交 kb pending set-aside；其他的（名字確認這類不住在 pending.json 的）記進 .system/set_aside.json
 （{key: {at, by, question}}，寫前備進回合）；鍵含問句的指紋，對象變了鍵就變，自然回到前面。找不到「沒有這個問題」exit 3。
-有時間性的（逾期、快到期）不收（D-226 補）：exit 3，第一行是改問的那句，接那題現成的答法；--json 帶 refused 與那題 ask。
+逾期、快到期的也收（放寬乙）；快到期的照 D-226 到 set_aside_wake_days 再拿出來。
 tell 只帶這一回合做了什麼（D-141）。人讀照編號印問題與選項，沒有就印「沒有要問的」。
 """
 import argparse
@@ -17,19 +21,18 @@ from datetime import date
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import cards, entities, pending, plan, turn
+from kb._lib import cards, config as config_lib, entities, pending, plan, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 NOTHING = "沒有要問的"
-ASKS_MAX = 3  # 回答末尾一次最多幾題（D-135）
-OTHERS_LINE = "還有 {n} 件要你決定的事，有空說『看待處理』"
+ASKS_MAX = 1  # 回答末尾一次最多幾題（D-135；放寬乙改成一件）
 SET_ASIDE_COUNT = "另外有 {n} 件先放著"
 SET_ASIDE_LINE = "先放著了：{}；有變化或快到期會再拿出來"
 NO_SUCH = "沒有這個問題"
-OVERDUE_NO_ASIDE = "這件已經過了日期，沒辦法先放著：做完了、不用了，還是改到哪一天？"
-URGENT_NO_ASIDE = "這件快到期了，沒辦法先放著：{question}"
+ASKS_SEEN_POSIX = ".system/asks_seen.json"
+EXPIRED_BY = "expired"
 CLI_LOCK_TIMEOUT = 30
 
 
@@ -84,24 +87,90 @@ def _related(ask, ents, files):
 
 
 def _pick(asks, ents, files):
-    """有時間性的先、再來有關的，最多 ASKS_MAX 題；其餘的算件數。"""
+    """有時間性的先、再來有關的，最多 ASKS_MAX 題；其餘的（照急的排）第一題是 later。回 (chosen, later, 其餘件數)。"""
     first = [a for a in asks if a.get("urgent")] + [a for a in asks if not a.get("urgent") and _related(a, ents, files)]
     chosen = first[:ASKS_MAX]
-    return chosen, len(asks) - len(chosen)
+    rest = [a for a in asks if a not in chosen]
+    return chosen, (rest[0] if rest else None), len(rest)
 
 
-def _others_line(vault, others):
-    """這個 session 還沒說過、others > 0 才給；給了就記 asks_told（終端機記不了，每次都給）。"""
-    if not others:
-        return None
-    now = turn.now(vault)
-    if now and now.get(turn.SESSION_FLAG):
-        return None
+def _seen_path(vault):
+    return Path(vault) / ASKS_SEEN_POSIX
+
+
+def _read_seen(vault):
     try:
-        turn.mark(vault, turn.SESSION_FLAG)
-    except TimeoutError:
-        pass  # 記不到只是下一句可能再說一次
-    return OTHERS_LINE.format(n=others)
+        data = kio.read_json(_seen_path(vault))
+    except (ValueError, OSError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def _seen_lock(vault):
+    p = Path(vault) / plan.SET_ASIDE_POSIX  # 跟 set_aside.json 同一把鎖
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return kio.FileLock(p)
+
+
+def _aside_now(vault):
+    """現在算先放著的鍵（pending 的 set_aside 還沒該回來、set_aside.json 記的鍵）。"""
+    try:
+        items = pending.load(vault)["items"]
+    except ValueError:
+        items = []
+    back = pending.due_back(vault, items) if any(i.get("set_aside") for i in items) else set()
+    return {i["id"] for i in items if i.get("status") == "open" and i.get("set_aside") and i["id"] not in back} | set(plan.set_aside_keys(vault))
+
+
+def _drop_aside_overdue(asks, vault):
+    """逾期的（與 p- 的有時間性待處理）先放著了就不再拿出來；快到期的照 D-226 到 set_aside_wake_days 再拿出來。回 (留下的, 藏了幾題)。"""
+    aside = _aside_now(vault)
+    keep = [a for a in asks if not (a.get("urgent") and a.get("key") in aside and (a.get("kind") == "overdue" or str(a.get("key")).startswith("p-")))]
+    return keep, len(asks) - len(keep)
+
+
+def _expire(vault, asks, seen):
+    """first 超過 ask_expire_days 的題關掉。回 (留下的, 這次關掉的鍵)。"""
+    days = config_lib.get(vault, "ask_expire_days")
+    today = date.today()
+    keep, gone = [], []
+    for a in asks:
+        first = (seen.get(a.get("key")) or {}).get("first")
+        try:
+            old = bool(first) and (today - date.fromisoformat(first)).days > days
+        except (TypeError, ValueError):
+            old = False
+        (gone if old else keep).append(a)
+    if gone:
+        turn_id = turn.current(vault)["turn"]
+        conversation = journal_cli.in_conversation(vault)
+        changed = []
+        for a in gone:
+            key = a["key"]
+            if key.startswith("p-"):
+                if pending.close_expired(vault, key, turn_id):
+                    changed = [{"path": pending.PENDING_POSIX, "action": "modify"}, {"path": pending.MD_POSIX, "action": "modify"}]
+            else:
+                _write_key(vault, key, a.get("question", ""), turn_id, by=EXPIRED_BY)
+                changed.append({"path": plan.SET_ASIDE_POSIX, "action": "modify"})
+        if changed:
+            journal_cli.record_program_or_warn(vault, f"{days} 天沒回的題關掉、照推測：{len(gone)} 件", changed, "asks expired", conversation)
+    return keep, [a["key"] for a in gone]
+
+
+def _record_seen(vault, shown, current_keys, sid):
+    """回過的題記進 asks_seen（沒 session 不記）；題目已不在（答了）的拿掉。寫前不備進回合。"""
+    with _seen_lock(vault):
+        seen = _read_seen(vault)
+        new = {k: json.loads(json.dumps(v)) for k, v in seen.items() if k in current_keys}
+        if sid:
+            today = date.today().isoformat()
+            for a in shown:
+                row = new.setdefault(a["key"], {"first": today, "sessions": []})
+                if sid not in row.setdefault("sessions", []):
+                    row["sessions"].append(sid)
+        if new != seen:
+            kio.write_json_atomic(_seen_path(vault), new)
 
 
 def _set_aside(vault, key, as_json):
@@ -109,13 +178,10 @@ def _set_aside(vault, key, as_json):
     if not key:
         print(NO_SUCH)
         return 3
-    if key.startswith("p-"):  # 住在 pending.json 的不用跑整理（第二輪 T-27：狀態檔壞了也收得了）
-        hit = plan.urgent_pending_ask(vault, key)
-    else:
+    hit = None
+    if not key.startswith("p-"):  # 住在 pending.json 的不用跑整理（第二輪 T-27：狀態檔壞了也收得了）
         asks, _hidden, _tell = _collect(vault)
         hit = next((a for a in asks if a.get("key") == key), None)
-    if hit is not None and hit.get("urgent"):
-        return refuse_urgent(hit, as_json)
     turn_id = turn.current(vault)["turn"]
     conversation = journal_cli.in_conversation(vault)
     if key.startswith("p-"):
@@ -140,19 +206,7 @@ def _set_aside(vault, key, as_json):
     return 0
 
 
-def refuse_urgent(ask, as_json):
-    """有時間性的不能先放著：回改問的那句與那題自己的答法（「還沒，下次再問」照舊只管這個對話）。exit 3。"""
-    line = OVERDUE_NO_ASIDE if ask.get("kind") == "overdue" else URGENT_NO_ASIDE.format(question=ask["question"])
-    plan.renumber([ask])
-    if as_json:
-        print(json.dumps({"key": ask["key"], "refused": line, "ask": ask}, ensure_ascii=False))
-    else:
-        print(line)
-        print("\n".join(f"  {r['n']}. {r['label']}" for r in ask["results"]))
-    return 3
-
-
-def _write_key(vault, key, question, turn_id):
+def _write_key(vault, key, question, turn_id, by="customer"):
     p = Path(vault) / plan.SET_ASIDE_POSIX
     p.parent.mkdir(parents=True, exist_ok=True)
     with kio.FileLock(p):
@@ -160,7 +214,7 @@ def _write_key(vault, key, question, turn_id):
         if key in keys:
             return
         turn.backup(vault, plan.SET_ASIDE_POSIX, turn_id)
-        keys[key] = {"at": date.today().isoformat(), "by": "customer", "question": question}
+        keys[key] = {"at": date.today().isoformat(), "by": by, "question": question}
         kio.write_json_atomic(p, {"schema_version": 1, "keys": keys})
 
 
@@ -185,17 +239,27 @@ def run(args):
         if args.action == "set-aside":
             return _set_aside(vault, args.key, as_json)
         asks, hidden, tell = _collect(vault)
+        current_keys = {a["key"] for a in asks}
+        seen = _read_seen(vault)
+        asks, expired = _expire(vault, asks, seen)
+        asks, more_aside = _drop_aside_overdue(asks, vault)
+        hidden += more_aside
+        sid = turn.SESSION or ""
         if args.all:
             plan.renumber(asks)
             out = {"asks": asks, "set_aside": hidden, "tell": tell}
             tail = [SET_ASIDE_COUNT.format(n=hidden)] if hidden else []
         else:
             ents, files = _scope(vault, args.about)
-            chosen, others = _pick(asks, ents, files)
-            plan.renumber(chosen)
-            line = _others_line(vault, others)
-            out = {"asks": chosen, "others": others, "others_line": line, "tell": tell}
-            tail = [line] if line else []
+            told = {a["key"] for a in asks if sid and sid in (seen.get(a["key"]) or {}).get("sessions", [])}
+            chosen, later, others = _pick([a for a in asks if a["key"] not in told], ents, files)
+            shown = chosen + ([later] if later else [])
+            plan.renumber(shown)
+            _record_seen(vault, shown, current_keys - set(expired), sid)
+            out = {"asks": chosen, "later": later, "others": others, "tell": tell}
+            tail = []
+        if expired:
+            out["expired"] = expired
     except ValueError as e:
         print(f"狀態檔讀不到：{e}")
         return 3
@@ -209,6 +273,8 @@ def run(args):
         print(json.dumps(out, ensure_ascii=False))
         return 0
     _print(out["asks"], tail)
+    if out.get("later"):
+        print(f"一段事說完再問：{out['later']['question']}")
     if out["tell"]:
         print("回答末尾要說：")
         print("\n".join(out["tell"]))

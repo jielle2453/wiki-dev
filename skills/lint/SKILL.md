@@ -37,14 +37,14 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 ## 骨架
 
 - 要檢查：跑 `kb lint --json`；另一個健檢在跑就照拒絕句講、等它做完。
-- 回答：`summary` 照講；`done` 挑一兩件說替她做了什麼；`most_urgent` 講最急的一件，其他的件數交給末尾的 `others_line`，不另外說；`failed_checks` 有就一句哪幾項這次沒查成。欄位怎麼讀看 `references/report.md`。
+- 回答：`summary` 照講；`done` 挑一兩件說替她做了什麼；`most_urgent` 講最急的一件，其他的不另外說；`failed_checks` 有就一句哪幾項這次沒查成。欄位怎麼讀看 `references/report.md`。
 - `ingest` 的 `unsorted`、`unlinked`、`synthesis_stale`、`duplicates` 有大於 0 的：講完照 ingest skill 整理，份數多照它的規則先問（她要我檢查，就是要把擱著的處理掉，D-220）；讀不到、寫法不同這類是要她決定的，不交整理。
 - 看健檢報告：`kb asks --all --json` 找 `kind` 是 `pending_report` 那題，照它結果的 `note` 讀那個月的報告、照 `references/report.md` 講重點，講完跑它的 `do`；沒有那題就讀 `系統/健檢報告/` 最新的一份。
 - 你直接修：跑 `kb asks --all --json`，`kind` 是 `pending_lint`、`pending_handedit` 的每件照它的結果與 `references/report.md` 做；手改的先 `kb lint handedit --json`、照意思做完 `kb lint handedit --done <那件的 pending>`；最後列清單。
-- 末尾跑 `kb asks --about <這一句講到的實體> --json`（這一句跑過 `--all` 就不再跑），照 `asks` 問、`others_line` 有就原樣貼。
+- 末尾跑 `kb asks --about <這一句講到的實體> --json`（這一句跑過 `--all` 就不再跑），照 `asks` 問一件，`later` 在這段事說完時帶一句。
 - 這句話有寫入（修了、記了）才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。
 
 ## 共通
 
 - 一次一個指令；路徑加引號，不 cd，不用 && 串接。
-- 不自己讀寫 `.system/`；報告在 `系統/健檢報告/`，用 Read 看。程式拒絕就照理由句轉成白話，不繞過去。
+- 不自己讀寫 `.system/`；報告在 `系統/健檢報告/`，用 Read 看。被擋或拒絕：照訊息裡的指令或做法接著做完，不跟客戶提；訊息說做不到的，照核心規則 R-12。

@@ -1,5 +1,6 @@
 """kb asks 的問法（lint 題，D-225、D-226；驗收 16、17）：跟這一句有關的才問（--about、這一回合查過的）、有時間性的照講、
-其他報件數（others、others_line 一個 session 說一次）、--all 全部、先放著（kb asks set-aside）。"""
+一次最多一題（ASKS_MAX）、later 帶一題無關的、同一題一個 session 只回一次（asks_seen.json）、沒回的到期關掉（ask_expire_days）、
+--all 全部、先放著（kb asks set-aside，逾期的也收）。放寬乙 D-310(4)、D-322 第 6 件、D-334(7)(8)。"""
 import datetime as dt
 import json
 import shutil
@@ -10,7 +11,6 @@ from tests.test_scripts_inventory_cli import run_kb
 from kb._lib import pending, turn  # noqa: E402
 
 XINYI, DAAN = "e-5c1d0a7e", "e-0f3e9a21"
-LINE = "還有 {n} 件要你決定的事，有空說『看待處理』"
 
 
 class Base(unittest.TestCase):
@@ -27,8 +27,9 @@ class Base(unittest.TestCase):
     def unreadable(self, fid, name, ents):
         return pending.add(self.V, "unreadable", [fid], f"「{name}」讀不到", "檔案壞了", self.t, entity_ids=ents)
 
-    def asks(self, *args, code=0):
-        r = run_kb("asks", *args, "--json", cwd=self.V)
+    def asks(self, *args, code=0, session=None):
+        pre = ["--session", session] if session else []
+        r = run_kb(*pre, "asks", *args, "--json", cwd=self.V)
         self.assertEqual(r.returncode, code, r.stdout + r.stderr)
         return json.loads(r.stdout)
 
@@ -39,19 +40,63 @@ class Base(unittest.TestCase):
 class Scope(Base):
     def test_about_limits_to_related_and_counts_others(self):
         got = self.asks("--about", "信義王")
-        self.assertEqual({a["key"] for a in got["asks"]}, set(self.xinyi))
-        self.assertTrue(all(XINYI in a["about"]["entities"] for a in got["asks"]))
-        self.assertEqual(got["others"], self.base_all + 4)
-        self.assertEqual(got["others_line"], LINE.format(n=self.base_all + 4))
-        numbers = [r["n"] for a in got["asks"] for r in a["results"]]
+        self.assertEqual(len(got["asks"]), 1, "ASKS_MAX 是 1")
+        self.assertIn(got["asks"][0]["key"], set(self.xinyi))
+        self.assertIn(XINYI, got["asks"][0]["about"]["entities"])
+        self.assertIsNotNone(got["later"], "無關的最急一題放 later")
+        self.assertNotIn(got["later"]["key"], {a["key"] for a in got["asks"]})
+        self.assertEqual(got["others"], self.base_all + 6 - 1)
+        self.assertNotIn("others_line", got)
+        numbers = [r["n"] for r in got["asks"][0]["results"]]
         self.assertEqual(numbers, list(range(1, len(numbers) + 1)), "篩過之後重新從 1 連號")
 
-    def test_others_line_once_per_session(self):
-        self.assertIsNotNone(self.asks("--about", "信義王")["others_line"])
-        turn.start(self.V, "s1", "那大安陳呢")
-        self.assertIsNone(self.asks("--about", "信義王")["others_line"], "同一個 session 說過了")
-        turn.start(self.V, "s2", "新對話")
-        self.assertIsNotNone(self.asks("--about", "信義王")["others_line"], "新 session 又說一次")
+    def test_later_null_when_nothing_else(self):
+        for pid in self.xinyi + self.other:
+            run_kb("pending", "dismiss", pid, cwd=self.V)
+        got = self.asks("--about", "信義王")
+        self.assertEqual(len(got["asks"]), 0)
+        self.assertEqual(got["later"] is None, self.base_all == 0)
+
+    def test_same_ask_once_per_session(self):
+        first = self.asks("--about", "信義王", session="s1")
+        second = self.asks("--about", "信義王", session="s1")
+        shown = {first["asks"][0]["key"], first["later"]["key"]}
+        again = {a["key"] for a in second["asks"]} | ({second["later"]["key"]} if second["later"] else set())
+        self.assertFalse(shown & again, "同一個 session 回過的題不再出現")
+        third = self.asks("--about", "信義王", session="s2")
+        self.assertEqual(third["asks"][0]["key"], first["asks"][0]["key"], "換 session 又出一次")
+        every = {a["key"] for a in self.asks("--all", session="s1")["asks"]}
+        self.assertTrue(shown <= every, "--all 照列")
+        seen = json.loads((self.V / ".system" / "asks_seen.json").read_text(encoding="utf-8"))
+        self.assertEqual(seen[first["asks"][0]["key"]]["sessions"], ["s1", "s2"])
+        self.assertEqual(seen[first["asks"][0]["key"]]["first"], dt.date.today().isoformat())
+
+    def test_no_session_not_recorded(self):
+        self.asks("--about", "信義王")
+        self.assertFalse((self.V / ".system" / "asks_seen.json").exists())
+
+    def test_expired_ask_is_closed(self):
+        first = self.asks("--about", "信義王", session="s1")
+        key = first["asks"][0]["key"]
+        p = self.V / ".system" / "asks_seen.json"
+        seen = json.loads(p.read_text(encoding="utf-8"))
+        seen[key]["first"] = (dt.date.today() - dt.timedelta(days=15)).isoformat()
+        p.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8")
+        got = self.asks("--about", "信義王", session="s9")
+        self.assertIn(key, got["expired"])
+        self.assertNotIn(key, {a["key"] for a in got["asks"]})
+        item = next(i for i in pending.load(self.V)["items"] if i["id"] == key)
+        self.assertEqual((item["status"], item["how"]), ("closed", "沒回，照推測"))
+        self.assertEqual(item["reason"], "檔案壞了", "unreadable 本來的 reason 不蓋掉")
+        self.assertNotIn(key, {a["key"] for a in self.all()["asks"]})
+
+    def test_answered_ask_leaves_seen(self):
+        first = self.asks("--about", "信義王", session="s1")
+        key = first["asks"][0]["key"]
+        run_kb("pending", "dismiss", key, cwd=self.V)
+        self.asks("--about", "信義王", session="s1")
+        seen = json.loads((self.V / ".system" / "asks_seen.json").read_text(encoding="utf-8"))
+        self.assertNotIn(key, seen)
 
     def test_alias_and_unknown_about(self):
         got = self.asks("--about", "沒登記的名字")
@@ -61,7 +106,8 @@ class Scope(Base):
         r = run_kb("lookup", "信義王", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         got = self.asks()
-        self.assertEqual({a["key"] for a in got["asks"]}, set(self.xinyi))
+        self.assertEqual(len(got["asks"]), 1)
+        self.assertIn(got["asks"][0]["key"], set(self.xinyi))
 
     def test_time_sensitive_unrelated_still_asked(self):
         tomorrow = (dt.date.today() + dt.timedelta(days=1)).isoformat()
@@ -74,7 +120,7 @@ class Scope(Base):
         got = self.asks("--about", "信義王")
         kinds = [a["kind"] for a in got["asks"]]
         self.assertIn("agenda_conflict", kinds)
-        self.assertLessEqual(len(got["asks"]), 3)
+        self.assertEqual(len(got["asks"]), 1)
 
 
 class AllAndSetAside(Base):
@@ -82,6 +128,7 @@ class AllAndSetAside(Base):
         got = self.all()
         self.assertEqual(len(got["asks"]), self.base_all + 6)
         self.assertNotIn("others_line", got)
+        self.assertNotIn("later", got)
         self.assertEqual(got["set_aside"], 0)
 
     def test_set_aside_pending_and_back(self):
@@ -91,7 +138,7 @@ class AllAndSetAside(Base):
         got = self.all()
         self.assertNotIn(self.other[0], [a["key"] for a in got["asks"]])
         self.assertEqual(got["set_aside"], 1)
-        self.assertEqual(self.asks("--about", "信義王")["others"], self.base_all + 3, "先放著的不算進件數")
+        self.assertEqual(self.asks("--about", "信義王")["others"], self.base_all + 6 - 1 - 1, "先放著的不算進件數")
 
     def test_set_aside_non_pending_key_comes_back_when_object_changes(self):
         draft = self.V / "暫存區" / "報告" / "信義王 進度報告（草稿）.md"
@@ -105,6 +152,19 @@ class AllAndSetAside(Base):
         self.assertNotIn("draft", [a["kind"] for a in self.all()["asks"]])
         draft.write_text("第二版\n", encoding="utf-8")
         self.assertIn("draft", [a["kind"] for a in self.all()["asks"]], "對象變了鍵就變，回到前面")
+
+    def test_set_aside_overdue_is_accepted_and_gone(self):
+        """放寬乙：逾期的也收（不再 exit 3）；先放著之後 asks 不再出它。"""
+        d = (dt.date.today() - dt.timedelta(days=3)).isoformat()
+        item = {"id": "a-12345678", "kind": "promise", "date": d, "text": "給報價", "entities": ["大安陳"],
+                "status": "open", "source": "interview", "created_turn": "t", "history": []}
+        (self.V / ".system" / "agenda.json").write_text(
+            json.dumps({"schema_version": 1, "items": [item]}, ensure_ascii=False), encoding="utf-8")
+        over = next(a for a in self.all()["asks"] if a["kind"] == "overdue")
+        r = run_kb("asks", "set-aside", over["key"], cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("overdue", [a["kind"] for a in self.all()["asks"]])
+        self.assertNotIn("overdue", [a["kind"] for a in self.asks("--about", "信義王")["asks"]])
 
     def test_unknown_key(self):
         r = run_kb("asks", "set-aside", "name:e-00000000@abc", cwd=self.V)

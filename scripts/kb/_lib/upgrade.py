@@ -45,7 +45,7 @@ KINDS = ("patch", "minor", "major", "downgrade")
 
 UP_TO_DATE = "目前是最新版（{version}）"
 NOT_YET = "新版剛出來，幾分鐘後再說一次"
-NO_CLAUDE = "這台找不到 Claude 的更新程式，請服務人員幫忙"
+NO_CLAUDE = "這台找不到 Claude 的更新程式：自己找 claude.exe（%LOCALAPPDATA%、Program Files），找到就照它的路徑再跑；找不到才請服務人員。"
 UPDATE_FAILED = "更新沒成功：{why}"
 HISTORY_BROKEN = "更新沒成功：升級紀錄（.system/upgrade-history.json）讀不懂，請服務人員看一下；什麼都沒動"
 NO_SNAPSHOT = "升級前的快照已經不在，不能退回；請服務人員幫忙"
@@ -63,10 +63,10 @@ WITHDRAWN_LINE = "這一版 {plugin} 撤回了，清單指回 {latest}；要退�
 WITHDRAWN_NO_SNAPSHOT = "這一版 {plugin} 撤回了，清單指回 {latest}；但升級前的快照已經不在，不能退回，請服務人員幫忙。"
 
 FINISH_LINE = "已換到 {version}：先跑 kb upgrade --finish 再做別的。"
-NEW_VERSION_LINE = "有新版 {version}：{note}；說「升級」我帶你做。"
-NEW_VERSION_LINE_NO_NOTE = "有新版 {version}；說「升級」我帶你做。"
+NEW_VERSION_LINE = "有新版 {version}：{note}；客戶說「升級」再帶他做，這行只講一次。"
+NEW_VERSION_LINE_NO_NOTE = "有新版 {version}；客戶說「升級」再帶他做，這行只講一次。"
 WITHDRAWN_OPENING = "這一版 {version} 撤回了；用起來有問題的話說「退回舊版」。"
-PENDING_OPENING = "上次升級到 {version} 還沒換好；說「升級」我再試一次。"
+PENDING_OPENING = "上次升級到 {version} 還沒換好：客戶說「升級」就再試一次，這行只講一次。"
 REUSE_SNAPSHOT_SECONDS = 24 * 3600  # 沿用上次沒換成的升級前快照，只限一天內拍的
 
 DOWNLOAD_MAX_BYTES = 100 * 1024 * 1024  # 一份 zip 的上限（現在一版不到 2 MB）
@@ -912,6 +912,9 @@ BLANK_CHECK = {"latest": None, "kind": None, "allowed": False, "note": None, "au
 
 def _save_check(vault, **fields):
     """整份換掉：沒給的欄回到 BLANK_CHECK（verify_failed 也是：換成功、清單換了新版本、不再是小修都清掉）。"""
+    old = env.update_check(vault) or {}
+    if old.get("told") and "told" not in fields:
+        fields["told"] = old["told"]  # 開場講過的記號不跟著整份換掉
     env.set_update_check(vault, dict(BLANK_CHECK, date=_today(), **fields))
 
 
@@ -1002,6 +1005,13 @@ def _maybe_spawn(vault, chk):
         pass
 
 
+def _mark_told(vault, chk, value):
+    """開場那句講過了：在這台的 update_check 記 told（版本字串；撤回記 withdrawn:<這台的版本>），回新的 chk。"""
+    chk = dict(chk or BLANK_CHECK, told=value)
+    env.set_update_check(vault, chk)
+    return chk
+
+
 def opening(vault):
     """開場判斷，不連網、不等背景。回 {"finish": 要不要 --finish, "line": 開場那句或 None}。
     沒有 upgrade-history.json 就記成現在版本、不印換版那行（第一次跑這版的既有知識庫）；壞檔丟 ValueError（那行不印、寫 log）。
@@ -1018,15 +1028,19 @@ def opening(vault):
     if finish_needed:
         line = FINISH_LINE.format(version=plugin)
     elif pending_to and pending_to != plugin:
-        line = PENDING_OPENING.format(version=pending_to)
+        if (chk or {}).get("told") != pending_to:  # 放寬乙 D-322 第 5 件：同一個版本只講一次
+            line, chk = PENDING_OPENING.format(version=pending_to), _mark_told(vault, chk, pending_to)
     elif chk and chk.get("allowed") and isinstance(chk.get("latest"), str):
         k = kind(plugin, chk["latest"])
         if k in ("minor", "major"):
             note = clean_note(chk.get("note"))
             note = note[:config.get(vault, "update_note_max")].strip().rstrip("。.！!") or None if note else None
-            line = (NEW_VERSION_LINE.format(version=chk["latest"], note=note) if note
-                    else NEW_VERSION_LINE_NO_NOTE.format(version=chk["latest"]))
-        elif k == "downgrade":
+            if chk.get("told") != chk["latest"]:
+                line = (NEW_VERSION_LINE.format(version=chk["latest"], note=note) if note
+                        else NEW_VERSION_LINE_NO_NOTE.format(version=chk["latest"]))
+                chk = _mark_told(vault, chk, chk["latest"])
+        elif k == "downgrade" and chk.get("told") != f"withdrawn:{plugin}":
             line = WITHDRAWN_OPENING.format(version=plugin)
+            chk = _mark_told(vault, chk, f"withdrawn:{plugin}")
     _maybe_spawn(vault, chk)
     return {"finish": finish_needed, "line": line}

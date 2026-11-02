@@ -448,7 +448,7 @@ def refresh(vault, turn_id, asks=None):
 
 def _answered(item, once, fp):
     """她（或 AI 照她的話）處理過、不是程式自己關的：once 的一律算，其他要對象指紋跟那時一樣（測試 T-2）。"""
-    return (item.get("status") in ("done", "dismissed") and item.get("how") != LINT_GONE_HOW and not item.get("cleared")
+    return (item.get("status") in ("done", "dismissed", "closed") and item.get("how") != LINT_GONE_HOW and not item.get("cleared")
             and (once or item.get("fp") == fp))
 
 
@@ -574,6 +574,26 @@ def set_aside(vault, pid, by, turn_id):
         return True
     _edit(vault, turn_id, change)
     return dict(got["item"])
+
+
+EXPIRED_REASON = "沒回，照推測"
+
+
+def close_expired(vault, pid, turn_id, reason=EXPIRED_REASON):
+    """放寬乙：客戶一直沒回、超過 ask_expire_days 的題關掉（status closed）；不是 open 或找不到的照回 False。
+    reason 寫進 reason 與 how（unreadable 那種本來就有 reason 的不蓋掉）。"""
+    got = {}
+
+    def change(items):
+        item = next((i for i in items if i.get("id") == pid), None)
+        if item is None or item.get("status") != "open":
+            return False
+        _close(item, "closed", reason)
+        item.setdefault("reason", reason)
+        got["ok"] = True
+        return True
+    _edit(vault, turn_id, change)
+    return bool(got.get("ok"))
 
 
 def _back(item):

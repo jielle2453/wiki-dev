@@ -16,7 +16,7 @@ USER_KEYS = (
     "pending_set_aside_days", "set_aside_wake_days", "lint_inferred_days", "preference_lint_days", "versions_keep_days",
     "versions_keep_turns", "backup_keep", "snapshots_keep", "home_timeline_days", "home_recent_max", "find_recent_days",
     "find_results_max", "card_parallel", "preference_max", "preference_max_chars", "inbox_remind_days",
-    "inbox_remind_every_days",
+    "inbox_remind_every_days", "ask_expire_days",
 )
 CLIENT_REL = Path(".system") / "config.json"
 

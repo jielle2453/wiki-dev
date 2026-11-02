@@ -72,7 +72,7 @@ class Body(unittest.TestCase):
         for banned in ("cards drop", "pending resolve", "entity rename"):
             with self.subTest(banned=banned):
                 self.assertNotIn(banned, self.body)
-        for lead, code in (("刪除只認明確確認", "I-082"), ("一次最多 3 個問題", "D-135")):
+        for lead, code in (("原檔不見當作客戶刪的", "I-082"), ("一次問一件", "D-135")):
             with self.subTest(principle=lead):
                 line = next((ln for ln in self.body.splitlines() if lead in ln), "")
                 self.assertIn(code, line)
@@ -157,7 +157,7 @@ class CardMakerSkeleton(unittest.TestCase):
 
     def test_dispatch_flow_in_order(self):
         marks = ["cards todo --json", "cards dispatch --json", "Agent 工具", "subagent_type", "approval", "cards status",
-                 "cards stop --json", "TaskStop", "`asks` 從前面", "note_cmd", "turn note"]
+                 "cards stop --json", "TaskStop", "`asks` 有就問一件", "note_cmd", "turn note"]
         pos = [self.steps.index(m) for m in marks]
         self.assertEqual(pos, sorted(pos), marks)
 

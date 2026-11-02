@@ -16,7 +16,7 @@ HOOK = ROOT / "hooks" / "session.py"
 CORE = ROOT / "rules" / "core.md"
 KB_LINE = f'【wiki-with-willy】kb 指令：python "{ROOT.as_posix()}/scripts/kb.py" <子命令>'
 COMPACT_LINE = "對話剛摺疊，規則已重新帶入；做到一半的事以工作日誌為準。"
-ERROR_LINE = "【wiki-with-willy】開場程式出錯（{}），詳見 .system/hook-errors.log；這個對話不改任何檔。"
+ERROR_LINE = "【wiki-with-willy】開場程式出錯（{}），詳見 .system/hook-errors.log；跑 kb selftest 看原因，修好之前不改任何檔。"  # 即 ERROR_LINE_FATAL
 
 
 def run(data, cwd=None):
@@ -580,12 +580,12 @@ class OpeningAgenda(unittest.TestCase):
 
     def test_overdue_line_has_the_hint(self):
         self.put(("deadline", -3, "open"))
-        self.assertEqual(self.agenda_lines(self.status()), ["日程：逾期 1（回答末尾跑 kb asks 照著問）"])
+        self.assertEqual(self.agenda_lines(self.status()), ["日程：逾期 1（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）"])
 
     def test_all_three_numbers(self):
         self.put(("deadline", -3, "open"), ("promise", -1, "open"), ("meeting", 0, "open"), ("reminder", 2, "open"),
                  ("deadline", 5, "open"))
-        self.assertEqual(self.agenda_lines(self.status()), ["日程：逾期 2（回答末尾跑 kb asks 照著問）、今天 1、7 天內 2"])
+        self.assertEqual(self.agenda_lines(self.status()), ["日程：逾期 2（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）、今天 1、7 天內 2"])
 
     def test_only_upcoming(self):
         self.put(("meeting", 2, "open"), ("reminder", 6, "open"), ("deadline", 30, "open"))
@@ -654,7 +654,7 @@ class OpeningPreferences(unittest.TestCase):
         self.put("回答先講結論", "講日期都帶星期")
         ctx = self.context()
         core = CORE.read_text(encoding="utf-8")
-        self.assertTrue(ctx.endswith("\n\n" + core + "\n客戶偏好（只管怎麼回答、怎麼做東西給客戶；跟上面的核心規則或守門衝突時，照核心規則）：\n- 回答先講結論\n- 講日期都帶星期"), ctx[-200:])
+        self.assertTrue(ctx.endswith("\n\n" + core + "\n客戶偏好（跟上面的核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓）：\n- 回答先講結論\n- 講日期都帶星期"), ctx[-200:])
         self.assertEqual(ctx.splitlines()[0], KB_LINE)
 
     def test_no_preferences_no_block(self):
@@ -894,7 +894,7 @@ class OpeningUpgrade(unittest.TestCase):
         self.put_history(self.plugin())
         self.put_check(latest="99.0.0", kind="major", allowed=True, note="日程可以匯出成 Excel")
         lines = self.status()
-        self.assertEqual(lines[1], "有新版 99.0.0：日程可以匯出成 Excel；說「升級」我帶你做。")
+        self.assertEqual(lines[1], "有新版 99.0.0：日程可以匯出成 Excel；客戶說「升級」再帶他做，這行只講一次。")
 
     def test_new_version_line_not_printed_when_not_on_the_roster_or_only_a_patch(self):
         self.put_history(self.plugin())
@@ -1237,7 +1237,7 @@ class InboxLine(unittest.TestCase):
         from unittest import mock
         from kb._lib import env
         self.files(10)
-        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；說「升級」我帶你做。"):
+        with mock.patch.object(self.session, "line_version", return_value="有新版 9.9.9：x；客戶說「升級」再帶他做，這行只講一次。"):
             self.assertIsNone(self.session.line_inbox(self.V))
         self.assertIsNone(env.inbox_reminded(self.V))
         self.assertIsNotNone(self.session.line_inbox(self.V))
@@ -1285,7 +1285,7 @@ class OpeningCardEdits(unittest.TestCase):
         self.lines()  # 第一次開：補基準
         self.hand_edit()
         got = self.edit_lines(self.lines())
-        self.assertEqual(got, ["你在 Obsidian 改了 1 張卡（kb cards edits）：先照 note skill 處理完再回答。"])
+        self.assertEqual(got, ["客戶在 Obsidian 改了 1 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"])
 
     def test_no_line_after_done(self):
         self.lines()
@@ -1306,7 +1306,7 @@ class OpeningCardEdits(unittest.TestCase):
         lines = mod.status_lines(self.V, "startup")
         self.assertIn("kb.py", lines[0])
         self.assertEqual(self.edit_lines(lines),  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
-                         ["可能有你改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答。"])
+                         ["可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"])
         log = (self.V / ".system" / "hook-errors.log")
         self.assertFalse(log.exists() and "card_base" in log.read_text(encoding="utf-8"))
 
@@ -1322,6 +1322,6 @@ class OpeningCardEdits(unittest.TestCase):
         card_base.edits = lambda vault, deadline=None, persist=True: {"edits": [{"path": self.CARD}] * 2, "more": True}
         try:
             self.assertEqual(mod.line_card_edits(self.V),
-                             "你在 Obsidian 改了 2 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答。")
+                             "客戶在 Obsidian 改了 2 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。")
         finally:
             card_base.edits = orig

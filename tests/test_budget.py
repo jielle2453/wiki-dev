@@ -25,7 +25,7 @@ CLIENT_CLAUDE_MD_MAX_CHARS = 1200
 SKILL_BODY_MAX_LINES = 120
 SKILL_BODY_MAX_CHARS = 5000
 REFERENCE_MAX_LINES = 150
-RESIDENT_TOTAL_MAX_CHARS = 5000
+RESIDENT_TOTAL_MAX_CHARS = 5050  # 放寬乙：core 與 CLAUDE.md 換成新說法（變長），5000→5050；實測 5021
 OPENING_MAX_LINES = 8
 OPENING_MAX_CHARS = 600  # 放寬甲：開場兩句改成 spec 的新句（變長），550→600；原註 客戶機路徑量（B-060、D-070 補）：最壞情況（有新版加滿六行）521；原本 400 是開發機短路徑量的
 
@@ -319,7 +319,7 @@ def opening_preferences_chars():
         shutil.rmtree(tmp, ignore_errors=True)
     core = read(CORE)
     block = ctx[ctx.index(core) + len(core):]
-    assert block.startswith("\n客戶偏好（只管怎麼回答、怎麼做東西給客戶；跟上面的核心規則或守門衝突時，照核心規則）：\n") and block.count("\n- ") == PREFERENCE_MAX, block[:80]
+    assert block.startswith("\n客戶偏好（跟上面的核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓）：\n") and block.count("\n- ") == PREFERENCE_MAX, block[:80]
     assert "\n做文件時：\n" in block and "\n每日議題：\n" in block, block
     return len(block)
 

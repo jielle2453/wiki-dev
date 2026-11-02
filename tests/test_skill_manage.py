@@ -84,7 +84,7 @@ class Body(unittest.TestCase):
 
     def test_principles_cover_spec_points(self):
         rules = section(self.body, "原則")
-        for word in ("kb source-edit", "--check", "kb folders purge", "open", "where", "對不太上", "救不回"):
+        for word in ("kb source-edit", "--check", "kb folders purge", "locate", "where", "對不太上", "救不回"):
             with self.subTest(word=word):
                 self.assertIn(word, rules)
         self.assertIn("清完的回答不提那夾裡的檔名與內容", rules)  # 疑義第 4 條
@@ -139,7 +139,7 @@ class Body(unittest.TestCase):
         files = (SKILL_DIR / "references" / "files.md").read_text(encoding="utf-8")
         for word in ("## relocate", "## purge", "還有綜合卡寫著那夾的內容", "還原用的快照也清掉了；你自己存在外面的備份我碰不到"):
             self.assertIn(word, sources)
-        for word in ("## move", "## rename", "## trash", "## where", "## open", "OneDrive", "不同顆硬碟不代搬"):
+        for word in ("## move", "## rename", "## trash", "## where", "## open", "OneDrive", "跨硬碟"):
             self.assertIn(word, files)
         self.assertNotIn("這版還沒有卡和備份要清", sources)
 
@@ -220,7 +220,7 @@ class UpgradeSection(unittest.TestCase):
 
     def test_ops_has_every_upgrade_sentence(self):
         for word in ("好了，開一個新對話就是新版", "已回到", "目前是最新版", "新版剛出來，幾分鐘後再說一次",
-                     "這台找不到 Claude 的更新程式，請服務人員幫忙", "更新沒成功：", "升級前的快照已經不在，不能退回；請服務人員幫忙",
+                     "這台找不到 Claude 的更新程式", "更新沒成功：", "升級前的快照已經不在，不能退回；請服務人員幫忙",
                      "現在連不上更新的地方，晚點再說一次", "背景整理還在跑，先停掉再升級"):
             with self.subTest(word=word):
                 self.assertIn(word, self.ops)
@@ -277,10 +277,10 @@ class Evals(unittest.TestCase):
 
 class IngestHandOff(unittest.TestCase):
     def test_type_folder_line(self):
-        """第一輪修第 10 條：型別底下還有東西時，實體換型別走 kb entity，散檔才問要不要走 manage 搬（不繞圈）。"""
+        """放寬乙：實體合併 entity merge 自己搬舊夾的檔，同名的列 conflict 由 AI 判斷（不再問客戶要不要走 manage 搬）。"""
         text = (ROOT / "skills" / "ingest" / "references" / "commands.md").read_text(encoding="utf-8")
-        line = next(ln for ln in text.splitlines() if "先搬走再拿掉這列" in ln)
-        self.assertIn("實體換型別用 kb entity，夾裡的散檔問她要不要幫她搬（走 manage）", line)
+        line = next(ln for ln in text.splitlines() if "entity merge" in ln and "conflict" in ln)
+        self.assertIn("把舊夾的檔搬進目標的夾", line)
 
 
 class RepoClaudeMd(unittest.TestCase):
