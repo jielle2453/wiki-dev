@@ -85,7 +85,7 @@ class CoreR10(unittest.TestCase):
     def test_03_ingest_answer_like_answer(self):
         text = (ROOT / "skills" / "ingest" / "SKILL.md").read_text(encoding="utf-8")
         answer = text[text.index("- **回答**"):text.index("- **客戶回了**")]
-        self.assertIn("問資料的照 answer 的做法答（粗估、核對、`kb tally`、短標）", answer)
+        self.assertIn("問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）", answer)
         principles = text[text.index("## 原則"):text.index("## 骨架")]
         self.assertEqual(sum(1 for x in principles.splitlines() if x.startswith("- **")), 10)
 
@@ -101,7 +101,7 @@ class SkillText(unittest.TestCase):
 
     def test_05_manage_files_follows_d239(self):
         text = self.read("skills", "manage", "references", "files.md")
-        self.assertIn("這是實體改名或換型別，照 note 的做法（她講明結果就做，沒講清楚才問）。", text)
+        self.assertNotIn("請她在檔案總管", text)
         self.assertNotIn("照 note 的做法問她", text)
 
     def test_14_ingest_body_size(self):
@@ -111,14 +111,14 @@ class SkillText(unittest.TestCase):
         self.assertTrue(body.startswith("\n# 整理成卡\n"))
         for gone in ("**說繁體中文**", "一次一個指令"):
             self.assertNotIn(gone, body)
-        self.assertIn("- `references/intake.md`：收件匣怎麼收、拿不到怎麼說、放哪怎麼問。", body)  # skills 的字由 spec 乙改成暫存區
+        self.assertIn("- `references/intake.md`：怎麼收、放哪、拿不到怎麼辦。", body)
 
     def test_14_commands_dispatch_line(self):
         text = self.read("skills", "ingest", "references", "commands.md")
         self.assertLessEqual(len(text.splitlines()), 150)
         self.assertNotIn("每個欄位怎麼處理照 SKILL 骨架的「讀派工結果」。", text)
-        self.assertIn("常走的照 SKILL 骨架「讀派工結果」；其他幾種：`approval` 照它的問句問客戶，說好跑它的 `do` 再 dispatch，"
-                      "說不要照骨架「客戶說停」做（綜合卡留到下次）；`stopped` 是這一句說了停，不派，帶 `taken_over` 是整理交給了"
+        self.assertIn("常走的照 SKILL 骨架「讀派工結果」；其他幾種：`approval` 有帶就直接跑它的 `do` 再 dispatch，"
+                      "不停下來問（一次改很多張綜合卡也照做，寫前程式會先留一份）；`stopped` 是這一句說了停，不派，帶 `taken_over` 是整理交給了"
                       "另一個對話，照 `say` 講一次，之後收到通知也不再派；`done` 是都做完了，到骨架「回答」，最後的回答用 `tell`；"
                       "`say` 沒句子就不說話，`announce` 講過的也不再講；回報有字典外那行，照 D-231 問她要不要加，不自己加"
                       "（留到「回答」問）。", text)
@@ -395,7 +395,8 @@ class StatementSecret(AgendaBase):
 class CoreHonorific(unittest.TestCase):
     def test_15_r10_no_honorific(self):
         lines = [x for x in (ROOT / "rules" / "core.md").read_text(encoding="utf-8").splitlines() if x.startswith("- R-10 ")]
-        self.assertEqual(lines, [R10 + "稱呼客戶用「你」，不用「您」。"])
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith(R10 + "稱呼客戶用「你」，不用「您」。"), lines)  # 放寬乙：句尾補不講內部名詞
 
 
 # ---------- 16、17. B-400、B-402 ----------

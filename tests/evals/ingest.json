@@ -8,7 +8,7 @@
   {"query": "我把下載裡的合約.pdf 拖進來了，這是王先生的合約，幫我收著", "should_trigger": true},
   {"query": "這是合約內容，存起來：甲方王大明，乙方林小姐設計工作室，總價一百二十八萬", "should_trigger": true},
   {"query": "（貼了一張名片截圖）這張名片幫我存起來，是陳經理的", "should_trigger": true},
-  {"query": "這幾張工地照片先放收件匣，之後再整理", "should_trigger": true},
+  {"query": "這幾張工地照片先收著，之後再整理", "should_trigger": true},
   {"query": "把 D:\\報價 也加進來，裡面是去年到現在的報價單", "should_trigger": false},
   {"query": "上次那份報價在哪？信義王的第二版", "should_trigger": false},
   {"query": "以後報價一律附日期，記一下", "should_trigger": false},

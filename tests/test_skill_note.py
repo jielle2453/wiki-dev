@@ -83,7 +83,7 @@ class Body(unittest.TestCase):
             self.assertIn(code, section)
 
     def test_discriminates_unsupported_kinds(self):
-        for want in ("還記不起來", "沒有寫任何檔", "不要說「記下了」"):
+        for want in ("還存不了", "用完就丟", "不說「記下了」"):
             with self.subTest(want=want):
                 self.assertIn(want, self.body)
 
@@ -124,13 +124,13 @@ class RuleChange(unittest.TestCase):
     def test_credential_line_warns_about_renaming(self):
         """確認後裁定 11（確認落差 3）：密碼那行本文就帶「別改檔名」的提醒，不只靠 ruling.md。"""
         line = next(ln for ln in self.body.splitlines() if ln.startswith("- **密碼的話**"))
-        self.assertIn("提醒不要把檔名改掉來讓程式讀（守門只看檔名，D-145）", line)
+        self.assertIn("提醒不要把檔名改掉來讓程式讀（D-145）", line)
 
     def test_password_line_routes_and_only_login_left_unsupported(self):
         """密碼與守門第 9 點：「可以讀」記裁示、「記下來」經 kb unlock；記不起來的只剩登入與 API 金鑰（D-179）。"""
         line = next(ln for ln in self.body.splitlines() if ln.startswith("- **密碼的話**"))
         for want in ("密碼檔可以讀", "記下來", "references/ruling.md", "references/password.md", "登入", "API 金鑰",
-                     "還記不起來"):
+                     "還存不了"):
             with self.subTest(want=want):
                 self.assertIn(want, line)
         self.assertFalse(any(ln.startswith("- **這版記不起來的話**") for ln in self.body.splitlines()))
@@ -139,7 +139,7 @@ class RuleChange(unittest.TestCase):
         """D-239（標籤字典裁定 26，取代 N-3b 的順序）：骨架那行先 --check，原句講明結果就直接做；沒講清楚才問，
         型別合併問的時候先問一句為什麼要併。"""
         line = next(ln for ln in self.section("## 骨架", "## 共通").splitlines() if "合併" in ln and "--check" in ln)
-        for want in ("為什麼", "原句講明結果就直接做", "沒講清楚才"):
+        for want in ("說出猜測", "原句講明結果就直接做", "沒講清楚照最可能的做"):
             self.assertIn(want, line)
 
     def test_principles_have_new_codes(self):
@@ -156,7 +156,7 @@ class RuleChange(unittest.TestCase):
         self.assertLessEqual(len(text.splitlines()), REFERENCE_MAX_LINES)
         rows = [ln for ln in text.splitlines() if re.match(r"^\| \d+ \|", ln)]
         self.assertEqual([int(ln.split("|")[1]) for ln in rows], list(range(1, 21)))
-        for want in ("萬元", "兩種意思", "20 份以內", "要停跟我說一聲"):
+        for want in ("萬元", "兩種意思", "kb config set", "ingest_auto_max"):
             with self.subTest(want=want):
                 self.assertIn(want, text)
         self.assertIsNone(ABS_PATH.search(text))
@@ -220,13 +220,13 @@ class Knowledge(unittest.TestCase):
                 self.assertIn(want, part)
         row = next(ln for ln in refs["correction.md"].splitlines() if ln.startswith("| 綜合卡寫錯 |"))
         self.assertIn("記一條口述", row)
-        self.assertIn("記下了，下次整理時綜合卡會改", row)
-        ask = "客戶說的名稱實體清單沒有，先問「<名稱> 是新的案子／對象嗎？」，客戶說是才 `kb entity add`；說是別的名字就照那個名字"
+        self.assertIn("記下了，綜合卡會跟著改", row)
+        ask = "看得出是新的案子或對象就直接 `kb entity add`、說一聲"
         for name, text in refs.items():
             with self.subTest(name=name):
                 self.assertIn(ask, text)
         self.assertNotIn("不要為了掛日程替客戶登記新實體", refs["agenda.md"])
-        self.assertIn("這版只能一件一件記", refs["ruling.md"])
+        self.assertIn("記成偏好（第六節）照做", refs["ruling.md"])
         self.assertNotIn("走改規則", refs["ruling.md"])
 
 

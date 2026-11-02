@@ -38,9 +38,9 @@ class RulesCore(unittest.TestCase):
         self.assertTrue(line.endswith("問最近改了什麼用 kb journal recent --changed 答。"), line)
 
     def test_r04_trash_through_kb(self):
-        """manage 第二版第 10 點（D-173、I-116）：R-04 刪除改成經 kb 丟資源回收筒，不再請客戶自己刪。"""
+        """manage 第二版第 10 點（D-173、I-116）：R-04 刪除改成經 kb 丟資源回收筒；放寬乙改成先留一份就做、不先講後果。R-07 改成先拍快照再代做。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-04 "))
-        self.assertEqual(line, "- R-04 搬動、改名走 kb 程式；刪除經 kb 丟資源回收筒，先講後果、她明確說刪才做。")
+        self.assertEqual(line, "- R-04 動客戶的檔：搬、改名、建夾、刪空夾用什麼方法都行；刪掉、蓋掉、改內容之前先留一份（刪用 kb source-edit trash，改文字檔用 Edit，Word、Excel 用 kb office），留好就做，不先講後果、不多問。kb 說刪了救不回來時，用白話問一句，客戶說確定才刪。")
 
     def test_r01_free_area_read_only_when_asked(self):
         """彈性區（#21，D-511、裁定 12、19）：R-01 句尾補彈性區平常不讀、別處找不到也不翻、有檔才問、提到這一區或答應要看才讀、Word 走 kb convert 讀不到照實說；夾名照 areas.FREE_DIR。"""
@@ -52,7 +52,7 @@ class RulesCore(unittest.TestCase):
     def test_r07_restore_and_upgrade_after_yes(self):
         """備份還原與換電腦要做的事 12（D-205、D-215）：R-07 這一句跟「升級與打包發行」共用、一字不差。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-07 "))
-        self.assertEqual(line, "- R-07 整個知識庫的重建、搬家只說明指令與後果，不代跑；還原、升級先講清楚會發生什麼，客戶說好才做。")
+        self.assertEqual(line, "- R-07 重建整個知識庫先拍快照再代做；還原、升級先講一句會發生什麼，客戶說好就做。只有搬整個知識庫在開著的對話裡做不到，一步一步帶客戶做。")
 
     def test_utf8_lf_single_trailing_newline(self):
         raw = CORE.read_bytes()
@@ -65,7 +65,7 @@ class SkeletonSentinel(unittest.TestCase):
     def test_plugin_screen_sentence(self):
         """manage 第二版第 1 點（B-093 3-3）：哨兵句補「Python 正常就看外掛畫面」那一句。"""
         text = (ROOT / "skeleton" / "CLAUDE.md").read_text(encoding="utf-8")
-        self.assertIn("Python 正常就請服務人員看 Claude 的外掛畫面，wiki-with-willy 有沒有裝著、啟用", text)
+        self.assertIn("Python 正常就看外掛有沒有裝著、啟用（claude plugin list）", text)
 
 
 if __name__ == "__main__":

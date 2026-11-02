@@ -79,11 +79,6 @@ def _aside(vault, args, as_json):
     conversation = journal_cli.in_conversation(vault)
     turn_id = turn.current(vault)["turn"]
     if args.pending_command == "set-aside":
-        from kb import asks_cli
-        from kb._lib import plan
-        hit = plan.urgent_pending_ask(vault, args.id)  # 有時間性的不收，跟 kb asks set-aside 同一句（第二輪 T-27）
-        if hit is not None:
-            return asks_cli.refuse_urgent(hit, as_json)
         item = pending.set_aside(vault, args.id, "customer", turn_id)
         line, note = SET_ASIDE_LINE.format(_text(item)), f"待處理先放著：{_text(item)}"
     else:
