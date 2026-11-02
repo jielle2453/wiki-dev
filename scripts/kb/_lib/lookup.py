@@ -6,6 +6,7 @@ stale、不採用的 ruled_out）、有效口述、有效裁示（口述為準�
 名稱沒登記（或已移除）：entity、synthesis 是 null，mentions 列標題或正文出現這個詞的檔案卡（最多 lookup_mentions_max 張，
 mentions_total 是全部份數；比對用 entities.key，第一版的卡也找得到）。
 狀態檔不在當空的；壞了丟 ValueError（帶檔名）。不寫任何檔。
+放寬丙：cards 每張多 archived（清冊封存的排後面）、卡上有口述為準裁示的多 rulings；實體封存了頂層 archived 是 true。
 tags（標籤字典第四節第 6 點）：實體清單的標籤正本 [{"field","words"}]，照第八節的順序（D-505：沒有綜合卡的也有）；沒標過是空的。
 推算 stale 的那筆 text 是 null、多 redo「依據變了，要用就重算：<how>」（B-100）；findings.brief 不動，綜合卡待辦要原文。
 """
@@ -100,6 +101,7 @@ def lookup(vault, query):
     ruled_out = cards.ruled_out_ids(rul)
     ms = mounts.get(name, [])
     out["entity"] = _brief_entity(vault, e, prof)
+    out["archived"] = bool(e.get("archived"))  # 實體封存了：不拿來答「現在」的事（放寬丙 12）
     if e.get("type") and not entities.is_self(e):
         out["synthesis"] = entities.locate(vault, e, ent)
         out["tags"] = _tags(e, prof)
@@ -108,13 +110,39 @@ def lookup(vault, query):
     out["statements"] = [synthesis.statement_brief(s) for s in statements.active_for(statements.load(vault), name)]
     titles = agenda.card_titles(vault)
     ruls = sorted(rulings.for_entity(rul, name, mounts), key=lambda r: r.get("kind") != "spoken_wins")
-    out["rulings"] = [{"id": r["id"], "kind": r.get("kind"), "text": r.get("text"), "date": r.get("date"),
-                       "cards": [{"id": cid, "title": titles.get(cid)} for cid in rulings.card_ids(r)]} for r in ruls]
+    out["rulings"] = [ruling_row(r, titles) for r in ruls]
+    spoken = spoken_by_card(vault, rul)
+    for c in out["cards"]:  # 卡上有口述為準裁示的，卡自己也帶（沒有就不帶這欄）
+        if c["id"] in spoken:
+            c["rulings"] = spoken[c["id"]]
     finds = findings.active_for(findings.load(vault), name, ent)
     if finds:
         ctx = findings.context(vault, ent, mounts, groups)
         out["findings"] = [_finding(findings.brief(vault, c, titles, ctx)) for c in finds]
     out["agenda"] = _agenda(vault, name)
+    return out
+
+
+def ruling_row(r, titles):
+    """一條裁示的輸出格式（lookup 的 rulings 與卡上的 rulings 共用）。"""
+    from kb._lib import rulings
+    return {"id": r["id"], "kind": r.get("kind"), "text": r.get("text"), "date": r.get("date"),
+            "cards": [{"id": cid, "title": titles.get(cid)} for cid in rulings.card_ids(r)]}
+
+
+def spoken_by_card(vault, rul=None):
+    """{卡編號: [裁示列]}：掛在那張卡上的有效「口述為準」裁示（放寬丙 13，D-333；格式同 lookup 的 rulings）。沒有就空的。"""
+    from kb._lib import agenda, rulings
+    rul = rulings.load(vault) if rul is None else rul
+    rows = [r for r in rul["rulings"] if rulings.is_active(r) and r.get("kind") == "spoken_wins" and rulings.card_ids(r)]
+    if not rows:
+        return {}
+    titles = agenda.card_titles(vault)
+    out = {}
+    for r in rows:
+        row = ruling_row(r, titles)
+        for cid in rulings.card_ids(r):
+            out.setdefault(cid, []).append(row)
     return out
 
 

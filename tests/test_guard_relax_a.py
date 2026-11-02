@@ -120,7 +120,7 @@ class ShellRules(Base):
 
     def test_7_file_tools(self):
         for tool, rel in (("Write", "我的夾/c.md"), ("Edit", "暫存區/c.txt"), ("Edit", "系統/客戶設定檔.md"),
-                          ("Write", "01 案子/清單.xlsx"), ("Write", "_extras/x.md")):
+                          ("Write", "01 案子/清單.xlsx"), ("Write", "_個人/x.md")):
             d = self.d(tool, self.V / rel)
             self.assertEqual(d.decision, "allow", (tool, rel, d))
         for rel in ("系統/日程.md", "總目錄.md", ".system/config.json", "CLAUDE.md"):

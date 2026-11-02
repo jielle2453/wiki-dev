@@ -1,4 +1,4 @@
-"""暫存區（issue #10，D-240～D-245）的程式庫層：回合記對話紀錄位置、env 的 inbox_reminded、清冊 register_intake 與掃描保留 intake 欄、
+"""暫存區（issue #10，D-240～D-245）的程式庫層：回合記對話紀錄位置、env 的 daily_done、清冊 register_intake 與掃描保留 intake 欄、
 卡檔頭的「收件」行、從對話紀錄取貼的圖與文字（tests/fixtures/intake 的假紀錄：桌面版有 <pasted_content> 與 base64 圖、
 有 inlined_image_paths 的、VS Code 沒有標記的）。kb intake 整段流程在 test_scripts_intake_cli。"""
 import base64
@@ -38,13 +38,20 @@ class TurnTranscript(Base):
         self.assertNotIn("transcript", turn.start(self.V, "sid-a", "x"))
 
 
-class EnvInbox(Base):
-    def test_inbox_reminded_round_trip_and_other_keys_kept(self):
-        self.assertIsNone(env.inbox_reminded(self.V))
+class EnvDaily(Base):
+    def test_daily_done_round_trip_and_other_keys_kept(self):
+        self.assertIsNone(env.daily_done(self.V))
         env.set_vault_path(self.V, "D:/知識庫")
-        env.set_inbox_reminded(self.V, "2026-10-26")
-        self.assertEqual(env.inbox_reminded(self.V), "2026-10-26")
+        env.set_daily_done(self.V, "2026-11-02")
+        self.assertEqual(env.daily_done(self.V), "2026-11-02")
         self.assertEqual(env.vault_path(self.V), "D:/知識庫")
+
+    def test_old_inbox_reminded_field_is_ignored(self):
+        (self.V / ".system" / "env.json").write_text(json.dumps(
+            {"schema_version": 1, "machines": {env.machine_name(): {"inbox_reminded": "2020-01-01"}}}), encoding="utf-8")
+        self.assertIsNone(env.daily_done(self.V))
+        env.set_daily_done(self.V, "2026-11-02")
+        self.assertEqual(env.daily_done(self.V), "2026-11-02")
 
 
 class RegisterIntake(Base):

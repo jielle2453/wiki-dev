@@ -237,34 +237,29 @@ class OverlapWithObsidian(ViaBase):
         self.agenda_via("Obsidian 後來加的", date="2026-11-27")
         self.prompt(A, "退回上一步")
 
-    def test_refusal_names_obsidian_not_other_conversation(self):
-        before = self.snapshot()
+    def test_conflict_names_obsidian_not_other_conversation(self):
+        """放寬丙：對話退回撞到後來 Obsidian 的回合，那一項列 conflict、side 是 obsidian、說「你在 Obsidian 按的」，其他不動。"""
         r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        lines = r.stdout.splitlines()
-        self.assertEqual(lines[0], "退不回去：這一句之後，有別的地方也改過同一份，什麼都沒動")
-        mine = [x for x in lines if x.startswith("- .system/agenda.json：")]
-        self.assertEqual(len(mine), 1, r.stdout)
-        self.assertRegex(mine[0], r"^- \.system/agenda\.json：\d\d-\d\d \d\d:\d\d 你在 Obsidian 按的$")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout, r"之後又被動過（\d\d-\d\d \d\d:\d\d 你在 Obsidian 按的）")
         self.assertNotIn("對話外", r.stdout)
-        self.assertEqual(lines[-1], "那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。")
         self.assertIsNone(TURN_CODE.search(r.stdout), r.stdout)
-        self.assertEqual(self.snapshot(), before)
+        got = json.loads(self.kb("versions", "revert", "--json", sid=A).stdout)
+        sides = {x["side"] for c in got["conflict"] for x in c["later"]}
+        self.assertEqual(sides, {"obsidian"})
 
-    def test_23_other_conversation_and_obsidian_both_blocking_say_both_endings(self):
-        """裁定 23：同時撞到別的對話與 Obsidian，結尾兩句都講（別的對話那句照舊，接 Obsidian 那句）。"""
+    def test_23_other_conversation_and_obsidian_both_in_later(self):
+        """同時撞到別的對話與 Obsidian：later 兩邊都列（other、obsidian）。"""
         self.stop(A)
         self.prompt(B, "我也加一條")
         self.agenda(B, "B 加的", date="2026-11-28")
         self.stop(B)
         self.prompt(A, "再退回")
-        r = self.kb("versions", "revert", sid=A)
-        self.assertEqual(r.returncode, 3, r.stdout)
-        lines = r.stdout.splitlines()
-        self.assertIn("另一個對話", r.stdout)
-        self.assertIn("你在 Obsidian 按的", r.stdout)
-        self.assertEqual(lines[-2:], ["要退得先到那個對話退回它，或直接跟我說要改成什麼。",
-                                      "那份後來你在 Obsidian 改過，退回會把那邊改的一起蓋掉，所以沒動；跟我說要改成什麼，我直接改。"])
+        r = self.kb("versions", "revert", "--json", sid=A)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        got = json.loads(r.stdout)
+        sides = {x["side"] for c in got["conflict"] for x in c["later"]}
+        self.assertEqual(sides, {"other", "obsidian"})
 
 
 if __name__ == "__main__":

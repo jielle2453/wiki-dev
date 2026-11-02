@@ -42,7 +42,8 @@ class Sources:
                     continue
                 excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
                                  "spec": ex.get("spec", ""), "purge": ex.get("purge")})
-            self.entries.append({"id": src_id, "alias": alias, "root": root, "excludes": excludes})
+            self.entries.append({"id": src_id, "alias": alias, "root": root, "excludes": excludes,
+                                 "shared": bool(s.get("shared"))})
         for ex in data.get("vault_excludes", []) or []:
             ex_root = resolve_spec(ex.get("spec", ""), self.vault) if ex.get("spec") else None
             if ex_root is None:

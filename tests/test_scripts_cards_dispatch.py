@@ -95,7 +95,7 @@ class Batch(Base):
         self.assertEqual((got["batch"], got["kind"], got["prefix"]), (b, "cards", PREFIX))
         (read,) = got["read"]  # D-520：給行號範圍，AI 只讀那幾段
         self.assertEqual((read["path"], read["what"]),
-                         (f"{plugin_root().as_posix()}/skills/ingest/references/carding.md", "批次、材料的欄位、一～七、九節"))
+                         (f"{plugin_root().as_posix()}/skills/ingest/references/carding.md", "批次、材料的欄位、一～七、九、十三節"))
         lines = Path(read["path"]).read_text(encoding="utf-8").splitlines()
         self.assertTrue(read["ranges"])
         for start, count in read["ranges"]:
@@ -230,9 +230,8 @@ class GlobalTurn(Base):
     def test_turn_note_and_approve_take_turn(self):
         self.ok("cards", "dispatch")
         turn.start(self.V, SID, "下一句")
-        self.assertEqual(self.ok("turn", "approve", "--turn", self.t), "這一題解除綜合卡張數上限")
-        self.assertTrue(turn.turn_data(self.V, self.t)["approved"])
-        self.assertFalse(turn.current(self.V, SID).get("approved"))
+        self.assertEqual(self.ok("turn", "approve", "--turn", self.t), "不用了")
+        self.assertFalse(turn.turn_data(self.V, self.t).get("approved"))
         r = self.kb("turn", "note", "--turn", "20990101-000000-xxxx", "x")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "回合不存在：20990101-000000-xxxx"))
 

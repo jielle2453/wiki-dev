@@ -34,7 +34,7 @@ class ParseFront(unittest.TestCase):
                 cards.parse_front(text)
 
     def test_keys_and_origin_text(self):
-        self.assertEqual(cards.KEYS, ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別",
+        self.assertEqual(cards.KEYS, ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別",
                                       "文件日期", "讀取", "製卡日期", "範本版本", "敏感資料種類", "開原檔"))
         self.assertEqual(cards.ORIGIN_TEXT, {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"})
 
@@ -110,10 +110,10 @@ class Header(Vault):
         self.assertEqual(front["指紋"], e["fingerprints"][-1]["sha256"])
         self.assertEqual(front["內容指紋"], e["fingerprints"][-1]["text_sha256"])
         self.assertEqual(front["標題"], "（填）")
-        self.assertEqual(front["範本版本"], "2")
-        self.assertEqual((front["實體"], front["待補型別"]), ([], []))
+        self.assertEqual(front["範本版本"], "3")
+        self.assertEqual((front["實體"], front["提到"], front["待補型別"]), ([], [], []))
         self.assertEqual(front["敏感資料種類"], [])
-        self.assertEqual(front["開原檔"], cards.open_link(self.raw / _cards.MEETING))
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + e["id"])  # 放寬丙 9：外掛連結、只帶編號
         self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
         self.assertEqual(item["dir"], "檔案索引/客戶案件/大安陳")
         self.assertEqual(item["filename_pattern"], f"<標題>-{e['id'][2:]}.md")
@@ -163,7 +163,7 @@ class Validate(Vault):
             (self.edited("卡型: 會議紀錄", "卡型: （填）"), "卡型"),
             (self.edited("文件日期: 2026-10-01", "文件日期: 115年10月1日"), "文件日期"),
             (self.edited("讀取: 完整", "讀取: 全部"), "讀取"),
-            (self.edited("範本版本: 2", "範本版本: 3"), "範本版本該是 2"),
+            (self.edited("範本版本: 3", "範本版本: 9"), "範本版本該是 3"),
             (self.edited("原檔:\n  - file://" + _cards.MEETING + "\n", "原檔: []\n"), "檔頭少了「原檔」"),
         ]
         for text, want in cases:
@@ -210,17 +210,18 @@ class RenderIndex(Vault):
         broken = self.V / "檔案索引" / "客戶案件" / "壞卡-00000000.md"
         shutil.copy2(FIX / "檔頭壞了-00000000.md", broken)
         self.assertEqual(cards.render_index(self.V), 4)
-        body = self.index()[5:]
+        lines = self.index()
+        body = lines[lines.index("## 檔案") + 2:]
         self.assertEqual(body, [
             "- 客戶案件",
             "  - 大安陳",
-            f"    - [大安陳 會議(一)](檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
-            "  - [壞卡-00000000](檔案索引/客戶案件/壞卡-00000000.md)",
-            f"  - [空檔](檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
+            f"    - 📘 [大安陳 會議(一)](檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
+            "  - 📄 [壞卡-00000000](檔案索引/客戶案件/壞卡-00000000.md)",
+            f"  - 📄 [空檔](檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
             "- 知識庫",
             "  - 案子",
             "    - 信義王",
-            f"      - [信義王合約\\[正本\\]](檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
+            f"      - 📘 [信義王合約\\[正本\\]](檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
             f"{pick['file://知識庫/案子/信義王/合約.docx']['id'][2:]}.md)",
             "",
             "共 4 張卡",
@@ -254,6 +255,7 @@ class Todo(Vault):
             self.assertEqual(todo[k], [], k)
 
     def test_card_written_then_stale_then_fake_change(self):
+        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")  # 這裡的 mtime 是假的未來時間
         item = self.item()
         _cards.write_card(self.V, item, "大安陳會議一")
         todo = self.todo()
@@ -270,6 +272,47 @@ class Todo(Vault):
         stale = self.todo()["stale"]
         self.assertEqual([i["id"] for i in stale], [item["id"]])
         self.assertTrue(stale[0]["existing_card"].endswith(f"大安陳會議一-{item['id'][2:]}.md"))
+
+    def _changed_card(self):
+        item = self.item()
+        _cards.write_card(self.V, item, "大安陳會議一")
+        p = self.raw / _cards.MEETING
+        _ooxml.docx(p, _cards.MEETING_BLOCKS + [("p", "追加一段")])
+        _cards.scan_apply(self.V)
+        return item, p
+
+    def test_recently_changed_file_is_deferred_not_stale(self):
+        """放寬丙 3b-5（D-329）：改過內容、修改時間在 recard_idle_minutes 分鐘內的檔先不列、不算份數，deferred 說 recent。"""
+        item, p = self._changed_card()
+        todo = self.todo()
+        self.assertEqual(todo["stale"], [])
+        self.assertEqual(todo["deferred"], [{"id": item["id"], "why": "recent"}])
+        self.assertNotIn(item["id"], [i["id"] for i in todo["new"]], "新增的檔才不受這條管；這份有舊卡")
+        self.assertEqual(cards.unsorted(self.V), len(todo["new"]) + len(todo["stale"]))
+        old = p.stat().st_mtime - 11 * 60  # 停了 11 分鐘：照常列
+        os.utime(p, (old, old))
+        todo = self.todo()
+        self.assertEqual([i["id"] for i in todo["stale"]], [item["id"]])
+        self.assertEqual(todo["deferred"], [])
+
+    def test_lock_file_defers_even_when_old_and_both_spellings_count(self):
+        item, p = self._changed_card()
+        old = p.stat().st_mtime - 3600
+        os.utime(p, (old, old))
+        for lock in (p.parent / ("~$" + p.name), p.parent / ("~$" + p.name[2:])):
+            with self.subTest(lock=lock.name):
+                lock.write_bytes(b"x")
+                todo = self.todo()
+                self.assertEqual(todo["deferred"], [{"id": item["id"], "why": "open"}])
+                self.assertEqual(todo["stale"], [])
+                lock.unlink()
+        self.assertEqual([i["id"] for i in self.todo()["stale"]], [item["id"]])
+
+    def test_idle_minutes_zero_lists_a_just_changed_file(self):
+        item, _p = self._changed_card()
+        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")
+        todo = self.todo()
+        self.assertEqual(([i["id"] for i in todo["stale"]], todo["deferred"]), ([item["id"]], []))
 
     def test_orphan_and_broken(self):
         item = self.item()
@@ -345,6 +388,22 @@ class AfterTest(Vault):
         self.assertEqual(fixed, text)  # 只換了開原檔那一行，其他行原樣
         self.assertEqual(self.todo()["moved"], [])
         self.assertIn(rel, {e["path"] for e in turn.entries(self.V, t)})
+
+    def test_22_old_file_link_replaced_once_by_plugin_link(self):
+        """放寬丙 9（驗收 22）：開原檔是外掛連結、沒有 file:///；舊卡的 file:/// 經 sync 換一次，編號不變，再跑 sync 不再動。"""
+        p = self.card()
+        text = p.read_text(encoding="utf-8")
+        front = cards.parse_front(text)
+        self.assertEqual(front["開原檔"], "obsidian://wiki-with-willy-open?id=" + front["編號"])
+        self.assertNotIn("file:///", text)
+        p.write_text(text.replace(front["開原檔"], "file:///D:/%E6%A1%88/a.docx"), encoding="utf-8")
+        t = turn.start(self.V, None, "換連結")["turn"]
+        got = cards.sync(self.V, self.sources(), t)
+        self.assertEqual(got["updated"], [p.relative_to(self.V).as_posix()])
+        self.assertEqual(p.read_text(encoding="utf-8"), text)
+        self.assertEqual(cards.sync(self.V, self.sources(), t)["updated"], [])
+        item = {"kind": "link", "locations": [{"uri": "https://example.com/a"}], "id": "f-1"}
+        self.assertEqual(cards.entry_link(self.V, self.sources(), item), "https://example.com/a")
 
     def test_20_duplicates_keep_valid_one(self):
         item = self.item()
@@ -451,6 +510,50 @@ class AfterTest(Vault):
         self.assertEqual(self.todo()["missing"], [])
 
 
+class IndexSections(unittest.TestCase):
+    """放寬丙 8（驗收 21）：總目錄分「摘要」「檔案」兩節；檔案那節葉子前面有種類圖示；index_icons、index_order 可以改。"""
+
+    def setUp(self):
+        from tests import _entities
+        self.E = _entities
+        self.tmp, self.V, self.raw = _entities.make_entity_vault(with_entities=True)
+        self.E.write_card(self.V, self.E.QUOTE, "信義王報價", ["信義王"])  # pdf
+        self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])  # docx
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def text(self):
+        cards.render_index(self.V)
+        return (self.V / "總目錄.md").read_text(encoding="utf-8")
+
+    def config(self, **kw):
+        (self.V / ".system" / "config.json").write_text(json.dumps(kw), encoding="utf-8")
+
+    def test_two_sections_with_icons(self):
+        text = self.text()
+        self.assertLess(text.index("## 摘要"), text.index("## 檔案"))
+        summary = text[text.index("## 摘要"):text.index("## 檔案")]
+        self.assertIn("- 案子\n  - [信義王](案子/信義王/信義王.md)", summary)
+        self.assertIn("  - [大安陳](案子/大安陳/大安陳.md)", summary)
+        files = text[text.index("## 檔案"):]
+        self.assertRegex(files, r"- 📕 \[信義王報價\]")
+        self.assertRegex(files, r"- 📘 \[信義王合約\]")
+
+    def test_icons_off_and_files_first(self):
+        self.config(index_icons=False, index_order="files_first")
+        text = self.text()
+        self.assertLess(text.index("## 檔案"), text.index("## 摘要"))
+        for mark in ("📕", "📘", "📗", "📙", "🖼️", "📄"):
+            self.assertNotIn(mark, text)
+        self.assertIn("- [信義王報價](", text)
+
+    def test_icon_table(self):
+        got = {n: cards.icon_of(n) for n in ("a.PDF", "a.docx", "a.xls", "a.csv", "a.pptx", "a.JPG", "a.txt", "noext")}
+        self.assertEqual(got, {"a.PDF": "📕", "a.docx": "📘", "a.xls": "📗", "a.csv": "📗", "a.pptx": "📙",
+                               "a.JPG": "🖼️", "a.txt": "📄", "noext": "📄"})
+
+
 class TemplateTwo(unittest.TestCase):
     """實體與綜合卡第 4 點：第二版檔頭、實體夾預填、實體名稱三種錯、第一版進 unlinked、types_added、missing_types。"""
 
@@ -475,7 +578,7 @@ class TemplateTwo(unittest.TestCase):
         front = cards.parse_front((self.E.FIX / "範本第一版-0f0f0f0f.md").read_text(encoding="utf-8"))
         self.assertEqual(front["範本版本"], cards.OLD_TEMPLATE_VERSION)
         self.assertFalse(set(cards.V2_KEYS) & set(front))
-        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "待補型別"])
+        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "提到", "待補型別"])
 
     def test_prefill_from_entity_folder(self):
         front = cards.parse_front(self.E.new_item(self.V, self.E.CONTRACT)["header"])
@@ -515,12 +618,39 @@ class TemplateTwo(unittest.TestCase):
         fid = cards.parse_front((self.V / rel).read_text(encoding="utf-8"))["編號"]
         self.assertEqual(data["unlinked"], [{"id": fid, "path": rel, "reason": "v1", "types": [], "prefill": []}])
         self.assertEqual(data["broken"], [])
-        self.assertEqual(self.reason(rel), (False, "範本版本該是 2"))
+        self.assertEqual(self.reason(rel), (False, "範本版本該是 3"))
         p = self.V / rel
         text = p.read_text(encoding="utf-8").replace("卡型: 會議紀錄\n", "卡型: 會議紀錄\n實體: [信義王]\n待補型別: []\n")
-        p.write_text(text.replace("範本版本: 1", "範本版本: 2"), encoding="utf-8")
+        p.write_text(text.replace("範本版本: 1", "範本版本: 3"), encoding="utf-8")
         self.assertEqual(self.reason(rel), (True, ""))
         self.assertEqual(self.todo()["unlinked"], [])
+
+    def test_move_to_other_entity_folder_keeps_entity(self):
+        """放寬丙 要做的事 5-1（驗收 15）：原檔搬到別的實體夾，sync 把卡搬到新的鏡射位置，「實體」仍是原本的（不照位置重算）。"""
+        rel = self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
+        src = self.V / "案子" / "信義王" / "合約.docx"
+        dst = self.V / "案子" / "大安陳" / "合約.docx"
+        self.assertTrue(src.is_file())
+        src.rename(dst)
+        report = self.E._cards.scan_apply(self.V)
+        self.assertEqual(len(report["moved"]), 1)
+        t = turn.start(self.V, None, "搬")["turn"]
+        got = cards.sync(self.V, sources_lib.load(self.V), t)
+        self.assertEqual(len(got["moved"]), 1)
+        (new,) = [c for c in (self.V / "檔案索引").rglob("*.md") if "信義王合約" in c.name]
+        self.assertIn("大安陳", new.relative_to(self.V).as_posix())
+        self.assertEqual(cards.parse_front(new.read_text(encoding="utf-8"))["實體"], ["信義王"])
+
+    def test_moved_changes_file_into_entity_folder(self):
+        """放寬丙 5-2（驗收 16）：單檔搬進李宅（這裡是大安陳）夾 → 帶 folder_entity 與卡上的實體。"""
+        self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
+        (self.V / "案子" / "信義王" / "合約.docx").rename(self.V / "案子" / "大安陳" / "合約.docx")
+        report = inventory.scan(self.V, sources_lib.load(self.V))
+        (item,) = cards.moved_changes(self.V, report["moved"])
+        self.assertEqual((item["kind"], item["name"]), ("file", "合約.docx"))
+        self.assertEqual(item["folder_entity"], "大安陳")
+        self.assertEqual(item["entities"], {"main": ["信義王"], "mention": []})
+        self.assertFalse(item["user_folder"])
 
     def test_v1_prefill_for_entity_folder_card(self):
         rel = self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])

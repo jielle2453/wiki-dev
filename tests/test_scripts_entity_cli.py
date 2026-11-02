@@ -488,7 +488,8 @@ class AfterTest(Base):
 
     def test_broken_entities_says_file(self):
         """F5：entities.json 壞了，cards todo 與 kb entity 都講檔名。"""
-        (self.V / ".system" / "entities.json").write_text("{bad", encoding="utf-8")
+        # JSON 壞了會被 recover_json 從綜合卡重建（放寬丙 6-3）；形狀不對的讀不懂照舊講檔名
+        (self.V / ".system" / "entities.json").write_text('{"entities": 5}', encoding="utf-8")
         for args in (("cards", "todo"), ("entity", "list"), ("entity", "add", "--type", "案子", "--name", "王")):
             with self.subTest(args=args):
                 r = run_kb(*args, cwd=self.V)

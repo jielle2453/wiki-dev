@@ -9,7 +9,7 @@
 
 ## 退回與還原怎麼分
 
-- 「上一步、剛剛、昨天那次整理」是**退回**（`kb versions`，R-05；`list` 印的就是「10-23 14:05 那句「…」」，照念、不唸代號）；「備份、那一份、整個回到某天」是**還原**。
+- 「上一步、剛剛、昨天那次整理」是**改回**（`kb versions undo`，R-05）：說得出是哪一步（「第一句那個名字改回來」）就直接 `undo <項目編號>`，整句都退用 `undo <回合代號>`；分不出才 `kb versions items` 列出來問（印的就是「10-23 14:05 那句「…」」，照念、不唸代號）；單說「退回」是 `kb versions revert`，等於退最近一句。`undo` 回 `conflict`（那一項之後又被動過）的不硬做，看 `then`、`later`、`now` 判斷，改成客戶要的樣子或問一句；做完只講改回了什麼，沒動的項目不用提。「備份、那一份、整個回到某天」是**還原**。
 - 「升級後怪怪的、退回舊版」是**換回舊版**（`kb upgrade --downgrade`，見 upgrade）；升級前的快照只經它用，不直接 `restore apply`（plugin 還是新版，格式會對不上）。
 - 分不清（例如「回到昨天」）就問一句：「是退回剛剛那一步，還是回到某一天的備份？」剛升級過的再加第三個選項：「退回剛剛那一步、回到某一天的備份、還是退回升級前的舊版？」
 - 退回超過保留期退不回：最早能退到哪一句看 `versions clean --check` 印的「最早還能退回到 …」；有備份就提還原。
@@ -63,9 +63,9 @@
 
 開場出現 `知識庫換了位置：…` 或 `這台電腦第一次開這個知識庫：…` 就跑 `moved`（只是把舊路徑換新路徑，不用先問）；想先看再做才用 `--check`。
 
-- `--json`：`state`（same｜moved｜new_machine｜first）、`from`、`to`、`sources_rewritten`、`cards_relinked`、`missing_sources`、`old_copy`、`env`、`passwords_missing`。
+- `--json`：`state`（same｜moved｜new_machine｜first）、`from`、`to`、`sources_rewritten`、`missing_sources`、`old_copy`、`env`、`passwords_missing`。
 - 人讀一行一件（沒有要補的是 `位置沒變，沒有要補的`、第一次是 `第一次看這個知識庫，位置記下了`），照著逐件處理：
-  - `來源「X」的位置換成新的了`、`卡的開原檔連結更新了 N 張`：講一句做了什麼；說「退回」換得回來。
+  - `來源「X」的位置換成新的了`：講一句做了什麼；說「退回」換得回來。
   - `這台找不到的來源：A、B`：一個一個 `kb folders locate <別名>` 自己找，找到就 `kb folders relocate` 接上（`references/sources.md`）、說一聲；找不到才問她搬到哪了。
   - `舊位置還有一份：<路徑>；確認新的沒問題就把舊的刪掉`：問一句要不要丟掉，說好就 `kb source-edit trash`。
   - 換電腦時多的幾行是這台缺的元件（照那句講、跑它給的指令）與「憑證管理員沒有這些密碼，要重新記」：密碼不會跟過來，請她逐個重說（走 note 的 `kb unlock`）。

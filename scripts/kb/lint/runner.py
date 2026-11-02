@@ -303,6 +303,10 @@ def _handle(ctx, f, done, notes, numbers, ingest, decided):
         if text:
             done.append(text)
     elif kind == "decide":
+        from kb._lib import archive
+        af, ae = ctx._get("archived", lambda: archive.sets(ctx.vault))
+        if archive.hides(f["file_ids"], f["entity_ids"], af, ae):
+            return  # 跟封存的檔或實體有關的不出題（放寬丙 12，D-332）
         pid, _created = pending.add_lint(ctx.vault, f["key"], f["text"], f["data"], ctx.turn_id, file_ids=f["file_ids"],
                                          entity_ids=f["entity_ids"], once=f["once"], check=f["check"], fp=_fp(f["items"]))
         decided.append(pid)

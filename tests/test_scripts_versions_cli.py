@@ -712,6 +712,8 @@ class VersionsJournal(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         if name == "guard.py":
             self.assertIn('"allow"', r.stdout)
+        elif name == "turn.py":  # 放寬丙 3b：每句開頭可能帶變動行等 additionalContext，這裡只管不出錯
+            self.assertIn(r.stdout[:1], ("", "{"))
         else:
             self.assertEqual(r.stdout, "")
 
@@ -910,22 +912,6 @@ class VersionsJournal(Base):
         self.assertGreaterEqual(len(metas), 3)
         self.assertEqual({m["prompt_head"] for m in metas}, {"已遮"})
         self.assertNotIn("原本的問", run_kb("versions", "list", cwd=self.V).stdout)
-
-    def test_inherit_keeps_approval_in_same_sentence(self):
-        """D-075：同一句話的同意不因退回失效；inherit 時 approved 一起繼承，退回後再改超過上限的卡仍放行。
-        上限用 .system/config.json 調成 1，不用真的改 11 張。"""
-        (self.V / ".system" / "config.json").write_text(json.dumps({"big_change_synthesis_max": 1}), encoding="utf-8")
-        other = self.V / "案子" / "甲案" / "甲案.md"
-        other.parent.mkdir(parents=True)
-        other.write_text("# 甲案\n", encoding="utf-8")
-        self.prompt_and_write_card("全部改")
-        r = run_kb("turn", "approve", cwd=self.V)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        r = run_kb("versions", "revert", cwd=self.V)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(self.sess()["approved"])
-        ok, code, _reason = turn.before_write(self.V, str(other), str(self.V), "Z1", SID)
-        self.assertEqual((ok, code), (True, ""))
 
     def test_cli_turn_revert_rotates_current_only(self):
         """M1 裁定 (a)：目前回合是 CLI 自己的（sid 空）就照舊 turn.start(None) 換 current.json，

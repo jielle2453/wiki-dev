@@ -178,7 +178,6 @@ class RealFlow(Base):
         got = batches.dispatch(self.V, sid, t)
         self.assertIsNone(got["approval"])
         self.assertEqual(sum(b["items"] for b in got["batches"]), 12)
-        self.assertTrue(turn.turn_data(self.V, t).get("approved"))
         for rel in [T.XINYI_REL, T.DAAN_REL, LI_REL] + [f"案子/{e['name']}/{e['name']}.md" for e in more]:
             ok, code, _r = turn.before_write(self.V, str(self.V / rel), str(self.V), "Z1", sid, t)
             self.assertEqual((ok, code), (True, ""), rel)

@@ -889,7 +889,8 @@ function cleanFill(fill, raw) {
 }
 
 // ---- 隨手記便條（D-267 修訂、裁定 37、39）：首頁右上角一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
-const FREE_DIR = '_extras'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
+const OPEN_ACTION = 'wiki-with-willy-open'; // 卡的開原檔連結 obsidian://wiki-with-willy-open?id=…（kb 的 cards.OPEN_PROTOCOL 對齊）
+const FREE_DIR = '_個人'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
 const NOTE_REL = `${FREE_DIR}/隨手記.md`;
 const NOTE_DELAY_MS = 1500; // 停手這麼久就存回那一頁
 
@@ -3014,6 +3015,10 @@ class WikiWithWillyPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new HomeView(leaf, this));
     this.addRibbonIcon('home', '開啟首頁', () => this.activateHome());
     this.addCommand({ id: 'open-home', name: '開啟首頁', callback: () => this.activateHome() });
+    // 卡上的「開原檔」是 obsidian://wiki-with-willy-open?id=<清冊編號>（D-328）：點了叫 kb 查這份在這台的位置再開
+    if (this.registerObsidianProtocolHandler) {
+      this.registerObsidianProtocolHandler(OPEN_ACTION, (params) => this.openById(params && params.id));
+    }
     this.registerMarkdownPostProcessor((el) => this.linkifyCardRefs(el));
     if (this.registerEditorExtension) this.registerEditorExtension(this.cardRefExtension());
 
@@ -3328,6 +3333,28 @@ class WikiWithWillyPlugin extends Plugin {
       return;
     }
     await openOriginal(this.openCtx(), f.open);
+  }
+
+  /** 開原檔連結（D-328）：kb lookup --id 查位置；查不到就說一句、退一步開卡。 */
+  async openById(id) {
+    const fid = String(id || '').trim();
+    if (!fid) {
+      this.toast('這個連結少了檔案編號');
+      return false;
+    }
+    const res = await this.kb(['lookup', '--id', fid, '--json']);
+    const c = classify(res);
+    if (c.kind !== 'ok') {
+      this.toast(c.message);
+      return false;
+    }
+    const j = parseJson(res.stdout);
+    const f = isObject(j) ? j : {};
+    if (f.card_path) this.recordOpened(fid);
+    if (isObject(f.open) && (f.open.path || f.open.url)) return openOriginal(this.openCtx(), f.open);
+    this.toast('這份沒有原檔可以開');
+    if (f.card_path) this.openPathInVault(f.card_path);
+    return false;
   }
 
   openCard(f) {
@@ -3867,6 +3894,7 @@ module.exports.lib = {
   RECENT_MAX,
   MONTH_COLORS,
   FREE_DIR,
+  OPEN_ACTION,
   NOTE_REL,
   NOTE_DELAY_MS,
   REVIEW_PHRASE,

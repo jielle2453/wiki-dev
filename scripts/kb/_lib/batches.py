@@ -87,10 +87,10 @@ TWICE_FAIL = "製卡助手兩次沒做成：{}"
 CARDING = "skills/ingest/references/carding.md"
 _HEADS = ("## 批次", "## 材料的欄位")
 # 先讀的規則：(相對 plugin 的路徑, 給人看的節名, 要讀的節標題開頭；None 是整份)。D-520：AI 照 ranges 用 Read 的 offset、limit 只讀那幾段
-READ = {"cards": [(CARDING, "批次、材料的欄位、一～七、九節",
-                   _HEADS + ("## 一、", "## 二、", "## 三、", "## 四、", "## 五、", "## 六、", "## 七、", "## 九、"))],
+READ = {"cards": [(CARDING, "批次、材料的欄位、一～七、九、十三節",
+                   _HEADS + ("## 一、", "## 二、", "## 三、", "## 四、", "## 五、", "## 六、", "## 七、", "## 九、", "## 十三、"))],
         "agenda": [(CARDING, "批次、材料的欄位、第九節", _HEADS + ("## 九、",))],
-        "synthesis": [("rules/synthesis.md", "整份", None), (CARDING, "批次、材料的欄位、第八節", _HEADS + ("## 八、",))],
+        "synthesis": [("rules/synthesis.md", "整份", None), (CARDING, "批次、材料的欄位、第八、十三節", _HEADS + ("## 八、", "## 十三、"))],
         "adopt": [(CARDING, "批次、第十二節", ("## 批次", "## 十二、"))]}
 
 
@@ -679,8 +679,7 @@ def _collect(vault):
 
 def _settings(vault):
     return {k: config.get(vault, k) for k in ("card_batch_size", "card_parallel", "synthesis_batch_size",
-                                               "card_batch_expire_minutes", "big_change_synthesis_max",
-                                               "card_batch_idle_minutes")}
+                                               "card_batch_expire_minutes", "card_batch_idle_minutes")}
 
 
 def prefix():
@@ -940,35 +939,8 @@ WAIT = object()  # _approval：先不派綜合卡，等在跑的做完
 
 
 def _approval(vault, jt, items, st, job=None, run=()):
-    """job 回合已改的既有綜合卡加這次要派的 synthesis_stale、synthesis_broken 張數超過上限、回合沒同意：回問句與指令（D-075）。
-    broken 也算：寫回同一個路徑的也是改既有綜合卡，守門的 before_write 一樣會數（第一輪修）。
-    只補標籤的不算進門檻（標籤字典三-5、驗收 13；裁定 25）：扣掉它們（這次的與這個整理已經送出去的 tag_sent）還在上限內、
-    又超過了上限，就不問、對 job 回合 approve（她在加字典那一步已經說好），守門照樣放行，job 記 tag_approved（實作疑義 1）。
-    之後同一個整理要派的別的原因的（裁定 17）扣完超過上限：補標籤的綜合卡批次還在跑回 WAIT；做完了撤回核准、照上面問。"""
-    data = turn.turn_data(vault, jt) or {}
-    job = job if job is not None else {}
-    limit = st["big_change_synthesis_max"]
-    counted = [(bucket, i) for bucket, _k, i in items if bucket in ("synthesis_stale", "synthesis_broken")
-               and not i.get("tag_only")]  # 沒有綜合卡、只補標籤的（D-505）不寫卡，不算
-    others = sum(1 for bucket, i in counted if not tag_only(bucket, i))
-    done = len(data.get("ai_synthesis") or [])
-    others += max(0, done - job.get("tag_sent", 0))
-    n = done + len(counted)
-    if data.get("approved"):
-        if not job.get("tag_approved") or others <= limit:
-            return None
-        if any(b.get("kind") == "synthesis" for b in run):
-            return WAIT
-        turn.change_turn(vault, jt, lambda d: d.update(approved=False) or True)
-        job.pop("tag_approved", None)
-        return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
-    if n <= limit:
-        return None
-    if others <= limit and others < len(counted) + done:
-        turn.approve(vault, turn_id=jt)
-        job["tag_approved"] = True
-        return None
-    return {"question": APPROVAL_QUESTION.format(n=n), "do": [f"kb turn approve --turn {jt}"]}
+    """綜合卡大改動的問句拿掉了（放寬丙 5，D-322 第 18 件）：永遠回 None，呼叫端的流程不變。"""
+    return None
 
 
 TAG_REASON = "補標籤"

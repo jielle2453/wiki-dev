@@ -33,11 +33,11 @@ from datetime import datetime
 from pathlib import Path
 
 from kb import guard, journal_cli
-from kb._lib import card_base, credentials, inventory, ledger, turn
+from kb._lib import card_base, credentials, inventory, items, ledger, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib.areas import FREE_DIR, HOLD_DIR
-from kb._lib.io import read_json, write_json_atomic
+from kb._lib.io import read_json, write_json_atomic, write_text_atomic
 
 ENTRY_LINES_MAX = 15
 CLI_LOCK_TIMEOUT = 30
@@ -90,6 +90,13 @@ def add_arguments(sub):
     rv.add_argument("code", nargs="?", help="回合代號；只能是最近一次")
     rv.add_argument("--delete-outputs", action="store_true", help="連這回合的成品一起刪（客戶明說才加）")
     rv.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
+    it = subs.add_parser("items", help="列可以改回的項目（一項一個動作）", description="列可以改回的項目，編號 <回合代號>#<序>；沒指定回合列這個對話最近幾句。")
+    it.add_argument("--turn", dest="turn_code", help="只列這個回合")
+    it.add_argument("--n", type=int, default=5, help="列最近幾個回合，預設 5")
+    it.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
+    un = subs.add_parser("undo", help="改回指定的項目或整個回合", description="照項目反著做；給回合代號等於那一句的全部項目。之後被動過的那一項不做、列 conflict。")
+    un.add_argument("targets", nargs="+", help="項目編號（<回合代號>#<序>）或回合代號")
+    un.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
     do = subs.add_parser("delete-outputs", help="刪已退回回合裡留著的成品（客戶明說才做）",
                          description="刪「已退回的回合」裡 status 還是 turn_reverted 的成品；先備份再刪，再退一次救得回。")
     do.add_argument("code", nargs="?", help="回合代號；沒給取最近一個有可刪成品的已退回回合")
@@ -946,8 +953,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         print(f"只能從最近一次開始退：{_describe(target)}")
         return 3
     hits = _overlap(all_turns, target)
-    if hits:  # D-508：後來別處也改過同一份，整個不退、什麼都不動
-        return _refuse_overlap(hits, as_json)
+    if hits:  # 放寬丙（D-321(4)）：後來別處也改過同一份，改成逐項：沒被動過的照退，被動過的那一項列 conflict 交 AI 判斷
+        return _undo_locked(vault, [target["turn"]], as_json, conversation, all_turns)
     bad = _bad_path(vault, target["folders"])
     if bad is not None:  # I-111：kb 信任的根只能是 cwd 推出的知識庫
         ledger.log_error(vault, f"{target['turn']} folders 路徑不對：{json.dumps(bad, ensure_ascii=False)}",
@@ -1244,6 +1251,450 @@ def _clean(vault, check, as_json, conversation):
     return 0
 
 
+# ---------- 逐項改回（放寬丙 要做的事 2，D-321） ----------
+
+WHY_WORDS = {"expired": "那一版的備份已經清掉了", "gone": "willy 沒留一份，改不回來", "purged": "那一版因為不讀的夾清掉了，退不回",
+             "undone": "已經改回過了", "failed": "沒做成", "refused": "紀錄的路徑不對", "kept": "先留著", "taken": "原位已經有東西了",
+             "missing": "找不到要改回的東西"}
+OUTPUT_KEPT = "{rel} 是成品，先留著；要刪跟我說，我用 delete-outputs 刪。"
+NO_SUCH_TARGET = "找不到這個項目或回合：{token}"
+NO_ITEMS = "沒有可以改回的項目"
+UNDO_HEAD = "已改回 {n} 項"
+_PLAIN_OP = {"missing": "不見了", "added": "多了一份", "modified": "被改過"}
+_RECORD_NOW = {"set": "改了內容", "add": "新增", "remove": "拿掉"}
+_RECORD_DONE = {"set": "改回舊值", "add": "新增的拿掉", "remove": "拿掉的加回"}
+
+
+def _item_text(it, done=False):
+    """一項的白話（items 與 undo 的人讀輸出共用）。done：已改回的口氣。"""
+    from kb._lib.source_edit import folder_word
+    name = it["what"]
+    op, src = it["op"], it["src"]
+    if src == "record":
+        return f"{name}：{(_RECORD_DONE if done else _RECORD_NOW)[op]}"
+    if src == "manifest":
+        word = {"modify": "換回舊版" if done else "改了內容", "delete": "拿回來" if done else "刪了",
+                "create": "拿掉" if done else "新增", "purged": "清掉了"}.get(op, op)
+        return f"{name}：{word}"
+    if src == "folders":
+        if op == "move":
+            return f"資料夾 {name}：" + (f"改回 {_uri_name(it['from'])}" if done else f"改名／搬成 {it['to']}")
+        word = {"make": "拿掉" if done else "建了", "remove": "建回來" if done else "拿掉了空夾"}[op]
+        return f"資料夾 {name}：{word}"
+    if op == "trash":
+        return f"{name}：丟進資源回收筒"
+    if op == "rename":
+        return f"{_uri_name(it['to'] or '')}：" + (f"名字改回 {name}" if done else f"改名（原本叫 {name}）")
+    if op == "move":
+        return f"{name}：" + (f"搬回 {folder_word(it['from'])}" if done else f"從 {folder_word(it['from'])} 搬到 {folder_word(it['to'] or '')}")
+    return f"{name}：{_PLAIN_OP.get(op, op)}"
+
+
+def _public_item(it, t, undone_by):
+    out = {"item": it["item"], "turn": it["turn"], "said": _describe(t), "op": it["op"], "kind": it["kind"], "what": it["what"],
+           "from": it["from"], "to": it["to"], "by": it["by"], "copy": bool(it["copy"]), "undoable": it["undoable"]}
+    if it["src"] == "record":
+        out.update(file=it["file"], key=it["key"])
+    if it["item"] in undone_by:
+        out["undoable"], out["why"] = False, "undone"
+    elif not it["undoable"]:
+        out["why"] = it["why"]
+    return out
+
+
+def _items(vault, turn_code, n, as_json):
+    """kb versions items：列可以改回的項目。沒指定回合：這個對話（--session）最近 n 個有項目的回合；終端機看全部。"""
+    led = items.Ledger(vault)
+    all_turns = turns(vault)
+    if turn_code:
+        picked = [t for t in all_turns if t["turn"] == turn_code]
+        if not picked:
+            print(NO_SUCH_TARGET.format(token=turn_code))
+            return 3
+    else:
+        picked = [t for t in all_turns if _in_range(t) and led.items(t["turn"])][:n]
+    rows = []
+    for t in picked:
+        undone = led.undone(t["turn"])
+        rows += [_public_item(it, t, undone) for it in led.items(t["turn"]) if it.get("why") != "derived"]
+    if as_json:
+        print(json.dumps({"items": rows}, ensure_ascii=False))
+        return 0
+    if not rows:
+        print(NO_ITEMS)
+        return 0
+    by_turn = {}
+    for r in rows:
+        by_turn.setdefault(r["turn"], []).append(r)
+    lookup = {it["item"]: it for t in picked for it in led.items(t["turn"])}
+    for t in picked:
+        if t["turn"] not in by_turn:
+            continue
+        print(f"{_describe(t)}{'（已退回）' if t['reverted'] else ''}")
+        for r in by_turn[t["turn"]]:
+            if r["undoable"] is False and r.get("why") == "undone":
+                tail = "（已改回過）"
+            else:
+                tail = "" if r["undoable"] else f"（改不回：{WHY_WORDS.get(r.get('why'), r.get('why'))}）"
+            print(f"  {r['item']}　{_item_text(lookup[r['item']])}{tail}")
+    return 0
+
+
+def _conflict_entry(it, hits, by_turn):
+    """conflict 一項：then（那一句做了什麼）、later（之後誰在哪一句改成什麼）、now（現在的值或位置）。"""
+    then = {"op": it["op"], "from": it["what"], "to": _uri_name(it["to"]) if it["to"] else None}
+    if it["src"] == "manifest" and it["copy"]:
+        then = {"op": it["op"], "backup": f"{turn.VERSIONS_REL.as_posix()}/{it['turn']}/files/{it['row']['path']}"}
+    elif it["src"] == "record":
+        then = {"op": it["op"], "key": it["key"], "old": it["old"], "new": it["new"]}
+    later = []
+    for h in hits:
+        t = by_turn.get(h["turn"])
+        obs = bool(t and _obsidian(t))  # Obsidian 的回合不是「對話外」，是她在 Obsidian 按的（裁定 13）
+        said = f"{_short_time(t.get('started')) or ''} {OBSIDIAN_SAID}".strip() if obs else _describe(t)
+        later.append({"item": h["item"], "side": "obsidian" if obs else (_side(t) if t else "none"), "said": said,
+                      "op": h["op"], "to": h["to"] or h["from"]})
+    last = hits[-1]
+    now = last["to"] or last["from"]
+    if it["src"] == "manifest":
+        now = it["row"].get("path") or now
+    elif it["src"] == "record":
+        now = it["file"]
+    return {"item": it["item"], "why": "later", "then": then, "later": later, "now": now}
+
+
+def _undo(vault, targets, as_json, conversation):
+    lock = kio.FileLock(revert_lock_path(vault), timeout=REVERT_LOCK_TRY)
+    try:
+        lock.__enter__()
+    except TimeoutError:
+        print(REVERT_BUSY)
+        return 3
+    try:
+        return _undo_locked(vault, targets, as_json, conversation)
+    except Exception as e:  # noqa: BLE001  白話一句、不丟 traceback
+        ledger.log_error(vault, f"undo 失敗：{type(e).__name__}: {e}", source="versions")
+        print(UNEXPECTED.format(why=_plain(vault, e)))
+        return 3
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _resolve(led, targets):
+    """項目編號或回合代號 → (項目清單去重、新的在前；找不到的)。"""
+    got, unknown = {}, []
+    for token in targets:
+        if "#" in token:
+            it = led.find(token)
+            found = [it] if it else []
+        else:
+            found = led.items(token) if token in led.tids else []
+        if not found:
+            unknown.append(token)
+        for it in found:
+            got[it["item"]] = it
+    return sorted(got.values(), key=lambda it: (it["turn"], it["seq"]), reverse=True), unknown
+
+
+def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
+    led = items.Ledger(vault)
+    all_turns = all_turns or turns(vault)
+    by_turn = {t["turn"]: t for t in all_turns}
+    todo, unknown = _resolve(led, targets)
+    if unknown and not todo:
+        print("\n".join(NO_SUCH_TARGET.format(token=u) for u in unknown))
+        return 3
+    if not todo:
+        print(NO_ITEMS)
+        return 3
+    rt = _acting_turn(vault, todo[0]["turn"])
+    ctx = {"vault": vault, "sources": sources_lib.load(vault), "rt": rt["turn"], "restored": [], "removed": [],
+           "touched_z3": [], "moves": [], "render": set(), "kept": []}
+    done, conflict, skipped = [], [], []
+    done_ids = set()
+    for it in todo:
+        if it.get("why") == "derived":
+            continue
+        said = _describe(by_turn.get(it["turn"]))
+        if it["item"] in led.undone(it["turn"]):
+            skipped.append({"item": it["item"], "why": "undone", "said": said})
+            continue
+        if not it["undoable"]:
+            if it["src"] == "detected" and it["op"] in ("added", "modified") and it["item"] not in targets:
+                continue  # 整個回合改回時，使用者自己新增、改過的檔不是 willy 動的，不逐項喊「改不回」
+            skipped.append({"item": it["item"], "why": it["why"], "said": said, "message": _unfixable_message(it)})
+            continue
+        hits = [h for h in items.conflicts_of(led, it) if h["item"] not in done_ids and h["turn"] != ctx["rt"]]
+        if hits:
+            conflict.append(_conflict_entry(it, hits, by_turn))
+            continue
+        try:
+            status, why, message = _do_item(ctx, led, it)
+        except _FolderFailed as e:
+            status, why, message = "skipped", "failed", e.line
+        except Exception as e:  # noqa: BLE001  一項出事不拖累別項
+            ledger.log_error(vault, f"undo {it['item']} 失敗：{type(e).__name__}: {e}", source="versions")
+            status, why, message = "skipped", "failed", UNEXPECTED.format(why=_plain(vault, e))
+        if status == "done":
+            done.append(it)
+            done_ids.add(it["item"])
+        else:
+            skipped.append({"item": it["item"], "why": why, "said": said, "message": message})
+    _undo_finish(ctx, led, done)
+    _seal(vault, conversation)
+    kept = ctx["kept"]
+    if as_json:
+        print(json.dumps({"done": [it["item"] for it in done], "conflict": conflict, "skipped": skipped, "kept": kept,
+                          "turn": ctx["rt"], "again": AGAIN if done else None}, ensure_ascii=False))
+    else:
+        _undo_print(done, conflict, skipped, kept, led, unknown)
+    if done:
+        journal_cli.record_program_or_warn(
+            vault, UNDO_HEAD.format(n=len(done)),
+            [{"path": r, "action": "modify"} for r in ctx["restored"]] + [{"path": r, "action": "delete"} for r in ctx["removed"]],
+            "versions undo", conversation, actions=items.actions_of_turn(vault, ctx["rt"]))
+    return 0 if (done or conflict or kept) else 3
+
+
+def _unfixable_message(it):
+    why = it.get("why")
+    if why == "gone" and it["op"] == "trash":
+        return IN_BIN.format(name=it["what"])
+    if why == "gone":
+        hint = "它在資源回收筒的話去那裡拿" if it["op"] == "missing" else "要改回得自己動手"
+        return f"「{it['what']}」willy 沒留一份；{hint}"
+    return WHY_WORDS.get(why, "")
+
+
+def _undo_finish(ctx, led, done):
+    """做完的收尾：重算（跟 revert 的收尾一樣）、日程等的 md 重畫、標已改回。"""
+    vault, rt = ctx["vault"], ctx["rt"]
+    card_base.after_revert(vault, [r for r in ctx["restored"] if not r.startswith("file://")],
+                           [r for r in ctx["removed"] if not r.startswith("file://")])
+    try:
+        _reconcile(vault, ctx["touched_z3"], rt)
+        _rescan(vault, ctx["moves"], rt)
+    except ValueError:
+        pass  # 清冊讀不到：不對帳，下次整理時再比
+    for path in sorted(ctx["render"]):
+        _render_record_md(vault, path, rt)
+    if not done:
+        return
+    stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    for it in done:
+        vdir = Path(vault) / turn.VERSIONS_REL / it["turn"]
+        with kio.FileLock(vdir / "manifest.jsonl"):
+            turn._append_line(vdir / "undone.jsonl", {"item": it["item"], "by_turn": rt, "time": stamp})
+    undo_of = turn.turn_dir(vault, rt) / "undo_of.jsonl"
+    for it in done:
+        turn._append_line(undo_of, {"item": it["item"]})
+    # 改回的是以前的「改回」本身（那個回合有 undo_of.jsonl）：它改回過的項目撤掉「已改回」記號，可以再改回
+    for tid in {it["turn"] for it in done if (Path(vault) / turn.VERSIONS_REL / it["turn"] / "undo_of.jsonl").is_file()}:
+        _unmark(vault, led, tid)
+
+
+def _unmark(vault, led, acting_tid):
+    for tid in led.tids:
+        path = Path(vault) / turn.VERSIONS_REL / tid / "undone.jsonl"
+        rows = items._read_lines(path)
+        keep = [r for r in rows if r.get("by_turn") != acting_tid]
+        if len(keep) != len(rows):
+            write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep))
+
+
+def _render_record_md(vault, path, rt):
+    """條目改回後，由它重算的 md 重畫（日程、待處理、裁示）；重畫失敗只記 log。"""
+    try:
+        if path == ".system/agenda.json":
+            from kb._lib import agenda
+            agenda.render(vault, turn_id=rt)
+        elif path == ".system/pending.json":
+            from kb._lib import pending
+            pending.render(vault, turn_id=rt)
+        elif path == ".system/rulings.json":
+            from kb._lib import rulings
+            rulings.render(vault, turn_id=rt)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"undo 重畫 {path} 失敗：{type(e).__name__}: {e}", source="versions")
+
+
+def _undo_print(done, conflict, skipped, kept, led, unknown):
+    lookup = {it["item"]: it for it in led.all()}
+    for it in sorted(done, key=lambda i: (i["turn"], i["seq"])):
+        print(_item_text(it, done=True))
+    for c in conflict:
+        it = lookup[c["item"]]
+        last = c["later"][-1]
+        now = _uri_name(str(c["now"])) if c["now"] else ""
+        print(f"{it['what']}：之後又被動過（{last['said']}），現在是「{now}」，這項沒改回")
+    for s in skipped:
+        it = lookup.get(s["item"])
+        print(f"{it['what'] if it else s['item']}：{s.get('message') or WHY_WORDS.get(s['why'], s['why'])}")
+    for u in unknown:
+        print(NO_SUCH_TARGET.format(token=u))
+    if done:
+        print(AGAIN)
+
+
+def _do_item(ctx, led, it):
+    """做一項。回 (done｜skipped, why, 句子)。"""
+    src = it["src"]
+    if src in ("moves", "detected"):
+        return _undo_move_item(ctx, it)
+    if src == "folders":
+        return _undo_folder_item(ctx, it)
+    if src == "record":
+        return _undo_record_item(ctx, it)
+    return _undo_file_item(ctx, led, it)
+
+
+def _undo_move_item(ctx, it):
+    vault, sources, rt = ctx["vault"], ctx["sources"], ctx["rt"]
+    m = it["row"]
+    if m["op"] == "trash":
+        return "skipped", "gone", IN_BIN.format(name=_uri_name(m["from"]))
+    src, why = _move_path(vault, sources, m.get("from"))
+    dst, why2 = _move_path(vault, sources, m.get("to"))
+    if why or why2:
+        return "skipped", "refused", why or why2
+    name, folder = _uri_name(m["to"]), _uri_name(str(m["from"]).rpartition("/")[0])
+    if not os.path.lexists(dst):
+        return "skipped", "gone", MOVE_GONE.format(name=name, folder=folder)
+    if os.path.normcase(str(src)) != os.path.normcase(str(dst)) and os.path.lexists(src):
+        return "skipped", "taken", MOVE_TAKEN.format(folder=folder, name=_uri_name(m["from"]))
+    if not os.path.lexists(src.parent):
+        return "skipped", "gone", MOVE_NO_PARENT.format(folder=folder)
+    try:
+        _move_any(dst, src)
+    except PermissionError:
+        return "skipped", "failed", MOVE_OPEN.format(name=name)
+    turn.record_move(vault, rt, "move" if m["op"] == "move" else m["op"], it["kind"], m["to"], m["from"])
+    ctx["moves"].append({"from": m["from"], "to": m["to"]})
+    return "done", None, None
+
+
+def _undo_folder_item(ctx, it):
+    vault, rt = ctx["vault"], ctx["rt"]
+    root = Path(vault).resolve()
+    op, src, dst = it["op"], it["from"], it["to"]
+    if not all(_path_ok(root, p) for p in (src, dst) if p is not None):
+        return "skipped", "refused", BAD_LEDGER
+    v = Path(vault)
+    if op == "move":
+        if not dst or not (v / dst).exists():
+            return "skipped", "gone", f"退不回去：「{dst}」不見了，改不回「{src}」"
+        if _fkey(src) != _fkey(dst) and (v / src).exists():
+            return "skipped", "taken", f"退不回去：「{dst}」改回「{src}」時「{src}」已經有東西了"
+        (v / src).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.rename(v / dst, v / src)
+        except PermissionError:
+            return "skipped", "failed", FOLDER_OPEN.format(rel=dst)
+        turn.record_folder(vault, rt, "move", dst, src)
+    elif op == "make":
+        if not (v / src).is_dir():
+            return "done", None, None
+        if any((v / src).iterdir()):
+            return "skipped", "kept", MADE_KEPT.format(rel=src)
+        (v / src).rmdir()
+        turn.record_folder(vault, rt, "remove", src)
+    else:  # remove：空夾建回來
+        if (v / src).is_file():
+            return "skipped", "taken", f"退不回去：「{src}」現在是檔案"
+        if not (v / src).is_dir():
+            (v / src).mkdir(parents=True)
+            turn.record_folder(vault, rt, "make", src)
+    return "done", None, None
+
+
+def _undo_file_item(ctx, led, it):
+    """manifest 的一檔：modify／delete 放回舊版、create 拿掉（成品留著）。登記的來源（有 uri）照 uri 找回原位。"""
+    vault, sources, rt = ctx["vault"], ctx["sources"], ctx["rt"]
+    e = it["row"]
+    action, recorded, uri = e.get("action"), e.get("path"), e.get("uri")
+    backup = led.backup_file(it["turn"], recorded) if recorded else None
+    if uri:
+        ext = inventory.path_of(vault, sources, uri)
+        if ext is None:
+            return "skipped", "gone", MOVE_UNREGISTERED.format(alias=inventory.split_uri(uri)[0])
+        if action in ("modify", "delete"):
+            if not backup.is_file():
+                return "skipped", "expired", WHY_WORDS["expired"]
+            gone = _drive_gone(vault, sources, [e])
+            if gone:
+                return "skipped", "gone", DRIVE_GONE.format(name=gone[0], place=gone[1])
+            turn.backup_source(vault, ext, None, rt, sources)
+            Path(ext).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup, ext)
+            ctx["restored"].append(uri)
+        elif action == "create" and Path(ext).is_file():
+            turn.backup_source(vault, ext, None, rt, sources)
+            os.remove(ext)
+            ctx["removed"].append(uri)
+        return "done", None, None
+    root = Path(vault).resolve()
+    if not _path_ok(root, recorded):
+        return "skipped", "refused", BAD_MANIFEST
+    dst = Path(vault) / recorded
+    is_z3 = _is_output(vault, recorded, sources, _output_keys(vault))
+    if action in ("modify", "delete"):
+        if not backup.is_file():
+            return "skipped", "expired", WHY_WORDS["expired"]
+        if dst.is_file() and not _writable(dst):
+            return "skipped", "failed", FILE_OPEN.format(rel=recorded)
+        turn.backup(vault, recorded, rt)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        _copy_back(vault, backup, dst)
+        ctx["restored"].append(recorded)
+        if is_z3:
+            ctx["touched_z3"].append(recorded)
+        return "done", None, None
+    if action == "create":
+        if not dst.is_file():
+            return "skipped", "gone", ALREADY_GONE.format(rel=recorded)
+        if is_z3:
+            ctx["kept"].append(OUTPUT_KEPT.format(rel=recorded))
+            return "skipped", "kept", OUTPUT_KEPT.format(rel=recorded)
+        if not _writable(dst):
+            return "skipped", "failed", FILE_OPEN.format(rel=recorded)
+        _remove(vault, recorded, rt)
+        ctx["removed"].append(recorded)
+        return "done", None, None
+    return "skipped", "gone", ""
+
+
+def _undo_record_item(ctx, it):
+    """JSON 條目換回舊值：新增的拿掉、拿掉的加回、改的換回。整檔在 FileLock 裡讀改寫，寫前備進動作回合。"""
+    import copy
+    vault, rt = ctx["vault"], ctx["rt"]
+    path, key = it["file"], it["key"]
+    target = Path(vault) / path
+    list_key = items.RECORD_FILES[path]
+    with kio.FileLock(target):
+        data = read_json(target, {}) or {}
+        lst = data.get(list_key)
+        if not isinstance(lst, list):
+            return "skipped", "failed", f"{path} 的內容讀不懂"
+        idx = next((i for i, r in enumerate(lst) if isinstance(r, dict) and str(r.get("id")) == key), None)
+        if it["op"] == "set":
+            if idx is None:
+                return "skipped", "gone", f"{it['what']} 現在已經不在"
+            lst[idx] = copy.deepcopy(it["old"])
+        elif it["op"] == "add":
+            if idx is None:
+                return "skipped", "gone", f"{it['what']} 現在已經不在"
+            del lst[idx]
+        else:
+            if idx is not None:
+                return "done", None, None
+            lst.insert(min(it["old_index"], len(lst)), copy.deepcopy(it["old"]))
+        turn.backup(vault, path, rt)
+        write_json_atomic(target, data)
+    ctx["restored"].append(path)
+    ctx["render"].add(path)
+    return "done", None, None
+
+
 def run(args):
     vault = guard.find_vault(os.getcwd())
     if vault is None:
@@ -1253,11 +1704,15 @@ def run(args):
     as_json = getattr(args, "json", False)
     if args.versions_command == "list":
         return _list(vault, args.n, as_json)
+    if args.versions_command == "items":
+        return _items(vault, args.turn_code, args.n, as_json)
     # 對話裡叫的（有 sid、還沒答完）在動作前判斷一次（D-085 補）：退回自己這句時會開一個帶 sid 的新回合接著那句，
     # 判斷要跟動作前一致；這個結果也決定做完要不要封住動作回合（_seal）
     conversation = journal_cli.in_conversation(vault)
     if args.versions_command == "clean":
         return _clean(vault, args.check, as_json, conversation)
+    if args.versions_command == "undo":
+        return _undo(vault, args.targets, as_json, conversation)
     if args.versions_command == "delete-outputs":
         return _delete_outputs(vault, args.code, as_json, conversation)
     return _revert(vault, args.code, args.delete_outputs, as_json, conversation)

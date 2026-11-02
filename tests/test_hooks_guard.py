@@ -163,7 +163,7 @@ class ReviewGaps(unittest.TestCase):
 
 
 class Transaction(unittest.TestCase):
-    """事務層：檔案工具寫 Z1／Z3／Z5 放行前先回合備份；第 N+1 張既有綜合卡 deny big_change；備份失敗 deny backup_failed。"""
+    """事務層：檔案工具寫 Z1／Z3／Z5 放行前先回合備份；（綜合卡張數不再擋，放寬丙 5）備份失敗 deny backup_failed。"""
 
     SID = "test-sid"
 
@@ -226,7 +226,7 @@ class Transaction(unittest.TestCase):
         self.assertEqual(decision_of(r)[1], "allow")
         self.assertFalse((self.V / ".system" / "versions").exists())
 
-    def test_eleventh_card_denied_then_approve_allows_then_new_turn_resets(self):
+    def test_eleventh_card_is_not_blocked_and_new_turn_resets(self):
         cards = []
         for i in range(11):
             d = self.V / "案子" / f"案{i:02d}"
@@ -235,17 +235,7 @@ class Transaction(unittest.TestCase):
             cards.append(d / f"案{i:02d}.md")
         for p in cards[:10]:
             self.assertEqual(decision_of(self.write(p))[1], "allow", str(p))
-        r = self.write(cards[10])
-        _event, decision, reason = decision_of(r)
-        self.assertEqual(decision, "deny")
-        self.assertIn("10 張", reason)
-        rows = self.ledger_rows()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][4], "big_change")
-        self.assertEqual(rows[0][3], "Z1")
-        self.assertEqual(len(self.manifest()), 10)
-        self.turn.approve(self.V, self.SID)
-        self.assertEqual(decision_of(self.write(cards[10]))[1], "allow")
+        self.assertEqual(decision_of(self.write(cards[10]))[1], "allow")  # 放寬丙 5：不再擋
         self.assertEqual(len(self.manifest()), 11)
         t2 = self.turn.start(self.V, self.SID, "下一句")
         self.assertEqual(decision_of(self.write(cards[0]))[1], "allow")
@@ -323,15 +313,6 @@ class Transaction(unittest.TestCase):
             self.assertEqual(decision_of(r)[1], "allow", r.stdout)
             self.assertEqual(self.manifest(t2["turn"])[0]["path"], "案子/信義王/信義王.md")
 
-    def test_whole_config_not_object_still_allows_and_logs(self):
-        """第二輪 L5 補（驗收 34）。"""
-        (self.V / ".system" / "config.json").write_text("5", encoding="utf-8")
-        r = self.write(self.card)
-        self.assertEqual(decision_of(r)[1], "allow", r.stdout)
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(log), 1)
-        self.assertIn("config.json", log[0])
-
     def test_bad_manifest_line_still_allows_and_logs(self):
         """第一輪 L4（驗收 25）。"""
         self.write(self.card)
@@ -346,15 +327,6 @@ class Transaction(unittest.TestCase):
         self.assertGreaterEqual(len(log), 1)
         self.assertIn("manifest", log[0])
         self.assertEqual(self.manifest()[-1]["path"], "檔案索引/i.md")
-
-    def test_bad_config_type_still_allows_and_logs(self):
-        """第一輪 L5（驗收 26）。"""
-        (self.V / ".system" / "config.json").write_text('{"big_change_synthesis_max": "十"}', encoding="utf-8")
-        r = self.write(self.card)
-        self.assertEqual(decision_of(r)[1], "allow", r.stdout)
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(log), 1)
-        self.assertIn("big_change_synthesis_max", log[0])
 
     def test_shell_write_to_card_denied_with_ledger(self):
         data = payload("Bash", f"echo hi > {self.card}", self.V)
