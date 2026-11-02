@@ -712,6 +712,8 @@ class VersionsJournal(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         if name == "guard.py":
             self.assertIn('"allow"', r.stdout)
+        elif name == "turn.py":  # 放寬丙 3b：每句開頭可能帶變動行等 additionalContext，這裡只管不出錯
+            self.assertIn(r.stdout[:1], ("", "{"))
         else:
             self.assertEqual(r.stdout, "")
 
