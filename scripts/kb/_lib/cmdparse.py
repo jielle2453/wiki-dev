@@ -46,10 +46,12 @@ WRITE_CODE = re.compile(
     r"file_put_contents|fwrite|\bfopen\([^)]*['\"][wax+]|File\.(?:write|open\([^)]*['\"][wax])|FileUtils)",
     re.IGNORECASE,
 )
+# open( 的第二個位置參數是寫入模式才算（open('x.md') 的檔名第一個字母不是模式）；第一個參數允許一層括號與引號字串
+_OPEN_ARGS = r"\((?:[^,()'\"]|'[^']*'|\"[^\"]*\"|\([^()]*\))*,\s*['\"][rb]*[wax+]"
 # 放寬甲 U6：直譯器程式碼只看刪檔與覆蓋寫法；搬、改名、建夾、touch、開子行程不算（搬檔改名可以照跑）。
 # 跑別的指令的（subprocess、os.system…）另外抽字串常數照指令判（guard._code_commands），不是常數的照 U5
 DESTRUCTIVE_CODE = re.compile(
-    r"(open\([^)]*['\"][wax+]|\.open\(\s*['\"][wax+]|\bmode\s*=\s*['\"][wax+]|"
+    r"(open" + _OPEN_ARGS + r"|\.open\(\s*['\"][wax+]|\bmode\s*=\s*['\"][wax+]|"
     r"(?:zipfile|tarfile|io|codecs|gzip|bz2|lzma)\.\w*\(?[^)]*['\"][wax]|\bZipFile\([^)]*['\"][wax]|"
     r"\.write_text|\.write_bytes|\.(?:unlink|rmdir|replace)\(|"
     r"writealltext|writeallbytes|appendalltext|writealllines|appendalllines|\[io\.file\]::delete|"
@@ -58,7 +60,7 @@ DESTRUCTIVE_CODE = re.compile(
     r"writefile|appendfile|unlinksync|rmsync|rmdirsync|copyfile|createwritestream|truncatesync|"
     r"\bfs\.(?:rm|cp|unlink|rmdir|copy)\w*\(|"
     r"\bopen\s*\(?[^)\n]*['\"]\s*(?:\+?[>|]|>>)|"
-    r"file_put_contents|fwrite|\bfopen\([^)]*['\"][wax+]|File\.(?:write|delete|unlink|open\([^)]*['\"][wax])|"
+    r"file_put_contents|fwrite|\bfopen" + _OPEN_ARGS + r"|File\.(?:write|delete|unlink|open" + _OPEN_ARGS + r")|"
     r"FileUtils\.(?:rm|remove|cp|copy|install))",
     re.IGNORECASE,
 )

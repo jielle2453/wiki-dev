@@ -527,5 +527,21 @@ class OpenStage(unittest.TestCase):
         self.assertNotIn("start", cmdparse.SHELL_WRAPPERS)
 
 
+class DestructiveCodeOpenMode(unittest.TestCase):
+    """open( 只有第二個位置參數是寫入模式才算，檔名第一個字母不是模式。"""
+
+    def test_read_not_destructive(self):
+        for code in ("open('x.md').read()", "open('a.txt', encoding='utf-8').read()",
+                     "open('w1.md', 'r').read()", "open('AI.md', 'rb').read()",
+                     "open(os.path.join(d, 'x.md')).read()", "fopen('x.txt', 'r')"):
+            self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+
+    def test_write_is_destructive(self):
+        for code in ("open('x.md', 'w').write('a')", "open(p, \"a\")", "open('a,b.md', 'x')",
+                     "open(os.path.join(d, 'f'), 'w')", "open(p, 'r+')", "open(p, 'wb')",
+                     "open(p, mode='w')", "fopen('x.txt', 'w')"):
+            self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+
+
 if __name__ == "__main__":
     unittest.main()
