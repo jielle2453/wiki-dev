@@ -185,7 +185,9 @@ def filename_ok(name, entry_id, title, max_chars):
 def prefill_entities(entry, ent_data, vault=None):
     """原檔主位置在知識庫實體夾裡（file://知識庫/<型別夾>/<名稱>/…）且 <名稱> 是登記的 active 實體（型別也對）→ [<名稱>]，
     否則 []（D-043：位置決定掛哪個）。link 條目取 output link 給的 --entity 裡還登記著的（produce 第 5 點）。
-    型別夾名照設定檔換成型別名（profile.type_of_folder，型別夾編號）；vault 沒給或不是型別夾照夾名比。"""
+    型別夾名照設定檔換成型別名（profile.type_of_folder，型別夾編號）；vault 沒給或不是型別夾照夾名比。
+    只在製卡時預填（header_for、todo 的 prefill）：之後任何地方都不得照位置重算「實體」（放寬丙 5-1，D-308）——
+    原檔被搬了，掛哪個實體交 AI 判斷（kb changes --moved、kb cards mount），sync 只搬卡、不動「實體」。"""
     from kb._lib import entities
     from kb._lib.inventory import KNOWLEDGE
     if entry.get("kind") == "link":

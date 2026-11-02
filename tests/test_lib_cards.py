@@ -564,6 +564,22 @@ class TemplateTwo(unittest.TestCase):
         self.assertEqual(self.reason(rel), (True, ""))
         self.assertEqual(self.todo()["unlinked"], [])
 
+    def test_move_to_other_entity_folder_keeps_entity(self):
+        """放寬丙 要做的事 5-1（驗收 15）：原檔搬到別的實體夾，sync 把卡搬到新的鏡射位置，「實體」仍是原本的（不照位置重算）。"""
+        rel = self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
+        src = self.V / "案子" / "信義王" / "合約.docx"
+        dst = self.V / "案子" / "大安陳" / "合約.docx"
+        self.assertTrue(src.is_file())
+        src.rename(dst)
+        report = self.E._cards.scan_apply(self.V)
+        self.assertEqual(len(report["moved"]), 1)
+        t = turn.start(self.V, None, "搬")["turn"]
+        got = cards.sync(self.V, sources_lib.load(self.V), t)
+        self.assertEqual(len(got["moved"]), 1)
+        (new,) = [c for c in (self.V / "檔案索引").rglob("*.md") if "信義王合約" in c.name]
+        self.assertIn("大安陳", new.relative_to(self.V).as_posix())
+        self.assertEqual(cards.parse_front(new.read_text(encoding="utf-8"))["實體"], ["信義王"])
+
     def test_v1_prefill_for_entity_folder_card(self):
         rel = self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
         self.E.to_v1(self.V, rel)
