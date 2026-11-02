@@ -132,10 +132,14 @@ class GuardWrite(FixtureVault):
         self.assertEqual([e["action"] for e in rows], ["create"])
 
     def test_4_shell_write_denied(self):
+        """放寬甲：彈性區（Z12）指令寫照使用者區規則——新檔放行，改既有檔內容才擋 content。"""
+        d = self.decide("Bash", f'echo x > "{self.F / "new.txt"}"')
+        self.assertEqual(d.decision, "pass")
+        (self.F / "a.txt").write_text("a", encoding="utf-8")
         d = self.decide("Bash", f'echo x > "{self.F / "a.txt"}"')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "shell_write"))
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"))
         d = self.decide("PowerShell", f'Set-Content -Path "{self.F / "a.txt"}" -Value x')
-        self.assertEqual((d.decision, d.reason_code), ("deny", "shell_write"))
+        self.assertEqual((d.decision, d.reason_code), ("deny", "content"))
 
 
 class GuardCredential(FixtureVault):

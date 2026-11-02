@@ -43,7 +43,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         event, decision, reason = decision_of(r)
         self.assertEqual(decision, "deny")
-        self.assertIn("這個夾你說過不讀", reason)
+        self.assertIn("使用者說過不讀", reason)
 
     def test_pass_prints_nothing(self):
         r = run_hook(payload("Read", "C:/Windows/notepad.exe", self.V))
@@ -75,7 +75,7 @@ class Hook(unittest.TestCase):
         for tool in ("Bash", "PowerShell"):
             r = run_hook(payload(tool, "git status", self.V))
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(decision_of(r)[1:], ("deny", "守門出錯，這次不放行。說「檢查」我看原因"))
+            self.assertEqual(decision_of(r)[1:], ("deny", "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。"))
         self.assertTrue((self.V / ".system" / "hook-errors.log").exists())
         rows = (self.V / ".system" / "ledger.tsv").read_text(encoding="utf-8").splitlines()[1:]
         self.assertTrue(all(r.split("\t")[2] == "deny" and r.split("\t")[4] == "guard_error" for r in rows), rows)
@@ -360,8 +360,8 @@ class Transaction(unittest.TestCase):
         data = payload("Bash", f"echo hi > {self.card}", self.V)
         r = run_hook(data)
         self.assertEqual(decision_of(r)[1], "deny")
-        self.assertIn("用指令改的退不回來", decision_of(r)[2])
-        self.assertEqual(self.ledger_rows()[0][4], "shell_write")
+        self.assertIn("用 Edit 或 Write 改", decision_of(r)[2])  # 放寬甲：綜合卡指令寫是 willy 自己的檔
+        self.assertEqual(self.ledger_rows()[0][4], "willy")
 
 
 class Round2(unittest.TestCase):
