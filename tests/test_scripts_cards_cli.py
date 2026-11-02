@@ -356,6 +356,22 @@ class AfterTest(Base):
         self.assertEqual(front["開原檔"], cards.open_link(self.tmp / "raw2" / _cards.MEETING))
         self.assertEqual(self.todo()["moved"], [])
 
+    def test_sync_rewrites_missing_or_broken_index(self):
+        """放寬丙 6-3：總目錄.md 不見或壞了，kb cards sync 自己重寫（卡檔頭壞走 broken 桶，不在這裡）。"""
+        _cards.write_card(self.V, self.item(), "大安陳會議一")
+        self.assertEqual(self.kb("cards", "index").returncode, 0)
+        index = self.V / "總目錄.md"
+        for label, bad in (("missing", None), ("garbage", b"\xff\xfe\x00bad"), ("empty", b"")):
+            with self.subTest(label):
+                if bad is None:
+                    index.unlink()
+                else:
+                    index.write_bytes(bad)
+                r = self.kb("cards", "sync")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertTrue(index.read_text(encoding="utf-8").startswith("# 總目錄"))
+                self.assertIn("共 1 張卡", index.read_text(encoding="utf-8"))
+
     def test_20_sync_drops_duplicate(self):
         item = self.item()
         good = _cards.write_card(self.V, item, "大安陳會議一")

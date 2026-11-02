@@ -1267,6 +1267,15 @@ def _link_text(text):
     return text
 
 
+def index_broken(vault):
+    """總目錄.md 不見、讀不了（不是 UTF-8）或開頭不是總目錄的標題（放寬丙 6-3，D-311(2)）：該由 render_index 重寫。"""
+    try:
+        text = (Path(vault) / INDEX_POSIX).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return True
+    return not text.startswith(INDEX_HEAD.split("\n", 1)[0])
+
+
 def render_index(vault, turn_id=None):
     """寫總資料夾根的 總目錄.md：巢狀清單（第一層來源別名、往下鏡射夾、葉子是卡），同層夾在前卡在後、各自按名稱排；
     解析不了的卡用檔名當標題。有 turn_id 就先備進回合（實作疑義裁定 4）。整段在 總目錄.md 的鎖裡（裁定 26）。回卡數。"""

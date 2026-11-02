@@ -205,11 +205,14 @@ def _sync(vault, as_json, conversation):
     got = cards.sync(vault, sources_lib.load(vault), turn_id)  # 本體在 _lib（型別改名與合併也叫它）
     moved, updated, skipped, dropped = got["moved"], got["updated"], got["skipped"], got["dropped"]
     changed, touched = got["changed"], got["touched"]
-    if moved or updated or dropped:
+    rebuilt = cards.index_broken(vault)  # 總目錄不見或壞了：自己重寫（放寬丙 6-3）
+    if moved or updated or dropped or rebuilt:
         cards.render_index(vault, turn_id)
         changed.append({"path": cards.INDEX_POSIX, "action": "modify"})
         cards.refresh_synthesis(vault, touched, turn_id)
         note = f"搬了 {len(moved)} 張卡" + (f"、刪掉重複卡 {len(dropped)} 張" if dropped else "")
+        if rebuilt:
+            note += "；總目錄不見或壞了，重寫了一份"
         journal_cli.record_program_or_warn(vault, note, changed, "cards sync", conversation)
     if as_json:
         print(json.dumps({"moved": moved, "updated": updated, "dropped": dropped, "skipped": skipped},
