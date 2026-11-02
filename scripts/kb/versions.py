@@ -600,6 +600,30 @@ def _move_root(vault, sources, alias):
     return None
 
 
+def _abs_move_path(vault, sources, text, rel):
+    """搬動帳裡的絕對路徑 uri（file:///D:/a/b）→ (路徑, None) 或 (None, 拒絕句)。不信紀錄：不准 ..／空段／段裡的冒號（磁碟代號只准開頭）／
+    結尾的點或空白；解出來不能在知識庫裡（那要用 知識庫 別名）、不能在不讀的夾裡。"""
+    from kb._lib.paths import inside, normalize
+    drive = _DRIVE.match(rel)
+    body = rel[2:] if drive else rel
+    segs = [s for s in re.split(r"[\\/]", body)]
+    if drive and segs and segs[0] == "":
+        segs = segs[1:]
+    if (not segs or any(seg in ("", ".", "..") or ":" in seg or seg.endswith((".", " ")) for seg in segs)):
+        return None, MOVE_BAD.format(uri=text)
+    full = inventory.abs_of_uri(text)
+    if full is None:
+        return None, MOVE_BAD.format(uri=text)
+    real = os.path.realpath(os.path.abspath(str(full)))
+    rn, vn = normalize(real, None), normalize(os.path.realpath(str(vault)), None)
+    if rn == vn or inside(rn, vn):
+        return None, MOVE_BAD.format(uri=text)
+    status, _src = sources.lookup(rn)
+    if status == "excluded":
+        return None, MOVE_EXCLUDED.format(name=segs[-1])
+    return full, None
+
+
 def _move_path(vault, sources, uri):
     """搬動帳的一個 uri → (絕對路徑, None) 或 (None, 拒絕句)。不信紀錄（B-080）：別名要登記、相對路徑不准 ..／絕對／磁碟代號、
     解出來在根底下、不在任何排除裡；知識庫裡的只收實體夾底下（型別/名稱/…）。"""
@@ -610,6 +634,8 @@ def _move_path(vault, sources, uri):
     if not text.startswith("file://"):
         return None, MOVE_BAD.format(uri=text)
     alias, _sep, rel = text[len("file://"):].partition("/")
+    if alias == "" and _sep:  # file:///D:/…：搬到知識庫外沒登記的地方（家目錄外的絕對路徑，放寬甲）
+        return _abs_move_path(vault, sources, text, rel)
     segs = re.split(r"[\\/]", rel)
     # 段裡的冒號（磁碟代號、資料流）與結尾的點或空白（Windows 會吃掉，「系統.」就是「系統」）一律不收（收尾 security-review）
     if (not rel or rel.startswith(("/", "\\")) or _DRIVE.match(rel) or Path(rel).is_absolute()
@@ -733,7 +759,7 @@ def _roll_back_source_moves(vault, done):
 def _rescan(vault, rows, turn_id):
     """搬回去之後對清冊掃一次那幾個根（大小、時間、不見照實）；有變才套用。"""
     aliases = sorted({inventory.split_uri(u)[0] for m in rows for u in (m.get("from"), m.get("to")) if u
-                      and inventory.split_uri(u)[0] != inventory.HOME_ALIAS})
+                      and inventory.split_uri(u)[0] not in (inventory.HOME_ALIAS, "")})
     if not aliases:
         return
     report = inventory.scan(vault, sources_lib.load(vault), only_roots=aliases)

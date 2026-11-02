@@ -266,13 +266,35 @@ class OutsideMove(Base):
         self.assertEqual((e["status"], e["locations"][0]["uri"]), ("active", "file://客戶案件/大安陳/估價單.pdf"))
         self.assertTrue(list((Path(self.V) / "檔案索引/客戶案件/大安陳").glob("*.md")))
 
-    def test_outside_not_under_home_refused_with_ai_sentence(self):
+    def test_outside_not_under_home_records_absolute_uri_and_revert(self):
+        """設計自定 (8)：家目錄外也不拒絕，記絕對路徑 file:///…，狀態 outside；path_of 認得；退回搬得回來。"""
         elsewhere = self.tmp / "不在家目錄"
         elsewhere.mkdir()
-        with mock.patch.dict(os.environ, {"USERPROFILE": str(self.home / "Desktop"), "HOME": str(self.home / "Desktop")}):
-            msg = self.refuse(self.plan, self.fid, dest=str(elsewhere))
-        self.assertIn("不在這台電腦的使用者資料夾底下", msg)
-        self.assertIn("kb folders add", msg)
+        before_card = (Path(self.V) / self.card_rel).read_bytes()
+        self.move(self.fid, str(elsewhere))
+        self.assertTrue((elsewhere / "估價單.pdf").is_file())
+        e = entry(self.V, self.fid)
+        uri = e["locations"][0]["uri"]
+        self.assertEqual(e["status"], "outside")
+        self.assertTrue(uri.startswith("file:///") and uri.endswith("/不在家目錄/估價單.pdf"), uri)
+        self.assertEqual(os.path.normcase(os.path.realpath(inventory.path_of(self.V, sources_lib.load(self.V), uri))),
+                         os.path.normcase(os.path.realpath(elsewhere / "估價單.pdf")))
+        front = cards.parse_front((Path(self.V) / self.card_rel).read_text(encoding="utf-8"))
+        self.assertEqual(front["原檔"], [uri])
+        report = inventory.scan(self.V, sources_lib.load(self.V))  # 不掃描：狀態不變
+        inventory.apply(self.V, report, self.t)
+        self.assertEqual(entry(self.V, self.fid)["status"], "outside")
+        code, out = revert(self.V)
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.raw / ESTIMATE).is_file())
+        self.assertFalse((elsewhere / "估價單.pdf").exists())
+        e = entry(self.V, self.fid)
+        self.assertEqual((e["status"], e["locations"][0]["uri"]), ("active", "file://" + ESTIMATE))
+        self.assertEqual((Path(self.V) / self.card_rel).read_bytes(), before_card)
+
+    def test_home_itself_as_destination(self):
+        self.move(self.fid, str(self.home))
+        self.assertEqual(entry(self.V, self.fid)["locations"][0]["uri"], "file://~/估價單.pdf")
 
 
 class RegistryFollows(Base):

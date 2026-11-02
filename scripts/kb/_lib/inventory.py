@@ -26,6 +26,7 @@ import copy
 import fnmatch
 import hashlib
 import os
+import re
 import secrets
 import stat as stat_lib
 import time
@@ -1289,16 +1290,28 @@ HOME_ALIAS = "~"
 
 
 def outside_uri(path):
-    """沒登記的地方的清冊 uri：在使用者家目錄底下回 file://~/相對路徑（可攜 spec），不在回 None。"""
+    """沒登記的地方的清冊 uri：在使用者家目錄底下回 file://~/相對路徑（可攜 spec，家目錄本身回 file://~），
+    家目錄外回絕對路徑 file:///D:/…（POSIX 是 file:///usr/…）；路徑解不開才回 None。"""
     try:
         home = os.path.realpath(os.path.expanduser("~"))
         real = os.path.realpath(str(path))
     except (OSError, ValueError):
         return None
     hn, rn = normalize(home, None), normalize(real, None)
-    if rn == hn or not inside(rn, hn):
+    if rn == hn:
+        return "file://~"
+    if inside(rn, hn):
+        return "file://~/" + os.path.relpath(real, home).replace("\\", "/")
+    posix = real.replace("\\", "/")
+    return "file://" + (posix if posix.startswith("/") else "/" + posix)
+
+
+def abs_of_uri(uri):
+    """file:///D:/a/b（或 file:///usr/a）→ 絕對路徑 Path；不是這種寫法回 None。"""
+    alias, rel = split_uri(uri)
+    if alias != "":
         return None
-    return "file://~/" + os.path.relpath(real, home).replace("\\", "/")
+    return Path(rel) if re.match(r"^[A-Za-z]:", rel) else Path("/" + rel)
 
 
 def path_of(vault, sources, uri):
@@ -1306,6 +1319,8 @@ def path_of(vault, sources, uri):
     alias, rel = split_uri(uri)
     parts = [p for p in rel.split("/") if p]
     a = alias.casefold()
+    if a == "":  # file:///D:/…：知識庫外沒登記的地方，家目錄外的絕對路徑
+        return abs_of_uri(uri)
     if a == HOME_ALIAS:
         return Path(os.path.expanduser("~")).joinpath(*parts)
     if a == KNOWLEDGE.casefold():

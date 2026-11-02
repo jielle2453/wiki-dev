@@ -405,8 +405,6 @@ def resolve_folder(vault, sources, target, cwd):
 
 SOURCE_ROOT_INTO_KB = ("「{alias}」是登記的來源夾，搬進知識庫或別的來源夾裡面，同一份檔會有兩張卡：先 kb folders remove {alias}，"
                        "或搬到別的地方（搬完會自動換登記的位置）。")
-OUTSIDE_NOT_HOME = ("「{place}」不在這台電腦的使用者資料夾底下，也沒登記成來源：先 kb folders add 登記那個夾，"
-                    "或改放使用者資料夾底下（桌面、文件…）。")
 
 
 def folder_word(uri):
@@ -615,8 +613,8 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=Non
     if to_dir_uri is None and dparts is None and _source_of(sources, dest_dir) is None:
         outside = True  # 搬到知識庫外沒登記的地方（桌面）：清冊記成 file://~/…，狀態 outside，不掃描、卡留著
         to_dir_uri = inventory.outside_uri(dest_dir if not make_dir else Path(dest_dir).parent)
-        if to_dir_uri is None:
-            raise Refused(OUTSIDE_NOT_HOME.format(place=Path(dest_dir).name or str(dest_dir)))
+        if to_dir_uri is None:  # 路徑解不開（家目錄外也記絕對路徑 file:///…，不拒絕）
+            raise Refused(NOT_FOUND.format(target=str(dest)))
     existing = os.path.lexists(dst) and normalize(str(dst), None) != normalize(str(src), None)
     inside_entries = _entries_under(vault, from_uri, folder) if from_uri else []
     card_ids = [e["id"] for e in inside_entries if e.get("status") == "active"]
@@ -913,7 +911,7 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
                                         status=inventory.OUTSIDE if plan.get("outside") else None)
                if plan["from_uri"] and to_uri else [])
         roots = sorted({inventory.split_uri(u)[0] for u in (plan["from_uri"], to_uri) if u
-                        and inventory.split_uri(u)[0] != inventory.HOME_ALIAS})  # 知識庫外沒登記的地方不掃描
+                        and inventory.split_uri(u)[0] not in (inventory.HOME_ALIAS, "")})  # 知識庫外沒登記的地方不掃描
         report = inventory.scan(vault, sources, only_roots=roots) if roots else {"total": 0, "restored": [], "modified": [],
                                                                                  "added": [], "missing": [], "moved": [], "read_counts": {}}
         if plan.get("outside") and hit:  # 卡留著，只把位置欄與開原檔指到新位置
