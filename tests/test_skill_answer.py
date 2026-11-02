@@ -269,5 +269,16 @@ class Evals(unittest.TestCase):
                 self.assertIn(want, positives)
 
 
+
+class ReadRanges(unittest.TestCase):
+    """D-522：綜合卡照 read_ranges 讀、紀事要用才 Grep（學舊 llm-wiki 的 log）。"""
+
+    def test_find_and_skill_say_so(self):
+        find = REFS["find.md"].read_text(encoding="utf-8")
+        self.assertIn("`read_ranges`", find)
+        self.assertIn("檔頭與紀事不讀", find)
+        self.assertIn("才用 Grep 在那張卡撈紀事", find)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -72,7 +72,8 @@ def _lines(got):
     if e["aliases"]:
         out.append("別名：" + "、".join(e["aliases"]))
     if got["synthesis"]:
-        out.append(f"綜合卡：{got['synthesis']}")
+        rng = "、".join(f"{a}～{a + n - 1}" for a, n in got.get("read_ranges") or [])
+        out.append(f"綜合卡：{got['synthesis']}" + (f"（讀第 {rng} 行；紀事要用再 Grep）" if rng else ""))
     tags = [f"{t['field']} {'、'.join(t['words'])}" for t in got.get("tags") or [] if t["words"]]
     if tags:
         out.append("標籤：" + "；".join(tags))
