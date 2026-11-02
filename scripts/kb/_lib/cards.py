@@ -1313,3 +1313,106 @@ def _render_index(vault, turn_id):
     write_text_atomic(Path(vault) / INDEX_POSIX, text)
     renders.record(vault, INDEX_POSIX, text)
     return count
+
+
+# ---------- 搬動（放寬丙 5-2，D-308）：給 kb changes --moved 與每句開頭的搬動提示 ----------
+
+def group_moves(vault, moved):
+    """scan 報告的 moved（[(舊 uri, 新 uri)]）→ 整夾搬算一件：舊夾底下清冊上全部的檔都搬到同一個新夾（相對位置不變）→
+    {"kind":"folder","from","to","count","pairs"}，其他 {"kind":"file","from","to"}。程式不判斷算不算換分類。
+    從最淺的夾開始試（根夾不算）；只有一個檔的夾當一個檔。只讀清冊。"""
+    from kb._lib import inventory
+    pairs = {inventory.uri_key(a): (a, b) for a, b in moved}
+    under = [loc["uri"] for e in inventory.load(vault)["entries"] if e.get("status") == "active"
+             for loc in e.get("locations") or []]
+    done, out = set(), []
+    for old, new in moved:
+        k = inventory.uri_key(old)
+        if k in done:
+            continue
+        o_parts, n_parts = old[len("file://"):].split("/"), new[len("file://"):].split("/")
+        hit = None
+        for depth in range(2, len(o_parts)):  # o_parts[0] 是別名；夾至少一層
+            rest = o_parts[depth:]
+            if len(n_parts) <= len(rest) + 1 or n_parts[-len(rest):] != rest:
+                continue
+            f_old, f_new = "file://" + "/".join(o_parts[:depth]), "file://" + "/".join(n_parts[:-len(rest)])
+            if inventory.uri_key(f_old) == inventory.uri_key(f_new):
+                continue
+            kids = [u for u in under if inventory.uri_key(u).startswith(inventory.uri_key(f_old) + "/")]
+            if len(kids) < 2:
+                continue
+            ok = True
+            for u in kids:
+                got = pairs.get(inventory.uri_key(u))
+                if got is None or inventory.uri_key(got[1]) != inventory.uri_key(f_new + u[len(f_old):]):
+                    ok = False
+                    break
+            if ok:
+                hit = (f_old, f_new, kids)
+                break
+        if hit:
+            done.update(inventory.uri_key(u) for u in hit[2])
+            out.append({"kind": "folder", "from": hit[0], "to": hit[1], "count": len(hit[2]),
+                        "pairs": [pairs[inventory.uri_key(u)] for u in hit[2]]})
+        else:
+            done.add(k)
+            out.append({"kind": "file", "from": old, "to": new, "pairs": [(old, new)]})
+    return out
+
+
+def _entity_folder_of(vault, ent_data, uri, is_dir):
+    """新位置的夾若是知識庫某個型別夾底下的 active 實體夾 → 實體名稱，否則 None。"""
+    from kb._lib import entities
+    from kb._lib.inventory import KNOWLEDGE
+    alias, rel = _split(uri)
+    parts = rel.split("/") if is_dir else rel.split("/")[:-1]
+    if alias != KNOWLEDGE or len(parts) < 2 or ent_data is None:
+        return None
+    found, _hit = entities.find(ent_data, parts[1])
+    type_ = profile.type_of_folder(vault, parts[0]) or parts[0]
+    if (found is None or found.get("status") != "active" or entities.is_self(found)
+            or entities.key(found.get("type")) != entities.key(type_)):
+        return None
+    return found["name"]
+
+
+def moved_changes(vault, moved):
+    """kb changes --moved --json 的 moved 清單：group_moves 之後每筆帶 name、id（檔）、entities（卡上現在掛的 main／mention，
+    夾是裡面全部卡的聯集）、folder_entity（新位置在某個實體夾底下就帶那個實體）、user_folder（新位置的夾不是實體夾、清冊上本來也沒有任何檔：
+    使用者自己開的）。只讀。"""
+    from kb._lib import inventory
+    groups = group_moves(vault, moved)
+    if not groups:
+        return []
+    ent_data = _entities_or_none(vault)
+    by_uri = {inventory.uri_key(loc["uri"]): e["id"] for e in inventory.load(vault)["entries"]
+              for loc in e.get("locations") or []}
+    known = [inventory.uri_key(u) for u in by_uri]
+    cards_by_id = _scan_groups(vault)[0]
+    out = []
+    for g in groups:
+        main, mention, ids = [], [], []
+        for old, _new in g["pairs"]:
+            fid = by_uri.get(inventory.uri_key(old))
+            ids.append(fid)
+            group = cards_by_id.get(fid) if fid else None
+            front = group[0]["front"] if group else {}
+            for key_, bucket in (("實體", main), ("提到", mention)):
+                for n in front.get(key_) if isinstance(front.get(key_), list) else []:
+                    if n not in bucket:
+                        bucket.append(n)
+        is_dir = g["kind"] == "folder"
+        parent = g["to"].rsplit("/", 1)[0]
+        pk = inventory.uri_key(parent) + "/"
+        name = g["to"].rsplit("/", 1)[-1]
+        item = {"kind": g["kind"], "name": name, "from": g["from"], "to": g["to"]}
+        if is_dir:
+            item["count"] = g["count"]
+        else:
+            item["id"] = ids[0]
+        fe = _entity_folder_of(vault, ent_data, g["to"], is_dir)
+        item.update(entities={"main": main, "mention": mention}, folder_entity=fe,
+                    user_folder=fe is None and not any(k.startswith(pk) for k in known))
+        out.append(item)
+    return out

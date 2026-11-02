@@ -580,6 +580,17 @@ class TemplateTwo(unittest.TestCase):
         self.assertIn("大安陳", new.relative_to(self.V).as_posix())
         self.assertEqual(cards.parse_front(new.read_text(encoding="utf-8"))["實體"], ["信義王"])
 
+    def test_moved_changes_file_into_entity_folder(self):
+        """放寬丙 5-2（驗收 16）：單檔搬進李宅（這裡是大安陳）夾 → 帶 folder_entity 與卡上的實體。"""
+        self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
+        (self.V / "案子" / "信義王" / "合約.docx").rename(self.V / "案子" / "大安陳" / "合約.docx")
+        report = inventory.scan(self.V, sources_lib.load(self.V))
+        (item,) = cards.moved_changes(self.V, report["moved"])
+        self.assertEqual((item["kind"], item["name"]), ("file", "合約.docx"))
+        self.assertEqual(item["folder_entity"], "大安陳")
+        self.assertEqual(item["entities"], {"main": ["信義王"], "mention": []})
+        self.assertFalse(item["user_folder"])
+
     def test_v1_prefill_for_entity_folder_card(self):
         rel = self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])
         self.E.to_v1(self.V, rel)
