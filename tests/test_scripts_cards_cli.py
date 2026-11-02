@@ -604,8 +604,8 @@ class EntityParts(unittest.TestCase):
         data = self.todo()
         fid = _cards.entry_of(self.V, self.E.CONTRACT)["id"]
         header = next(i for i in data["new"] if i["id"] == fid)["header"]
-        self.assertIn("\n實體: [信義王]\n待補型別: []\n", header)
-        self.assertIn("\n範本版本: 2\n", header)
+        self.assertIn("\n實體: [信義王]\n提到: []\n待補型別: []\n", header)
+        self.assertIn("\n範本版本: 3\n", header)
         other = next(i for i in data["new"] if i["id"] != fid)["header"]
         self.assertIn("\n實體: []\n", other)
 

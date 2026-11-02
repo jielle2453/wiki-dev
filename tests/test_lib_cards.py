@@ -34,7 +34,7 @@ class ParseFront(unittest.TestCase):
                 cards.parse_front(text)
 
     def test_keys_and_origin_text(self):
-        self.assertEqual(cards.KEYS, ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別",
+        self.assertEqual(cards.KEYS, ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別",
                                       "文件日期", "讀取", "製卡日期", "範本版本", "敏感資料種類", "開原檔"))
         self.assertEqual(cards.ORIGIN_TEXT, {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"})
 
@@ -110,8 +110,8 @@ class Header(Vault):
         self.assertEqual(front["指紋"], e["fingerprints"][-1]["sha256"])
         self.assertEqual(front["內容指紋"], e["fingerprints"][-1]["text_sha256"])
         self.assertEqual(front["標題"], "（填）")
-        self.assertEqual(front["範本版本"], "2")
-        self.assertEqual((front["實體"], front["待補型別"]), ([], []))
+        self.assertEqual(front["範本版本"], "3")
+        self.assertEqual((front["實體"], front["提到"], front["待補型別"]), ([], [], []))
         self.assertEqual(front["敏感資料種類"], [])
         self.assertEqual(front["開原檔"], cards.open_link(self.raw / _cards.MEETING))
         self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
@@ -163,7 +163,7 @@ class Validate(Vault):
             (self.edited("卡型: 會議紀錄", "卡型: （填）"), "卡型"),
             (self.edited("文件日期: 2026-10-01", "文件日期: 115年10月1日"), "文件日期"),
             (self.edited("讀取: 完整", "讀取: 全部"), "讀取"),
-            (self.edited("範本版本: 2", "範本版本: 3"), "範本版本該是 2"),
+            (self.edited("範本版本: 3", "範本版本: 9"), "範本版本該是 3"),
             (self.edited("原檔:\n  - file://" + _cards.MEETING + "\n", "原檔: []\n"), "檔頭少了「原檔」"),
         ]
         for text, want in cases:
@@ -517,7 +517,7 @@ class TemplateTwo(unittest.TestCase):
         front = cards.parse_front((self.E.FIX / "範本第一版-0f0f0f0f.md").read_text(encoding="utf-8"))
         self.assertEqual(front["範本版本"], cards.OLD_TEMPLATE_VERSION)
         self.assertFalse(set(cards.V2_KEYS) & set(front))
-        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "待補型別"])
+        self.assertEqual([k for k in cards.KEYS if k not in front], ["收件", "內容指紋", "實體", "提到", "待補型別"])
 
     def test_prefill_from_entity_folder(self):
         front = cards.parse_front(self.E.new_item(self.V, self.E.CONTRACT)["header"])
@@ -557,10 +557,10 @@ class TemplateTwo(unittest.TestCase):
         fid = cards.parse_front((self.V / rel).read_text(encoding="utf-8"))["編號"]
         self.assertEqual(data["unlinked"], [{"id": fid, "path": rel, "reason": "v1", "types": [], "prefill": []}])
         self.assertEqual(data["broken"], [])
-        self.assertEqual(self.reason(rel), (False, "範本版本該是 2"))
+        self.assertEqual(self.reason(rel), (False, "範本版本該是 3"))
         p = self.V / rel
         text = p.read_text(encoding="utf-8").replace("卡型: 會議紀錄\n", "卡型: 會議紀錄\n實體: [信義王]\n待補型別: []\n")
-        p.write_text(text.replace("範本版本: 1", "範本版本: 2"), encoding="utf-8")
+        p.write_text(text.replace("範本版本: 1", "範本版本: 3"), encoding="utf-8")
         self.assertEqual(self.reason(rel), (True, ""))
         self.assertEqual(self.todo()["unlinked"], [])
 

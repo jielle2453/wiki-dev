@@ -722,8 +722,9 @@ def set_card(vault, entity_id, value, turn_id):
 
 # ---------- 掛載 ----------
 
-def mounts(vault, data=None):
-    """檔案索引/ 全部卡的檔頭 實體 → {實體名稱: [{"id","path","title","fp","date"}]}。只算清冊條目 active 的檔案卡
+def mounts(vault, data=None, mentions=False):
+    """檔案索引/ 全部卡的檔頭 實體 → {實體名稱: [{"id","path","title","fp","date","card_type","relation"}]}；relation 是 main。
+    mentions=True 再把檔頭 提到 欄的也放進去（relation 是 mention，放寬丙 7，同一張卡同一實體主要優先）；預設只算主要的。只算清冊條目 active 的檔案卡
     （同編號多張取第一張）與 active 的實體；名稱照登記的（別名、合併過的轉到目標）；fp 是內容指紋（沒有取指紋）前 12 碼。
     B-069：原檔不見（missing）、「是不是刪了」還沒答（missing_file 待處理 open）的照算掛載，客戶答之前卡先留著。"""
     from kb._lib import cards, inventory, pending
@@ -752,7 +753,9 @@ def mounts(vault, data=None):
         fp = front.get("內容指紋") or front.get("指紋")
         item = {"id": cid, "path": card["path"], "title": front.get("標題") if isinstance(front.get("標題"), str) else "",
                 "fp": fp[:12] if isinstance(fp, str) else "",
-                "date": front.get("文件日期") if isinstance(front.get("文件日期"), str) else ""}
+                "date": front.get("文件日期") if isinstance(front.get("文件日期"), str) else "",
+                "card_type": front.get("卡型") if isinstance(front.get("卡型"), str) else "",
+                "relation": "main"}
         seen = set()
         for name in names:
             entry, _hit = find(data, name)
@@ -760,6 +763,13 @@ def mounts(vault, data=None):
                 continue
             seen.add(entry.get("id"))
             out.setdefault(entry["name"], []).append(dict(item))
+        if mentions and isinstance(front.get("提到"), list):
+            for name in front["提到"]:
+                entry, _hit = find(data, name)
+                if entry is None or entry.get("status") != "active" or entry.get("id") in seen:
+                    continue
+                seen.add(entry.get("id"))
+                out.setdefault(entry["name"], []).append(dict(item, relation="mention"))
     return out
 
 
@@ -1012,19 +1022,30 @@ def retarget_cards(vault, mapping, turn_id, undo=None):
             names = front.get("實體")
         except (ValueError, OSError, UnicodeDecodeError):
             continue
-        if not isinstance(names, list) or not any(key(n) in mapping for n in names):
+        mention = front.get("提到") if isinstance(front.get("提到"), list) else []
+        hit_main = isinstance(names, list) and any(key(n) in mapping for n in names)
+        hit_mention = any(key(n) in mapping for n in mention)
+        if not (hit_main or hit_mention):
             continue
-        new = []
-        for n in names:
-            n = mapping.get(key(n), n)
-            if all(key(x) != key(n) for x in new):
-                new.append(n)
+
+        def mapped(old):
+            new = []
+            for n in old:
+                n = mapping.get(key(n), n)
+                if all(key(x) != key(n) for x in new):
+                    new.append(n)
+            return new
         before = inventory.card_sha(vault, rel)
         turn.backup(vault, rel, turn_id, by="program")
-        _write(vault, rel, cards.rewrite_entities(text, new), undo)
+        out_text = text
+        if hit_main:
+            out_text = cards.rewrite_entities(out_text, mapped(names))
+        if hit_mention:
+            out_text = cards.rewrite_mentions(out_text, mapped(mention))
+        _write(vault, rel, out_text, undo)
         if isinstance(front.get("編號"), str):
             shas[front["編號"]] = (before, inventory.card_sha(vault, rel))
-        changed.append((rel, names))
+        changed.append((rel, names if isinstance(names, list) else []))
     inventory.follow_redo(vault, shas, turn_id, undo)  # 重做記號跟著換（測試第一輪後裁定 6）
     return changed
 

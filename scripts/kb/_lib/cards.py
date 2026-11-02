@@ -21,11 +21,11 @@ from kb._lib.io import FileLock, write_text_atomic
 
 CARDS_DIR = "檔案索引"
 INDEX_POSIX = "總目錄.md"
-KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "待補型別", "文件日期", "讀取", "製卡日期",
+KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別", "文件日期", "讀取", "製卡日期",
         "範本版本", "敏感資料種類", "開原檔")
-OPTIONAL = ("內容指紋", "收件")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）
+OPTIONAL = ("內容指紋", "收件", "提到")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）；提到：範本第三版加的選填欄，舊卡沒有全算主要（放寬丙 7）
 V2_KEYS = ("實體", "待補型別")  # 範本第二版加的兩欄（實體與綜合卡第 4 點）；第一版的卡沒有，不算少鍵
-LIST_KEYS = ("原檔", "敏感資料種類", "實體", "待補型別")
+LIST_KEYS = ("原檔", "敏感資料種類", "實體", "提到", "待補型別")
 # 檔頭值的型別（測試後修正裁定 21）：這些要是字串，LIST_KEYS 要是清單
 STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔")
 ORIGIN_TEXT = {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"}
@@ -33,7 +33,8 @@ FILL = "（填）"
 DATE_FILL = "（填，YYYY-MM-DD 或 未載）"
 READ_FILL = "（填，完整 或 部分）"
 READ_VALUES = ("完整", "部分")
-TEMPLATE_VERSION = "2"
+TEMPLATE_VERSION = "3"
+OK_VERSIONS = ("2", "3")  # 第二版的卡照舊有效：只少「提到」一欄，全部算主要，不重做（放寬丙 7，設計自定）
 OLD_TEMPLATE_VERSION = "1"  # 第一版的卡只補掛載（D-116），不算檔頭有問題
 SKIPPED_READS = ("credential", "placeholder", "too_large", "error")  # error 也列份數（裁定 29）
 REDO_REASON = "客戶說卡讀錯了"
@@ -264,7 +265,7 @@ def header_for(vault, sources, entry, today=None, ent_data=False):
     if fp.get("text_sha256"):
         front["內容指紋"] = fp["text_sha256"]
     title = safe_title(entry.get("title"), config.get(vault, "card_title_max_chars")) if entry.get("kind") == "link" else None
-    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data, vault), "待補型別": [],
+    front.update({"標題": title or FILL, "卡型": FILL, "實體": prefill_entities(entry, ent_data, vault), "提到": [], "待補型別": [],
                   "文件日期": DATE_FILL, "讀取": READ_FILL,
                   "製卡日期": today or date.today().isoformat(),
                   "範本版本": TEMPLATE_VERSION, "敏感資料種類": [], "開原檔": entry_link(vault, sources, entry)})
@@ -383,7 +384,7 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
         out.append(("read", "讀取要寫 完整 或 部分"))
     if _is_v1(front):
         out.append(("v1", f"範本版本該是 {TEMPLATE_VERSION}"))
-    elif front["範本版本"] != TEMPLATE_VERSION:
+    elif front["範本版本"] not in OK_VERSIONS:
         out.append(("version", f"範本版本該是 {TEMPLATE_VERSION}"))
     else:
         out.extend(_entity_problems(vault, front, ent_data, prof))
@@ -396,7 +397,7 @@ def _entity_problems(vault, front, ent_data, prof):
     if ent_data is False:
         ent_data = entities.load(vault)
     out = []
-    for name in front["實體"]:
+    for name in list(front["實體"]) + list(front.get("提到") or []):
         found, _hit = entities.find(ent_data, name)
         if found is None:
             out.append(("entity", f"實體「{name}」還沒登記，先跑 kb entity add"))
@@ -611,7 +612,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
         codes = codes_of[keep["path"]]
         names = dict(codes)
         others = [c for c in codes if c[0] != "link"]
-        if keep["front"].get("範本版本") == TEMPLATE_VERSION and isinstance(keep["front"].get("待補型別"), list):
+        if keep["front"].get("範本版本") in OK_VERSIONS and isinstance(keep["front"].get("待補型別"), list):
             for t in dict.fromkeys(keep["front"]["待補型別"]):
                 if isinstance(t, str) and t and entities.key(t) not in have_types:
                     out["missing_types"][t] = out["missing_types"].get(t, 0) + 1
@@ -1034,13 +1035,14 @@ def skip(vault, sources, fid, kind, turn_id):
 
 
 def entity_names_of(group):
-    """這幾張卡檔頭 實體 欄的名稱（去重）。"""
+    """這幾張卡檔頭 實體 與 提到 欄的名稱（去重）：這些實體的綜合卡「相關檔」要跟著重算。"""
     out = []
     for c in group:
-        names = c["front"].get("實體")
-        for n in names if isinstance(names, list) else []:
-            if n not in out:
-                out.append(n)
+        for key_ in ("實體", "提到"):
+            names = c["front"].get(key_)
+            for n in names if isinstance(names, list) else []:
+                if n not in out:
+                    out.append(n)
     return out
 
 
@@ -1243,6 +1245,28 @@ def rewrite_entities(text, names):
         elif in_front and bare.startswith("實體:"):
             found = True
             out.append(f"實體: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
+            i += 1
+            while i < len(lines) and lines[i].startswith(("  - ", "- ")):
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
+def rewrite_mentions(text, names):
+    """只換檔頭的 提到 欄（改名、合併跟著換），其他行原樣；沒有這欄的卡不補（放寬丙 7）。"""
+    lines = text.splitlines(keepends=True)
+    out, i, in_front = [], 0, False
+    while i < len(lines):
+        line = lines[i]
+        bare = line.rstrip("\r\n")
+        if i == 0 and bare.lstrip("﻿") == "---":
+            in_front = True
+        elif in_front and bare == "---":
+            in_front = False
+        elif in_front and bare.startswith("提到:"):
+            out.append(f"提到: [{', '.join(names)}]" + (line[len(bare):] or "\n"))
             i += 1
             while i < len(lines) and lines[i].startswith(("  - ", "- ")):
                 i += 1
