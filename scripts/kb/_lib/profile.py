@@ -28,7 +28,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from kb._lib import credentials
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 
 PROFILE_POSIX = ".system/profile.json"
@@ -38,7 +38,7 @@ CATEGORIES = {"對象": "party", "事": "matter", "物": "asset", "主題": "top
 SOURCES = {"訪談": "interview", "推測": "inferred", "確認": "confirmed", "糾正": "corrected"}
 ACTIONS = {"不整理": "no_card", "只記種類": "kind_only"}
 KINDS = {"公司": "company", "本人": "person"}
-RESERVED_TYPE_NAMES = ("AI 產出", "收件匣", "檔案索引", "系統", "CLAUDE.md")
+RESERVED_TYPE_NAMES = (HOLD_DIR, OLD_OUTPUT, OLD_INBOX, "檔案索引", "系統", "CLAUDE.md")
 REQUIRED_MARKS = ("✓", "是", "v", "V", "Y")
 LISTS = ("types", "card_types", "exclusions", "synthesis_sections", "about", "preferences", "templates", "tags")
 LISTS_V1 = LISTS[:3]
@@ -81,7 +81,7 @@ HEADER = ("# 客戶設定檔\n"
           "由程式產生，套用後會重寫；來源與日期兩欄可以留空，我會填。\n")
 PROMPTS = (
     "你平常管哪幾類東西？一類一列。大類四選一：對象（人或公司）、事（有開始有結束的工作）、物（被管理的東西）、"
-    "主題（規則與知識）。型別名前面會加上編號當資料夾名（例：01 案子），不能跟 AI 產出、收件匣、檔案索引、系統 一樣。"
+    "主題（規則與知識）。型別名前面會加上編號當資料夾名（例：01 案子），不能跟 暫存區、檔案索引、系統 一樣。"
     "不想讓我讀的資料夾不寫這裡，跟我說「不要讀 X」。",
     "常查的文件種類，每種想記住哪些段？一段一列；「必出現」打 ✓ 的段，原檔沒寫時卡上會寫「未知」。",
     "哪些種類的檔整份不整理成卡（我讀到會跳過，但程式認不出種類，只有我讀了才知道；要保證不讀用「不要讀 X」）、"
@@ -1373,7 +1373,7 @@ SECTION_SPECS = (
 FREE_TEXT_RULE = "一句白話，不含 \" $ ` \\ 這四種字元"  # 值會被貼進雙引號的指令（同 plan.FREE_TEXT_RULE）
 _HINT_RULE = {"rule": "一句白話告訴製卡者這段寫什麼，可以空"}
 COLUMN_RULES = {
-    (1, "名稱"): {"rule": "知識庫第一層的資料夾名；不能用 AI 產出、收件匣、檔案索引、系統、知識庫，不含 \\ / : * ? \" < > | $ `"},
+    (1, "名稱"): {"rule": "知識庫第一層的資料夾名；不能用 暫存區、檔案索引、系統、知識庫，不含 \\ / : * ? \" < > | $ `"},
     (1, "大類"): {"choices": list(CATEGORIES)},
     (1, "一句說明"): {"rule": "一句白話，可以空"},
     (2, "卡型"): {"rule": "文件種類的名字，例：報價、會議紀錄"},

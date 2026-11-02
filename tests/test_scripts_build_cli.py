@@ -72,7 +72,7 @@ class StatusStart(Base):
     def test_start_builds_skeleton_like_init(self):
         self.start()
         for rel in (".system/sources.json", ".system/profile.json", "系統/客戶設定檔.md", "系統/日程.md", "CLAUDE.md",
-                    "收件匣", "AI 產出", "檔案索引"):
+                    "暫存區", "暫存區", "檔案索引"):
             self.assertTrue((self.D / rel).exists(), rel)
         got = self.data()
         self.assertEqual((got["step"], [i["key"] for i in got["env"]["items"]]), ("setup", list(build.ENV_KEYS)))

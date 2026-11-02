@@ -94,7 +94,7 @@ class AllAndSetAside(Base):
         self.assertEqual(self.asks("--about", "信義王")["others"], self.base_all + 3, "先放著的不算進件數")
 
     def test_set_aside_non_pending_key_comes_back_when_object_changes(self):
-        draft = self.V / "AI 產出" / "報告" / "信義王 進度報告（草稿）.md"
+        draft = self.V / "暫存區" / "報告" / "信義王 進度報告（草稿）.md"
         draft.parent.mkdir(parents=True, exist_ok=True)
         draft.write_text("第一版\n", encoding="utf-8")
         turn.start(self.V, "s1", "下一句")  # 這一回合才寫的草稿不問

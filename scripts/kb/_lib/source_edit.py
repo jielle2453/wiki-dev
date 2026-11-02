@@ -708,7 +708,7 @@ def check_lines(plan, op):
     if plan["kind"] == "file":
         lines.append("卡會跟著改" if plan["cards"] else "這份還沒有卡")
     if plan.get("periodic") and op != "rename":
-        lines.append(f"這份是 {plan['periodic']} 定期交來的；搬走之後下次交來會在收件匣再收一份")
+        lines.append(f"這份是 {plan['periodic']} 定期交來的；搬走之後下次交來會直接覆蓋搬過去的那份")
     if plan["excludes"]:
         lines.append("裡面不讀的夾：" + "、".join(plan["excludes"]))
     if plan["existing"]:

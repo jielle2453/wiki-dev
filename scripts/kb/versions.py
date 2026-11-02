@@ -36,7 +36,7 @@ from kb import guard, journal_cli
 from kb._lib import card_base, credentials, inventory, ledger, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR
 from kb._lib.io import read_json, write_json_atomic
 
 ENTRY_LINES_MAX = 15
@@ -51,7 +51,7 @@ FOLDER_OPEN = "退不回去：「{rel}」裡有檔案正開著（檔案總管或
 FOLDER_FAILED = "退不回去：{why}，什麼都沒動"
 BAD_LEDGER = "回合紀錄的資料夾路徑不對，沒有退回"
 BAD_MANIFEST = "回合紀錄的檔案路徑不對，沒有退回"
-NOT_AN_OUTPUT = "這份不在 AI 產出裡，沒有刪"
+NOT_AN_OUTPUT = "這份不在暫存區裡，沒有刪"
 REVERT_BUSY = "另一個退回正在跑，等它做完再說一次"
 PURGED_LINE = "那一版因為不讀的夾清掉了，退不回"
 IN_BIN = "{name} 在資源回收筒，要從那裡拿回來"
@@ -78,7 +78,7 @@ SIDE_WORDS = {"other": "另一個對話", "none": "對話外", "self": "這個�
 OTHER_LINE = "另一個對話還有 {n} 次改動，不在這裡退"
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
-RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", "收件匣", "檔案索引", "AI 產出", FREE_DIR)}
+RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", HOLD_DIR, "檔案索引", FREE_DIR)}
 
 
 def add_arguments(sub):
@@ -174,7 +174,7 @@ def _uri_rel(uri):
     alias, _sep, rel = text[len("file://"):].partition("/")
     if alias.casefold() == inventory.KNOWLEDGE.casefold():
         return rel
-    if alias.casefold() in (inventory.INBOX.casefold(), inventory.OUTPUT.casefold()):
+    if alias.casefold() == inventory.HOLD.casefold():
         return f"{alias}/{rel}"
     return text
 
@@ -288,7 +288,7 @@ def _output_path_ok(root, rel):
     if not _path_ok(root, rel):
         return False
     parts = (root / rel).resolve().relative_to(root).parts
-    return len(parts) > 1 and parts[0].casefold() == "ai 產出"
+    return len(parts) > 1 and parts[0].casefold() == HOLD_DIR.casefold()
 
 
 def _bad_path(vault, ops):
@@ -364,9 +364,27 @@ def _copy_back(vault, src, dst):
                 ledger.log_error(vault, f"退回後「{rel}」設回隱藏沒成：{e.strerror or type(e).__name__}", source="versions")
 
 
+def _output_keys(vault):
+    """暫存區裡哪些位置是 AI 產出（清冊 origin ai_output 的位置鍵）；清冊讀不到回 None（當暫存區全是成品，寧可多留）。"""
+    try:
+        entries = inventory.load(vault)["entries"]
+    except ValueError:
+        return None
+    return {inventory.uri_key(loc.get("uri", "")) for e in entries if e.get("origin") == "ai_output"
+            for loc in e.get("locations") or []}
+
+
+def _is_output(vault, rel, sources, ai_keys):
+    """暫存區（Z4）裡的成品：D-324 把 AI 產出併進暫存區後，退回時留著不拿掉的只有 AI 產出登記的那幾份，使用者放進來的照舊照備份拿掉。"""
+    if turn.zone_of(vault, rel, sources) != "Z4":
+        return False
+    return ai_keys is None or inventory.uri_key("file://" + rel) in ai_keys
+
+
 def _locked_file(vault, target, delete_outputs, sources):
     """測試第二輪後裁定 25（N-7）：改夾之前先試每個要還原或移除的檔能不能寫；回第一個不行的（現在的位置），都行回 None。"""
     back, ahead = _translator(target["folders"]), _forward(target["folders"])
+    ai_keys = _output_keys(vault)
     for e in target["entries"]:
         rel = back(e.get("path"))
         now = ahead(rel)
@@ -374,7 +392,7 @@ def _locked_file(vault, target, delete_outputs, sources):
         if not p.is_file():
             continue
         if e.get("action") == "create":
-            if turn.zone_of(vault, rel, sources) == "Z3" and not delete_outputs:
+            if _is_output(vault, rel, sources, ai_keys) and not delete_outputs:
                 continue  # 成品留著，不動它
         elif not (target["dir"] / "files" / e.get("path")).is_file():
             continue  # 備份不在，不會寫它
@@ -591,7 +609,7 @@ def _move_root(vault, sources, alias):
         return Path(os.path.realpath(os.path.expanduser("~")))
     if a == inventory.KNOWLEDGE.casefold():
         return Path(os.path.realpath(str(vault)))
-    for area in (inventory.INBOX, inventory.OUTPUT):
+    for area in (inventory.HOLD,):
         if a == area.casefold():
             return Path(os.path.realpath(str(vault))) / area
     for src in sources.entries:
@@ -991,6 +1009,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     except ValueError as e:
         outputs, intakes, inv_error = [], [], str(e)
     out_rels = _rels_of(outputs)
+    ai_keys = _output_keys(vault)
 
     restored, removed, lost, touched_z3, kept_msgs, kept_ids = [], [], [], [], [], []
     purged = False
@@ -1021,7 +1040,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
             continue
         rel = back(recorded)  # 記在搬過的夾裡的檔，夾改回去之後在舊位置
         dst = Path(vault) / rel
-        is_z3 = turn.zone_of(vault, rel, sources) == "Z3"
+        is_z3 = _is_output(vault, rel, sources, ai_keys)
         if action in ("modify", "delete"):
             src = target["dir"] / "files" / recorded
             if not src.is_file():

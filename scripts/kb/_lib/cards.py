@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from kb._lib import config, profile
+from kb._lib.areas import HOLD_DIR
 from kb._lib.io import FileLock, write_text_atomic
 
 CARDS_DIR = "檔案索引"
@@ -131,15 +132,15 @@ DRAFT_SUFFIX = "（草稿）.md"
 
 
 def is_draft(uri):
-    """AI 產出裡的草稿（D-163）：檔名以（草稿）.md 結尾。todo 不列它製卡。"""
+    """暫存區裡的草稿（D-163）：檔名以（草稿）.md 結尾。todo 不列它製卡。"""
     alias, rel = _split(uri)
-    return alias == "AI 產出" and rel.endswith(DRAFT_SUFFIX)
+    return alias == HOLD_DIR and rel.endswith(DRAFT_SUFFIX)
 
 
 def card_dir(entry):
-    """檔案索引/<別名>/<主位置相對夾>（保留別名照字面）；link 條目放 檔案索引/AI 產出/<型別>（沒給型別放 線上）。"""
+    """檔案索引/<別名>/<主位置相對夾>（保留別名照字面）；link 條目放 檔案索引/暫存區/<型別>（沒給型別放 線上）。"""
     if entry.get("kind") == "link":
-        return f"{CARDS_DIR}/AI 產出/{entry.get('type') or LINK_DIR}"
+        return f"{CARDS_DIR}/{HOLD_DIR}/{entry.get('type') or LINK_DIR}"
     alias, rel = _split(entry["locations"][0].get("uri", ""))
     parent = rel.rpartition("/")[0]
     return f"{CARDS_DIR}/{alias}" + (f"/{parent}" if parent else "")
@@ -480,7 +481,7 @@ def not_for_card(vault, sources, entry):
     from kb._lib import inventory
     from kb._lib.paths import normalize
     uri = (entry.get("locations") or [{}])[0].get("uri") or ""
-    if inventory.split_uri(uri)[0] not in (inventory.KNOWLEDGE, inventory.INBOX, inventory.OUTPUT):
+    if inventory.split_uri(uri)[0] not in (inventory.KNOWLEDGE, inventory.HOLD):
         return False
     path = inventory.path_of(vault, sources, uri)
     if path is None:

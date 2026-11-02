@@ -35,7 +35,7 @@ from pathlib import Path
 
 from kb._lib import config, content_fp, credentials
 from kb._lib import sources as sources_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 from kb._lib.io import FileLock, read_json, write_json_atomic
 from kb._lib.paths import inside, long_path, normalize
 
@@ -44,10 +44,10 @@ INVENTORY_POSIX = ".system/inventory.json"
 SCHEMA_VERSION = 2
 EMPTY = {"schema_version": SCHEMA_VERSION, "entries": []}
 
-KNOWLEDGE, INBOX, OUTPUT = "知識庫", "收件匣", "AI 產出"  # 總資料夾自身的三個保留別名（D-042）
-RESERVED_CF = {a.casefold() for a in (KNOWLEDGE, INBOX, OUTPUT)}
+KNOWLEDGE, HOLD = "知識庫", HOLD_DIR  # 總資料夾自身的兩個保留別名（D-042；D-324 起收件匣與 AI 產出合成暫存區）
+RESERVED_CF = {a.casefold() for a in (KNOWLEDGE, HOLD)}
 # 知識庫根第一層不當型別夾的保留夾（跟 guard.RESERVED 同一組；隱藏夾另由「. 開頭」跳過；彈性區不盤點，D-511）
-VAULT_RESERVED_DIRS = {"ai 產出", "收件匣", "檔案索引", "系統", FREE_DIR.casefold()}
+VAULT_RESERVED_DIRS = {HOLD.casefold(), "檔案索引", "系統", FREE_DIR.casefold()}
 SKIP_NAMES = ("~$*", "*.tmp", "Thumbs.db", "desktop.ini", ".DS_Store")
 HIDDEN_OR_SYSTEM = 0x2 | 0x4
 REPARSE_POINT = 0x400
@@ -671,7 +671,7 @@ def roots(vault, sources):
     vskip = [ex["root"] for ex in getattr(sources, "vault_excludes", [])]  # 知識庫裡使用者的不讀夾（放寬甲 四.2）
     out.append({"alias": KNOWLEDGE, "path": vault_s, "origin": "client_file", "kind": "knowledge", "skip": vskip,
                 "credential": False})
-    for alias, origin in ((INBOX, "intake"), (OUTPUT, "ai_output")):
+    for alias, origin in ((HOLD, "intake"),):  # 暫存區裡掃描才看到的檔：誰放的看不出來，當使用者放的（對話收件）；AI 經程式或 hook 放的已登記成 ai_output
         area = os.path.join(vault_s, alias)
         if _is_link(area):
             errors.append({"path": f"file://{alias}", "error": f"{alias} 是連結，不掃"})
@@ -1017,8 +1017,6 @@ def scan(vault, sources, *, quick=False, only_roots=None, now=None):
         }
         if rec["read"] == "error":
             entry["error"] = rec["error"]
-        if rec["root"]["alias"] == OUTPUT:  # AI 產出裡沒經程式放進來的（腳本寫死路徑、升級前的舊成品）：照成品登記、退回拿不掉
-            entry["unbacked"] = True
         taken.add(entry["id"])
         entries.append(entry)
         if digest:
@@ -1258,7 +1256,7 @@ def uri_of(vault, sources, path):
     if inside(target, vault_n):
         rel = target[len(vault_n):].lstrip("/")
         first, _, rest = rel.partition("/")
-        for alias in (INBOX, OUTPUT):
+        for alias in (HOLD,):
             if first == alias.casefold() or first == alias:
                 return make_uri(alias, rest) if rest else None
         if first in VAULT_RESERVED_DIRS or first.startswith(".") or not rest:
@@ -1353,8 +1351,10 @@ def path_of(vault, sources, uri):
         return Path(os.path.expanduser("~")).joinpath(*parts)
     if a == KNOWLEDGE.casefold():
         return Path(vault).joinpath(*parts)
-    if a in (INBOX.casefold(), OUTPUT.casefold()):
-        return Path(vault).joinpath(INBOX if a == INBOX.casefold() else OUTPUT, *parts)
+    if a == HOLD.casefold():
+        return Path(vault).joinpath(HOLD, *parts)
+    if a in (OLD_INBOX.casefold(), OLD_OUTPUT.casefold()):  # 舊資料（升級遷移還沒跑）的舊別名：照舊夾名找
+        return Path(vault).joinpath(OLD_INBOX if a == OLD_INBOX.casefold() else OLD_OUTPUT, *parts)
     for src in sources.entries:
         if src["alias"].casefold() == a:
             return Path(src["root"]).joinpath(*parts)

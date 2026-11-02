@@ -210,14 +210,14 @@ class Transaction(unittest.TestCase):
         self.assertFalse((self.V / ".system" / "versions" / self.t["turn"] / "files" / "案子" / "新卡").exists())
 
     def test_write_z3_and_z5_back_up(self):
-        out = self.V / "AI 產出" / "x.md"
+        out = self.V / "暫存區" / "x.md"
         out.write_text("舊", encoding="utf-8")
         idx = self.V / "檔案索引" / "i.md"
         idx.write_text("索引", encoding="utf-8")
         self.assertEqual(decision_of(self.write(out))[1], "allow")
         self.assertEqual(decision_of(self.write(idx))[1], "allow")
         files = self.V / ".system" / "versions" / self.t["turn"] / "files"
-        self.assertEqual((files / "AI 產出" / "x.md").read_text(encoding="utf-8"), "舊")
+        self.assertEqual((files / "暫存區" / "x.md").read_text(encoding="utf-8"), "舊")
         self.assertEqual((files / "檔案索引" / "i.md").read_text(encoding="utf-8"), "索引")
         self.assertEqual(len(self.manifest()), 2)
 
@@ -464,7 +464,7 @@ class SubagentTurn(unittest.TestCase):
 
 
 class IntakeSession(unittest.TestCase):
-    """收件匣裁定 6 #1：主對話的單一 kb intake 呼叫插 --session（同 build），--pasted 才認得是哪個對話。"""
+    """暫存區裁定 6 #1：主對話的單一 kb intake 呼叫插 --session（同 build），--pasted 才認得是哪個對話。"""
     SID = "sid-intake"
 
     def setUp(self):

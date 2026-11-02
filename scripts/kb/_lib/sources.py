@@ -10,13 +10,14 @@ PURGE_PENDING、pending_purges 給 cards todo 與 kb folders purge 找還沒清�
 import json
 import secrets
 
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 from kb._lib.paths import inside, normalize, resolve_spec
 
 SOURCES_REL = ".system/sources.json"
-# 檔案索引/<來源別名>/ 保留給知識庫自身、AI 產出、收件匣三個來源（D-042）；彈性區的名字也不能當別名（D-511）
+# 檔案索引/<來源別名>/ 保留給知識庫自身與暫存區（D-042、D-324）；彈性區的名字也不能當別名（D-511）；
+# 舊名（收件匣、AI 產出）也留著保留，免得被登記成來源別名、跟升級遷移前的舊資料撞名
 VAULT_ALIAS = "知識庫"
-RESERVED_ALIASES = ("知識庫", "AI 產出", "收件匣", FREE_DIR)
+RESERVED_ALIASES = ("知識庫", HOLD_DIR, OLD_OUTPUT, OLD_INBOX, FREE_DIR)
 
 
 class Sources:

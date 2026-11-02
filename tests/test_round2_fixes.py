@@ -165,7 +165,7 @@ class FirstBackup(Base):
         self.assertEqual(data["machines"][env.machine_name()]["vault_path"], here)
 
     def test_refusal_does_not_record_the_place(self):
-        self.assertEqual(self.refused(backup.backup, self.V, to=str(self.V / "AI 產出" / "備份")), "備份不能放在知識庫裡面")
+        self.assertEqual(self.refused(backup.backup, self.V, to=str(self.V / "暫存區" / "備份")), "備份不能放在知識庫裡面")
         self.assertFalse((self.V / SYSTEM / "env.json").exists())
         self.assertEqual(self.refused(backup.backup, self.V), "還沒說備份要放哪")
         self.assertFalse((self.V / SYSTEM / "env.json").exists())

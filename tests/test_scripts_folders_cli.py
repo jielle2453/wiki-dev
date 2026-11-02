@@ -104,7 +104,7 @@ class Add(Base):
         self.assertEqual(r.returncode, 3)
         self.assertIn("重疊", r.stdout)
         (self.raw / "別名測試").mkdir()
-        bad = ("客戶案件", "客戶案件 ", "客戶案件.", "收件匣", "收件匣 ", "收件匣.", "AI 產出", "ai 產出", "知識庫",
+        bad = ("客戶案件", "客戶案件 ", "客戶案件.", "暫存區", "暫存區 ", "暫存區.", "暫存區", "ai 產出", "知識庫",
                "a/b", "a\\b", "", " ", ".", "..", "a:b", 'a"b', "a<b", "a>b", "a|b", "a?b", "a*b", "a\tb")
         for alias in bad:
             with self.subTest(alias=alias):
@@ -203,11 +203,11 @@ class Add(Base):
             "磁碟根": drive_root,
             "系統夾": os.environ.get("SystemRoot") or ("C:\\Windows" if os.name == "nt" else "/usr"),
             "總資料夾": str(self.V),
-            "總資料夾的子夾": str(self.V / "AI 產出"),
+            "總資料夾的子夾": str(self.V / "暫存區"),
             "既有來源的父": str(self.raw),
             "既有來源的子": str(self.raw / "行政" / "請款"),
             "另一個知識庫": str(other_vault),
-            "另一個知識庫的子夾": str(other_vault / "AI 產出"),
+            "另一個知識庫的子夾": str(other_vault / "暫存區"),
             "底下藏著知識庫": str(hidden_vault),
         }
         before = self.sources()

@@ -15,6 +15,8 @@ entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 act
 型別表有沒有 dir 的列算 6、都有算 7。rewrite 照 dir_plan 把夾名就是型別名的夾改成預設名字（01 案子）、寫 dir；沒有夾的 dir 寫預設名字
 （之後照常補建）；她以前改過名、認得出來的（profile.renamed_dirs）dir 記那個夾、不動。設定檔與夾在同一套 _Undo、寫前備進回合，
 做完照 profile_cli._follow 跟上清冊、檔案卡、總目錄與綜合卡快取；md 有手改未套用、背景整理在跑時 Skip。
+暫存區（D-324，放寬甲第二輪）：再一列，rel 是 暫存區（不是狀態檔）：_lib/hold_migrate 的 needs 判斷第一層還有沒有能做的（收件匣改名、
+AI 產出／收件匣的檔搬進暫存區、同名一樣的拿掉、空夾拿掉），有就算 0（要遷）、沒有算 1；升級前照 D-215 拍快照，不另備路徑。
 彈性區（D-512）：再一列，rel 也是 profile.json：型別表有列的 dir 是 FREE_DIR（她自己把型別夾改名成它）算 6、沒有算 7。
 rewrite 照 dir_plan（叫 FREE_DIR 的夾名不留，改回預設編號名）改夾名、寫 dir，跟補編號那列同一套 _follow；Skip 的條件也一樣。
 apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
@@ -22,7 +24,7 @@ apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 re
 from collections import namedtuple
 from pathlib import Path
 
-from kb._lib import cards, entities, inventory, profile
+from kb._lib import cards, entities, hold_migrate, inventory, profile
 from kb._lib.areas import FREE_DIR
 from kb._lib import pending as pending_lib  # 這支自己有 pending()
 from kb._lib.io import FileLock, read_json, write_text_atomic
@@ -184,6 +186,14 @@ def _rewrite_pending(vault, turn_id):
     pending_lib.refresh(vault, turn_id)
 
 
+def _hold_stored(vault):
+    """暫存區那列（D-324）：不看 schema，看夾——第一層還有能改名、搬、併、拿掉的 收件匣／AI 產出 算 0（要遷），沒有算 1。"""
+    try:
+        return 0 if hold_migrate.needs(vault) else 1
+    except OSError:
+        return None
+
+
 STATE_FILES = (
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, profile.stored_schema, _rewrite_profile),
     Migration(inventory.INVENTORY_POSIX, lambda: inventory.SCHEMA_VERSION, _raw_version(inventory.INVENTORY_POSIX),
@@ -194,6 +204,7 @@ STATE_FILES = (
               _rewrite_pending),
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _dirs_stored, _rewrite_dirs),
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _free_stored, _rewrite_free),
+    Migration(hold_migrate.REL, lambda: 1, _hold_stored, hold_migrate.rewrite),  # 收件匣與 AI 產出合成暫存區（放寬甲第二輪 13）
 )
 CARD_HEADER_MIGRATIONS = []
 
@@ -250,9 +261,9 @@ def _migrate_cards(vault, turn_id, skipped):
 
 def apply(vault, turn_id):
     """遷移全部要遷的。回 {"migrated": [rel…]（同一個 rel 只列一次）, "skipped": [{"rel","why"}], "cards": 遷了幾張卡的檔頭,
-    "notes": [句子]（補編號那列講改了哪些夾）}。按列判斷：每一列照開始時看到的版本決定要不要跑。
+    "notes": [句子]（補編號那列講改了哪些夾）, "left_in_output": [{"name","existing"}]（暫存區那列：同名內容不同、留在 AI 產出的）}。按列判斷：每一列照開始時看到的版本決定要不要跑。
     一個檔失敗（Skip、讀不了、寫不進去）列進 skipped，不擋其他檔。rewrite 回清單的併進 skipped；回 {"notes"} 的併進 notes。"""
-    migrated, skipped, notes = [], [], []
+    migrated, skipped, notes, left = [], [], [], []
     todo = [m for m in STATE_FILES if _due(vault, m)]
     for m in todo:
         try:
@@ -267,6 +278,8 @@ def apply(vault, turn_id):
                 migrated.append(m.rel)
             if isinstance(extra, dict):
                 notes += extra.get("notes") or []
+                left += extra.get("left_in_output") or []
             else:
                 skipped += extra or []
-    return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped), "notes": notes}
+    return {"migrated": migrated, "skipped": skipped, "cards": _migrate_cards(vault, turn_id, skipped), "notes": notes,
+            "left_in_output": left}

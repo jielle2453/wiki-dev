@@ -24,7 +24,7 @@ class ParseFront(unittest.TestCase):
         self.assertTrue(a["開原檔"].startswith("file:///D:/"))
         b = cards.parse_front((FIX / "大安陳進度表-5d0e2a77.md").read_text(encoding="utf-8"))
         self.assertEqual(b["出處"], "AI 產出")
-        self.assertEqual(b["原檔"], ["file://AI 產出/大安陳進度表.xlsx"])
+        self.assertEqual(b["原檔"], ["file://暫存區/大安陳進度表.xlsx"])
         self.assertEqual(b["敏感資料種類"], ["統編", "電話"])
 
     def test_broken_raises(self):
@@ -42,7 +42,7 @@ class Small(unittest.TestCase):
     def test_card_dir(self):
         e = {"locations": [{"uri": "file://客戶案件/信義王/報價_v3.pdf"}, {"uri": "file://報價與合約/x.pdf"}]}
         self.assertEqual(cards.card_dir(e), "檔案索引/客戶案件/信義王")
-        self.assertEqual(cards.card_dir({"locations": [{"uri": "file://AI 產出/x.md"}]}), "檔案索引/AI 產出")
+        self.assertEqual(cards.card_dir({"locations": [{"uri": "file://暫存區/x.md"}]}), "檔案索引/暫存區")
         self.assertEqual(cards.card_dir({"locations": [{"uri": "file://知識庫/案子/信義王/合約.docx"}]}),
                          "檔案索引/知識庫/案子/信義王")
 
@@ -113,12 +113,12 @@ class Header(Vault):
         self.assertEqual((front["實體"], front["待補型別"]), ([], []))
         self.assertEqual(front["敏感資料種類"], [])
         self.assertEqual(front["開原檔"], cards.open_link(self.raw / _cards.MEETING))
-        self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（收件匣裁定 3）
+        self.assertEqual(list(front), [k for k in cards.KEYS if k != "收件"])  # 收件：只有 kb intake 收的檔有（暫存區裁定 3）
         self.assertEqual(item["dir"], "檔案索引/客戶案件/大安陳")
         self.assertEqual(item["filename_pattern"], f"<標題>-{e['id'][2:]}.md")
         self.assertEqual(item["kind"], "docx")
         self.assertIsNone(item["existing_card"])
-        self.assertRegex(item["created"], r"^\d{4}-\d{2}-\d{2}$")  # AI 產出的卡寫「AI 於 YYYY-MM-DD 起草」用
+        self.assertRegex(item["created"], r"^\d{4}-\d{2}-\d{2}$")  # 暫存區的卡寫「AI 於 YYYY-MM-DD 起草」用
         self.assertEqual(Path(item["path"]), Path(os.path.realpath(self.raw / _cards.MEETING)))
 
     def test_no_content_fp_line_for_pdf(self):
@@ -571,7 +571,7 @@ class RewriteEntitiesBlock(unittest.TestCase):
 
 
 class Produce(unittest.TestCase):
-    """produce 第 5 點：todo 不列（草稿）.md；link 條目照常列待製卡、開原檔是網址、卡放 檔案索引/AI 產出/<型別>；
+    """produce 第 5 點：todo 不列（草稿）.md；link 條目照常列待製卡、開原檔是網址、卡放 檔案索引/暫存區/<型別>；
     unbacked 的待製卡另數一個數給 tell。"""
 
     def setUp(self):
@@ -588,13 +588,13 @@ class Produce(unittest.TestCase):
         return {i["id"] for i in self.todo()["new"]}
 
     def test_draft_not_listed(self):
-        d = self.V / "AI 產出" / "報告"
+        d = self.V / "暫存區" / "報告"
         d.mkdir(parents=True)
         (d / "2026-10-21 內湖李 進度報告（草稿）.md").write_text("# 草稿\n", encoding="utf-8")
         (d / "2026-10-21 內湖李 進度報告.md").write_text("# 定稿\n", encoding="utf-8")
         _cards.scan_apply(self.V)
-        draft = _cards.entry_of(self.V, "AI 產出/報告/2026-10-21 內湖李 進度報告（草稿）.md")
-        final = _cards.entry_of(self.V, "AI 產出/報告/2026-10-21 內湖李 進度報告.md")
+        draft = _cards.entry_of(self.V, "暫存區/報告/2026-10-21 內湖李 進度報告（草稿）.md")
+        final = _cards.entry_of(self.V, "暫存區/報告/2026-10-21 內湖李 進度報告.md")
         ids = self.new_ids()
         self.assertNotIn(draft["id"], ids)
         self.assertIn(final["id"], ids)
@@ -605,7 +605,7 @@ class Produce(unittest.TestCase):
         e = inventory.register_link(self.V, url, self.t, title="內湖李進度報告", type_="報告")
         item = next(i for i in self.todo()["new"] if i["id"] == e["id"])
         self.assertEqual((item["kind"], item["path"], item["url"]), ("link", None, url))
-        self.assertEqual(item["dir"], "檔案索引/AI 產出/報告")
+        self.assertEqual(item["dir"], "檔案索引/暫存區/報告")
         self.assertIn(f"開原檔: {url}", item["header"])
         self.assertIn("標題: 內湖李進度報告", item["header"])
         self.assertIn("出處: AI 產出", item["header"])
@@ -617,11 +617,11 @@ class Produce(unittest.TestCase):
 
     def test_link_without_type_goes_to_online(self):
         e = inventory.register_link(self.V, "https://claude.ai/artifact/x", self.t, title="提案")
-        self.assertEqual(cards.card_dir(e), "檔案索引/AI 產出/線上")
+        self.assertEqual(cards.card_dir(e), "檔案索引/暫存區/線上")
 
     def test_unbacked_counted(self):
-        before = self.todo()["unbacked"]  # fixture 的 AI 產出/x.md 也是沒經程式放進來的
-        (self.V / "AI 產出" / "a.docx").write_bytes(b"x")
+        before = self.todo()["unbacked"]  # fixture 的 暫存區/x.md 也是沒經程式放進來的
+        (self.V / "暫存區" / "a.docx").write_bytes(b"x")
         _cards.scan_apply(self.V)
         self.assertEqual(self.todo()["unbacked"], before + 1)
 

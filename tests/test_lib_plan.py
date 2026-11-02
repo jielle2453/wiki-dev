@@ -867,14 +867,14 @@ class RulingAsks(Base):
 
 
 class ProduceAsks(Base):
-    """produce 第 5 點：asks 多 draft（AI 產出裡的（草稿）.md，這一回合才寫的不問），排在 close 之後、名字確認之前；
+    """produce 第 5 點：asks 多 draft（暫存區裡的（草稿）.md，這一回合才寫的不問），排在 close 之後、名字確認之前；
     tell 多 unbacked 那句。"""
 
     def draft(self, name="2026-10-21 內湖李 進度報告（草稿）.md", sub="報告"):
-        d = self.V / "AI 產出" / sub
+        d = self.V / "暫存區" / sub
         d.mkdir(parents=True, exist_ok=True)
         (d / name).write_text("草稿\n", encoding="utf-8")
-        return f"AI 產出/{sub}/{name}"
+        return f"暫存區/{sub}/{name}"
 
     def test_draft_ask(self):
         rel = self.draft()
@@ -887,7 +887,7 @@ class ProduceAsks(Base):
 
     def test_draft_written_this_turn_not_asked(self):
         t = turn.start(self.V, "sid", "寫草稿")["turn"]
-        rel = "AI 產出/報告/x（草稿）.md"
+        rel = "暫存區/報告/x（草稿）.md"
         turn.backup(self.V, rel, t)
         self.draft("x（草稿）.md")
         self.assertEqual(self.build()["asks"], [])
@@ -901,7 +901,7 @@ class ProduceAsks(Base):
         self.assertEqual([a["kind"] for a in got], ["close", "draft", "name"])
 
     def test_unbacked_tell(self):
-        self.assertIn("AI 產出有 2 份沒經程式放進來，這幾份退回拿不掉", self.build(unbacked=2)["tell"])
+        self.assertIn("暫存區有 2 份沒經程式放進來，這幾份退回拿不掉", self.build(unbacked=2)["tell"])
         self.assertFalse(any("沒經程式" in x for x in self.build(unbacked=0)["tell"]))
 
 

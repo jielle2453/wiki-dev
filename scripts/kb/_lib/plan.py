@@ -559,8 +559,8 @@ _DATE_HEAD = re.compile(r"^\d{4}-\d{2}-\d{2}\s+")
 
 
 def drafts(vault):
-    """AI 產出底下的（草稿）.md，回總資料夾相對路徑（照路徑排）；跳過 . 開頭的夾與檔、不跟連結。"""
-    root = Path(vault) / inventory.OUTPUT
+    """暫存區底下的（草稿）.md，回總資料夾相對路徑（照路徑排）；跳過 . 開頭的夾與檔、不跟連結。"""
+    root = Path(vault) / inventory.HOLD
     out = []
     if not root.is_dir() or os.path.islink(root):
         return out
@@ -597,10 +597,10 @@ def _draft_asks(vault):
 
 # ---------- 收件匣的檔要放哪（收件匣第 5 點，D-244、D-178） ----------
 
-INBOX_QUESTION = "{title}（收件匣）要放到哪裡？"
+INBOX_QUESTION = "{title}（暫存區）要放到哪裡？"
 INBOX_PLACES = 3
 INBOX_LATER = "先放著"
-NOT_DESTINATIONS = (inventory.INBOX.casefold(), inventory.OUTPUT.casefold())
+NOT_DESTINATIONS = (inventory.HOLD.casefold(),)
 
 
 def _inbox_places(vault, names, where_of):
@@ -630,7 +630,7 @@ def _inbox_places(vault, names, where_of):
 def _inbox_top(entry):
     """條目在收件匣最上層就回檔名，否則 None（來源子夾裡的定期交來的不問，D-241）。"""
     alias, rel = inventory.split_uri(((entry.get("locations") or [{}])[0]).get("uri", ""))
-    return rel if alias.casefold() == inventory.INBOX.casefold() and rel and "/" not in rel else None
+    return rel if alias.casefold() == inventory.HOLD.casefold() and rel and "/" not in rel else None
 
 
 def _inbox_asks(vault):
@@ -666,7 +666,7 @@ def _inbox_asks(vault):
             places = _inbox_places(vault, names, where_of)
         except ValueError:
             continue
-        src = f"{inventory.INBOX}/{rel}"
+        src = f"{inventory.HOLD}/{rel}"
         out.append(_ask(f"inbox:{e['id']}", "inbox_place", INBOX_QUESTION.format(title=title),
                         [_result(f"放到 {f}", [cmd("source-edit", "move", src, "--to", f)]) for f in places]
                         + [_result(INBOX_LATER)]))

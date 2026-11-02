@@ -27,7 +27,7 @@ def modify_in_turn(vault, rel, turn_id, text):
 class Register(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
-        self.rel = "AI 產出/x.md"
+        self.rel = "暫存區/x.md"
         self.t = turn.start(self.V, SID, "寫草稿")
         create_in_turn(self.V, self.rel, self.t["turn"], "第一版\n")
 
@@ -47,7 +47,7 @@ class Register(unittest.TestCase):
         self.assertRegex(got["id"], r"^f-[0-9a-f]{8}$")
         self.assertEqual(got["origin"], "ai_output")
         st = (self.V / self.rel).stat()
-        self.assertEqual(got["locations"], [{"uri": "file://AI 產出/x.md", "size": st.st_size,
+        self.assertEqual(got["locations"], [{"uri": "file://暫存區/x.md", "size": st.st_size,
                                              "mtime": inventory.mtime_str(st.st_mtime)}])
         self.assertEqual((got["read"], got["missing_since"]), ("ok", None))
         self.assertEqual(got["first_seen"], got["fingerprints"][0]["time"])
@@ -82,9 +82,9 @@ class Register(unittest.TestCase):
 
     def test_outputs_of_turn_only_active_of_that_turn(self):
         t2 = turn.start(self.V, "other", "別的")
-        create_in_turn(self.V, "AI 產出/y.md", t2["turn"], "y")
+        create_in_turn(self.V, "暫存區/y.md", t2["turn"], "y")
         a = inventory.register_output(self.V, self.rel, self.t["turn"])
-        b = inventory.register_output(self.V, "AI 產出/y.md", t2["turn"])
+        b = inventory.register_output(self.V, "暫存區/y.md", t2["turn"])
         self.assertEqual([e["id"] for e in inventory.outputs_of_turn(self.V, self.t["turn"])], [a["id"]])
         inventory.set_status(self.V, [a["id"]], "turn_reverted")
         self.assertEqual(inventory.outputs_of_turn(self.V, self.t["turn"]), [])
@@ -141,7 +141,7 @@ class Register(unittest.TestCase):
 
     def test_preexisting_unregistered_file_is_not_registered(self):
         """第一輪 M4（驗收 23）：客戶自己放的檔，AI 第一次編輯是 modify，不登記、回 None。"""
-        q = "AI 產出/q.md"
+        q = "暫存區/q.md"
         (self.V / q).write_text("客戶自己放的\n", encoding="utf-8")
         t2 = turn.start(self.V, SID, "改 q")
         modify_in_turn(self.V, q, t2["turn"], "AI 改過\n")
@@ -149,22 +149,22 @@ class Register(unittest.TestCase):
         self.assertEqual(inventory.load(self.V)["entries"], [])
 
     def test_no_manifest_line_is_not_registered(self):
-        (self.V / "AI 產出" / "z.md").write_text("z", encoding="utf-8")
-        self.assertIsNone(inventory.register_output(self.V, "AI 產出/z.md", self.t["turn"]))
+        (self.V / "暫存區" / "z.md").write_text("z", encoding="utf-8")
+        self.assertIsNone(inventory.register_output(self.V, "暫存區/z.md", self.t["turn"]))
         self.assertFalse((self.V / ".system" / "inventory.json").exists())
 
     def test_two_processes_register_concurrently_both_kept(self):
-        create_in_turn(self.V, "AI 產出/y.md", self.t["turn"], "y")
+        create_in_turn(self.V, "暫存區/y.md", self.t["turn"], "y")
         code = ("import sys; sys.path.insert(0, sys.argv[1]); from kb._lib import inventory; "
                 "inventory.register_output(sys.argv[2], sys.argv[3], sys.argv[4])")
         procs = [subprocess.Popen([sys.executable, "-c", code, str(SCRIPTS), str(self.V), rel, self.t["turn"]],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                 for rel in (self.rel, "AI 產出/y.md")]
+                 for rel in (self.rel, "暫存區/y.md")]
         for p in procs:
             _out, err = p.communicate(timeout=60)
             self.assertEqual(p.returncode, 0, err.decode("utf-8", "replace"))
         data = inventory.load(self.V)
-        self.assertEqual(sorted(e["locations"][0]["uri"] for e in data["entries"]), ["file://AI 產出/x.md", "file://AI 產出/y.md"])
+        self.assertEqual(sorted(e["locations"][0]["uri"] for e in data["entries"]), ["file://暫存區/x.md", "file://暫存區/y.md"])
 
 
 class SkipKind(unittest.TestCase):
@@ -296,7 +296,7 @@ class SynthesisCardNotInventoried(unittest.TestCase):
 
 
 class Produce(unittest.TestCase):
-    """produce 第 4 點：選填欄 kind link、derived_from、unbacked；AI 產出裡沒登記的新檔掃描時照 AI 產出登記、標 unbacked；
+    """produce 第 4 點：選填欄 kind link、derived_from、unbacked；暫存區裡沒登記的新檔掃描時照 暫存區登記、標 unbacked；
     link 條目不走訪、不算不見，folders exclude／remove 也不動它。"""
 
     def setUp(self):
@@ -312,21 +312,21 @@ class Produce(unittest.TestCase):
         return inventory.entry_for(self.V, uri)
 
     def test_unlisted_file_in_output_is_unbacked(self):
-        (self.V / "AI 產出" / "報價").mkdir()
-        (self.V / "AI 產出" / "報價" / "a.xlsx").write_bytes(b"PK fake")
+        (self.V / "暫存區" / "報價").mkdir()
+        (self.V / "暫存區" / "報價" / "a.xlsx").write_bytes(b"PK fake")
         self.scan_apply(self.V)
-        e = self.entry("file://AI 產出/報價/a.xlsx")
+        e = self.entry("file://暫存區/報價/a.xlsx")
         self.assertEqual((e["origin"], e["status"], e.get("unbacked")), ("ai_output", "active", True))
         raw = self.entry("file://客戶案件/大安陳/會議紀錄_1.docx")
         self.assertNotIn("unbacked", raw)
 
     def test_registered_output_not_unbacked_and_derived_from_kept(self):
         t = turn.start(self.V, SID, "做報價")["turn"]
-        create_in_turn(self.V, "AI 產出/b.xlsx", t, "x")
-        e = inventory.register_output(self.V, "AI 產出/b.xlsx", t, derived_from="f-12345678")
+        create_in_turn(self.V, "暫存區/b.xlsx", t, "x")
+        e = inventory.register_output(self.V, "暫存區/b.xlsx", t, derived_from="f-12345678")
         self.assertEqual(e["derived_from"], "f-12345678")
         self.scan_apply(self.V)
-        got = self.entry("file://AI 產出/b.xlsx")
+        got = self.entry("file://暫存區/b.xlsx")
         self.assertEqual(got["id"], e["id"])
         self.assertNotIn("unbacked", got)
         self.assertEqual(got["derived_from"], "f-12345678")
@@ -352,23 +352,23 @@ class Produce(unittest.TestCase):
         t = turn.start(self.V, SID, "也給我 Word")["turn"]
         url = "https://claude.ai/artifact/abc"
         e = inventory.register_link(self.V, url, t, title="報告")
-        create_in_turn(self.V, "AI 產出/報告.docx", t, "docx")
-        got = inventory.attach_location(self.V, e["id"], "AI 產出/報告.docx", t)
-        self.assertEqual([loc["uri"] for loc in got["locations"]], [url, "file://AI 產出/報告.docx"])
+        create_in_turn(self.V, "暫存區/報告.docx", t, "docx")
+        got = inventory.attach_location(self.V, e["id"], "暫存區/報告.docx", t)
+        self.assertEqual([loc["uri"] for loc in got["locations"]], [url, "file://暫存區/報告.docx"])
         self.assertEqual(len(got["fingerprints"]), 1)
         self.scan_apply(self.V)
         again = self.entry(url)
         self.assertEqual((again["id"], again["status"]), (e["id"], "active"))
         self.assertEqual(len(again["locations"]), 2)
         self.assertEqual(len([x for x in inventory.load(self.V)["entries"]
-                              if any(l["uri"] == "file://AI 產出/報告.docx" for l in x["locations"])]), 1)
+                              if any(l["uri"] == "file://暫存區/報告.docx" for l in x["locations"])]), 1)
 
     def test_attach_location_refuses_non_link(self):
         t = turn.start(self.V, SID, "x")["turn"]
-        create_in_turn(self.V, "AI 產出/c.md", t, "x")
-        e = inventory.register_output(self.V, "AI 產出/c.md", t)
+        create_in_turn(self.V, "暫存區/c.md", t, "x")
+        e = inventory.register_output(self.V, "暫存區/c.md", t)
         with self.assertRaises(KeyError):
-            inventory.attach_location(self.V, e["id"], "AI 產出/c.md", t)
+            inventory.attach_location(self.V, e["id"], "暫存區/c.md", t)
 
 
 if __name__ == "__main__":

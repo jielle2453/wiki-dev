@@ -21,8 +21,8 @@ def make_kb():
     (vault / "我的夾").mkdir()
     (vault / "我的夾" / "a.txt").write_text("a", encoding="utf-8")
     (vault / "我的夾" / "b.txt").write_text("b", encoding="utf-8")
-    (vault / "收件匣" / "空夾").mkdir()
-    (vault / "收件匣" / "c.txt").write_text("c", encoding="utf-8")
+    (vault / "暫存區" / "空夾").mkdir()
+    (vault / "暫存區" / "c.txt").write_text("c", encoding="utf-8")
     (vault / "01 案子").mkdir()
     (tmp / "ext").mkdir()
     (tmp / "src").mkdir()
@@ -61,9 +61,9 @@ class Base(unittest.TestCase):
 
 class ShellRules(Base):
     def test_1_creating_and_moving_pass(self):
-        self.passes("Bash", 'rmdir "收件匣/空夾"')
+        self.passes("Bash", 'rmdir "暫存區/空夾"')
         self.passes("Bash", "mkdir 新的夾")
-        self.passes("Bash", "mv 我的夾/a.txt 收件匣/")
+        self.passes("Bash", "mv 我的夾/a.txt 暫存區/")
         self.passes("Bash", 'mv 我的夾/a.txt "01 案子/"')
 
     def test_2_delete(self):
@@ -83,15 +83,15 @@ class ShellRules(Base):
         self.passes("Bash", "echo x > 我的夾/new.txt")
 
     def test_5_batch(self):
-        self.denies("Bash", 'for f in 我的夾/*.txt; do mv "$f" 收件匣/; done', "batch")
-        self.passes("Bash", 'for f in 我的夾/*.txt; do mv -n "$f" 收件匣/; done')
+        self.denies("Bash", 'for f in 我的夾/*.txt; do mv "$f" 暫存區/; done', "batch")
+        self.passes("Bash", 'for f in 我的夾/*.txt; do mv -n "$f" 暫存區/; done')
         self.denies("Bash", 'for f in 我的夾/*.txt; do rm "$f"; done', "delete")
 
     def test_6_interpreter_code(self):
         ext = self.tmp / "ext" / "m.py"
         ext.write_text('import os; os.remove("我的夾/a.txt")', encoding="utf-8")
         self.denies("Bash", "python ../ext/m.py", "code")
-        ext.write_text('import shutil; shutil.move("我的夾/a.txt", "收件匣/a.txt")', encoding="utf-8")
+        ext.write_text('import shutil; shutil.move("我的夾/a.txt", "暫存區/a.txt")', encoding="utf-8")
         self.passes("Bash", "python ../ext/m.py")
         out = str(self.tmp / "ext" / "out.csv")
         ext.write_text(f'open(r"{out}","w").write("x")', encoding="utf-8")
@@ -105,7 +105,7 @@ class ShellRules(Base):
         self.assertIn("script_unread", [r["reason_code"] for r in d.ledger_rows])
 
     def test_7_file_tools(self):
-        for tool, rel in (("Write", "我的夾/c.md"), ("Edit", "收件匣/c.txt"), ("Edit", "系統/客戶設定檔.md"),
+        for tool, rel in (("Write", "我的夾/c.md"), ("Edit", "暫存區/c.txt"), ("Edit", "系統/客戶設定檔.md"),
                           ("Write", "01 案子/清單.xlsx"), ("Write", "_extras/x.md")):
             d = self.d(tool, self.V / rel)
             self.assertEqual(d.decision, "allow", (tool, rel, d))
@@ -157,14 +157,14 @@ class VaultExcludes(Base):
             self.assertTrue(d.reason.endswith(TAIL))
 
     def test_shell_into_excluded(self):
-        self.denies("Bash", "mv 收件匣/c.txt 我的夾/", "excluded")
+        self.denies("Bash", "mv 暫存區/c.txt 我的夾/", "excluded")
 
     def test_range_containing_excluded(self):
         d = self.d("Glob", self.V / "01 案子")
         self.assertEqual((d.decision, d.reason_code), ("deny", "excluded_inside"), d)
 
     def test_other_folders_unaffected(self):
-        d = self.d("Read", self.V / "收件匣" / "c.txt")
+        d = self.d("Read", self.V / "暫存區" / "c.txt")
         self.assertEqual(d.decision, "allow", d)
 
     def test_sources_parse(self):
@@ -213,11 +213,11 @@ class HookRun(unittest.TestCase):
         return self.V / ".system" / "versions" / self.t["turn"]
 
     def test_7b_edit_inbox_backs_up(self):
-        r = self.hook("Edit", self.V / "收件匣" / "c.txt")
+        r = self.hook("Edit", self.V / "暫存區" / "c.txt")
         self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
-        rows = [e for e in self.turn.entries(self.V, self.t["turn"]) if e["path"] == "收件匣/c.txt"]
+        rows = [e for e in self.turn.entries(self.V, self.t["turn"]) if e["path"] == "暫存區/c.txt"]
         self.assertEqual([e["action"] for e in rows], ["modify"])
-        self.assertEqual((self.vdir() / "files" / "收件匣" / "c.txt").read_text(encoding="utf-8"), "c")
+        self.assertEqual((self.vdir() / "files" / "暫存區" / "c.txt").read_text(encoding="utf-8"), "c")
 
     def test_8_z9_edit_backup_and_revert(self):
         f = self.tmp / "src" / "x.txt"
@@ -235,7 +235,7 @@ class HookRun(unittest.TestCase):
         self.assertEqual(f.read_text(encoding="utf-8"), "x")
 
     def test_9_no_shell_writes_jsonl(self):
-        r = self.hook("Bash", "mv 我的夾/a.txt 收件匣/")
+        r = self.hook("Bash", "mv 我的夾/a.txt 暫存區/")
         out = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] if r.stdout.strip() else "pass"
         self.assertIn(out, ("pass", "allow"))
         self.assertEqual(list(self.vdir().rglob("shell_writes.jsonl")), [])

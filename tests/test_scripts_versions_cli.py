@@ -52,8 +52,8 @@ class Base(unittest.TestCase):
     def versions_dir(self, turn_id):
         return self.V / ".system" / "versions" / turn_id
 
-    def make_output(self, prompt="寫草稿", rel="AI 產出/x.md", text="草稿\n"):
-        """模擬檔案工具在新回合新建一份 AI 產出並登記（PreToolUse 備份 create、寫檔、PostToolUse 登記）。"""
+    def make_output(self, prompt="寫草稿", rel="暫存區/x.md", text="草稿\n"):
+        """模擬檔案工具在新回合新建一份 暫存區並登記（PreToolUse 備份 create、寫檔、PostToolUse 登記）。"""
         t = turn.start(self.V, SID, prompt)
         turn.backup(self.V, rel, t["turn"])
         (self.V / rel).write_text(text, encoding="utf-8")
@@ -249,7 +249,7 @@ class Revert(Base):
         self.assertEqual(self.status_of(entry["id"]), "deleted")
         rows = turn.entries(self.V, rt["turn"])
         self.assertEqual([(e["path"], e["action"]) for e in rows], [(rel, "delete")])
-        self.assertEqual((self.versions_dir(rt["turn"]) / "files" / "AI 產出" / "x.md").read_text(encoding="utf-8"), "草稿\n")
+        self.assertEqual((self.versions_dir(rt["turn"]) / "files" / "暫存區" / "x.md").read_text(encoding="utf-8"), "草稿\n")
 
     def test_reverting_a_deletion_restores_file_and_status_active(self):
         """第一輪 M3：退掉「刪成品」那一回合，檔回來、status 回 active。"""
@@ -264,21 +264,21 @@ class Revert(Base):
         self.assertEqual(self.status_of(entry["id"]), "active")
 
     def test_preexisting_file_in_outputs_is_restored_not_deleted(self):
-        """第一輪 M4：這回合之前就存在、沒登記的 AI 產出檔，--delete-outputs 不刪，還原成原內容。"""
-        q = self.V / "AI 產出" / "q.md"
+        """第一輪 M4：這回合之前就存在、沒登記的 暫存區檔，--delete-outputs 不刪，還原成原內容。"""
+        q = self.V / "暫存區" / "q.md"
         q.write_text("客戶自己放的\n", encoding="utf-8")
         t = turn.start(self.V, SID, "改 q")
-        turn.backup(self.V, "AI 產出/q.md", t["turn"])
+        turn.backup(self.V, "暫存區/q.md", t["turn"])
         q.write_text("AI 改過\n", encoding="utf-8")
-        self.assertIsNone(inventory.register_output(self.V, "AI 產出/q.md", t["turn"]))
+        self.assertIsNone(inventory.register_output(self.V, "暫存區/q.md", t["turn"]))
         rt = self.new_turn()
         r = run_kb("versions", "revert", "--delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(q.read_text(encoding="utf-8"), "客戶自己放的\n")
         self.assertIn("還原 1、移除 0、成品 0 份", r.stdout)
         rows = turn.entries(self.V, rt["turn"])
-        self.assertEqual([(e["path"], e["action"]) for e in rows], [("AI 產出/q.md", "modify")])
-        self.assertEqual((self.versions_dir(rt["turn"]) / "files" / "AI 產出" / "q.md").read_text(encoding="utf-8"), "AI 改過\n")
+        self.assertEqual([(e["path"], e["action"]) for e in rows], [("暫存區/q.md", "modify")])
+        self.assertEqual((self.versions_dir(rt["turn"]) / "files" / "暫存區" / "q.md").read_text(encoding="utf-8"), "AI 改過\n")
 
     def test_registered_entry_whose_manifest_says_modify_is_not_counted_as_output(self):
         """第一輪 M4：成品只算 manifest create 的。舊筆 turn_reverted 後新回合再改（新筆 active、manifest modify）：
@@ -423,10 +423,10 @@ class DeleteOutputs(Base):
         self.assertEqual(self.status_of(entry["id"]), "deleted")
         rows = turn.entries(self.V, dt["turn"])
         self.assertEqual([(e["path"], e["action"]) for e in rows], [(rel, "delete")])
-        self.assertEqual((self.versions_dir(dt["turn"]) / "files" / "AI 產出" / "x.md").read_text(encoding="utf-8"), "草稿\n")
+        self.assertEqual((self.versions_dir(dt["turn"]) / "files" / "暫存區" / "x.md").read_text(encoding="utf-8"), "草稿\n")
 
     def test_forged_paths_outside_ai_output_are_not_deleted(self):
-        """測試第三輪後裁定 32（S-3）：清冊偽造的成品路徑（知識庫外、知識庫裡但不在 AI 產出）不刪、記 log、那一筆說一句；
+        """測試第三輪後裁定 32（S-3）：清冊偽造的成品路徑（知識庫外、知識庫裡但不在 暫存區）不刪、記 log、那一筆說一句；
         合法的照刪。"""
         t, rel, entry = self.make_output()
         self.new_turn()
@@ -434,7 +434,7 @@ class DeleteOutputs(Base):
         outside = self.tmp / "OUTSIDE.txt"
         outside.write_text("知識庫外的檔\n", encoding="utf-8")
         data = inventory.load(self.V)
-        for n, uri in enumerate(("file://../OUTSIDE.txt", "file://" + self.card_rel, "file://AI 產出/../../OUTSIDE.txt")):
+        for n, uri in enumerate(("file://../OUTSIDE.txt", "file://" + self.card_rel, "file://暫存區/../../OUTSIDE.txt")):
             data["entries"].append(dict(entry, id=f"{entry['id']}-forged{n}", status="turn_reverted", fingerprints=[],
                                         locations=[{"uri": uri}], created_turn=t["turn"]))
         inventory._write(self.V, data["entries"])
@@ -442,9 +442,9 @@ class DeleteOutputs(Base):
         r = run_kb("versions", "delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(outside.is_file(), "知識庫外的檔還在")
-        self.assertEqual(self.card.read_bytes(), self.original, "知識庫裡、AI 產出外的檔不刪")
+        self.assertEqual(self.card.read_bytes(), self.original, "知識庫裡、暫存區外的檔不刪")
         self.assertFalse((self.V / rel).exists(), "合法的成品照刪")
-        self.assertEqual(r.stdout.splitlines().count("這份不在 AI 產出裡，沒有刪"), 3)
+        self.assertEqual(r.stdout.splitlines().count("這份不在 暫存區裡，沒有刪"), 3)
         self.assertNotIn("OUTSIDE", r.stdout)
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertEqual(sum("delete-outputs 路徑不對" in ln for ln in log.splitlines()), 3)
@@ -671,7 +671,7 @@ class VersionsJournal(Base):
         self.assertEqual(self.program_rows()[0]["changed"], [{"path": "案子/新案/新案.md", "action": "delete"}])
 
     def test_delete_outputs_writes_program_line(self):
-        t = self.cli_turn_with("AI 產出/y.md", "草稿\n", register=True)
+        t = self.cli_turn_with("暫存區/y.md", "草稿\n", register=True)
         run_kb("versions", "revert", cwd=self.V)
         r = run_kb("versions", "delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -679,12 +679,12 @@ class VersionsJournal(Base):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1]["command"], "versions delete-outputs")
         self.assertEqual(rows[1]["note"], f"已刪 1 份成品（{said(self.V, t['turn'])}）")
-        self.assertEqual(rows[1]["changed"], [{"path": "AI 產出/y.md", "action": "delete"}])
+        self.assertEqual(rows[1]["changed"], [{"path": "暫存區/y.md", "action": "delete"}])
 
     def test_delete_outputs_of_zero_writes_nothing(self):
-        t = self.cli_turn_with("AI 產出/y.md", "草稿\n", register=True)
+        t = self.cli_turn_with("暫存區/y.md", "草稿\n", register=True)
         run_kb("versions", "revert", cwd=self.V)
-        os.remove(self.V / "AI 產出" / "y.md")
+        os.remove(self.V / "暫存區" / "y.md")
         r = run_kb("versions", "delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual([x["command"] for x in self.program_rows()], ["versions revert"])
@@ -843,7 +843,7 @@ class VersionsJournal(Base):
         """驗收 44（R3-M1）：對話裡建 z.md、同一句退回、Stop；終端機 delete-outputs 再 revert：z.md 回來、status active，
         卡片與 T 的 reverted.json 都不變；versions/ 多兩個尾 0000 的回合夾。"""
         base = {"session_id": SID, "cwd": str(self.V)}
-        z = self.V / "AI 產出" / "z.md"
+        z = self.V / "暫存區" / "z.md"
         self.hook("turn.py", dict(base, prompt="寫 z", hook_event_name="UserPromptSubmit"))
         t_turn = self.sess()["turn"]
         self.hook("guard.py", dict(base, tool_name="Write", hook_event_name="PreToolUse",
@@ -864,7 +864,7 @@ class VersionsJournal(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(z.is_file())
-        entry = [e for e in inventory.load(self.V)["entries"] if "file://AI 產出/z.md" in [l["uri"] for l in e.get("locations", [])]][-1]
+        entry = [e for e in inventory.load(self.V)["entries"] if "file://暫存區/z.md" in [l["uri"] for l in e.get("locations", [])]][-1]
         self.assertEqual(entry["status"], "active")
         self.assertEqual((self.card.read_bytes(), marker.read_bytes()), before)
         new = {p.name for p in vroot.iterdir()} - dirs
@@ -1311,10 +1311,10 @@ class FileStageAfterTest(Base):
 
     def test_folder_ledger_cannot_touch_reserved_roots(self):
         (self.V / "stolen").mkdir()
-        rows = ({"op": "move", "from": "stolen", "to": "收件匣"},
+        rows = ({"op": "move", "from": "stolen", "to": "暫存區"},
                 {"op": "move", "from": "stolen", "to": "系統"},
                 {"op": "move", "from": "檔案索引", "to": "stolen"},
-                {"op": "move", "from": "stolen", "to": "AI 產出"},
+                {"op": "move", "from": "stolen", "to": "暫存區"},
                 {"op": "make", "from": ".system", "to": None},
                 {"op": "remove", "from": "ai 產出", "to": None},
                 {"op": "remove", "from": ".", "to": None})
@@ -1331,12 +1331,12 @@ class FileStageAfterTest(Base):
                 shutil.rmtree(self.versions_dir(t))
 
     def test_ai_output_subfolder_still_allowed(self):
-        t = turn.start(self.V, None, "搬 AI 產出")["turn"]
-        (self.V / "AI 產出" / "廠商" / "工班").mkdir(parents=True)
-        turn.record_folder(self.V, t, "move", "AI 產出/工班", "AI 產出/廠商/工班")
+        t = turn.start(self.V, None, "搬 暫存區")["turn"]
+        (self.V / "暫存區" / "廠商" / "工班").mkdir(parents=True)
+        turn.record_folder(self.V, t, "move", "暫存區/工班", "暫存區/廠商/工班")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue((self.V / "AI 產出" / "工班").is_dir())
+        self.assertTrue((self.V / "暫存區" / "工班").is_dir())
 
 
 if __name__ == "__main__":

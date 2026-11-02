@@ -30,8 +30,8 @@ FIRST_URIS = {
     "file://公司行政/舊檔/Big5備忘.txt",
     "file://知識庫/案子/信義王/合約.docx",
     "file://知識庫/案子/說明.txt",
-    "file://收件匣/貼文.txt",
-    "file://AI 產出/x.md",
+    "file://暫存區/貼文.txt",
+    "file://暫存區/x.md",
 }
 
 
@@ -110,8 +110,8 @@ class Migration(Base):
         self.assertEqual(len(data["entries"]), 2)
         e = data["entries"][0]
         self.assertEqual(e["id"], "out-1a2b3c4d")
-        st = os.stat(self.V / "AI 產出" / "x.md")
-        self.assertEqual(e["locations"], [{"uri": "file://AI 產出/x.md", "size": st.st_size,
+        st = os.stat(self.V / "暫存區" / "x.md")
+        self.assertEqual(e["locations"], [{"uri": "file://暫存區/x.md", "size": st.st_size,
                                            "mtime": inventory.mtime_str(st.st_mtime)}])
         self.assertEqual(e["first_seen"], "2026-10-13T11:00:00")
         self.assertNotIn("created", e)
@@ -119,7 +119,7 @@ class Migration(Base):
         self.assertIsNone(e["missing_since"])
         self.assertEqual(e["created_turn"], "20261013-110000-6697")
         gone = data["entries"][1]
-        self.assertEqual(gone["locations"], [{"uri": "file://AI 產出/舊草稿.md", "size": None, "mtime": None}])
+        self.assertEqual(gone["locations"], [{"uri": "file://暫存區/舊草稿.md", "size": None, "mtime": None}])
         self.assertEqual(gone["status"], "deleted")
 
     def test_scan_then_apply_writes_schema_2_and_keeps_out_id(self):
@@ -132,7 +132,7 @@ class Migration(Base):
         self.assertIsInstance(out[0]["locations"][0], dict)
         self.assertEqual(out[0]["status"], "active")
         self.assertEqual(len([e for e in data["entries"] if inventory.uri_key(e["locations"][0]["uri"]) ==
-                              inventory.uri_key("file://AI 產出/x.md")]), 1)
+                              inventory.uri_key("file://暫存區/x.md")]), 1)
 
     def test_bad_shapes_raise_value_error(self):
         p = self.V / ".system" / "inventory.json"
@@ -186,8 +186,8 @@ class Scope(Base):
         self.assertEqual(self.entry_at("file://知識庫/案子/信義王/合約.docx")["origin"], "client_file")
         self.assertEqual(self.entry_at("file://知識庫/案子/說明.txt")["origin"], "client_file")
         self.assertEqual(self.entry_at("file://客戶案件/空檔.bin")["origin"], "client_file")
-        self.assertEqual(self.entry_at("file://收件匣/貼文.txt")["origin"], "intake")
-        self.assertEqual(self.entry_at("file://AI 產出/x.md")["origin"], "ai_output")
+        self.assertEqual(self.entry_at("file://暫存區/貼文.txt")["origin"], "intake")
+        self.assertEqual(self.entry_at("file://暫存區/x.md")["origin"], "ai_output")
 
     def test_entry_shape(self):
         self.full()
@@ -218,11 +218,11 @@ class Scope(Base):
 
     def test_vault_interior_is_exempt_from_credential(self):
         """審閱裁定 5：總資料夾內部照 D-081 豁免。"""
-        (self.V / "AI 產出" / "password.md").write_text("x", encoding="utf-8")
-        (self.V / "收件匣" / "密碼表.txt").write_text("x", encoding="utf-8")
+        (self.V / "暫存區" / "password.md").write_text("x", encoding="utf-8")
+        (self.V / "暫存區" / "密碼表.txt").write_text("x", encoding="utf-8")
         self.full()
-        self.assertEqual(self.entry_at("file://AI 產出/password.md")["read"], "ok")
-        self.assertEqual(self.entry_at("file://收件匣/密碼表.txt")["read"], "ok")
+        self.assertEqual(self.entry_at("file://暫存區/password.md")["read"], "ok")
+        self.assertEqual(self.entry_at("file://暫存區/密碼表.txt")["read"], "ok")
 
     def test_duplicate_is_one_entry_two_locations(self):
         r = self.full()
@@ -237,8 +237,8 @@ class Scope(Base):
         self.assertEqual(r["by_source"]["報價與合約"]["files"], 2)
         self.assertEqual(r["by_source"]["公司行政"]["files"], 3)
         self.assertEqual(r["by_source"]["知識庫"]["files"], 2)
-        self.assertEqual(r["by_source"]["收件匣"]["files"], 1)
-        self.assertEqual(r["by_source"]["AI 產出"]["files"], 1)
+        self.assertEqual(r["by_source"]["暫存區"]["files"], 1)
+        self.assertEqual(r["by_source"]["暫存區"]["files"], 1)
         pdf = os.stat(self.raw / "客戶案件" / "信義王" / "報價_v2.pdf").st_size
         self.assertGreaterEqual(r["by_source"]["報價與合約"]["bytes"], pdf)
         self.assertEqual(set(r), {"added", "modified", "missing", "still_missing", "moved", "duplicates", "restored",
@@ -297,11 +297,11 @@ class Scope(Base):
 
     @unittest.skipUnless(os.name == "nt", "mklink /J 只在 Windows")
     def test_area_root_that_is_a_junction_is_not_scanned(self):
-        """審閱裁定 38、測試報告發現五：收件匣／AI 產出的根是連結就不掃，errors 記「<區> 是連結，不掃」。"""
+        """審閱裁定 38、測試報告發現五：暫存區／暫存區的根是連結就不掃，errors 記「<區> 是連結，不掃」。"""
         outside = self.tmp / "外面"
         outside.mkdir()
         (outside / "password.txt").write_text("x", encoding="utf-8")
-        for area in ("收件匣", "AI 產出"):
+        for area in ("暫存區", "暫存區"):
             with self.subTest(area=area):
                 shutil.rmtree(self.V / area)
                 self.junction(self.V / area, outside)
@@ -551,15 +551,15 @@ class Compare(Base):
         self.assertEqual(e["locations"][0]["uri"], "file://公司行政/舊檔/BIG5備忘.txt")
 
     def test_turn_reverted_output_is_left_alone(self):
-        """turn_reverted 的成品還在 AI 產出：不當新檔、檔不見也不改 status。"""
-        e = self.entry_at("file://AI 產出/x.md")
+        """turn_reverted 的成品還在 暫存區：不當新檔、檔不見也不改 status。"""
+        e = self.entry_at("file://暫存區/x.md")
         inventory.set_status(self.V, [e["id"]], "turn_reverted")
         r = self.scan()
         self.assertEqual(r["added"], [])
-        (self.V / "AI 產出" / "x.md").unlink()
+        (self.V / "暫存區" / "x.md").unlink()
         r = self.full()
         self.assertEqual(r["missing"], [])
-        self.assertEqual(self.entry_at("file://AI 產出/x.md")["status"], "turn_reverted")
+        self.assertEqual(self.entry_at("file://暫存區/x.md")["status"], "turn_reverted")
 
 
 class Ooxml(Base):
@@ -804,7 +804,7 @@ class Reconcile(Base):
         """審閱裁定 11。"""
         self.edit_sources(lambda d: d["sources"].clear())
         inventory.reconcile(self.V, self.sources(), self.t["turn"])
-        for uri in ("file://知識庫/案子/說明.txt", "file://收件匣/貼文.txt", "file://AI 產出/x.md"):
+        for uri in ("file://知識庫/案子/說明.txt", "file://暫存區/貼文.txt", "file://暫存區/x.md"):
             self.assertEqual(self.entry_at(uri)["status"], "active")
 
     def test_unresolved_source_is_not_treated_as_removed(self):
@@ -902,7 +902,7 @@ class Apply(Base):
 
     def test_apply_keeps_entries_registered_after_scan(self):
         r = self.scan()
-        rel = "AI 產出/新成品.md"
+        rel = "暫存區/新成品.md"
         turn.backup(self.V, rel, self.t["turn"])
         (self.V / rel).write_text("新成品\n", encoding="utf-8")
         registered = inventory.register_output(self.V, rel, self.t["turn"])
@@ -928,9 +928,9 @@ class Apply(Base):
         s = self.sources()
         self.assertEqual(inventory.path_of(self.V, s, "file://報價與合約/合約範本.txt"),
                          Path(s.entries[1]["root"]) / "合約範本.txt")
-        self.assertEqual(inventory.path_of(self.V, s, "file://AI 產出/x.md"), self.V / "AI 產出" / "x.md")
+        self.assertEqual(inventory.path_of(self.V, s, "file://暫存區/x.md"), self.V / "暫存區" / "x.md")
         self.assertEqual(inventory.path_of(self.V, s, "file://知識庫/案子/說明.txt"), self.V / "案子" / "說明.txt")
-        self.assertEqual(inventory.path_of(self.V, s, "file://收件匣/貼文.txt"), self.V / "收件匣" / "貼文.txt")
+        self.assertEqual(inventory.path_of(self.V, s, "file://暫存區/貼文.txt"), self.V / "暫存區" / "貼文.txt")
         self.assertIsNone(inventory.path_of(self.V, s, "file://沒有/x.txt"))
         self.assertTrue(inventory.path_of(self.V, s, "file://報價與合約/合約範本.txt").is_file())
 

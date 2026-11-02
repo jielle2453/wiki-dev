@@ -44,7 +44,7 @@ class OutputLog(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
         self.t = turn.start(self.V, SID, "寫一份草稿")
-        self.out = self.V / "AI 產出" / "x.md"
+        self.out = self.V / "暫存區" / "x.md"
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -57,7 +57,7 @@ class OutputLog(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["origin"], "ai_output")
         self.assertEqual(entries[0]["created_turn"], self.t["turn"])
-        self.assertEqual(entries[0]["locations"][0]["uri"], "file://AI 產出/x.md")
+        self.assertEqual(entries[0]["locations"][0]["uri"], "file://暫存區/x.md")
         self.assertEqual(entries[0]["locations"][0]["size"], self.out.stat().st_size)
         self.assertRegex(entries[0]["id"], r"^f-[0-9a-f]{8}$")
         self.assertEqual(entries[0]["read"], "ok")
@@ -74,16 +74,16 @@ class OutputLog(unittest.TestCase):
         self.assertEqual(len(entries[0]["fingerprints"]), 2)
 
     def test_relative_path_and_notebook_key(self):
-        nb = self.V / "AI 產出" / "n.ipynb"
-        turn.backup(self.V, "AI 產出/n.ipynb", self.t["turn"])
+        nb = self.V / "暫存區" / "n.ipynb"
+        turn.backup(self.V, "暫存區/n.ipynb", self.t["turn"])
         nb.write_text("{}", encoding="utf-8")
-        r = run_hook(post_payload(self.V, "NotebookEdit", "AI 產出/n.ipynb", key="notebook_path"))
+        r = run_hook(post_payload(self.V, "NotebookEdit", "暫存區/n.ipynb", key="notebook_path"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual([l["uri"] for l in inventory.load(self.V)["entries"][0]["locations"]], ["file://AI 產出/n.ipynb"])
+        self.assertEqual([l["uri"] for l in inventory.load(self.V)["entries"][0]["locations"]], ["file://暫存區/n.ipynb"])
 
     def test_preexisting_unregistered_file_edit_is_not_registered(self):
-        """第一輪 M4（驗收 23）：客戶自己放進 AI 產出的檔，AI 編輯不登記。"""
-        q = self.V / "AI 產出" / "q.md"
+        """第一輪 M4（驗收 23）：客戶自己放進 暫存區的檔，AI 編輯不登記。"""
+        q = self.V / "暫存區" / "q.md"
         q.write_text("客戶自己放的\n", encoding="utf-8")
         r = write_via_tools(self.V, q, "AI 改過\n", tool="Edit")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -121,7 +121,7 @@ class OutputLog(unittest.TestCase):
         self.assertFalse((self.V / ".system" / "inventory.json").exists())
 
     def test_outside_vault_ignored(self):
-        other = self.tmp / "AI 產出"
+        other = self.tmp / "暫存區"
         other.mkdir()
         (other / "x.md").write_text("x", encoding="utf-8")
         r = run_hook(post_payload(self.tmp, "Write", other / "x.md"))
@@ -302,11 +302,11 @@ class CardCheck(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_output_zone_still_registers(self):
-        out = self.V / "AI 產出" / "草稿.md"
+        out = self.V / "暫存區" / "草稿.md"
         r = write_via_tools(self.V, out, "草稿\n")
         self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
         uris = [l["uri"] for e in inventory.load(self.V)["entries"] for l in e["locations"]]
-        self.assertIn("file://AI 產出/草稿.md", uris)
+        self.assertIn("file://暫存區/草稿.md", uris)
 
 
 class SynthesisCheck(unittest.TestCase):

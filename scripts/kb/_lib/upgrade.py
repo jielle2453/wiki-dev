@@ -867,7 +867,7 @@ def finish(vault, turn_id):
     with backup.acquire(vault):
         result = {"already": False, "from": cur, "to": plugin, "kind": k, "snapshot": None, "migrated": [],
                   "migrate_skipped": [], "migrate_notes": [], "cards_migrated": 0, "skeleton_created": [], "skeleton_replaced": [],
-                  "skeleton_ask": []}
+                  "skeleton_ask": [], "left_in_output": []}
         snapshot = _pending_snapshot(vault, hist, plugin)
         by = "customer" if snapshot else "outside"
         if k in ("minor", "major") and snapshot is None:
@@ -891,6 +891,7 @@ def finish(vault, turn_id):
             created = sorted({rel for rel in skeleton.files() if rel not in had and (Path(vault) / rel).exists()}
                              | set(sk["created"]))  # 缺的骨架檔多半是 init 補的，reconcile 看到時已經在了
             result.update(migrated=mig["migrated"], migrate_skipped=mig["skipped"], cards_migrated=mig["cards"],
+                          left_in_output=mig.get("left_in_output") or [],
                           migrate_notes=(mig.get("notes") or []) + ([free_line] if free_line else []),
                           skeleton_created=created, skeleton_replaced=sk["replaced"], skeleton_ask=sk["ask"])
         result["snapshot"] = snapshot if k != "patch" else None

@@ -185,7 +185,7 @@ class Others(Base):
         self.assertNotIn(link.name, [d.name for d in purge._version_dirs(self.V)])
 
     def test_plan_cmd_unsafe_draft_does_not_crash(self):
-        drafts = Path(self.V) / "AI 產出"
+        drafts = Path(self.V) / "暫存區"
         (drafts / "Joe's $500 quote（草稿）.md").write_text("草稿", encoding="utf-8")
         asks = plan._draft_asks(self.V)
         bad = next(a for a in asks if "Joe" in a["id"])

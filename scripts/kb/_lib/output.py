@@ -1,6 +1,6 @@
 """成品進知識庫的唯一一條路（produce 第 2 點，D-164、D-168、D-170）：kb output save／link／drop-draft 的本體。
 
-save：目的地要在 AI 產出底下、不是 .md（md 用檔案工具寫，hook 會備份登記）、檔名不像密碼或金鑰；同名加「 (2)」。
+save：目的地不給就落暫存區（D-324），給了收任何准許的位置；不是 .md（md 用檔案工具寫，hook 會備份登記）、檔名不像密碼或金鑰；同名加「 (2)」。
 來源（實作回報裁定 2）：工作區（.system/temp/）的檔用搬的；知識庫外的檔（下載夾、Docs 匯出）用複製的、不動原處；
 知識庫裡工作區以外的檔一律拒絕；知識庫外的來源照守門同一套判斷（收尾 security-review）：排除的、檔名像密碼或金鑰的拒絕，
 登記的來源裡的客戶原檔要先 kb office copy。--to 的檔名不收冒號（NTFS 資料流會繞過 .md 與同名檢查）。turn.backup（create）→ 搬或複製 → 清冊登記（register_output，--from 記 derived_from；
@@ -8,7 +8,7 @@ save：目的地要在 AI 產出底下、不是 .md（md 用檔案工具寫，ho
 的 create 把成品改 turn_reverted，草稿照 delete 還原、對帳回 active（versions 既有的帳就夠）。
 link：只收 https://claude.ai/ 的網址，清冊記一筆 kind link（不算指紋、掃描不走），實體要登記過、依據要是寫好卡的；
 寫清冊前先把 inventory.json 備進回合（退回這一句就拿掉這筆）；同網址已登記拒絕、不覆蓋；標題不收 $ 與反引號。
-drop-draft：草稿要在 AI 產出底下、檔名是（草稿）.md。拒絕一律丟 Refused，訊息就是給人看的那句（一字不差）。
+drop-draft：草稿要在暫存區底下、檔名是（草稿）.md。拒絕一律丟 Refused，訊息就是給人看的那句（一字不差）。
 """
 import os
 import re
@@ -17,14 +17,14 @@ from pathlib import Path
 
 from kb._lib import cards, credentials, inventory, turn
 
-OUTPUT = inventory.OUTPUT
-ONLY_OUTPUT = "只能放進 AI 產出底下"  # output_rel（草稿判斷）還在用
+OUTPUT = inventory.HOLD  # 暫存區（D-324：原 AI 產出與收件匣合成一個）
+ONLY_OUTPUT = "只能放進暫存區底下"  # output_rel（草稿判斷）還在用
 NEEDS_FILE_NAME = "--to 要寫成 <夾>/<檔名>"
-LINK_IN_OUTPUT = "--link 的成品要放在 AI 產出底下"
+LINK_IN_OUTPUT = "--link 的成品要放在暫存區底下"
 NO_MD = "md 檔用檔案工具寫就好"
 NOT_FOUND = "找不到這個檔：{path}"
 CREDENTIAL = "這個檔名像密碼或金鑰，不放"
-DRAFT_OUTSIDE = "草稿不在 AI 產出：{path}"
+DRAFT_OUTSIDE = "草稿不在暫存區：{path}"
 BAD_URL = "網址要是 claude.ai 的 artifact"
 UNKNOWN_LINK = "這個網址還沒登記；先跑 kb output link"
 IN_VAULT = "只收工作區或知識庫外的檔，這份在知識庫裡"
@@ -62,7 +62,7 @@ def _abs(path, base):
 
 
 def output_rel(vault, raw, cwd):
-    """目的地 → 總資料夾相對路徑（AI 產出/…，正斜線）。寫法認 vault 相對（AI 產出/…）、cwd 相對與絕對；要落在 AI 產出底下的檔。"""
+    """目的地 → 總資料夾相對路徑（暫存區/…，正斜線）。寫法認 vault 相對（暫存區/…）、cwd 相對與絕對；要落在暫存區底下的檔。"""
     text = str(raw).replace("\\", "/")
     first = text.split("/", 1)[0]
     base = vault if first.casefold() == OUTPUT.casefold() else cwd
@@ -78,7 +78,7 @@ def output_rel(vault, raw, cwd):
 
 
 def _draft_rel(vault, raw, cwd):
-    """草稿：AI 產出底下、存在、檔名是（草稿）.md；不是就丟 DRAFT_OUTSIDE（帶客戶給的寫法）。"""
+    """草稿：暫存區底下、存在、檔名是（草稿）.md；不是就丟 DRAFT_OUTSIDE（帶客戶給的寫法）。"""
     try:
         rel = output_rel(vault, raw, cwd)
     except Refused:
@@ -127,7 +127,7 @@ def resolve_dest(vault, sources, raw, cwd):
 
 def place_at(vault, sources, dest_dir, name):
     """放到 dest_dir/name 的位置資訊：kind（vault｜source｜outside）、target、rel（知識庫相對，source 與 outside 是 None）、
-    uri（清冊的位置，收件匣與 AI 產出照舊給 None 讓清冊自己組）、bkey（回合備份的鍵）、dest_rel（conflict 的 dest）、uri_shown。
+    uri（清冊的位置，暫存區照舊給 None 讓清冊自己組）、bkey（回合備份的鍵）、dest_rel（conflict 的 dest）、uri_shown。
     不收 willy 的區與不讀的夾（source_edit.check_to 同一套）；檔名像密碼的在登記的來源裡拒絕。"""
     from kb._lib import source_edit as se
     se_dest = Path(dest_dir)
@@ -141,7 +141,7 @@ def place_at(vault, sources, dest_dir, name):
     dest_uri = se.uri_of(vault, sources, se_dest)
     if parts is not None:
         rel = "/".join(parts)
-        legacy = parts[0].casefold() in (inventory.INBOX.casefold(), OUTPUT.casefold())
+        legacy = parts[0].casefold() == OUTPUT.casefold()
         kind, bkey = "vault", rel
     elif uri:
         if se._credential(sources, target):
@@ -251,11 +251,14 @@ def _drop(vault, rel, turn_id):
 
 def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replace=False):
     """回 {"path", "id", "mode", "from", "from_label", "draft", "link", "in_vault"}。驗完才動檔。
-    --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在 AI 產出以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
+    --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
     from kb._lib import sources as sources_lib
     sources = sources_lib.load(vault)
-    text = str(to).replace("\\", "/")
-    parent_text, _sep, name = text.rpartition("/")
+    if not to:  # 沒給 --to：落暫存區，檔名照原檔（D-324）
+        parent_text, name = str(Path(vault) / OUTPUT), Path(str(src)).name
+    else:
+        text = str(to).replace("\\", "/")
+        parent_text, _sep, name = text.rpartition("/")
     if not name or not parent_text:
         raise Refused(NEEDS_FILE_NAME)
     if ":" in name or _UNSAFE.search(name):

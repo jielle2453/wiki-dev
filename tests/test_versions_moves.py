@@ -76,18 +76,18 @@ class RevertMoves(Base):
 
     def test_ai_output_move_back(self):
         t0 = turn.start(self.V, None, "")["turn"]
-        turn.backup(self.V, "AI 產出/報告.docx", t0)
-        (Path(self.V) / "AI 產出" / "報告.docx").write_bytes(b"r")
+        turn.backup(self.V, "暫存區/報告.docx", t0)
+        (Path(self.V) / "暫存區" / "報告.docx").write_bytes(b"r")
         from kb._lib import inventory
-        e = inventory.register_output(self.V, "AI 產出/報告.docx", t0)
+        e = inventory.register_output(self.V, "暫存區/報告.docx", t0)
         dest = Path(self.V) / "案子" / "內湖李"
         dest.mkdir(parents=True, exist_ok=True)
         self.t = turn.start(self.V, None, "")["turn"]
-        self.move(str(Path(self.V) / "AI 產出" / "報告.docx"), str(dest))
+        self.move(str(Path(self.V) / "暫存區" / "報告.docx"), str(dest))
         code, out = revert(self.V)
         self.assertEqual(code, 0, out)
-        self.assertTrue((Path(self.V) / "AI 產出" / "報告.docx").is_file())
-        self.assertEqual(entry(self.V, e["id"])["locations"][0]["uri"], "file://AI 產出/報告.docx")
+        self.assertTrue((Path(self.V) / "暫存區" / "報告.docx").is_file())
+        self.assertEqual(entry(self.V, e["id"])["locations"][0]["uri"], "file://暫存區/報告.docx")
 
     def test_same_name_at_origin_refuses_whole(self):
         self.move(self.fid, str(self.raw / "客戶案件" / "大安陳"))

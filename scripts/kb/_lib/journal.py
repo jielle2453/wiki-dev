@@ -20,7 +20,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from kb._lib import credentials, ledger, turn
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR
 from kb._lib import io as kio
 from kb._lib.io import FileLock, write_text_atomic
 
@@ -57,7 +57,7 @@ def program_label(command, source=None):
 _FLOOR_COUNTED = (
     ("Z1", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張綜合卡"),
     ("Z5", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張檔案卡"),
-    ("Z3", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份 AI 產出"),
+    ("Z4", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份" + HOLD_DIR + "的檔"),
 )
 _FLOOR_SETTINGS = "改了設定與狀態檔"
 
@@ -359,7 +359,7 @@ def _floor(vault, rows):
         zone = turn.zone_of(vault, e["path"], sources)
         if zone == "Z7":
             settings = True
-        elif zone in ("Z1", "Z3", "Z5"):
+        elif zone in ("Z1", "Z4", "Z5"):
             key = (zone, e.get("action"))
             counts[key] = counts.get(key, 0) + 1
         else:
@@ -473,7 +473,7 @@ SYSTEM_WORDS = {
 }
 SYSTEM_PREFIXES = ((".system/handedits/", "你手改的那份"), ("系統/健檢報告/", "健檢報告"))
 NAMES_SHOWN = 3
-_TOP_RESERVED = ("檔案索引", "系統", ".system", "AI 產出", "收件匣", FREE_DIR)
+_TOP_RESERVED = ("檔案索引", "系統", ".system", HOLD_DIR, FREE_DIR)
 
 
 def _named(names, unit):
@@ -483,7 +483,7 @@ def _named(names, unit):
 
 
 def changed_text(changed):
-    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；AI 產出 1 份；_extras 1 份；日程；其他 2 個檔」；沒有回空字串。"""
+    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_extras 1 份；日程；其他 2 個檔」；沒有回空字串。"""
     synth, cards, outputs, free, words, files, other = [], 0, 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
@@ -494,7 +494,7 @@ def changed_text(changed):
                 words.append(word)
         elif parts[0] == "檔案索引":
             cards += 1
-        elif parts[0] == "AI 產出":
+        elif parts[0] == HOLD_DIR:
             outputs += 1
         elif parts[0].casefold() == FREE_DIR.casefold():
             free += 1
@@ -514,7 +514,7 @@ def changed_text(changed):
     if cards:
         out.append(f"檔案卡 {cards} 張")
     if outputs:
-        out.append(f"AI 產出 {outputs} 份")
+        out.append(f"{HOLD_DIR} {outputs} 份")
     if free:
         out.append(f"{FREE_DIR} {free} 份")
     out += words

@@ -24,7 +24,7 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 CLI_LOCK_TIMEOUT = 30
 NOT_LISTED = "清冊沒有這份檔；先跑 kb inventory scan"
 COPY_HEAD = "拿不到副本："
-ONLY_HERE = "只收工作區或 AI 產出裡的檔：{path}"
+ONLY_HERE = "只收工作區或暫存區裡的檔：{path}"
 
 
 def add_arguments(sub):
@@ -43,12 +43,12 @@ def add_arguments(sub):
     pk.add_argument("folder", help="工作區裡解開的夾")
     pk.add_argument("--to", required=True, help="輸出的檔名（放在工作區）")
     pk.add_argument("--like", help="原 Office 檔（工作區裡的副本）")
-    pd = subs.add_parser("pdf", help="轉 PDF", description="工作區或 AI 產出的檔轉成 PDF，放在工作區。")
-    pd.add_argument("file", help="工作區或 AI 產出裡的檔")
+    pd = subs.add_parser("pdf", help="轉 PDF", description="工作區或暫存區的檔轉成 PDF，放在工作區。")
+    pd.add_argument("file", help="工作區或暫存區裡的檔")
     rc = subs.add_parser("recalc", help="Excel 重算", description="工作區的 xlsx 原地重算公式，回公式與錯誤數。")
     rc.add_argument("file", help="工作區裡的 xlsx")
     rd = subs.add_parser("render", help="轉成每頁的圖", description="轉 PDF 再轉每頁 PNG，印路徑給 Read 看版面。")
-    rd.add_argument("file", help="工作區或 AI 產出裡的檔")
+    rd.add_argument("file", help="工作區或暫存區裡的檔")
     rd.add_argument("--pages", help="哪幾頁，例 1-5")
     # 只有 check 收 --vault（只用來印工作區）；其他跟 copy、convert 一樣只信 cwd 的知識庫（收尾 security-review）
     ck.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找（只用來印工作區）")
@@ -138,7 +138,7 @@ def _copy(args, as_json):
         return _fail(as_json, f"{COPY_HEAD}狀態檔壞了（{e}）")
     except OSError:
         return _fail(as_json, COPY_HEAD + convert.LOCKED)
-    _out(as_json, [f"副本：{dst}", "原檔沒動；改好用 kb output save --from 放進 AI 產出"],
+    _out(as_json, [f"副本：{dst}", "原檔沒動；改好用 kb output save --from 放進暫存區"],
          {"ok": True, "copy": str(dst), "id": entry["id"], "workspace": str(ws)})
     return 0
 
@@ -159,9 +159,9 @@ def _free_name(path):
 # ---------- 其他（要知識庫） ----------
 
 def _source_file(vault, raw):
-    """pdf、render 的輸入：工作區（.system/temp/）或 AI 產出裡、存在的檔。"""
+    """pdf、render 的輸入：工作區（.system/temp/）或暫存區裡、存在的檔。"""
     path = office.resolve_arg(raw)
-    if not (office.in_temp(vault, path) or office.inside(path, Path(vault) / inventory.OUTPUT)):
+    if not (office.in_temp(vault, path) or office.inside(path, Path(vault) / inventory.HOLD)):
         raise office.Refused(ONLY_HERE.format(path=path))
     if not path.is_file():
         raise office.Refused(f"找不到這個檔：{path}")

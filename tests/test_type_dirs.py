@@ -369,7 +369,7 @@ class MoveByTypeName(Base):
     """裁定 5：kb source-edit move --to 用型別名寫實體夾（案子/信義王），實際的夾（01 案子/信義王）在不在都認得。"""
 
     def put(self, name):
-        f = self.V / "AI 產出" / name
+        f = self.V / "暫存區" / name
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(f"{name}的內容\n", encoding="utf-8")
         _cards.scan_apply(self.V)
@@ -378,7 +378,7 @@ class MoveByTypeName(Base):
         self.entity("案子", "信義王")
         self.put("報價單.txt")
         turn.start(self.V, None, "")
-        r = kb(self.V, "source-edit", "move", "AI 產出/報價單.txt", "--to", "案子/信義王")
+        r = kb(self.V, "source-edit", "move", "暫存區/報價單.txt", "--to", "案子/信義王")
         self.assertIn("已搬好", r.stdout)
         self.assertTrue((self.V / "01 案子/信義王/報價單.txt").is_file())
         self.assertFalse((self.V / "案子").exists())
@@ -387,7 +387,7 @@ class MoveByTypeName(Base):
         self.entity("業主", "王先生", card=False)
         self.put("名片.txt")
         turn.start(self.V, None, "")
-        kb(self.V, "source-edit", "move", "AI 產出/名片.txt", "--to", "業主/王先生")
+        kb(self.V, "source-edit", "move", "暫存區/名片.txt", "--to", "業主/王先生")
         self.assertTrue((self.V / "02 業主/王先生/名片.txt").is_file())
         self.assertFalse((self.V / "業主").exists())
 
@@ -412,14 +412,14 @@ class Remove(Base):
 class Rename(Base):
     def test_6_rename_keeps_number(self):
         self.entity("案子", "信義王")
-        (self.V / "AI 產出" / "案子").mkdir(parents=True)
+        (self.V / "暫存區" / "案子").mkdir(parents=True)
         turn.start(self.V, None, "")
         kb(self.V, "profile", "type", "rename", "案子", "--to", "工程")
         self.assertEqual(self.dirs(), ["01 工程", "02 業主"])
         self.assertFalse((self.V / "01 案子").exists())
         self.assertTrue((self.V / "01 工程/信義王/信義王.md").is_file())
-        self.assertTrue((self.V / "AI 產出" / "工程").is_dir(), "AI 產出底下照型別名、不編號（D-251）")
-        self.assertFalse((self.V / "AI 產出" / "01 工程").exists())
+        self.assertTrue((self.V / "暫存區" / "工程").is_dir(), "暫存區底下照型別名、不編號（D-251）")
+        self.assertFalse((self.V / "暫存區" / "01 工程").exists())
         front = cards.parse_front((self.V / "01 工程/信義王/信義王.md").read_text(encoding="utf-8"))
         self.assertEqual(front["型別"], "工程")
 

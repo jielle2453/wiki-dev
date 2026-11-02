@@ -1,5 +1,5 @@
 """_lib/source_edit（manage 第二版第 2 點，D-173～D-178）：准許的位置的每一種拒絕、同一顆硬碟（替身）、檔開著（替身）、
-同名與 --replace、副檔名、憑證樣式、搬完清冊與卡跟上、不讀子夾的 spec 改寫、跨來源搬、AI 產出搬出後 origin 照舊、
+同名與 --replace、副檔名、憑證樣式、搬完清冊與卡跟上、不讀子夾的 spec 改寫、跨來源搬、暫存區搬出後 origin 照舊、
 where 的數字、回收筒（替身）、OneDrive（屬性替身）。"""
 import json
 import os
@@ -154,7 +154,7 @@ class Refusals(Base):
             msg = self.refuse(self.plan, self.fid, dest=str(Path(self.V) / rel))
             self.assertTrue(msg.startswith(f"「{rel}」是 willy 自己的檔：") and msg.endswith(guard.AI_TAIL), msg)
         self.assertTrue(self.refuse(self.plan, self.fid, dest=str(self.V)).endswith(guard.AI_TAIL))
-        for rel in ("案子", "AI 產出", "收件匣"):  # 放寬甲：型別夾、AI 產出、收件匣都收
+        for rel in ("案子", "暫存區", "暫存區"):  # 放寬甲：型別夾、暫存區、暫存區都收
             self.assertEqual(Path(self.plan(self.fid, dest=str(Path(self.V) / rel))["dest_dir"]), Path(self.V) / rel)
         self.assert_refused("找不到這個夾：" + str(self.tmp / "沒有"), self.fid, dest=str(self.tmp / "沒有"))
 
@@ -348,11 +348,11 @@ class MoveFolder(Base):
 
 class Areas(Base):
     def test_ai_output_to_entity_folder_keeps_origin(self):
-        out = Path(self.V) / "AI 產出" / "內湖李報告.docx"
+        out = Path(self.V) / "暫存區" / "內湖李報告.docx"
         t = turn.start(self.V, None, "")["turn"]
-        turn.backup(self.V, "AI 產出/內湖李報告.docx", t)
+        turn.backup(self.V, "暫存區/內湖李報告.docx", t)
         out.write_bytes(b"report")
-        e = inventory.register_output(self.V, "AI 產出/內湖李報告.docx", t)
+        e = inventory.register_output(self.V, "暫存區/內湖李報告.docx", t)
         dest = Path(self.V) / "案子" / "內湖李"
         dest.mkdir(parents=True, exist_ok=True)
         self.move(str(out), str(dest))
@@ -362,8 +362,8 @@ class Areas(Base):
         self.assertTrue((dest / "內湖李報告.docx").is_file())
 
     def test_inbox_to_source(self):
-        fid = _cards.entry_of(self.V, "收件匣/貼文.txt")["id"]
-        self.move(str(Path(self.V) / "收件匣" / "貼文.txt"), str(self.raw / "客戶案件" / "大安陳"))
+        fid = _cards.entry_of(self.V, "暫存區/貼文.txt")["id"]
+        self.move(str(Path(self.V) / "暫存區" / "貼文.txt"), str(self.raw / "客戶案件" / "大安陳"))
         self.assertEqual(entry(self.V, fid)["locations"][0]["uri"], "file://客戶案件/大安陳/貼文.txt")
 
 

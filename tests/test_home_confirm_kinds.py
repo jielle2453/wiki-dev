@@ -75,7 +75,7 @@ class Aside(Base):
         V = self.vault()
         asks = [
             {"id": "inbox:f-1", "key": "inbox:f-1@a", "kind": "inbox_place", "question": "放哪？", "urgent": False,
-             "results": [{"label": "放到 客戶案件/大安陳", "do": ["kb source-edit move 收件匣/a.pdf --to 客戶案件/大安陳"], "fill": [], "strict": False},
+             "results": [{"label": "放到 客戶案件/大安陳", "do": ["kb source-edit move 暫存區/a.pdf --to 客戶案件/大安陳"], "fill": [], "strict": False},
                          {"label": "先放著", "do": [], "fill": [], "strict": False}]},
             {"id": "pending:p-aaaaaaaa", "key": "p-aaaaaaaa", "kind": "pending_unreadable", "question": "讀不到", "urgent": False,
              "results": [{"label": "處理好了", "do": ["kb pending resolve p-aaaaaaaa"], "fill": [], "strict": False}]},
@@ -325,7 +325,7 @@ class Inbox(Base):
                 V, fid = self.scene()
                 self.answer(V, self.ask(V, "inbox_place"), "放到…", 放到=choice)
                 self.assertFalse(self.present(V, f"inbox:{fid}"))
-                self.assertFalse((V / "收件匣" / "合約.pdf").exists())
+                self.assertFalse((V / "暫存區" / "合約.pdf").exists())
 
     def test_aside_finishes(self):
         V, fid = self.scene()
@@ -443,7 +443,7 @@ class ClaudeSide(Base):
 
     def test_draft(self):
         V = self.vault()
-        d = V / "AI 產出" / "報告"
+        d = V / "暫存區" / "報告"
         d.mkdir(parents=True)
         (d / "2026-10-21 內湖李 進度報告（草稿）.md").write_text("草稿", encoding="utf-8")
         self.to_claude(V, "draft")

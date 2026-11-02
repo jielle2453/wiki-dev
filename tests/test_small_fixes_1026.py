@@ -111,7 +111,7 @@ class SkillText(unittest.TestCase):
         self.assertTrue(body.startswith("\n# 整理成卡\n"))
         for gone in ("**說繁體中文**", "一次一個指令"):
             self.assertNotIn(gone, body)
-        self.assertIn("- `references/intake.md`：收件匣怎麼收、拿不到怎麼說、放哪怎麼問。", body)
+        self.assertIn("- `references/intake.md`：暫存區怎麼收、拿不到怎麼說、放哪怎麼問。", body)
 
     def test_14_commands_dispatch_line(self):
         text = self.read("skills", "ingest", "references", "commands.md")
@@ -413,8 +413,8 @@ class VersionsOutputs(VersionsBase):
 
     def test_16_unbacked_not_counted(self):
         t = turn.start(self.V, "sid-16", "寫兩份")
-        self.put_output(t, "AI 產出/a.md")
-        scanned = self.put_output(t, "AI 產出/b.md")
+        self.put_output(t, "暫存區/a.md")
+        scanned = self.put_output(t, "暫存區/b.md")
         p = self.V / ".system" / "inventory.json"
         data = json.loads(p.read_text(encoding="utf-8"))
         for e in data["entries"]:
@@ -431,11 +431,11 @@ class VersionsOutputs(VersionsBase):
         ta = turn.start(self.V, "sid-17", "存成線上文件")
         link = inventory.register_link(self.V, url, ta["turn"], "提案")
         tb = turn.start(self.V, "sid-17", "下載回來")
-        rel = "AI 產出/提案.pdf"
+        rel = "暫存區/提案.pdf"
         turn.backup(self.V, rel, tb["turn"])
         (self.V / rel).write_bytes(b"%PDF")
         inventory.attach_location(self.V, link["id"], rel, tb["turn"])
-        plain = self.put_output(tb, "AI 產出/附件.md")
+        plain = self.put_output(tb, "暫存區/附件.md")
         self.new_turn()
         r = run_kb("versions", "revert", "--delete-outputs", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -449,7 +449,7 @@ class VersionsOutputs(VersionsBase):
         from kb._lib import inventory
         t = turn.start(self.V, "sid-17b", "存成線上文件再下載")
         link = inventory.register_link(self.V, "https://claude.ai/artifact/xyz", t["turn"], "提案")
-        rel = "AI 產出/提案.pdf"
+        rel = "暫存區/提案.pdf"
         turn.backup(self.V, rel, t["turn"])
         (self.V / rel).write_bytes(b"%PDF")
         inventory.attach_location(self.V, link["id"], rel, t["turn"])

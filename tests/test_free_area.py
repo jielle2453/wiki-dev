@@ -171,7 +171,7 @@ class GuardCredential(FixtureVault):
             self.assertEqual((d.decision, d.reason_code), ("deny", "credential_inside"), (cmd, cwd))
 
     def test_5_other_zones_still_not_walked(self):
-        (self.V / "AI 產出" / "帳密.xlsx").write_text("x", encoding="utf-8")
+        (self.V / "暫存區" / "帳密.xlsx").write_text("x", encoding="utf-8")
         d = self.decide("Grep", self.V)
         self.assertNotEqual(d.decision, "deny", d.reason)
 
@@ -202,8 +202,8 @@ class Agent(FixtureVault):
         self.assertEqual(out["permissionDecision"], "deny")
         out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "file://知識庫/{FREE_DIR}/筆記.md"')
         self.assertEqual(out["permissionDecision"], "deny", "review #2：uri 寫法也擋")
-        for uri in (f"file://AI 產出/../{FREE_DIR}/筆記.md", f"file://知識庫/./{FREE_DIR}/筆記.md",
-                    f"file://知識庫/檔案索引/../{FREE_DIR}/筆記.md", f"file://收件匣/../{FREE_DIR.upper()}/筆記.md",
+        for uri in (f"file://暫存區/../{FREE_DIR}/筆記.md", f"file://知識庫/./{FREE_DIR}/筆記.md",
+                    f"file://知識庫/檔案索引/../{FREE_DIR}/筆記.md", f"file://暫存區/../{FREE_DIR.upper()}/筆記.md",
                     f"file://客戶案件/../../vault/{FREE_DIR}/筆記.md"):
             out = self.hook("Bash", f'python "{ROOT}/scripts/kb.py" convert "{uri}"')
             self.assertEqual(out["permissionDecision"], "deny", f"測試 T1：{uri}")
@@ -353,8 +353,8 @@ class Profile(TypeBase):
 
 class Journal(unittest.TestCase):
     def test_10_changed_text_counts_free_area(self):
-        changed = [{"path": f"{FREE_DIR}/a.md"}, {"path": f"{FREE_DIR}/子夾/b.txt"}, {"path": "AI 產出/x.docx"}]
-        self.assertEqual(journal.changed_text(changed), f"AI 產出 1 份；{FREE_DIR} 2 份")
+        changed = [{"path": f"{FREE_DIR}/a.md"}, {"path": f"{FREE_DIR}/子夾/b.txt"}, {"path": "暫存區/x.docx"}]
+        self.assertEqual(journal.changed_text(changed), f"暫存區 1 份；{FREE_DIR} 2 份")
 
 
 class JournalBlackBox(FixtureVault):

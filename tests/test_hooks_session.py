@@ -1140,7 +1140,7 @@ class LintFixCounted(unittest.TestCase):
 
 
 class InboxLine(unittest.TestCase):
-    """收件匣第 6 點（D-045）：收件匣最上層放太久或太多，開場提醒一行，每台電腦每 inbox_remind_every_days 天最多一次。"""
+    """暫存區第 6 點（D-045）：暫存區最上層放太久或太多，開場提醒一行，每台電腦每 inbox_remind_every_days 天最多一次。"""
 
     def setUp(self):
         import importlib.util
@@ -1148,7 +1148,7 @@ class InboxLine(unittest.TestCase):
         self.session = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.session)
         self.tmp, self.V, self.raw = make_vault()
-        self.inbox = self.V / "收件匣"
+        self.inbox = self.V / "暫存區"
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -1166,7 +1166,7 @@ class InboxLine(unittest.TestCase):
         self.files(10)
         today = date.today().isoformat()
         self.assertEqual(self.session.line_inbox(self.V),  # 裁定 8 #4：0 天不講「最久」那半句
-                         "收件匣：10 份沒歸位；回答末尾問她要不要一起看，說好再跑 kb asks --all")
+                         "暫存區：10 份沒歸位；回答末尾問她要不要一起看，說好再跑 kb asks --all")
         self.assertEqual(env.inbox_reminded(self.V), today)
         self.assertIsNone(self.session.line_inbox(self.V))
         env.set_inbox_reminded(self.V, (date.today() - timedelta(days=7)).isoformat())
@@ -1192,11 +1192,11 @@ class InboxLine(unittest.TestCase):
         data = json.loads(p.read_text(encoding="utf-8"))
         old = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%dT%H:%M:%S")
         for e in data["entries"]:
-            if any("收件匣" in l["uri"] for l in e["locations"]):
+            if any("暫存區" in l["uri"] for l in e["locations"]):
                 e["first_seen"] = old
         p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(self.session.line_inbox(self.V),
-                         "收件匣：1 份沒歸位、最久 8 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
+                         "暫存區：1 份沒歸位、最久 8 天；回答末尾問她要不要一起看，說好再跑 kb asks --all")
 
     def test_subfolders_and_dot_files_do_not_count(self):
         sub = self.inbox / "公司系統"
@@ -1227,13 +1227,13 @@ class InboxLine(unittest.TestCase):
         p = self.V / ".system" / "inventory.json"
         data = json.loads(p.read_text(encoding="utf-8"))
         for e in data["entries"]:
-            if any("收件匣" in l["uri"] for l in e["locations"]):
+            if any("暫存區" in l["uri"] for l in e["locations"]):
                 e["first_seen"] = "2020-01-01T00:00:00"
         p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         self.assertIn("份沒歸位、最久", self.session.line_inbox(self.V))
 
     def test_version_line_hides_it_and_does_not_record(self):
-        """裁定 2：版本那行印了就不印收件匣那行、不記 inbox_reminded（下次開場再提醒）。"""
+        """裁定 2：版本那行印了就不印暫存區那行、不記 inbox_reminded（下次開場再提醒）。"""
         from unittest import mock
         from kb._lib import env
         self.files(10)
@@ -1245,7 +1245,7 @@ class InboxLine(unittest.TestCase):
     def test_in_status_lines_after_agenda(self):
         self.files(10)
         lines = self.session.status_lines(self.V, "startup", "sid")
-        self.assertTrue(any(ln.startswith("收件匣：10 份") for ln in lines), lines)
+        self.assertTrue(any(ln.startswith("暫存區：10 份") for ln in lines), lines)
 
 
 class OpeningCardEdits(unittest.TestCase):

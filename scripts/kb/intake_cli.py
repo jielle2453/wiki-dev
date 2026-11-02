@@ -1,4 +1,4 @@
-"""kb intake（收件匣，issue #10，D-240～D-245）：對話裡給的、程式交來的東西存進收件匣的唯一入口，本體在 _lib/intake。
+"""kb intake（收件，issue #10，D-240～D-245；D-324 起收件匣改叫暫存區）：對話裡給的、程式交來的東西存進暫存區或指定的夾的唯一入口，本體在 _lib/intake。
 三種用法：kb intake <路徑>… [--title] [--from [--name]]（拖檔、程式交檔）；kb intake --pasted list（這一則與上一則貼了什麼）；
 kb intake --pasted [prev:]image:<n>|[prev:]text:<n> --title <檔名>（存貼的圖或文字，prev: 是上一則的）。
 人讀一份一行，有新收或更新、又是對話裡跑的，最後一行「接著整理：kb cards dispatch --json」；--json 回 {"items","next"}。
@@ -36,8 +36,8 @@ def add_arguments(sub):
     sub.add_argument("paths", nargs="*", metavar="路徑", help="要收的檔（拖進對話的、程式交來的）")
     sub.add_argument("--title", help="檔名（原檔名看不出內容、貼的東西沒有檔名時給；副檔名程式加）")
     sub.add_argument("--from", dest="source", help="程式或 skill 交來的：來源名（例：公司系統）")
-    sub.add_argument("--name", help="定期同步的項目名（要配 --from）：存 收件匣/<來源>/<項目>，再交就覆蓋")
-    sub.add_argument("--to", help="直接收進使用者的夾（路徑或 uri）；沒給收進收件匣")
+    sub.add_argument("--name", help="定期同步的項目名（要配 --from）：第一次可配 --to <夾>/<檔名> 指定放哪，沒給落 暫存區/<來源>/<項目>；之後同來源同項目不帶 --to 就覆蓋那份現在的位置")
+    sub.add_argument("--to", help="直接收進使用者的夾（路徑或 uri；配 --name 時是 <夾>/<檔名>）；沒給收進暫存區")
     sub.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
     sub.add_argument("--pasted", help="list 列這一則與上一則貼的圖與文字；image:<n>、text:<n>（上一則加 prev:）存那一項（要給 --title）")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")

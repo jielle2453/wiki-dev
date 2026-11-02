@@ -56,7 +56,7 @@ class Base(unittest.TestCase):
     def draft(self, name="2026-10-21 內湖李 報價（草稿）.md"):
         """模擬檔案工具在前一回合寫的草稿：備份（create）、寫、hook 登記。"""
         t0 = turn.start(self.V, SID, "先給草稿")["turn"]
-        rel = f"AI 產出/報價/{name}"
+        rel = f"暫存區/報價/{name}"
         turn.backup(self.V, rel, t0)
         (self.V / rel).parent.mkdir(parents=True, exist_ok=True)
         (self.V / rel).write_text("| 項目 | 金額 |\n", encoding="utf-8")
@@ -70,23 +70,23 @@ class Base(unittest.TestCase):
 class Save(Base):
     def test_save_from_workspace(self):
         src = self.work()
-        out = self.ok("save", str(src), "--to", "AI 產出/報價/a.xlsx", "--from", self.fid)
-        self.assertEqual(out, "已放進 AI 產出\\報價\\a.xlsx，改自「王宅合約」（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）")
+        out = self.ok("save", str(src), "--to", "暫存區/報價/a.xlsx", "--from", self.fid)
+        self.assertEqual(out, "已放進 暫存區\\報價\\a.xlsx，改自「王宅合約」（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）")
         self.assertFalse(src.exists(), "工作區的檔用搬的")
-        self.assertEqual((self.V / "AI 產出/報價/a.xlsx").read_bytes(), b"PK xlsx")
-        self.assertEqual(self.manifest()["AI 產出/報價/a.xlsx"], "create")
-        e = self.entry("AI 產出/報價/a.xlsx")
+        self.assertEqual((self.V / "暫存區/報價/a.xlsx").read_bytes(), b"PK xlsx")
+        self.assertEqual(self.manifest()["暫存區/報價/a.xlsx"], "create")
+        e = self.entry("暫存區/報價/a.xlsx")
         self.assertEqual((e["origin"], e["status"], e["derived_from"], e["created_turn"]),
                          ("ai_output", "active", self.fid, self.t))
         self.assertNotIn("unbacked", e)
         new = {i["id"] for i in cards.todo(self.V, sources_lib.load(self.V))["new"]}
         self.assertIn(e["id"], new)
-        data = json.loads(self.kb("save", str(self.work("b.xlsx")), "--to", "AI 產出/報價/b.xlsx", "--json").stdout)
-        self.assertEqual((data["path"], data["id"] is not None), ("AI 產出/報價/b.xlsx", True))
+        data = json.loads(self.kb("save", str(self.work("b.xlsx")), "--to", "暫存區/報價/b.xlsx", "--json").stdout)
+        self.assertEqual((data["path"], data["id"] is not None), ("暫存區/報價/b.xlsx", True))
 
     def test_revert_marks_turn_reverted(self):
-        self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx")
-        e = self.entry("AI 產出/報價/a.xlsx")
+        self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx")
+        e = self.entry("暫存區/報價/a.xlsx")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         got = next(x for x in inventory.load(self.V)["entries"] if x["id"] == e["id"])
@@ -96,21 +96,21 @@ class Save(Base):
         outside = self.tmp / "下載" / "提案.pptx"
         outside.parent.mkdir()
         outside.write_bytes(b"pptx")
-        self.ok("save", str(outside), "--to", "AI 產出/簡報/提案.pptx")
+        self.ok("save", str(outside), "--to", "暫存區/簡報/提案.pptx")
         self.assertTrue(outside.exists(), "知識庫外的檔用複製的")
-        self.assertEqual((self.V / "AI 產出/簡報/提案.pptx").read_bytes(), b"pptx")
+        self.assertEqual((self.V / "暫存區/簡報/提案.pptx").read_bytes(), b"pptx")
 
     def test_same_name_conflict_then_replace(self):
         """放寬甲：同名不再加 (2)，回 conflict；--replace 先備進回合再覆蓋。"""
-        self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx")
-        r = run_kb("output", "save", str(self.work()), "--to", "AI 產出/報價/a.xlsx", "--json", cwd=self.V)
+        self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx")
+        r = run_kb("output", "save", str(self.work()), "--to", "暫存區/報價/a.xlsx", "--json", cwd=self.V)
         self.assertEqual(r.returncode, 3, r.stdout)
         data = json.loads(r.stdout)
         self.assertEqual(data["conflict"][0]["name"], "a.xlsx")
         self.assertIn("--replace", data["refused"])
-        self.assertFalse((self.V / "AI 產出/報價/a (2).xlsx").exists())
-        out = self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx", "--replace")
-        self.assertTrue(out.startswith("已放進 AI 產出\\報價\\a.xlsx"), out)
+        self.assertFalse((self.V / "暫存區/報價/a (2).xlsx").exists())
+        out = self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx", "--replace")
+        self.assertTrue(out.startswith("已放進 暫存區\\報價\\a.xlsx"), out)
 
     def test_to_any_folder_registers_as_ai_output(self):
         """驗收 17：--to 收任何使用者的夾，清冊有這份、出處類別 AI 產出。"""
@@ -125,23 +125,23 @@ class Save(Base):
 
     def test_refusals_exact(self):
         src = self.work()
-        before = sorted(p.relative_to(self.V).as_posix() for p in (self.V / "AI 產出").rglob("*"))
-        msg = self.refused("save", str(src), "--to", "AI 產出/../系統/a.xlsx")
+        before = sorted(p.relative_to(self.V).as_posix() for p in (self.V / "暫存區").rglob("*"))
+        msg = self.refused("save", str(src), "--to", "暫存區/../系統/a.xlsx")
         self.assertTrue(msg.startswith("「a.xlsx」是 willy 自己的檔：") or msg.startswith("「系統」是 willy 自己的檔："), msg)
         self.assertTrue(msg.endswith("不用跟使用者提這一步。"), msg)
-        self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/a.md"), "md 檔用檔案工具寫就好")
-        self.assertEqual(self.refused("save", str(self.ws / "沒有.xlsx"), "--to", "AI 產出/a.xlsx"),
+        self.assertEqual(self.refused("save", str(src), "--to", "暫存區/a.md"), "md 檔用檔案工具寫就好")
+        self.assertEqual(self.refused("save", str(self.ws / "沒有.xlsx"), "--to", "暫存區/a.xlsx"),
                          f"找不到這個檔：{self.ws / '沒有.xlsx'}")
-        self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/id_rsa.pem"), "這個檔名像密碼或金鑰，不放")
+        self.assertEqual(self.refused("save", str(src), "--to", "暫存區/id_rsa.pem"), "這個檔名像密碼或金鑰，不放")
         inside = self.V / "案子" / "說明.txt"
-        self.assertEqual(self.refused("save", str(inside), "--to", "AI 產出/說明.txt"),
+        self.assertEqual(self.refused("save", str(inside), "--to", "暫存區/說明.txt"),
                          "只收工作區或知識庫外的檔，這份在知識庫裡")
-        self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/a.xlsx", "--draft", "案子/說明.txt"),
-                         "草稿不在 AI 產出：案子/說明.txt")
-        self.assertEqual(self.refused("save", str(src), "--to", "AI 產出/a.xlsx", "--link", "https://example.com/x"),
+        self.assertEqual(self.refused("save", str(src), "--to", "暫存區/a.xlsx", "--draft", "案子/說明.txt"),
+                         "草稿不在 暫存區：案子/說明.txt")
+        self.assertEqual(self.refused("save", str(src), "--to", "暫存區/a.xlsx", "--link", "https://example.com/x"),
                          "網址要是 claude.ai 的 artifact")
         self.assertTrue(src.exists())
-        self.assertEqual(sorted(p.relative_to(self.V).as_posix() for p in (self.V / "AI 產出").rglob("*")), before)
+        self.assertEqual(sorted(p.relative_to(self.V).as_posix() for p in (self.V / "暫存區").rglob("*")), before)
 
 
 class SaveSources(Base):
@@ -150,27 +150,27 @@ class SaveSources(Base):
 
     def test_excluded_credential_and_originals_refused(self):
         run_kb("folders", "exclude", str(self.raw / "公司行政" / "舊檔"), "--kind", "unused", cwd=self.V)
-        self.assertEqual(self.refused("save", str(self.raw / "公司行政" / "舊檔" / "Big5備忘.txt"), "--to", "AI 產出/a.txt"),
+        self.assertEqual(self.refused("save", str(self.raw / "公司行政" / "舊檔" / "Big5備忘.txt"), "--to", "暫存區/a.txt"),
                          "這個位置你說過不讀")
-        self.assertEqual(self.refused("save", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), "--to", "AI 產出/a.txt"),
+        self.assertEqual(self.refused("save", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), "--to", "暫存區/a.txt"),
                          "這個檔名像密碼或金鑰，不放")
         key = self.tmp / "ssh" / "id_rsa"
         key.parent.mkdir()
         key.write_text("x", encoding="utf-8")
-        self.assertEqual(self.refused("save", str(key), "--to", "AI 產出/notes.txt"), "這個檔名像密碼或金鑰，不放")
-        self.assertEqual(self.refused("save", str(self.raw / "報價與合約" / "合約範本.txt"), "--to", "AI 產出/a.txt"),
+        self.assertEqual(self.refused("save", str(key), "--to", "暫存區/notes.txt"), "這個檔名像密碼或金鑰，不放")
+        self.assertEqual(self.refused("save", str(self.raw / "報價與合約" / "合約範本.txt"), "--to", "暫存區/a.txt"),
                          "客戶原檔先用 kb office copy 拿副本")
-        self.assertFalse((self.V / "AI 產出" / "a.txt").exists())
-        self.assertFalse((self.V / "AI 產出" / "notes.txt").exists())
+        self.assertFalse((self.V / "暫存區" / "a.txt").exists())
+        self.assertFalse((self.V / "暫存區" / "notes.txt").exists())
 
     def test_colon_in_destination_refused(self):
         src = self.work()
-        for to in ("AI 產出/r.md::$DATA", "AI 產出/a.docx:s"):
+        for to in ("暫存區/r.md::$DATA", "暫存區/a.docx:s"):
             with self.subTest(to=to):
                 self.assertEqual(self.refused("save", str(src), "--to", to), "檔名不能有冒號")
 
     def test_no_vault_flag(self):
-        r = self.kb("save", str(self.work()), "--to", "AI 產出/a.xlsx", "--vault", str(self.V))
+        r = self.kb("save", str(self.work()), "--to", "暫存區/a.xlsx", "--vault", str(self.V))
         self.assertEqual(r.returncode, 2)
 
 
@@ -189,8 +189,8 @@ class Draft(Base):
 
     def test_save_with_draft_then_revert(self):
         rel = self.draft()
-        out = self.ok("save", str(self.work()), "--to", "AI 產出/報價/2026-10-21 內湖李 報價.xlsx", "--draft", rel)
-        self.assertEqual(out, "已放進 AI 產出\\報價\\2026-10-21 內湖李 報價.xlsx，草稿收起來了（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）")
+        out = self.ok("save", str(self.work()), "--to", "暫存區/報價/2026-10-21 內湖李 報價.xlsx", "--draft", rel)
+        self.assertEqual(out, "已放進 暫存區\\報價\\2026-10-21 內湖李 報價.xlsx，草稿收起來了（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）")
         self.assertFalse((self.V / rel).exists())
         self.assertEqual(self.manifest()[rel], "delete")
         self.assertTrue((self.V / ".system" / "versions" / self.t / "files" / rel).is_file(), "草稿備進回合")
@@ -205,8 +205,8 @@ class Draft(Base):
         self.assertEqual(self.ok("drop-draft", rel), "草稿收起來了：2026-10-21 內湖李 報價（草稿）.md（說「退回」會回來）")
         self.assertFalse((self.V / rel).exists())
         self.assertEqual(self.manifest()[rel], "delete")
-        self.assertEqual(self.refused("drop-draft", rel), f"草稿不在 AI 產出：{rel}")
-        self.assertEqual(self.refused("drop-draft", "案子/說明.txt"), "草稿不在 AI 產出：案子/說明.txt")
+        self.assertEqual(self.refused("drop-draft", rel), f"草稿不在 暫存區：{rel}")
+        self.assertEqual(self.refused("drop-draft", "案子/說明.txt"), "草稿不在 暫存區：案子/說明.txt")
 
 
 class Link(Base):
@@ -220,9 +220,9 @@ class Link(Base):
                          ("link", "ai_output", "內湖李進度報告", "報告", [self.fid]))
         item = next(i for i in cards.todo(self.V, sources_lib.load(self.V))["new"] if i["id"] == e["id"])
         self.assertIn(f"開原檔: {self.URL}", item["header"])
-        self.ok("save", str(self.work("進度報告.docx")), "--to", "AI 產出/報告/進度報告.docx", "--link", self.URL)
+        self.ok("save", str(self.work("進度報告.docx")), "--to", "暫存區/報告/進度報告.docx", "--link", self.URL)
         e = inventory.entry_for(self.V, self.URL)
-        self.assertEqual([loc["uri"] for loc in e["locations"]], [self.URL, "file://AI 產出/報告/進度報告.docx"])
+        self.assertEqual([loc["uri"] for loc in e["locations"]], [self.URL, "file://暫存區/報告/進度報告.docx"])
         self.assertEqual(len([x for x in inventory.load(self.V)["entries"] if x.get("kind") == "link"]), 1)
 
     def test_link_refusals(self):
@@ -231,7 +231,7 @@ class Link(Base):
         self.assertEqual(self.refused("link", self.URL, "--title", "x", "--entity", "沒登記"),
                          "實體清單沒有「沒登記」，先 kb entity add")
         self.assertEqual(self.refused("link", self.URL, "--title", "x", "--basis", "f-00000000"), "清冊沒有 f-00000000")
-        self.assertEqual(self.refused("save", str(self.work()), "--to", "AI 產出/a.docx", "--link", self.URL),
+        self.assertEqual(self.refused("save", str(self.work()), "--to", "暫存區/a.docx", "--link", self.URL),
                          "這個網址還沒登記；先跑 kb output link")
         self.assertEqual(inventory.entry_for(self.V, self.URL), None)
 
@@ -243,8 +243,8 @@ class Round2(Base):
     URL = "https://claude.ai/artifact/bbb"
 
     def test_link_is_its_own_turn_and_revert_removes_it(self):
-        self.ok("save", str(self.work()), "--to", "AI 產出/報價/a.xlsx")
-        saved = self.entry("AI 產出/報價/a.xlsx")
+        self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx")
+        saved = self.entry("暫存區/報價/a.xlsx")
         t_b = turn.start(self.V, SID, "做成線上文件")["turn"]
         self.ok("link", self.URL, "--title", "內湖李進度報告")
         self.assertIn(".system/inventory.json", {e["path"] for e in turn.entries(self.V, t_b)})
@@ -268,7 +268,7 @@ class Round2(Base):
     def test_workspace_source_is_office_only(self):
         other = self.V / ".system" / "temp" / "converted.txt"
         other.write_text("x", encoding="utf-8")
-        self.assertEqual(self.refused("save", str(other), "--to", "AI 產出/a.txt"),
+        self.assertEqual(self.refused("save", str(other), "--to", "暫存區/a.txt"),
                          "只收工作區或知識庫外的檔，這份在知識庫裡")
         self.assertTrue(other.exists())
 

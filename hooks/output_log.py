@@ -1,4 +1,4 @@
-"""PostToolUse 入口：檔案工具寫進 AI 產出（Z3）之後把那份檔登進 .system/inventory.json（D-076）；
+"""PostToolUse 入口：檔案工具寫進暫存區（Z4）之後把那份檔登進 .system/inventory.json（D-076）；
 寫進 檔案索引（Z5）的 .md 卡驗檔頭（D-104，ingest 製卡第 6 點）；寫進 <型別>/<名稱>/<名稱>.md（Z1）的綜合卡驗檔頭（實體與綜合卡第 6 點）。
 
 只做四個寫入工具；目標檔案真的存在才做；回合代號取 turn.current(vault, session_id)；payload 帶 agent_id 而且 batches.json 記過它
@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
-OUTPUT_ZONE = "Z3"
+OUTPUT_ZONE = "Z4"  # 暫存區（D-324：原 AI 產出 Z3 併進 Z4）：AI 用檔案工具寫進去的檔登成 AI 產出（出處類別）
 CARDS_ZONE = "Z5"
 SYNTHESIS_ZONE = "Z1"
 BLOCK_REASON = "檔頭有錯：{}。改好再寫一次。"

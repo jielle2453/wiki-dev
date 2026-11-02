@@ -29,6 +29,7 @@ import os
 from kb import journal_cli
 from kb._lib import agenda, card_base, cards, config, entities, inventory, pending, profile, synthesis, turn
 from kb._lib import io as kio
+from kb._lib.areas import HOLD_DIR
 from kb._lib import sources as sources_lib
 from kb._lib.plan import cmd
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
@@ -796,7 +797,7 @@ def _out(as_json, lines, payload):
 
 # ---------- 型別改名、合併、拿掉（D-139、D-143） ----------
 
-AI_DIR = "AI 產出"
+AI_DIR = HOLD_DIR  # 暫存區底下的分類夾照型別名、不編號（D-251、D-324）
 NO_TYPE = "型別表沒有「{name}」"
 
 

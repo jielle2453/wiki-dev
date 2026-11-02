@@ -17,7 +17,7 @@ add 第一行的份數與憑證清單從同一個 scan 取（清冊審閱裁定 
 manage 第二版（D-174、D-177）：exclude（兩種）與 remove 在清冊對帳之後把那些條目的檔案卡拿掉（備進回合）、重寫總目錄與綜合卡快取，
 成功句接「卡拿掉 N 張」；hidden 那條排除記 purge: pending，列出接著要重寫的綜合卡（「整理到」引用那些卡的），
 沒有受影響的綜合卡就在同一個指令裡接著清殘留（kb folders purge，本體在 _lib/purge）。
-find <名>（manage 第二版第二輪修）：在登記的根（含知識庫、AI 產出、收件匣）底下找夾名，只列「別名/相對路徑」，
+find <名>（manage 第二版第二輪修）：在登記的根（含知識庫、暫存區）底下找夾名，只列「別名/相對路徑」，
 跳過排除的、憑證樣式的、. 開頭與隱藏的夾、連結；走訪上限照 credential_scan_max_entries；只讀。
 relocate <別名> <新路徑>：資料夾搬家只換登記的位置（別名、排除、清冊 uri 不動），新路徑照 add 的拒絕條件查（跟自己不算重疊），
 從清冊抽樣到新位置比對、照實回報；--check 只印，不帶就改 spec、掃描、搬卡、重寫總目錄，先備進回合，退回回到舊位置。
@@ -625,7 +625,7 @@ def _include(vault, args, as_json):
         s, ex = found
         s["excludes"].remove(ex)
         turn_id, original = _backup_then_write(vault, raw)
-        roots = ([inventory.KNOWLEDGE, inventory.INBOX, inventory.OUTPUT] if s.get("alias") == VAULT_ALIAS
+        roots = ([inventory.KNOWLEDGE, inventory.HOLD] if s.get("alias") == VAULT_ALIAS
                  else s.get("alias", ""))
         report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, roots, turn_id)
     alias = s.get("alias", "")
@@ -966,7 +966,7 @@ def _find_roots(vault, sources):
     vault_s = str(vault)
     out = [(s["alias"], s["root"], [ex["root"] for ex in s["excludes"]]) for s in sources.entries]
     out.append((inventory.KNOWLEDGE, vault_s, []))
-    out += [(a, os.path.join(vault_s, a), []) for a in (inventory.INBOX, inventory.OUTPUT)]
+    out += [(a, os.path.join(vault_s, a), []) for a in (inventory.HOLD,)]
     return out
 
 

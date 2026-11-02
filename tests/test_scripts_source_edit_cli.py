@@ -79,7 +79,7 @@ class Cli(unittest.TestCase):
         r = self.kb("move", self.fid, "--to", str(Path(self.V) / "檔案索引"))
         self.assertEqual(r.returncode, 3)
         self.assertTrue(r.stdout.startswith("「檔案索引」是 willy 自己的檔：") and r.stdout.strip().endswith("不用跟使用者提這一步。"), r.stdout)
-        r = self.kb("move", self.fid, "--to", str(Path(self.V) / "AI 產出"))  # 放寬甲：AI 產出也收
+        r = self.kb("move", self.fid, "--to", str(Path(self.V) / "暫存區"))  # 放寬甲：暫存區也收
         self.assertEqual(r.returncode, 0, r.stdout)
         r = self.kb("open", "a", "b", "c")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "一次最多開兩個夾"))

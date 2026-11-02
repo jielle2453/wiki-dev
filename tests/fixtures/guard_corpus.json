@@ -69,7 +69,7 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/收件匣/x.txt"
+    "file_path": "<V>/暫存區/x.txt"
    },
    "cwd": "<V>",
    "expect": "allow",
@@ -79,12 +79,12 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/AI 產出/x.md"
+    "file_path": "<V>/暫存區/x.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "守門-測試.md 第一輪 第6條",
-   "note": "Write AI 產出 -> allow Z3"
+   "note": "Write 暫存區 -> allow Z3"
   },
   {
    "tool": "Write",
@@ -358,15 +358,15 @@
   {
    "tool": "Read",
    "input": {
-    "file_path": "<V>/AI 產出/jn/s.xlsx"
+    "file_path": "<V>/暫存區/jn/s.xlsx"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "junction: <V>/AI 產出/jn -> <RAW>/行政/薪資"
+    "junction: <V>/暫存區/jn -> <RAW>/行政/薪資"
    ],
    "來源": "守門-測試.md 第一輪 第14條 另驗",
-   "note": "junction inside AI 產出 pointing at excluded folder -> deny Z10"
+   "note": "junction inside 暫存區 pointing at excluded folder -> deny Z10"
   },
   {
    "tool": "Read",
@@ -424,12 +424,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cp <RAW>/客戶案件/a.txt \"<V>/AI 產出/a.txt\""
+    "command": "cp <RAW>/客戶案件/a.txt \"<V>/暫存區/a.txt\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "守門-測試.md 疑義裁定 5",
-   "note": "Bash copy source file into AI 產出 -> deny Z9；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "Bash copy source file into 暫存區 -> deny Z9；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Write",
@@ -763,12 +763,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep TODO 收件匣/a.md"
+    "command": "grep TODO 暫存區/a.md"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/a.md"
+    "<V>/暫存區/a.md"
    ],
    "來源": "守門-測試.md 第一輪 B1",
    "note": "Bash read of inbox .md -> pass"
@@ -819,12 +819,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep x <V>/收件匣/a.md"
+    "command": "grep x <V>/暫存區/a.md"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/a.md"
+    "<V>/暫存區/a.md"
    ],
    "來源": "守門-測試.md 第二輪 第27條",
    "note": "Bash read inbox .md (absolute) -> pass"
@@ -852,27 +852,27 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "sed -i s/a/b/ \"<V>/AI 產出/x.md\""
+    "command": "sed -i s/a/b/ \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "守門-測試.md 第一輪 B3；第二輪 第28條",
-   "note": "s/a/b/ must not be read as vault path -> pass; unsure: later Z3 shell rule (OUTPUT_SHELL) may deny｜密碼與守門：produce 之後指令寫 AI 產出一律擋（output_shell），照 D-186 補只放讀；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "s/a/b/ must not be read as vault path -> pass; unsure: later Z3 shell rule (OUTPUT_SHELL) may deny｜密碼與守門：produce 之後指令寫 暫存區一律擋（output_shell），照 D-186 補只放讀；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "echo \"2026/10/12\" > \"<V>/AI 產出/x.md\""
+    "command": "echo \"2026/10/12\" > \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "守門-測試.md 第一輪 B3",
-   "note": "date with slashes must not be a path -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上，echo 導向寫 AI 產出是寫；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "date with slashes must not be a path -> pass; unsure: later Z3 shell rule may deny｜密碼與守門：同上，echo 導向寫 暫存區是寫；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "echo 2026/10/12 > \"<V>/AI 產出/x.md\""
+    "command": "echo 2026/10/12 > \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -1298,7 +1298,7 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>\\收件匣\\test.txt"
+    "file_path": "<V>\\暫存區\\test.txt"
    },
    "cwd": "<V>",
    "expect": "allow",
@@ -1308,12 +1308,12 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>\\AI 產出\\test.md"
+    "file_path": "<V>\\暫存區\\test.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "守門-確認.md 第6步",
-   "note": "Write AI 產出 (backslash form) -> allow, no prompt"
+   "note": "Write 暫存區 (backslash form) -> allow, no prompt"
   },
   {
    "tool": "Glob",
@@ -1389,12 +1389,12 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/AI 產出/x.md"
+    "file_path": "<V>/暫存區/x.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/AI 產出/x.md"
+    "<V>/暫存區/x.md"
    ],
    "來源": "事務層-測試.md 第一輪 驗收 6",
    "note": "Z3 既有檔用檔案工具寫，allow 並備份 modify"
@@ -1402,7 +1402,7 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/AI 產出/y.md"
+    "file_path": "<V>/暫存區/y.md"
    },
    "cwd": "<V>",
    "expect": "allow",
@@ -1435,7 +1435,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "echo x > \"<V>/AI 產出/x.md\""
+    "command": "echo x > \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -1468,15 +1468,15 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat \"<V>/AI 產出/x.md\""
+    "command": "cat \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.md"
+    "<V>/暫存區/x.md"
    ],
    "來源": "事務層-測試.md 第一輪 驗收 9",
-   "note": "unsure: 報告（10-13）記 cat 讀 Z3 是 pass；之後 produce 的 OUTPUT_SHELL 規則改成指令碰 Z3 讀寫都擋，這裡照現行規則填 deny｜密碼與守門：D-186 補：cat 讀 AI 產出當讀放行"
+   "note": "unsure: 報告（10-13）記 cat 讀 Z3 是 pass；之後 produce 的 OUTPUT_SHELL 規則改成指令碰 Z3 讀寫都擋，這裡照現行規則填 deny｜密碼與守門：D-186 補：cat 讀 暫存區當讀放行"
   },
   {
    "tool": "PowerShell",
@@ -1494,12 +1494,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "sed -i s/a/b/ \"<V>/AI 產出/x.md\""
+    "command": "sed -i s/a/b/ \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.md"
+    "<V>/暫存區/x.md"
    ],
    "來源": "事務層-測試.md 第一輪 驗收 18 表（守門 28）",
    "note": "main 上 pass，事務層後 deny Z3 shell_write（預期改變）"
@@ -1557,7 +1557,7 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "\\\\?\\<V>\\AI 產出\\x.md."
+    "file_path": "\\\\?\\<V>\\暫存區\\x.md."
    },
    "cwd": "<V>",
    "expect": "allow",
@@ -1599,12 +1599,12 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>\\AI 產出\\草稿.md"
+    "file_path": "<V>\\暫存區\\草稿.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "事務層-確認.md 七步 第 3 步",
-   "note": "檔案工具在 AI 產出建草稿，allow"
+   "note": "檔案工具在 暫存區建草稿，allow"
   },
   {
    "tool": "Bash",
@@ -1782,22 +1782,22 @@
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>/AI 產出/password.docx"
+    "file_path": "<V>/暫存區/password.docx"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "骨架與來源登記-測試.md 第五輪 驗收 28（改寫）",
-   "note": "總資料夾內部豁免（D-081）：AI 產出裡 password 檔名可寫；第一輪原為 deny"
+   "note": "總資料夾內部豁免（D-081）：暫存區裡 password 檔名可寫；第一輪原為 deny"
   },
   {
    "tool": "Glob",
    "input": {
-    "pattern": "<V>/AI 產出/secret/*.md"
+    "pattern": "<V>/暫存區/secret/*.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "骨架與來源登記-測試.md 第五輪 驗收 28（改寫）",
-   "note": "總資料夾內部豁免（D-081）：AI 產出/secret 夾；第一輪原為 deny"
+   "note": "總資料夾內部豁免（D-081）：暫存區/secret 夾；第一輪原為 deny"
   },
   {
    "tool": "Bash",
@@ -1985,10 +1985,10 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
-   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、收件匣有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
+   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、暫存區有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
   },
   {
    "tool": "Bash",
@@ -1998,10 +1998,10 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
-   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、收件匣有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
+   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、暫存區有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
   },
   {
    "tool": "Bash",
@@ -2011,10 +2011,10 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
-   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、收件匣有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
+   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、暫存區有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
   },
   {
    "tool": "Bash",
@@ -2024,10 +2024,10 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
-   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、收件匣有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
+   "note": "總資料夾內部憑證豁免（D-081）：cwd 知識庫、暫存區有密碼檔，遞迴搜尋不擋（第三、四輪曾為 deny credential_inside）"
   },
   {
    "tool": "PowerShell",
@@ -2037,7 +2037,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
    "note": "D-081 內部豁免，PowerShell 版"
@@ -2050,7 +2050,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第三輪 驗收 46",
    "note": "D-081 內部豁免，Bash 工具送 PowerShell 字串"
@@ -2058,25 +2058,25 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep -r \"\" 收件匣"
+    "command": "grep -r \"\" 暫存區"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1／第五輪 驗收 46（改寫）",
-   "note": "D-081 內部豁免：裸夾名收件匣"
+   "note": "D-081 內部豁免：裸夾名暫存區"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "grep -r \"\" 收件匣/"
+    "command": "grep -r \"\" 暫存區/"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第二輪 N1",
    "note": "D-081 內部豁免：多一個斜線的版本（第二輪 deny）；unsure: 第五輪沒逐字重驗"
@@ -2137,7 +2137,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep -rn \"password.*=\" 收件匣"
+    "command": "grep -rn \"password.*=\" 暫存區"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -2247,7 +2247,7 @@
    "input": {
     "command": "cat id_rsa"
    },
-   "cwd": "<V>/AI 產出",
+   "cwd": "<V>/暫存區",
    "expect": "pass",
    "來源": "骨架與來源登記-測試.md 第二輪 驗收 35／第五輪 35（改寫）",
    "note": "cwd 在知識庫裡，D-081 內部豁免（第二輪原為 deny）"
@@ -2584,7 +2584,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2598,7 +2598,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2612,7 +2612,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2626,7 +2626,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2640,7 +2640,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2654,7 +2654,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2663,12 +2663,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat 收件匣/n.md | grep 帳號"
+    "command": "cat 暫存區/n.md | grep 帳號"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
+    "<V>/暫存區/n.md",
     "<V>/案子/大樓/門禁密碼.md"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P1／第四輪 驗收 53",
@@ -2799,7 +2799,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep -rn \"密碼[0-9]+\\.log\" 收件匣"
+    "command": "grep -rn \"密碼[0-9]+\\.log\" 暫存區"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -2836,13 +2836,13 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat 收件匣/n.md && grep -r 帳號"
+    "command": "cat 暫存區/n.md && grep -r 帳號"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/n.md",
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P4／第五輪 驗收 56（改寫）",
    "note": "cwd 知識庫，D-081 內部豁免（第四輪曾 deny）"
@@ -2850,13 +2850,13 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat 收件匣/n.md; rg 帳號"
+    "command": "cat 暫存區/n.md; rg 帳號"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/n.md",
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P4／第五輪 驗收 56（改寫）",
    "note": "cwd 知識庫，D-081 內部豁免（第四輪曾 deny）"
@@ -2864,13 +2864,13 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "rg 帳號; cat 收件匣/n.md"
+    "command": "rg 帳號; cat 暫存區/n.md"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/n.md",
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/n.md",
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 P4／第五輪 驗收 56（改寫）",
    "note": "cwd 知識庫，D-081 內部豁免（第四輪曾 deny）"
@@ -2991,7 +2991,7 @@
     "<RAW>/客戶案件/.env"
    ],
    "來源": "骨架與來源登記-測試.md 第三輪 S2",
-   "note": "原為 grep -r TOKEN 收件匣 | tee（知識庫內現已豁免），改對應來源"
+   "note": "原為 grep -r TOKEN 暫存區 | tee（知識庫內現已豁免），改對應來源"
   },
   {
    "tool": "Bash",
@@ -3001,7 +3001,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第四輪 驗收 52 對照",
    "note": "cwd 知識庫、沒有 . 路徑，寫到外面；D-081 內部豁免；unsure: 後輪 Y5 改了導向段的判法"
@@ -3702,7 +3702,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第四輪 Q7",
    "note": "誤擋：引號裡的萬用字元不走訪 cwd（另有 D-081 內部豁免）"
@@ -3715,7 +3715,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第四輪 Q7",
    "note": "誤擋：引號裡的萬用字元不走訪 cwd（另有 D-081 內部豁免）"
@@ -3728,7 +3728,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第四輪 Q7",
    "note": "誤擋：引號裡的萬用字元不走訪 cwd（另有 D-081 內部豁免）"
@@ -3741,7 +3741,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-測試.md 第四輪 Q7",
    "note": "誤擋：引號裡的萬用字元不走訪 cwd（另有 D-081 內部豁免）"
@@ -3952,42 +3952,42 @@
   {
    "tool": "Read",
    "input": {
-    "file_path": "<V>\\收件匣\\網站密碼.txt"
+    "file_path": "<V>\\暫存區\\網站密碼.txt"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-確認.md 第 15a 步",
-   "note": "總資料夾內部的憑證檔名豁免（D-081）：收件匣裡讀放行"
+   "note": "總資料夾內部的憑證檔名豁免（D-081）：暫存區裡讀放行"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "ls -la 收件匣"
+    "command": "ls -la 暫存區"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-確認.md 第 15b 步",
-   "note": "列收件匣（裡面有憑證檔名）不被憑證擋（D-081 內部豁免）｜密碼與守門：Bash／PowerShell 只有單一 kb 呼叫是 allow，其他讀照區放行時是 pass（不表態）"
+   "note": "列暫存區（裡面有憑證檔名）不被憑證擋（D-081 內部豁免）｜密碼與守門：Bash／PowerShell 只有單一 kb 呼叫是 allow，其他讀照區放行時是 pass（不表態）"
   },
   {
    "tool": "Glob",
    "input": {
     "pattern": "**/*",
-    "path": "<V>\\收件匣"
+    "path": "<V>\\暫存區"
    },
    "cwd": "<V>",
    "expect": "allow",
    "needs": [
-    "<V>/收件匣/網站密碼.txt"
+    "<V>/暫存區/網站密碼.txt"
    ],
    "來源": "骨架與來源登記-確認.md 第 15b 步",
-   "note": "Glob 收件匣（裡面有憑證檔名）放行（D-081 內部豁免）"
+   "note": "Glob 暫存區（裡面有憑證檔名）放行（D-081 內部豁免）"
   },
   {
    "tool": "Bash",
@@ -4152,7 +4152,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "PYTHONPATH=\"<OUT>/pylib\" python \"<OUT>/skills/docx/scripts/office/validate.py\" \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\" --original \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" --author \"AI 助理\""
+    "command": "PYTHONPATH=\"<OUT>/pylib\" python \"<OUT>/skills/docx/scripts/office/validate.py\" \"<V>/暫存區/信義王室內裝修工程合約（AI 修改）.docx\" --original \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" --author \"AI 助理\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -4160,12 +4160,12 @@
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #4",
-   "note": "unsure: 報告裡是分類器擋；照現行守門（produce D-170），非 kb 的 shell 指令碰到 AI 產出（Z3）讀寫都擋（OUTPUT_SHELL）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "unsure: 報告裡是分類器擋；照現行守門（produce D-170），非 kb 的 shell 指令碰到 暫存區（Z3）讀寫都擋（OUTPUT_SHELL）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "python - <<'EOF'\nimport zipfile\nfor p in [\"<RAW>/客戶案件/信義王室內裝修工程合約.docx\", \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\"]:\n    x = zipfile.ZipFile(p).read(\"word/document.xml\").decode(\"utf-8\")\n    print(p, x.count(\"<w:ins \"), x.count(\"<w:del \"))\nEOF"
+    "command": "python - <<'EOF'\nimport zipfile\nfor p in [\"<RAW>/客戶案件/信義王室內裝修工程合約.docx\", \"<V>/暫存區/信義王室內裝修工程合約（AI 修改）.docx\"]:\n    x = zipfile.ZipFile(p).read(\"word/document.xml\").decode(\"utf-8\")\n    print(p, x.count(\"<w:ins \"), x.count(\"<w:del \"))\nEOF"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -4173,7 +4173,7 @@
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #5",
-   "note": "唯讀 heredoc 比對原檔與修訂檔；報告當時 deny Z8（推測把 << 當寫檔重導向）；unsure: 程式本文是重建的，因含 AI 產出路徑，現行 OUTPUT_SHELL 照樣擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "唯讀 heredoc 比對原檔與修訂檔；報告當時 deny Z8（推測把 << 當寫檔重導向）；unsure: 程式本文是重建的，因含 暫存區路徑，現行 OUTPUT_SHELL 照樣擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4209,22 +4209,22 @@
     "<OUT>/腳本/check_redline.py"
    ],
    "來源": "B-081-spike-守門.md 被擋紀錄 #5 後續",
-   "note": "跑知識庫外的檢查腳本，過；unsure: 原指令參數不明（若帶 AI 產出路徑現行會擋）"
+   "note": "跑知識庫外的檢查腳本，過；unsure: 原指令參數不明（若帶 暫存區路徑現行會擋）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "NODE_PATH=\"<OUT>/node/node_modules\" node \"<OUT>/腳本/make_report_docx_kb.js\" \"<V>/AI 產出/內湖李進度報告.docx\""
+    "command": "NODE_PATH=\"<OUT>/node/node_modules\" node \"<OUT>/腳本/make_report_docx_kb.js\" \"<V>/暫存區/內湖李進度報告.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "B-081-spike-守門.md 沒擋表第 1 列",
-   "note": "node 直接寫 AI 產出：報告當時過（沒備份沒登記，觀察 1）；unsure: 照現行 produce 守門 shell 碰 Z3 一律擋，改走 kb office run／output save；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "node 直接寫 暫存區：報告當時過（沒備份沒登記，觀察 1）；unsure: 照現行 produce 守門 shell 碰 Z3 一律擋，改走 kb office run／output save；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "python \"<OUT>/腳本/repack.py\" \"<OUT>/kb9/unpacked\" \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" \"<V>/AI 產出/信義王室內裝修工程合約（AI 修改）.docx\""
+    "command": "python \"<OUT>/腳本/repack.py\" \"<OUT>/kb9/unpacked\" \"<RAW>/客戶案件/信義王室內裝修工程合約.docx\" \"<V>/暫存區/信義王室內裝修工程合約（AI 修改）.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -4232,7 +4232,7 @@
     "<RAW>/客戶案件/信義王室內裝修工程合約.docx"
    ],
    "來源": "B-081-spike-守門.md 沒擋表第 2 列",
-   "note": "python 讀原檔寫 AI 產出：報告當時過；unsure: 照現行 shell 碰 Z3 擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "python 讀原檔寫 暫存區：報告當時過；unsure: 照現行 shell 碰 Z3 擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4250,15 +4250,15 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "soffice.exe --headless --norestore -env:UserInstallation=file:///<OUT>/lo --convert-to pdf --outdir \"<OUT>/pdf_kb\" \"<V>/AI 產出/內湖李進度報告.docx\""
+    "command": "soffice.exe --headless --norestore -env:UserInstallation=file:///<OUT>/lo --convert-to pdf --outdir \"<OUT>/pdf_kb\" \"<V>/暫存區/內湖李進度報告.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/內湖李進度報告.docx"
+    "<V>/暫存區/內湖李進度報告.docx"
    ],
    "來源": "B-081-spike-守門.md 沒擋表第 5 列",
-   "note": "soffice 讀 AI 產出轉 PDF 到工作夾：報告當時過；unsure: 現行 shell 碰 Z3 讀也擋，改走 kb office pdf；UserInstallation 原值省略；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "soffice 讀 暫存區轉 PDF 到工作夾：報告當時過；unsure: 現行 shell 碰 Z3 讀也擋，改走 kb office pdf；UserInstallation 原值省略；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -4977,12 +4977,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Test-Path \"<V>\\AI 產出\\信件\\交屋延期通知.docx\"; Test-Path \"<RAW>\\客戶案件\\交屋延期通知.docx\""
+    "command": "Test-Path \"<V>\\暫存區\\信件\\交屋延期通知.docx\"; Test-Path \"<RAW>\\客戶案件\\交屋延期通知.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "manage第二版-確認.md 守門彙整 (b)",
-   "note": "誤擋：Test-Path 只確認舊位置（AI 產出）檔不在，被 Z3 output_shell 擋。檔名與第二個路徑是重建的。unsure: Test-Path 不在 D-186 補列的已知只讀指令裡（列表以「…」結尾），pass 也可接受｜密碼與守門：D-186 補：Test-Path 是已知只讀指令"
+   "note": "誤擋：Test-Path 只確認舊位置（暫存區）檔不在，被 Z3 output_shell 擋。檔名與第二個路徑是重建的。unsure: Test-Path 不在 D-186 補列的已知只讀指令裡（列表以「…」結尾），pass 也可接受｜密碼與守門：D-186 補：Test-Path 是已知只讀指令"
   },
   {
    "tool": "Bash",
@@ -5037,17 +5037,17 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "node x.js \"<V>/AI 產出/a.docx\""
+    "command": "node x.js \"<V>/暫存區/a.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "AI 產出路徑當非 kb 程式的參數：Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "暫存區路徑當非 kb 程式的參數：Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "python x.py \"<V>/AI 產出/a.xlsx\""
+    "command": "python x.py \"<V>/暫存區/a.xlsx\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5057,7 +5057,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "soffice --convert-to pdf \"<V>/AI 產出/a.docx\""
+    "command": "soffice --convert-to pdf \"<V>/暫存區/a.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5077,7 +5077,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "node x.js \"AI 產出\\a.docx\""
+    "command": "node x.js \"暫存區\\a.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5087,17 +5087,17 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cat \"<V>/AI 產出/x.md\""
+    "command": "cat \"<V>/暫存區/x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "produce-測試.md 驗收 10",
-   "note": "unsure: produce 當時 deny Z3 output_shell；密碼與守門 D-186 補改成已知只讀指令（cat）的參數當讀放行｜密碼與守門：D-186 補：cat 是已知只讀指令，讀 AI 產出放行；Bash／PowerShell 只有單一 kb 呼叫是 allow，其他讀照區放行時是 pass（不表態）"
+   "note": "unsure: produce 當時 deny Z3 output_shell；密碼與守門 D-186 補改成已知只讀指令（cat）的參數當讀放行｜密碼與守門：D-186 補：cat 是已知只讀指令，讀 暫存區放行；Bash／PowerShell 只有單一 kb 呼叫是 allow，其他讀照區放行時是 pass（不表態）"
   },
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Get-Content \"AI 產出\\x.md\""
+    "command": "Get-Content \"暫存區\\x.md\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5149,22 +5149,22 @@
   {
    "tool": "Read",
    "input": {
-    "file_path": "<V>\\AI 產出\\x.md"
+    "file_path": "<V>\\暫存區\\x.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "produce-測試.md 驗收 10",
-   "note": "Read AI 產出：Z3 allow"
+   "note": "Read 暫存區：Z3 allow"
   },
   {
    "tool": "Write",
    "input": {
-    "file_path": "<V>\\AI 產出\\報告\\x.md"
+    "file_path": "<V>\\暫存區\\報告\\x.md"
    },
    "cwd": "<V>",
    "expect": "allow",
    "來源": "produce-測試.md 驗收 10",
-   "note": "Write AI 產出：Z3 allow"
+   "note": "Write 暫存區：Z3 allow"
   },
   {
    "tool": "Write",
@@ -5429,7 +5429,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "bash -c \"cat 'AI 產出/x.md'\""
+    "command": "bash -c \"cat '暫存區/x.md'\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5439,7 +5439,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "powershell -Command \"Get-Content 'AI 產出\\x.md'\""
+    "command": "powershell -Command \"Get-Content '暫存區\\x.md'\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -5484,17 +5484,17 @@
    "cwd": "<V>",
    "expect": "pass",
    "來源": "produce-測試.md L-6",
-   "note": "萬用字元指到 AI 產出的列檔名：當時 pass。unsure: allow 也可接受"
+   "note": "萬用字元指到 暫存區的列檔名：當時 pass。unsure: allow 也可接受"
   },
   {
    "tool": "Bash",
    "input": {
-    "command": "python -c \"print(open('AI 產出/x.md',encoding='utf-8').read())\""
+    "command": "python -c \"print(open('暫存區/x.md',encoding='utf-8').read())\""
    },
    "cwd": "<V>",
    "expect": "deny",
    "來源": "produce-測試.md L-6",
-   "note": "python -c 程式碼裡出現 AI 產出路徑：當時 deny unparsed；D-186 補：非 kb 執行檔的參數裡有 AI 產出照擋。程式碼是重建的"
+   "note": "python -c 程式碼裡出現 暫存區路徑：當時 deny unparsed；D-186 補：非 kb 執行檔的參數裡有 暫存區照擋。程式碼是重建的"
   },
   {
    "tool": "Write",
@@ -6227,7 +6227,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "tar czf <OUT>/b.tgz 收件匣"
+    "command": "tar czf <OUT>/b.tgz 暫存區"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -6728,7 +6728,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "grep -rn \"install\" 收件匣 | tee <OUT>/h"
+    "command": "grep -rn \"install\" 暫存區 | tee <OUT>/h"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -6797,7 +6797,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "echo x > 收件匣/x.md"
+    "command": "echo x > 暫存區/x.md"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -7102,7 +7102,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "mv 收件匣 <OUT>/inbox"
+    "command": "mv 暫存區 <OUT>/inbox"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -7121,7 +7121,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "rm -rf \"AI 產出\" <OUT>/x"
+    "command": "rm -rf \"暫存區\" <OUT>/x"
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -8422,12 +8422,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "sort -o \"<V>/AI 產出/x.txt\" \"<OUT>/a.txt\""
+    "command": "sort -o \"<V>/暫存區/x.txt\" \"<OUT>/a.txt\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "密碼與守門-測試.md（28 完整報告附錄 A，第二輪）",
-   "note": "F2-5：sort -o 寫 AI 產出；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "F2-5：sort -o 寫 暫存區；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "Bash",
@@ -10809,25 +10809,25 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx'"
+    "command": "Start-Process '<V>\\暫存區\\x.docx'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 1",
-   "note": "開 AI 產出的 Word"
+   "note": "開 暫存區的 Word"
   },
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process -FilePath '<V>\\AI 產出\\x.docx'"
+    "command": "Start-Process -FilePath '<V>\\暫存區\\x.docx'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 1",
    "note": "-FilePath"
@@ -10835,12 +10835,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Invoke-Item '<V>\\AI 產出\\x.docx'"
+    "command": "Invoke-Item '<V>\\暫存區\\x.docx'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 1",
    "note": "Invoke-Item"
@@ -10848,7 +10848,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "ii '<V>\\AI 產出\\x.pdf'"
+    "command": "ii '<V>\\暫存區\\x.pdf'"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -10858,17 +10858,17 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "explorer '<V>\\AI 產出'"
+    "command": "explorer '<V>\\暫存區'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "開檔與Office一起改 驗收 1",
-   "note": "開 AI 產出的夾"
+   "note": "開 暫存區的夾"
   },
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process 'AI 產出\\x.xlsx'"
+    "command": "Start-Process '暫存區\\x.xlsx'"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -10878,12 +10878,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cmd //c start \"\" \"<V>/AI 產出/x.docx\""
+    "command": "cmd //c start \"\" \"<V>/暫存區/x.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 2",
    "note": "Git Bash 的 cmd start"
@@ -10891,12 +10891,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "start \"\" \"<V>/AI 產出/x.docx\""
+    "command": "start \"\" \"<V>/暫存區/x.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 2",
    "note": "Git Bash 的 start"
@@ -10904,12 +10904,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "start \"<V>/AI 產出/x.docx\""
+    "command": "start \"<V>/暫存區/x.docx\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 2",
    "note": "第一個引號字當標題，等於沒給目標"
@@ -10917,7 +10917,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "explorer.exe \"<V>/AI 產出\""
+    "command": "explorer.exe \"<V>/暫存區\""
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -11010,12 +11010,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb Print"
+    "command": "Start-Process '<V>\\暫存區\\x.docx' -Verb Print"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 5",
    "note": "-Verb Print"
@@ -11023,12 +11023,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb Edit"
+    "command": "Start-Process '<V>\\暫存區\\x.docx' -Verb Edit"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 5",
    "note": "-Verb Edit"
@@ -11036,12 +11036,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Wait"
+    "command": "Start-Process '<V>\\暫存區\\x.docx' -Wait"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 5",
    "note": "-Wait"
@@ -11049,12 +11049,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx' -WindowStyle Maximized"
+    "command": "Start-Process '<V>\\暫存區\\x.docx' -WindowStyle Maximized"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 5",
    "note": "-WindowStyle"
@@ -11102,12 +11102,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardError '<V>\\AI 產出\\e.txt'"
+    "command": "Start-Process powershell -ArgumentList '-NoExit' -RedirectStandardError '<V>\\暫存區\\e.txt'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "來源": "開檔與Office一起改 驗收 7",
-   "note": "導向寫 AI 產出 → Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+   "note": "導向寫 暫存區 → Z3 output_shell；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
   },
   {
    "tool": "PowerShell",
@@ -11132,12 +11132,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process cmd -ArgumentList '/c','del \"<V>\\AI 產出\\x.docx\"'"
+    "command": "Start-Process cmd -ArgumentList '/c','del \"<V>\\暫存區\\x.docx\"'"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 8",
    "note": "cmd /c del 內層照判"
@@ -11155,7 +11155,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.bat'"
+    "command": "Start-Process '<V>\\暫存區\\x.bat'"
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -11165,7 +11165,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.ps1'"
+    "command": "Start-Process '<V>\\暫存區\\x.ps1'"
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -11185,12 +11185,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docm'"
+    "command": "Start-Process '<V>\\暫存區\\x.docm'"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docm"
+    "<V>/暫存區/x.docm"
    ],
    "來源": "開檔與Office一起改 驗收 9",
    "note": "巨集檔不收"
@@ -11208,7 +11208,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Invoke-Item '<V>\\AI 產出\\x.lnk'"
+    "command": "Invoke-Item '<V>\\暫存區\\x.lnk'"
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -11218,7 +11218,7 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "cmd //c start \"\" \"<V>/AI 產出/x.bat\""
+    "command": "cmd //c start \"\" \"<V>/暫存區/x.bat\""
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -11228,7 +11228,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "start '<V>\\AI 產出\\x.bat'"
+    "command": "start '<V>\\暫存區\\x.bat'"
    },
    "cwd": "<V>",
    "expect": "deny",
@@ -11238,12 +11238,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "ii '<V>\\AI 產出\\*'"
+    "command": "ii '<V>\\暫存區\\*'"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 9",
    "note": "萬用字元可能開到程式"
@@ -11251,12 +11251,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx' -Verb RunAs"
+    "command": "Start-Process '<V>\\暫存區\\x.docx' -Verb RunAs"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 9",
    "note": "-Verb 不是開、改、印 → 當跑程式"
@@ -11350,12 +11350,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "Start-Process '<V>\\AI 產出\\x.docx'; Remove-Item '<V>\\AI 產出\\y.docx'"
+    "command": "Start-Process '<V>\\暫存區\\x.docx'; Remove-Item '<V>\\暫存區\\y.docx'"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 12",
    "note": "後半照舊；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -11363,12 +11363,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "cmd /c start '<V>\\AI 產出\\x.docx' '&' del '<V>\\系統\\x.md'"
+    "command": "cmd /c start '<V>\\暫存區\\x.docx' '&' del '<V>\\系統\\x.md'"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 12",
    "note": "cmd 的 & 交給 cmd 串接"
@@ -11376,12 +11376,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $w.Documents.Open('<V>\\AI 產出\\x.docx')"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $w.Documents.Open('<V>\\暫存區\\x.docx')"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 13",
    "note": "COM 開檔照擋（D-514 放棄了）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -11394,7 +11394,7 @@
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 14",
    "note": "D-515 附著 Word 改"
@@ -11412,12 +11412,12 @@
   {
    "tool": "Bash",
    "input": {
-    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName==r'<V>\\AI 產出\\x.docx'][0]; d.Content.InsertAfter('x')\""
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName==r'<V>\\暫存區\\x.docx'][0]; d.Content.InsertAfter('x')\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 驗收 14",
    "note": "D-515 Bash python 附著"
@@ -11494,7 +11494,7 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "C:\\Windows\\explorer.exe '<V>\\AI 產出'"
+    "command": "C:\\Windows\\explorer.exe '<V>\\暫存區'"
    },
    "cwd": "<V>",
    "expect": "pass",
@@ -11504,25 +11504,25 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
-   "note": "(a) foreach＋if FullName -eq 比對 AI 產出"
+   "note": "(a) foreach＋if FullName -eq 比對 暫存區"
   },
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.Documents | Where-Object { $_.FullName -eq '<V>\\AI 產出\\x.docx' }; $d.Content.InsertAfter('x'); $d.Save()"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.Documents | Where-Object { $_.FullName -eq '<V>\\暫存區\\x.docx' }; $d.Content.InsertAfter('x'); $d.Save()"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(b) Where-Object FullName -eq"
@@ -11530,12 +11530,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.Workbooks | Where-Object { $_.FullName -ieq '<V>\\AI 產出\\x.xlsx' }; $b.Worksheets.Item(1).Range('A1').Value2 = '下週交'; $b.Save()"
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.Workbooks | Where-Object { $_.FullName -ieq '<V>\\暫存區\\x.xlsx' }; $b.Worksheets.Item(1).Range('A1').Value2 = '下週交'; $b.Save()"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.xlsx"
+    "<V>/暫存區/x.xlsx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(c) Excel -ieq"
@@ -11543,12 +11543,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $q=$p.Presentations | Where-Object { $_.FullName -like '<V>\\AI 產出\\x.pptx' }; $q.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'; $q.Save()"
+    "command": "$p=[Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application'); $q=$p.Presentations | Where-Object { $_.FullName -like '<V>\\暫存區\\x.pptx' }; $q.Slides.Item(1).Shapes.Item(1).TextFrame.TextRange.Text = '下週交'; $q.Save()"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.pptx"
+    "<V>/暫存區/x.pptx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(c) PowerPoint -like"
@@ -11556,12 +11556,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName == r'<V>\\AI 產出\\x.docx'][0]; d.Content.InsertAfter('x'); d.Save()\""
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=[x for x in w.Documents if x.FullName == r'<V>\\暫存區\\x.docx'][0]; d.Content.InsertAfter('x'); d.Save()\""
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(d) python win32com =="
@@ -11569,12 +11569,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save(); $x.SaveAs('<V>\\AI 產出\\y.docx') } }"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { $x.Content.InsertAfter('x'); $x.Save(); $x.SaveAs('<V>\\暫存區\\y.docx') } }"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(e) 同 (a) 加 SaveAs；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -11582,12 +11582,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }; $w.Documents.Open('<V>\\AI 產出\\x.docx')"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { $x.Content.InsertAfter('x'); $x.Save() } }; $w.Documents.Open('<V>\\暫存區\\x.docx')"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(f) 同 (a) 加 Documents.Open（驗收 13 不變）；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
@@ -11595,12 +11595,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "if ('<V>\\AI 產出\\x.docx' -eq $a) { Remove-Item '<V>\\AI 產出\\x.docx' }"
+    "command": "if ('<V>\\暫存區\\x.docx' -eq $a) { Remove-Item '<V>\\暫存區\\x.docx' }"
    },
    "cwd": "<V>",
    "expect": "deny",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 29",
    "note": "(g) 沒附著、路徑在 -eq 左邊加 Remove-Item"
@@ -11608,12 +11608,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Content.InsertAfter('請 copy 這段'); $x.Save() } }"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { $x.Content.InsertAfter('請 copy 這段'); $x.Save() } }"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 31",
    "note": "(4) 寫進文件的字有寫入動詞不算"
@@ -11621,12 +11621,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { [void]$x.Tables.Add($x.Range(0,0), 2, 2); $x.Save() } }"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { [void]$x.Tables.Add($x.Range(0,0), 2, 2); $x.Save() } }"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 31",
    "note": "(5) 文件裡的 Tables.Add 不擋"
@@ -11634,12 +11634,12 @@
   {
    "tool": "PowerShell",
    "input": {
-    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\AI 產出\\x.docx') { $x.Save() } }; [void]$w.Documents.Add()"
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); foreach ($x in $w.Documents) { if ($x.FullName -eq '<V>\\暫存區\\x.docx') { $x.Save() } }; [void]$w.Documents.Add()"
    },
    "cwd": "<V>",
    "expect": "pass",
    "needs": [
-    "<V>/AI 產出/x.docx"
+    "<V>/暫存區/x.docx"
    ],
    "來源": "開檔與Office一起改 裁定 31",
    "note": "(5) 開新檔的 Documents.Add( 照擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"

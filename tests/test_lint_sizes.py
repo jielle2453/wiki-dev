@@ -1,4 +1,4 @@
-"""lint 清單 7（驗收 6）：清理叫前一份的 clean.run（鎖被占、背景整理在跑就跳過）；收件匣份數、綜合卡太長進待處理、知識庫大小。"""
+"""lint 清單 7（驗收 6）：清理叫前一份的 clean.run（鎖被占、背景整理在跑就跳過）；暫存區份數、綜合卡太長進待處理、知識庫大小。"""
 import shutil
 import unittest
 from unittest import mock
@@ -43,7 +43,7 @@ class Sizes(unittest.TestCase):
         run.assert_not_called()
 
     def test_inbox_and_big_synthesis(self):
-        inbox = self.V / "收件匣"
+        inbox = self.V / "暫存區"
         inbox.mkdir(exist_ok=True)
         for old in inbox.iterdir():
             old.unlink()

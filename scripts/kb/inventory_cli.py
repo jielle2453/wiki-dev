@@ -81,7 +81,7 @@ def _scan(vault, args, as_json):
     if args.source is not None:
         wanted = args.source.strip()
         aliases = [s["alias"] for s in sources.entries] + [u["alias"] for u in sources.unresolved]
-        aliases += [inventory.KNOWLEDGE, inventory.INBOX, inventory.OUTPUT]
+        aliases += [inventory.KNOWLEDGE, inventory.HOLD]
         if wanted.casefold() not in {a.casefold() for a in aliases}:
             print(f"沒有叫「{wanted}」的來源")
             return 3

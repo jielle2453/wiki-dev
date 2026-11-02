@@ -37,7 +37,7 @@ from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cmdparse, config, credentials, sources as sources_lib
-from kb._lib.areas import FREE_DIR
+from kb._lib.areas import FREE_DIR, HOLD_DIR
 from kb._lib.paths import inside, normalize, plugin_root
 
 Decision = namedtuple("Decision", "decision zone reason_code reason ledger_rows vault")
@@ -48,17 +48,17 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 FILE_TOOLS = READ_TOOLS + WRITE_TOOLS
 GLOB_HITS_MAX = 5000
 
-RESERVED = {"ai 產出": "Z3", "收件匣": "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".obsidian": "Z7",
-            FREE_DIR.casefold(): "Z12"}
+RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".obsidian": "Z7",
+            FREE_DIR.casefold(): "Z12"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
 if os.name != "nt":
-    RESERVED["AI 產出"] = "Z3"
+    RESERVED[HOLD_DIR] = "Z4"
     RESERVED[FREE_DIR] = "Z12"
 
 # 區 -> {"name", "read": (decision, reason_code, reason), "write": (...)}。理由全中文、一句、說為什麼與可以怎麼做。
 # 放寬甲：理由寫給 AI（不是使用者看的），每句以 AI_TAIL 結尾；使用者的區（USER_ZONES）指令寫照「使用者區規則」
 # （_user_rules）：建、搬、改名放行，只有救不回來的（刪、蓋掉同名檔、改既有檔內容）才擋，並教 AI 改用的做法。
 AI_TAIL = "不用跟使用者提這一步。"
-USER_ZONES = ("Z2", "Z3", "Z4", "Z8", "Z9", "Z12")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
+USER_ZONES = ("Z2", "Z4", "Z8", "Z9", "Z12")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
 WILLY_ZONES = ("Z1", "Z5", "Z6", "Z7")  # willy 自己的檔：指令寫一律 willy；檔案工具寫只有 Z1、Z5、客戶設定檔放行
 PROFILE_MD = "系統/客戶設定檔.md"
 INDEX_MD = "總目錄.md"
@@ -105,8 +105,7 @@ def _zone(name, **kw):
 ZONES = {
     "Z1": _zone("綜合卡"),
     "Z2": _zone("實體夾原檔"),
-    "Z3": _zone("AI 產出"),
-    "Z4": _zone("收件匣"),
+    "Z4": _zone(HOLD_DIR),
     "Z5": _zone("檔案索引"),
     "Z6": _zone("系統"),  # 除客戶設定檔外的檔案工具寫由 is_willy_file 改判 willy
     "Z7": _zone("設定與狀態"),
@@ -118,7 +117,7 @@ ZONES = {
     "Z11": {"name": "其他", "read": ("pass", "", ""), "write": ("pass", "", "")},
     "Z12": _zone(FREE_DIR),
 }
-VAULT_ZONES = ("Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7", "Z8", "Z12")
+VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8", "Z12")
 SOURCE_ZONES = ("Z9", "Z10", "Z10b")
 CREDENTIAL_REASON = "檔名像密碼或金鑰（{seg}），使用者沒說過這份可以讀，不讀也不寫。"
 CREDENTIAL_INSIDE_REASON = "這個範圍裡有檔名像密碼或金鑰的檔（{rel}），使用者沒說過可以讀；縮到不含它的子資料夾或指定單一檔。"

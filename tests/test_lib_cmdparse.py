@@ -15,8 +15,8 @@ def n(p):
 
 class ExtractPaths(unittest.TestCase):
     def test_quoted_chinese_path_with_space(self):
-        got = cmdparse.extract_paths('cat "C:/x/vault/AI 產出/報告 v1.md"', CWD)
-        self.assertIn(n("C:/x/vault/AI 產出/報告 v1.md"), got)
+        got = cmdparse.extract_paths('cat "C:/x/vault/暫存區/報告 v1.md"', CWD)
+        self.assertIn(n("C:/x/vault/暫存區/報告 v1.md"), got)
 
     def test_git_bash_path(self):
         got = cmdparse.extract_paths("cat /c/x/raw/行政/薪資/s.xlsx", CWD)
@@ -32,7 +32,7 @@ class ExtractPaths(unittest.TestCase):
         try:
             self.assertIn(paths.normalize(str(tmp), None), cmdparse.extract_paths("grep -r X ..", str(V)))
             self.assertIn(paths.normalize(str(V), None), cmdparse.extract_paths("ls .", str(V)))
-            self.assertIn(paths.normalize(str(tmp), None), cmdparse.extract_paths("cd 收件匣 && cat ../..", str(V)))
+            self.assertIn(paths.normalize(str(tmp), None), cmdparse.extract_paths("cd 暫存區 && cat ../..", str(V)))
             self.assertEqual(cmdparse.extract_paths("echo a.b", str(V)), [])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -64,9 +64,9 @@ class ExtractPaths(unittest.TestCase):
         try:
             v = str(V)
             self.assertIn(paths.normalize(str(V / "案子"), None), cmdparse.extract_paths("rm -rf 案子 /tmp/x", v))
-            self.assertIn(paths.normalize(str(V / "收件匣"), None), cmdparse.extract_paths("mv 收件匣 /tmp/", v))
-            self.assertIn(paths.normalize(str(V / "收件匣"), None), cmdparse.extract_paths("tar czf /tmp/b.tgz 收件匣", v))
-            self.assertNotIn(paths.normalize(str(V / "czf"), None), cmdparse.extract_paths("tar czf /tmp/b.tgz 收件匣", v))
+            self.assertIn(paths.normalize(str(V / "暫存區"), None), cmdparse.extract_paths("mv 暫存區 /tmp/", v))
+            self.assertIn(paths.normalize(str(V / "暫存區"), None), cmdparse.extract_paths("tar czf /tmp/b.tgz 暫存區", v))
+            self.assertNotIn(paths.normalize(str(V / "czf"), None), cmdparse.extract_paths("tar czf /tmp/b.tgz 暫存區", v))
             self.assertNotIn(paths.normalize(str(V / "v1.2"), None), cmdparse.extract_paths("echo v1.2 > /tmp/ver.txt", v))
             self.assertNotIn(paths.normalize(str(V / "example.com"), None), cmdparse.extract_paths("wget example.com -O /tmp/x", v))
             self.assertIn(paths.normalize(str(V / "新檔.xlsx"), None), cmdparse.extract_paths("cp /tmp/a 新檔.xlsx", v))
@@ -303,7 +303,7 @@ class Round1(unittest.TestCase):
         self.assertTrue(cmdparse.is_single_plugin_call('python ' + self.KB + ' --path "a (b)"', PLUGIN))
 
     def test_b1_extension_is_not_a_write_verb(self):
-        for cmd in ("cat CLAUDE.md", "head 系統/待處理.md", "grep TODO 收件匣/a.md", "type C:\\r\\行政\\請款\\notes.md",
+        for cmd in ("cat CLAUDE.md", "head 系統/待處理.md", "grep TODO 暫存區/a.md", "type C:\\r\\行政\\請款\\notes.md",
                     "cat a.sc", "cat x.cp", "ls notes.ac", "cat README.md | head", "cat a.rm"):
             with self.subTest(cmd=cmd):
                 self.assertFalse(cmdparse.is_write(cmd))
@@ -317,12 +317,12 @@ class Round1(unittest.TestCase):
             cwd = str(V)
             self.assertEqual(cmdparse.extract_paths("sed -i s/a/b/ x", cwd), [])
             self.assertEqual(cmdparse.extract_paths("echo 2026/10/12", cwd), [])
-            got = cmdparse.extract_paths('sed -i s/a/b/ "AI 產出/x.md"', cwd)
-            self.assertEqual(got, [paths.normalize(str(V / "AI 產出" / "x.md"), None)])
+            got = cmdparse.extract_paths('sed -i s/a/b/ "暫存區/x.md"', cwd)
+            self.assertEqual(got, [paths.normalize(str(V / "暫存區" / "x.md"), None)])
             got = cmdparse.extract_paths("cat 案子/信義王/合約.docx", cwd)
             self.assertEqual(got, [paths.normalize(str(V / "案子" / "信義王" / "合約.docx"), None)])
-            got = cmdparse.extract_paths("echo hi > 收件匣/x.txt", cwd)
-            self.assertEqual(got, [paths.normalize(str(V / "收件匣" / "x.txt"), None)])
+            got = cmdparse.extract_paths("echo hi > 暫存區/x.txt", cwd)
+            self.assertEqual(got, [paths.normalize(str(V / "暫存區" / "x.txt"), None)])
             got = cmdparse.extract_paths("mkdir 案子/新案", cwd)
             self.assertEqual(got, [paths.normalize(str(V / "案子" / "新案"), None)])
             self.assertEqual(cmdparse.extract_paths("echo 新案/新案/x.md", cwd), [])
@@ -375,7 +375,7 @@ class Round2(unittest.TestCase):
         got = cmdparse.extract_paths("cat C:/x/raw/行政/薪\\資/s.xlsx", CWD)
         self.assertIn(n("C:/x/raw/行政/薪資/s.xlsx"), got)
         got = cmdparse.extract_paths("ls C:/x/vault/AI\\ 產出", CWD)
-        self.assertIn(n("C:/x/vault/AI 產出"), got)
+        self.assertIn(n("C:/x/vault/暫存區"), got)
 
 
 class CodePaths(unittest.TestCase):
@@ -416,7 +416,7 @@ class OpenStage(unittest.TestCase):
         """裁定 11：完整路徑的 explorer.exe、cmd.exe /c start 照同一個動詞判，程式檔另回 exe 給 guard 查 run_file。"""
         for text, ps, targets, exe in (
                 ("C:\\Windows\\explorer.exe 'C:\\x\\a.docx'", True, ["C:\\x\\a.docx"], "C:\\Windows\\explorer.exe"),
-                ("& 'C:\\x\\AI 產出\\explorer.exe' a.docx", True, ["a.docx"], "C:\\x\\AI 產出\\explorer.exe"),
+                ("& 'C:\\x\\暫存區\\explorer.exe' a.docx", True, ["a.docx"], "C:\\x\\暫存區\\explorer.exe"),
                 ('C:\\Windows\\System32\\cmd.exe /c start "" C:\\x\\a.docx', True, ["C:\\x\\a.docx"],
                  "C:\\Windows\\System32\\cmd.exe"),
                 ('"C:/x/start" a.docx', False, ["a.docx"], "C:/x/start"),
@@ -426,14 +426,14 @@ class OpenStage(unittest.TestCase):
                 self.assertEqual((got["targets"], got["exe"]), (targets, exe))
 
     def test_start_process_targets(self):
-        for text in ("Start-Process 'C:\\x\\AI 產出\\a.docx'", "Start-Process -FilePath 'C:\\x\\AI 產出\\a.docx'",
-                     "Start-Process -FilePath:'C:\\x\\AI 產出\\a.docx'", "saps -File 'C:\\x\\AI 產出\\a.docx' -Wait",
-                     "start 'C:\\x\\AI 產出\\a.docx'",
-                     "Start-Process 'C:\\x\\AI 產出\\a.docx' -Verb Print -WindowStyle Maximized"):
+        for text in ("Start-Process 'C:\\x\\暫存區\\a.docx'", "Start-Process -FilePath 'C:\\x\\暫存區\\a.docx'",
+                     "Start-Process -FilePath:'C:\\x\\暫存區\\a.docx'", "saps -File 'C:\\x\\暫存區\\a.docx' -Wait",
+                     "start 'C:\\x\\暫存區\\a.docx'",
+                     "Start-Process 'C:\\x\\暫存區\\a.docx' -Verb Print -WindowStyle Maximized"):
             with self.subTest(text=text):
                 got = op(text)
                 self.assertEqual((got["targets"], got["kind"], got["writes"], got["opaque"]),
-                                 (["C:\\x\\AI 產出\\a.docx"], "open", [], False))
+                                 (["C:\\x\\暫存區\\a.docx"], "open", [], False))
 
     def test_invoke_item_targets(self):
         self.assertEqual(op("Invoke-Item 'C:\\x\\a.docx', 'C:\\x\\b.pdf'")["targets"], ["C:\\x\\a.docx", "C:\\x\\b.pdf"])
@@ -441,11 +441,11 @@ class OpenStage(unittest.TestCase):
         self.assertEqual(op("ii C:\\x\\a.xlsx")["kind"], "open")
 
     def test_cmd_start_skips_title(self):
-        for text, ps, targets in (('start "" "C:/x/AI 產出/a.docx"', False, ["C:/x/AI 產出/a.docx"]),
-                                  ('start "C:/x/AI 產出/a.docx"', False, []),
+        for text, ps, targets in (('start "" "C:/x/暫存區/a.docx"', False, ["C:/x/暫存區/a.docx"]),
+                                  ('start "C:/x/暫存區/a.docx"', False, []),
                                   ('start /b /wait /min "" C:/x/a.docx', False, ["C:/x/a.docx"]),
-                                  ('cmd //c start "" "C:/x/AI 產出/a.docx"', False, ["C:/x/AI 產出/a.docx"]),
-                                  ('cmd /c start "" "C:\\x\\AI 產出\\a.docx"', True, ["C:\\x\\AI 產出\\a.docx"]),
+                                  ('cmd //c start "" "C:/x/暫存區/a.docx"', False, ["C:/x/暫存區/a.docx"]),
+                                  ('cmd /c start "" "C:\\x\\暫存區\\a.docx"', True, ["C:\\x\\暫存區\\a.docx"]),
                                   ('cmd.exe /C start C:\\x\\a.bat', True, ["C:\\x\\a.bat"]),
                                   ('start "C:/x/a.bat"', False, ["C:/x/a.bat"])):  # 沒空白的引號傳給 cmd 時沒有引號，不是標題
             with self.subTest(text=text):
@@ -454,7 +454,7 @@ class OpenStage(unittest.TestCase):
         self.assertEqual((got["cwd"], got["targets"]), ("C:/w", ["a.docx"]))
 
     def test_explorer_open(self):
-        self.assertEqual(op("explorer 'C:\\x\\AI 產出'")["targets"], ["C:\\x\\AI 產出"])
+        self.assertEqual(op("explorer 'C:\\x\\暫存區'")["targets"], ["C:\\x\\暫存區"])
         self.assertEqual(op('explorer.exe /select,"C:\\x\\a.docx"')["targets"], ["C:\\x\\a.docx"])
         self.assertEqual(op("open /tmp/a.pdf", False)["targets"], ["/tmp/a.pdf"])
         self.assertEqual(op("xdg-open /tmp/a.pdf", False)["kind"], "open")
@@ -464,8 +464,8 @@ class OpenStage(unittest.TestCase):
         try:
             for target, kind in (("https://example.com", "open"), ("mailto:a@b.tw", "open"), ("C:\\x\\a.PDF", "open"),
                                  ("C:\\x\\a.bat", "run"), ("C:\\x\\a.docm", "run"), ("C:\\x\\a.lnk", "run"),
-                                 ("C:\\x\\a.bat:.docx", "run"), ("C:\\x\\夾", "run"), (str(V / "AI 產出"), "open"),
-                                 ("AI 產出", "open"), ("powershell", "run")):
+                                 ("C:\\x\\a.bat:.docx", "run"), ("C:\\x\\夾", "run"), (str(V / "暫存區"), "open"),
+                                 ("暫存區", "open"), ("powershell", "run")):
                 with self.subTest(target=target):
                     self.assertEqual(op(f"Start-Process '{target}'", base=str(V))["kind"], kind)
         finally:

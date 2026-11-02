@@ -1,5 +1,5 @@
 """守門（密碼與守門第 1、4 點；驗收 10、11、12、12b）：只列檔名（D-185）、照 shell 語法拆（D-186）、
-B-022（不帶磁碟代號的路徑）、B-088（工具夾與 plugin 夾不算密碼檔）、AI 產出那條只擋寫（D-186 補）。
+B-022（不帶磁碟代號的路徑）、B-088（工具夾與 plugin 夾不算密碼檔）、暫存區那條只擋寫（D-186 補）。
 拆開之後以前的繞過要照擋：管線後面才寫（| xargs rm、| Remove-Item）、包裝指令、變數。"""
 import os
 import shutil
@@ -18,8 +18,8 @@ class Base(unittest.TestCase):
         cls.out.mkdir()
         (cls.raw / "客戶案件" / "網站密碼.xlsx").write_bytes(b"x")
         (cls.raw / "客戶案件" / "報價.pdf").write_bytes(b"x")
-        (cls.V / "AI 產出" / "a.md").write_text("x", encoding="utf-8")
-        (cls.V / "AI 產出" / "a.docx").write_bytes(b"x")
+        (cls.V / "暫存區" / "a.md").write_text("x", encoding="utf-8")
+        (cls.V / "暫存區" / "a.docx").write_bytes(b"x")
 
     @classmethod
     def tearDownClass(cls):
@@ -163,28 +163,28 @@ class Drive(Base):
 
 
 class OutputShell(Base):
-    """驗收 12b（D-186 補）：AI 產出照語法拆之後只擋寫；非 kb 執行檔的參數、餵給直譯器的 heredoc 照擋。"""
+    """驗收 12b（D-186 補）：暫存區照語法拆之後只擋寫；非 kb 執行檔的參數、餵給直譯器的 heredoc 照擋。"""
 
     def test_reads_and_reports_pass(self):
         v, o = self.V.as_posix(), self.out.as_posix()
-        for tool, cmd in (("Bash", f"cat > \"{o}/r.md\" <<EOF\n成品在 AI 產出\\報價\\x.docx\nEOF"),
-                          ("Bash", f'grep x "{v}/AI 產出/a.md"'), ("Bash", f'cat "{v}/AI 產出/a.md"'),
-                          ("PowerShell", f'Get-Content "{v}/AI 產出/a.md"'), ("Bash", 'ls "AI 產出"'),
-                          ("Bash", f'echo "放在 {v}/AI 產出/a.docx"'), ("PowerShell", f'Test-Path "{v}/AI 產出/a.docx"')):
+        for tool, cmd in (("Bash", f"cat > \"{o}/r.md\" <<EOF\n成品在 暫存區\\報價\\x.docx\nEOF"),
+                          ("Bash", f'grep x "{v}/暫存區/a.md"'), ("Bash", f'cat "{v}/暫存區/a.md"'),
+                          ("PowerShell", f'Get-Content "{v}/暫存區/a.md"'), ("Bash", 'ls "暫存區"'),
+                          ("Bash", f'echo "放在 {v}/暫存區/a.docx"'), ("PowerShell", f'Test-Path "{v}/暫存區/a.docx"')):
             self.assertDecision(tool, cmd, "pass")
 
     def test_executables_and_interpreter_heredoc(self):
-        """放寬甲：AI 產出是使用者區，執行檔、轉檔、新檔導向放行；只有直譯器程式碼的覆蓋寫法與改既有檔內容才擋。"""
+        """放寬甲：暫存區是使用者區，執行檔、轉檔、新檔導向放行；只有直譯器程式碼的覆蓋寫法與改既有檔內容才擋。"""
         v = self.V.as_posix()
-        for tool, cmd in (("Bash", f'node build.js "{v}/AI 產出/x.docx"'), ("Bash", f'python x.py "{v}/AI 產出/a.xlsx"'),
-                          ("Bash", f'soffice --convert-to pdf "{v}/AI 產出/a.docx"'),
-                          ("Bash", f"python - <<EOF\nprint(r'{v}/AI 產出/a.docx')\nEOF"),
-                          ("Bash", f'echo x > "{v}/AI 產出/x.txt"'), ("Bash", f'cp "{v}/AI 產出/a.md" /tmp/b.md'),
-                          ("Bash", 'cd "AI 產出" && node build.js out.docx'), ("Bash", "node build.js AI\\ 產出/新夾/x.docx")):
+        for tool, cmd in (("Bash", f'node build.js "{v}/暫存區/x.docx"'), ("Bash", f'python x.py "{v}/暫存區/a.xlsx"'),
+                          ("Bash", f'soffice --convert-to pdf "{v}/暫存區/a.docx"'),
+                          ("Bash", f"python - <<EOF\nprint(r'{v}/暫存區/a.docx')\nEOF"),
+                          ("Bash", f'echo x > "{v}/暫存區/x.txt"'), ("Bash", f'cp "{v}/暫存區/a.md" /tmp/b.md'),
+                          ("Bash", 'cd "暫存區" && node build.js out.docx'), ("Bash", "node build.js AI\\ 產出/新夾/x.docx")):
             self.assertDecision(tool, cmd, "pass")
-        d = self.assertDecision("Bash", f"python - <<EOF\nopen(r\"{v}\\AI 產出\\x.docx\",\"w\")\nEOF", "deny")
+        d = self.assertDecision("Bash", f"python - <<EOF\nopen(r\"{v}\\暫存區\\x.docx\",\"w\")\nEOF", "deny")
         self.assertEqual(d.reason_code, "code")
-        d = self.assertDecision("Bash", f'echo x > "{v}/AI 產出/a.md"', "deny")
+        d = self.assertDecision("Bash", f'echo x > "{v}/暫存區/a.md"', "deny")
         self.assertEqual(d.reason_code, "content")
 
 
@@ -258,8 +258,8 @@ class Round28b(Base):
                           ("Bash", f'uniq "{o}/a.txt" "{v}/系統/x.txt"'), ("Bash", f'xxd -r "{o}/a.hex" "{v}/系統/x.bin"'),
                           ("Bash", f'less -o "{v}/系統/x.txt" "{o}/a.txt"'), ("Bash", f'tree -o "{v}/系統/x.txt" "{o}"')):
             self.assertDecision(tool, cmd, "deny")
-        self.assertDecision("Bash", f'sort -o "{v}/AI 產出/x.txt" "{o}/a.txt"', "pass")  # 放寬甲：新檔
-        d = self.assertDecision("Bash", f'sort -o "{v}/AI 產出/a.md" "{o}/a.txt"', "deny")  # 既有檔：改內容
+        self.assertDecision("Bash", f'sort -o "{v}/暫存區/x.txt" "{o}/a.txt"', "pass")  # 放寬甲：新檔
+        d = self.assertDecision("Bash", f'sort -o "{v}/暫存區/a.md" "{o}/a.txt"', "deny")  # 既有檔：改內容
         self.assertEqual(d.reason_code, "content")
         for cmd in (f'sort -o "{o}/s.txt" "{o}/a.txt"', 'ls 2>&1', 'ls >&2', f'uniq -c "{o}/a.txt"', f'xxd "{o}/a.bin"',
                     'python -c "import copy, json; print(1)"', 'git commit -m "rename x"'):

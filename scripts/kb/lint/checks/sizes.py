@@ -46,7 +46,7 @@ def _walk(root, skip_hidden=True):
 
 def run(ctx):
     out = [runner.finding("sizes", "fix", "clean", "", apply=_clean)]
-    inbox, _bytes = _walk(Path(ctx.vault) / inventory.INBOX)
+    inbox, _bytes = _walk(Path(ctx.vault) / inventory.HOLD)
     _n, total = _walk(ctx.vault, skip_hidden=False)
     out.append(runner.finding("sizes", "number", "sizes", "", data={"inbox": inbox, "vault_bytes": total,
                                                                      "inbox_over": inbox > ctx.config("lint_inbox_max")}))

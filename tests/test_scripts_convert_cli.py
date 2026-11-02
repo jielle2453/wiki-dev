@@ -188,7 +188,7 @@ class Convert(Base):
 
     def test_unregistered_vault_file_uses_fingerprint_name(self):
         """對不到清冊也照轉（總資料夾三區裡的新檔還沒 scan），暫存檔名用指紋前 12 碼，不寫待處理。"""
-        p = self.V / "收件匣" / "新貼文.txt"
+        p = self.V / "暫存區" / "新貼文.txt"
         p.write_text("新的貼文", encoding="utf-8")
         r = self.kb("convert", str(p))
         self.assertEqual(r.returncode, 0, r.stdout)

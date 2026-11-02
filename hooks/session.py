@@ -329,7 +329,19 @@ def line_agenda(vault):
     return "日程：" + "、".join(parts) if parts else None
 
 
-INBOX_LINE = "收件匣：{n} 份沒歸位{oldest}；回答末尾問她要不要一起看，說好再跑 kb asks --all"
+HOLD_LEFT_LINE = ("升級後「AI 產出」還有 {n} 份跟暫存區同名、內容不同：照內容判斷取代或另取名，"
+                  "用 kb source-edit move 搬進暫存區，做完說一聲。")  # 句子歸乙定稿（放寬甲第二輪 13.2）
+
+
+def line_hold_left(vault):
+    """升級把 AI 產出併進暫存區時，同名而內容不同的檔留在 AI 產出（程式不判斷，D-324）：還有就印一行叫 AI 照 D-309 判斷；搬完就沒有了。"""
+    from kb._lib import hold_migrate
+
+    n = hold_migrate.left_count(vault)
+    return HOLD_LEFT_LINE.format(n=n) if n else None
+
+
+INBOX_LINE = "暫存區：{n} 份沒歸位{oldest}；回答末尾問她要不要一起看，說好再跑 kb asks --all"
 INBOX_OLDEST = "、最久 {days} 天"  # 0 天不講（裁定 8）
 
 
@@ -339,7 +351,7 @@ def _inbox_days(vault, files, today):
     from datetime import date
     from kb._lib import inventory
 
-    keys = {inventory.uri_key(inventory.make_uri(inventory.INBOX, f.name)) for f in files}
+    keys = {inventory.uri_key(inventory.make_uri(inventory.HOLD, f.name)) for f in files}
     try:
         entries = inventory.load(vault)["entries"]
     except ValueError:
@@ -366,7 +378,7 @@ def line_inbox(vault):
 
     if line_version(vault):
         return None
-    root = os.path.join(str(vault), inventory.INBOX)
+    root = os.path.join(str(vault), inventory.HOLD)
     if not os.path.isdir(root) or os.path.islink(root):
         return None
     with os.scandir(root) as it:  # 清冊走訪不讀的（. 開頭、~$ 這類、隱藏或系統屬性）不算
@@ -426,7 +438,7 @@ def line_compact(vault, source):
 def status_lines(vault, source, session_id=None):
     """固定順序；每一行各自 try：出錯那行回 None、寫 hook-errors.log，其他行照印（I-046）。kb 行不包，它出錯走整段出錯。"""
     out = [line_kb(vault)]
-    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_card_edits, line_missing_sources, line_profile, line_tags, line_agenda, line_inbox,
+    for fn in (line_version, line_moved, line_changes, lambda v: line_ingest_hint(v, session_id), line_card_edits, line_missing_sources, line_profile, line_hold_left, line_tags, line_agenda, line_inbox,
                line_backup,
                line_health,
                lambda v: line_compact(v, source)):

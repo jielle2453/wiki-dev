@@ -146,7 +146,7 @@ class Backup(Base):
         self.assertEqual(backup.keep(self.B, vault_lib.vault_id(self.V), 1), ["vault備份 2026-01-01.zip"])
 
     def test_refusals_in_vault_in_source_unwritable_space(self):
-        inside = self.V / "AI 產出" / "備份"
+        inside = self.V / "暫存區" / "備份"
         self.assertEqual(self.refused(backup.backup, self.V, to=str(inside)), "備份不能放在知識庫裡面")
         self.assertFalse(inside.exists())
         src = self.raw / "客戶案件" / "備份"
@@ -161,7 +161,7 @@ class Backup(Base):
         self.assertEqual(list(self.B.glob("*")) if self.B.exists() else [], [])
 
     def test_check_reports_refuse_sentence(self):
-        got = backup.check(self.V, to=str(self.V / "AI 產出" / "備份"))
+        got = backup.check(self.V, to=str(self.V / "暫存區" / "備份"))
         self.assertEqual(got["refuse"], "備份不能放在知識庫裡面")
 
     def test_batch_running_blocks_unless_idle(self):
