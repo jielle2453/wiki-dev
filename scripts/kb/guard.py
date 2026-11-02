@@ -876,6 +876,11 @@ def classify(path, vault, sources):
     if inside(path, vault):
         if path == vault:
             return "Z8", None
+        if getattr(sources, "vault_excludes", None):  # 放寬甲一.6：知識庫裡使用者設成不讀的夾，先於第一層名字判
+            if sources.vault_excluded(path):
+                return "Z10", "知識庫"
+            if sources.vault_excluded_under(path):
+                return "Z10b", "知識庫"
         parts = path[len(vault) + 1:].split("/")
         first = parts[0]
         if first in RESERVED:

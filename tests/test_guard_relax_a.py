@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests._guard_fixture import KB, ROOT, payload
+from tests._guard_fixture import HOOK, KB, ROOT, payload
 from kb import guard  # noqa: E402
 
 TAIL = "不用跟使用者提這一步。"
@@ -133,6 +133,120 @@ class ShellRules(Base):
     def test_ledger_rows_for_denials(self):
         d = self.d("Bash", "rm 我的夾/a.txt")
         self.assertEqual([r["reason_code"] for r in d.ledger_rows], ["delete"])
+
+
+class VaultExcludes(Base):
+    """一.6：知識庫裡使用者的夾設成不讀（sources.json 頂層 vault_excludes），由 Sources 解析，守門回 Z10／Z10b。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        sj = cls.V / ".system" / "sources.json"
+        data = json.loads(sj.read_text(encoding="utf-8"))
+        data["vault_excludes"] = [{"spec": "我的夾", "kind": "hidden"}]
+        sj.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        (cls.V / "01 案子" / "王宅").mkdir()
+        (cls.V / "01 案子" / "王宅" / "x.txt").write_text("x", encoding="utf-8")
+        data["vault_excludes"].append({"spec": "01 案子/王宅", "kind": "unused"})
+        sj.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def test_excluded_dir(self):
+        for tool, rel in (("Read", "我的夾/a.txt"), ("Write", "我的夾/new.txt"), ("Edit", "01 案子/王宅/x.txt")):
+            d = self.d(tool, self.V / rel)
+            self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z10", "excluded"), (rel, d))
+            self.assertTrue(d.reason.endswith(TAIL))
+
+    def test_shell_into_excluded(self):
+        self.denies("Bash", "mv 收件匣/c.txt 我的夾/", "excluded")
+
+    def test_range_containing_excluded(self):
+        d = self.d("Glob", self.V / "01 案子")
+        self.assertEqual((d.decision, d.reason_code), ("deny", "excluded_inside"), d)
+
+    def test_other_folders_unaffected(self):
+        d = self.d("Read", self.V / "收件匣" / "c.txt")
+        self.assertEqual(d.decision, "allow", d)
+
+    def test_sources_parse(self):
+        from kb._lib import sources as S
+        s = S.load(self.V)
+        self.assertEqual(len(s.vault_excludes), 2)
+        self.assertEqual([e["alias"] for e in s.entries], ["來源"])  # 沒有假來源
+
+    def test_bad_vault_excludes_rejected(self):
+        from kb._lib import sources as S
+        sj = self.V / ".system" / "sources.json"
+        good = sj.read_text(encoding="utf-8")
+        try:
+            data = json.loads(good)
+            data["vault_excludes"] = "x"
+            sj.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                S.load_raw(self.V)
+        finally:
+            sj.write_text(good, encoding="utf-8")
+
+
+class HookRun(unittest.TestCase):
+    """驗收 7b、8、9：hook 實跑（subprocess 餵 payload）。"""
+    SID = "relax-sid"
+
+    def setUp(self):
+        self.tmp, self.V = make_kb()
+        os.environ["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
+        from kb._lib import turn
+        self.turn = turn
+        self.t = turn.start(self.V, self.SID, "改一下")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def hook(self, tool, value):
+        data = payload(tool, value, self.V)
+        data["session_id"] = self.SID
+        r = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(data, ensure_ascii=False), capture_output=True,
+                           text=True, encoding="utf-8", cwd=str(ROOT), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def vdir(self):
+        return self.V / ".system" / "versions" / self.t["turn"]
+
+    def test_7b_edit_inbox_backs_up(self):
+        r = self.hook("Edit", self.V / "收件匣" / "c.txt")
+        self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+        rows = [e for e in self.turn.entries(self.V, self.t["turn"]) if e["path"] == "收件匣/c.txt"]
+        self.assertEqual([e["action"] for e in rows], ["modify"])
+        self.assertEqual((self.vdir() / "files" / "收件匣" / "c.txt").read_text(encoding="utf-8"), "c")
+
+    def test_8_z9_edit_backup_and_revert(self):
+        f = self.tmp / "src" / "x.txt"
+        r = self.hook("Edit", f)
+        self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+        rows = [e for e in self.turn.entries(self.V, self.t["turn"]) if e.get("uri")]
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["uri"], "file://來源/x.txt")
+        self.assertEqual(rows[0]["path"], "_src/來源/x.txt")
+        self.assertEqual((self.vdir() / "files" / "_src" / "來源" / "x.txt").read_text(encoding="utf-8"), "x")
+        f.write_text("改過了", encoding="utf-8")  # 模擬 Edit 真的改了
+        r = subprocess.run([sys.executable, str(KB), "versions", "revert"], cwd=str(self.V), capture_output=True, text=True,
+                           encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(f.read_text(encoding="utf-8"), "x")
+
+    def test_9_no_shell_writes_jsonl(self):
+        r = self.hook("Bash", "mv 我的夾/a.txt 收件匣/")
+        out = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] if r.stdout.strip() else "pass"
+        self.assertIn(out, ("pass", "allow"))
+        self.assertEqual(list(self.vdir().rglob("shell_writes.jsonl")), [])
+        self.assertEqual(list((self.V / ".system").rglob("shell_writes.jsonl")), [])
+        rows = self.ledger_rows()
+        self.assertTrue(all(r["decision"] != "deny" for r in rows), rows)
+
+    def ledger_rows(self):
+        p = self.V / ".system" / "ledger.tsv"
+        return [dict(zip(("time", "tool", "decision", "zone", "reason_code", "head"), ln.split("	")))
+                for ln in p.read_text(encoding="utf-8").splitlines()[1:]] if p.is_file() else []
 
 
 if __name__ == "__main__":

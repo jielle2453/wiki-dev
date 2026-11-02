@@ -15,6 +15,7 @@ from kb._lib.paths import inside, normalize, resolve_spec
 
 SOURCES_REL = ".system/sources.json"
 # 檔案索引/<來源別名>/ 保留給知識庫自身、AI 產出、收件匣三個來源（D-042）；彈性區的名字也不能當別名（D-511）
+VAULT_ALIAS = "知識庫"
 RESERVED_ALIASES = ("知識庫", "AI 產出", "收件匣", FREE_DIR)
 
 
@@ -23,6 +24,7 @@ class Sources:
         self.vault = normalize(vault, None)
         self.entries = []
         self.unresolved = []  # [{"alias", "spec", "id", "kind"}]，kind 是 source｜exclude（清冊審閱裁定 2）
+        self.vault_excludes = []  # 知識庫裡使用者的夾設成不讀（放寬甲一.6）：sources.json 頂層 vault_excludes，spec 相對知識庫根
         if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
             raise ValueError(f"{SOURCES_REL} 格式不對：要有 sources 清單")
         for s in data["sources"]:
@@ -40,6 +42,21 @@ class Sources:
                 excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
                                  "spec": ex.get("spec", ""), "purge": ex.get("purge")})
             self.entries.append({"id": src_id, "alias": alias, "root": root, "excludes": excludes})
+        for ex in data.get("vault_excludes", []) or []:
+            ex_root = resolve_spec(ex.get("spec", ""), self.vault) if ex.get("spec") else None
+            if ex_root is None:
+                self.unresolved.append({"alias": VAULT_ALIAS, "spec": ex.get("spec", ""), "id": "", "kind": "exclude"})
+                continue
+            self.vault_excludes.append({"root": ex_root, "kind": ex.get("kind", "hidden"), "reason": ex.get("reason", ""),
+                                        "spec": ex.get("spec", ""), "purge": ex.get("purge")})
+
+    def vault_excluded(self, path):
+        """path（已 normalize、在知識庫裡）在知識庫的不讀夾底下嗎。"""
+        return any(inside(path, ex["root"]) for ex in self.vault_excludes)
+
+    def vault_excluded_under(self, path):
+        """path 底下（含自己）有知識庫的不讀夾嗎（Z10b）。"""
+        return any(inside(ex["root"], path) for ex in self.vault_excludes)
 
     def lookup(self, path):
         """path 要先 normalize。回 ("excluded"|"registered"|None, source)；排除贏。"""
@@ -79,6 +96,9 @@ def load_raw(vault):
             raise ValueError(f"{SOURCES_REL} 格式不對：第 {i} 筆來源的 excludes 不是清單")
         if any(not isinstance(ex, dict) for ex in excludes or []):
             raise ValueError(f"{SOURCES_REL} 格式不對：第 {i} 筆來源的排除有一條不是物件")
+    vex = data.get("vault_excludes")
+    if vex is not None and (not isinstance(vex, list) or any(not isinstance(ex, dict) for ex in vex)):
+        raise ValueError(f"{SOURCES_REL} 格式不對：vault_excludes 要是物件的清單")
     return data
 
 
