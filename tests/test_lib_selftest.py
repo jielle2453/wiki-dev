@@ -204,7 +204,7 @@ class Unit(unittest.TestCase):
         self.assertEqual(self.st.where_in('  File "D:\\別處\\y.py", line 2, in f\n', root), (None, None))
 
     def test_guard_error_reason_is_read_from_that_copy(self):
-        self.assertEqual(self.st.guard_error_reason(ROOT), "守門出錯，這次不放行。說「檢查」我看原因")
+        self.assertEqual(self.st.guard_error_reason(ROOT), "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。")
 
     def test_why_has_no_absolute_paths(self):
         why = self.st.clean_why("FileNotFoundError: C:\\Users\\某人\\x.py 和 /tmp/y 都不在")
