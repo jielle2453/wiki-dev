@@ -210,17 +210,18 @@ class RenderIndex(Vault):
         broken = self.V / "檔案索引" / "客戶案件" / "壞卡-00000000.md"
         shutil.copy2(FIX / "檔頭壞了-00000000.md", broken)
         self.assertEqual(cards.render_index(self.V), 4)
-        body = self.index()[5:]
+        lines = self.index()
+        body = lines[lines.index("## 檔案") + 2:]
         self.assertEqual(body, [
             "- 客戶案件",
             "  - 大安陳",
-            f"    - [大安陳 會議(一)](檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
-            "  - [壞卡-00000000](檔案索引/客戶案件/壞卡-00000000.md)",
-            f"  - [空檔](檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
+            f"    - 📘 [大安陳 會議(一)](檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
+            "  - 📄 [壞卡-00000000](檔案索引/客戶案件/壞卡-00000000.md)",
+            f"  - 📄 [空檔](檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
             "- 知識庫",
             "  - 案子",
             "    - 信義王",
-            f"      - [信義王合約\\[正本\\]](檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
+            f"      - 📘 [信義王合約\\[正本\\]](檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
             f"{pick['file://知識庫/案子/信義王/合約.docx']['id'][2:]}.md)",
             "",
             "共 4 張卡",
@@ -507,6 +508,50 @@ class AfterTest(Vault):
         pid = self.todo()["missing"][0]["pending_id"]
         pending.resolve(self.V, pid, "先留著", turn.start(self.V, None, "")["turn"])
         self.assertEqual(self.todo()["missing"], [])
+
+
+class IndexSections(unittest.TestCase):
+    """放寬丙 8（驗收 21）：總目錄分「摘要」「檔案」兩節；檔案那節葉子前面有種類圖示；index_icons、index_order 可以改。"""
+
+    def setUp(self):
+        from tests import _entities
+        self.E = _entities
+        self.tmp, self.V, self.raw = _entities.make_entity_vault(with_entities=True)
+        self.E.write_card(self.V, self.E.QUOTE, "信義王報價", ["信義王"])  # pdf
+        self.E.write_card(self.V, self.E.CONTRACT, "信義王合約", ["信義王"])  # docx
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def text(self):
+        cards.render_index(self.V)
+        return (self.V / "總目錄.md").read_text(encoding="utf-8")
+
+    def config(self, **kw):
+        (self.V / ".system" / "config.json").write_text(json.dumps(kw), encoding="utf-8")
+
+    def test_two_sections_with_icons(self):
+        text = self.text()
+        self.assertLess(text.index("## 摘要"), text.index("## 檔案"))
+        summary = text[text.index("## 摘要"):text.index("## 檔案")]
+        self.assertIn("- 案子\n  - [信義王](案子/信義王/信義王.md)", summary)
+        self.assertIn("  - [大安陳](案子/大安陳/大安陳.md)", summary)
+        files = text[text.index("## 檔案"):]
+        self.assertRegex(files, r"- 📕 \[信義王報價\]")
+        self.assertRegex(files, r"- 📘 \[信義王合約\]")
+
+    def test_icons_off_and_files_first(self):
+        self.config(index_icons=False, index_order="files_first")
+        text = self.text()
+        self.assertLess(text.index("## 檔案"), text.index("## 摘要"))
+        for mark in ("📕", "📘", "📗", "📙", "🖼️", "📄"):
+            self.assertNotIn(mark, text)
+        self.assertIn("- [信義王報價](", text)
+
+    def test_icon_table(self):
+        got = {n: cards.icon_of(n) for n in ("a.PDF", "a.docx", "a.xls", "a.csv", "a.pptx", "a.JPG", "a.txt", "noext")}
+        self.assertEqual(got, {"a.PDF": "📕", "a.docx": "📘", "a.xls": "📗", "a.csv": "📗", "a.pptx": "📙",
+                               "a.JPG": "🖼️", "a.txt": "📄", "noext": "📄"})
 
 
 class TemplateTwo(unittest.TestCase):

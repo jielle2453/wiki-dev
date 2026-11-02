@@ -166,6 +166,32 @@ class Convert(Base):
         self.assertEqual(r.returncode, 0)
         self.assertIn("轉換結果是空的", r.stdout.splitlines())
 
+    MID = "中檔：照 carding.md 加「各部分在哪」"
+
+    def cfg(self, **kw):
+        (self.V / ".system" / "config.json").write_text(json.dumps(kw), encoding="utf-8")
+
+    def test_mid_hint_by_chars(self):
+        """放寬丙 10（驗收 23）：沒到大檔、字數 >= card_section_map_min_chars 印中檔那行；沒到不印；到大檔只印大檔。"""
+        uri = "file://" + _cards.MEETING
+        self.assertNotIn(self.MID, self.kb("convert", uri).stdout.splitlines())
+        self.cfg(card_section_map_min_chars=5)
+        self.assertIn(self.MID, self.kb("convert", uri).stdout.splitlines())
+        self.cfg(card_section_map_min_chars=5, card_source_big_chars=10)
+        lines = self.kb("convert", uri).stdout.splitlines()
+        self.assertIn("大檔：照 carding.md 摘要加定位", lines)
+        self.assertNotIn(self.MID, lines)
+
+    @unittest.skipUnless(has_pdfium(), "沒裝 pypdfium2")
+    def test_mid_hint_by_pdf_pages(self):
+        """2 頁的 PDF：預設（10 頁）沒有中檔那行；card_section_map_min_pages 設 2 就有；設 3 又沒有。"""
+        p = self.pdf()
+        self.assertNotIn(self.MID, self.kb("convert", str(p)).stdout.splitlines())
+        self.cfg(card_section_map_min_pages=2)
+        self.assertIn(self.MID, self.kb("convert", str(p)).stdout.splitlines())
+        self.cfg(card_section_map_min_pages=3)
+        self.assertNotIn(self.MID, self.kb("convert", str(p)).stdout.splitlines())
+
     def test_big_hint(self):
         (self.V / ".system" / "config.json").write_text('{"card_source_big_chars": 10}', encoding="utf-8")
         r = self.kb("convert", "file://" + _cards.MEETING)

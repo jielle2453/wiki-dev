@@ -327,7 +327,7 @@ class Index(Base):
         _cards.write_card(self.V, pick["file://客戶案件/內湖李/估價單.pdf"], "內湖李估價單")
         self.assertEqual(self.kb("cards", "index").stdout.strip(), "總目錄：3 張卡")
         lines = (self.V / "總目錄.md").read_text(encoding="utf-8").splitlines()
-        self.assertIn("    - [大安陳 會議](檔案索引/客戶案件/大安陳/大安陳%20會議-"
+        self.assertIn("    - 📘 [大安陳 會議](檔案索引/客戶案件/大安陳/大安陳%20會議-"
                       f"{pick['file://' + _cards.MEETING]['id'][2:]}.md)", lines)
         self.assertEqual(lines[-1], "共 3 張卡")
         meeting = _cards.card_path(self.V, pick["file://" + _cards.MEETING], "大安陳 會議")

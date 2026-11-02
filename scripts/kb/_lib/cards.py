@@ -45,6 +45,11 @@ INDEX_HEAD = ("# 總目錄\n"
               "怎麼用：可以摺疊；找不到的就問我。\n"
               "由程式產生，改了會被覆蓋。\n")
 INDEX_EMPTY = "還沒有卡；加資料夾後說「整理」就會有。"
+INDEX_NO_SUMMARY = "還沒有綜合卡。"
+# 總目錄「檔案」那節葉子前面的種類圖示（放寬丙 8，D-313）：副檔名 → 圖示，認不得的用 DEFAULT_ICON；設定值 index_icons 設 false 就不印
+INDEX_ICONS = (((".pdf",), "📕"), ((".doc", ".docx"), "📘"), ((".xls", ".xlsx", ".csv"), "📗"), ((".ppt", ".pptx"), "📙"),
+               ((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".heic", ".tif", ".tiff"), "🖼️"))
+DEFAULT_ICON = "📄"
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # 總目錄連結目標要編碼的字（實作疑義裁定 3）；% 先編，中文照原樣
@@ -1309,21 +1314,62 @@ def render_index(vault, turn_id=None):
         return _render_index(vault, turn_id)
 
 
+def icon_of(name):
+    """原檔名的種類圖示（放寬丙 8，D-313）；沒有副檔名、認不得的用 📄。"""
+    ext = os.path.splitext(str(name).lower())[1]
+    for exts, mark in INDEX_ICONS:
+        if ext in exts:
+            return mark
+    return DEFAULT_ICON
+
+
+def _summary_lines(vault):
+    """## 摘要：照型別表順序，每個型別一個子清單，列 active 實體連到它的綜合卡（有綜合卡的才列）。實體清單讀不到就空的。"""
+    from kb._lib import entities
+    try:
+        data = entities.load(vault)
+    except ValueError:
+        return []
+    prof, _missing = _profile_or_default(vault)
+    by_type = {}
+    for e in data["entities"]:
+        if e.get("status") != "active" or entities.is_self(e) or not e.get("type"):
+            continue
+        by_type.setdefault(entities.key(e["type"]), []).append(e)
+    out = []
+    for t in prof.get("types") or []:
+        rows = []
+        for e in sorted(by_type.get(entities.key(t["name"]), []), key=lambda x: x["name"]):
+            loc = entities.locate(vault, e)
+            if loc:
+                rows.append(f"  - [{_link_text(e['name'])}]({_link_target(loc)})")
+        if rows:
+            out += [f"- {_link_text(t['name'])}"] + rows
+    return out
+
+
 def _render_index(vault, turn_id):
     tree = {}
     count = 0
+    icons = config.get(vault, "index_icons")
     for rel in _walk_cards(vault):
         parts = rel.split("/")[1:]
         node = tree
         for folder in parts[:-1]:
             node = node.setdefault(("d", folder), {})
+        mark = ""
         try:
-            title = parse_front(_read(vault, rel)).get("標題")
+            front = parse_front(_read(vault, rel))
+            title = front.get("標題")
+            first = (front.get("原檔") or [""])[0] if isinstance(front.get("原檔"), list) else ""
+            if icons:
+                mark = icon_of(first) + " "
         except (ValueError, OSError, UnicodeDecodeError):
             title = None
+            mark = (DEFAULT_ICON + " ") if icons else ""
         if not _filled(title):
             title = parts[-1][:-3]
-        node[("c", parts[-1])] = (title, rel)
+        node[("c", parts[-1])] = (title, rel, mark)
         count += 1
     lines = []
 
@@ -1334,11 +1380,15 @@ def _render_index(vault, turn_id):
                 lines.append(f"{pad}- {_link_text(key[1])}")
                 emit(node[key], depth + 1)
             else:
-                title, rel = node[key]
-                lines.append(f"{pad}- [{_link_text(title)}]({_link_target(rel)})")
+                title, rel, mark = node[key]
+                lines.append(f"{pad}- {mark}[{_link_text(title)}]({_link_target(rel)})")
     emit(tree, 0)
-    body = "\n".join(lines) if lines else INDEX_EMPTY
-    text = f"{INDEX_HEAD}\n{body}\n\n共 {count} 張卡\n"
+    summary = "\n".join(_summary_lines(vault)) or INDEX_NO_SUMMARY
+    files = "\n".join(lines) if lines else INDEX_EMPTY
+    sections = [f"## 摘要\n\n{summary}", f"## 檔案\n\n{files}"]
+    if config.get(vault, "index_order") == "files_first":
+        sections.reverse()
+    text = f"{INDEX_HEAD}\n" + "\n\n".join(sections) + f"\n\n共 {count} 張卡\n"
     from kb._lib import renders
     if renders.keep_only(vault, INDEX_POSIX) == renders.KEEP_FAILED:  # 她手改過：留她那份（D-223，總目錄只存不問），照樣重寫
         return count  # 她那份沒存成就不蓋掉（測試 T-10）
