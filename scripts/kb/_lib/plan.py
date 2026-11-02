@@ -41,7 +41,6 @@ DATE_RULE = "YYYY-MM-DD"
 AGENDA_RECHECK = "agenda_recheck"
 AGENDA_UNSCANNED = "agenda_unscanned"
 PURGE_STEPS = ("purge_synthesis", "purge")
-PURGE_NO_CMD = "夾名同時有 $ 或反引號和單引號，清殘留的指令給不出來；請她先在檔案總管改夾名，再說一次不想讓 AI 看到"
 DISPATCH = "kb cards dispatch --json"
 RESUME = "resume"
 RESUME_NOTE = "這個對話說過停：客戶說「整理」「繼續整理」才跑 do 接著做；沒說就不做，照常回答"
@@ -249,9 +248,7 @@ def _purge_steps(out):
         steps.append(_step("purge_synthesis", len(rewrite), "照清單重寫綜合卡，拿掉那夾的卡的內容（purge_pending）",
                            _synthesis_rules()))
     for p in pend:
-        arg = shell_arg(p["name"])
-        steps.append(_step("purge", 1, f"kb folders purge {arg}", None) if arg is not None else
-                     _step("purge", 1, None, None, note=PURGE_NO_CMD))
+        steps.append(_step("purge", 1, f"kb folders purge {path_arg(p['name'])}", None))
     return steps
 
 
@@ -261,7 +258,7 @@ def _fill(name, rule):
     return {"name": name, "rule": rule}
 
 
-NO_CMD_NOTE = "名字裡有引號一類的特殊符號，指令給不出來；請她先在檔案總管改名，或照這個結果用白話說給她聽"
+NO_CMD_NOTE = "名字裡有引號一類的特殊符號，指令給不出來：路徑改用 file:// 加 %22、%24、%60、%5C、%25 編碼的 uri 寫法；其他照這個結果用白話說給使用者聽"
 
 
 def _result(label, do=(), strict=False, fill=(), **extra):

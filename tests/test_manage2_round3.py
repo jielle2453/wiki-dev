@@ -41,8 +41,7 @@ class CurlyQuotes(Base):
 
     def test_purge_step_note_for_curly(self):
         steps = plan._purge_steps({"purge_pending": [{"name": "客戶案件/x\u201d; y", "synthesis": []}]})
-        self.assertIsNone(steps[0]["do"])
-        self.assertIn("改夾名", steps[0]["note"])
+        self.assertIn("file://客戶案件/x%E2%80%9D; y", steps[0]["do"])  # 放寬甲：改給 % 編碼的 uri
 
 
 # ---------- 第 2 條：遮罩不看左邊界 ----------
@@ -192,7 +191,7 @@ class Others(Base):
         bad = next(a for a in asks if "Joe" in a["id"])
         drop = next(r for r in bad["results"] if r["label"] == "不要了")
         self.assertEqual(drop["do"], [])
-        self.assertIn("改名", drop["note"])
+        self.assertIn("file://", drop["note"])  # 放寬甲：NO_CMD_NOTE 改說 uri 寫法
         self.assertIsNone(plan.cmd("output", "drop-draft", "a'$b"))
 
     def test_device_names(self):

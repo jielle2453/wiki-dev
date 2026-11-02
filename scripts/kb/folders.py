@@ -326,15 +326,12 @@ def _removed_lines(result):
 
 
 def purge_cmd(name):
-    """給 AI 跑的那一行（$、反引號用單引號）；給不出來回 None（第一輪修）。"""
-    arg = plan.shell_arg(name)
-    return f"kb folders purge {arg}" if arg is not None else None
+    """給 AI 跑的那一行（$、反引號用單引號；引號配不起來的改給 % 編碼的 uri，放寬甲）。"""
+    return f"kb folders purge {plan.path_arg(name)}"
 
 
 def _left_line(got, name):
-    cmd = purge_cmd(name)
-    return PURGE_AGAIN.format(left=purge.remaining_text(got["remaining"]), cmd=cmd) if cmd else \
-        purge.remaining_text(got["remaining"]) + "；" + plan.PURGE_NO_CMD
+    return PURGE_AGAIN.format(left=purge.remaining_text(got["remaining"]), cmd=purge_cmd(name))
 
 
 def _obsidian_line(cleared):
@@ -545,7 +542,7 @@ def _exclude(vault, args, as_json):
     if rewrite:
         what = f"拿掉「{titles[0]}」等 {len(titles)} 張卡的內容" if titles else "拿掉那夾的內容"
         cmd = purge_cmd(name)
-        print(f"接著要重寫的綜合卡：{'、'.join(rewrite)}（{what}），" + (f"寫完跑 {cmd}" if cmd else plan.PURGE_NO_CMD))
+        print(f"接著要重寫的綜合卡：{'、'.join(rewrite)}（{what}），" + f"寫完跑 {cmd}")
     elif purged is not None and purged["remaining"]:
         print(_left_line(purged, name))
         if purged.get("undecodable"):

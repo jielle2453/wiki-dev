@@ -207,8 +207,9 @@ class Quoting(Base):
         out = {"purge_pending": [{"name": "客戶案件/Q3$(x)", "synthesis": []}, {"name": "客戶案件/a$'b", "synthesis": []}]}
         steps = plan._purge_steps(out)
         self.assertEqual(steps[0]["do"], "kb folders purge '客戶案件/Q3$(x)'")
-        self.assertIsNone(steps[1]["do"])
-        self.assertIn("改夾名", steps[1]["note"])
+        # 放寬甲：引號配不起來的名字改給 % 編碼的 uri，不再叫使用者改夾名
+        self.assertTrue(steps[1]["do"].startswith("kb folders purge "))
+        self.assertIn("file://客戶案件/a%24'b", steps[1]["do"])
 
     def test_other_disk_odd_name_still_plans(self):
         """放寬甲：不同顆硬碟不再拒絕（不用給開夾指令），夾名有 $ 也照做。"""
