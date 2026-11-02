@@ -3,14 +3,14 @@
 state（只讀，開場與 kb moved 共用）：env.json 這台電腦記的 vault_path 跟現在一樣是 same、不一樣是 moved；這台沒記、但別台有紀錄是 new_machine；
 都沒有是 first（第一次，位置記下當沒換過）。
 check：moved、new_machine 時算要補什麼（不寫）：(a) 相對位置的來源 spec 在新位置展開找不到、照舊位置展開找得到的，改寫成新位置的 spec（compress_spec）；
-(b) 檔案卡的「開原檔」跟現在算的不一樣的重寫（cards.sync 的本事）；(c) 這台找不到的來源；(d) 舊位置還有知識庫、vault.json 編號一樣的 old_copy；
+(b) 檔案卡的「開原檔」是外掛連結只帶編號（放寬丙 9，D-328），換位置不用重寫卡，cards_relinked 固定 0；(c) 這台找不到的來源；(d) 舊位置還有知識庫、vault.json 編號一樣的 old_copy；
 (e) new_machine 時多回 env（kb build env 那支，不是 ok 的）與 unlock.json 用到、這台憑證管理員沒有的密碼名稱。
 apply：做 (a)(b)，總目錄與受影響的綜合卡快取重寫，最後寫 vault_path；改檔前備進回合（退回救得回）。same、first 只記位置。
 """
 import os
 from pathlib import Path
 
-from kb._lib import cards, config, env, obsidian, paths, turn
+from kb._lib import config, env, obsidian, paths, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb._lib import vault as vault_lib
@@ -137,14 +137,6 @@ def _env_problems(vault):
     return [i for i in items if i.get("level") != "ok"]
 
 
-def _relinks(vault, raw):
-    """換好 spec 之後有幾張卡的開原檔要重寫（cards.todo 的 moved）。算不出來當 0。"""
-    try:
-        return len(cards.todo(vault, sources_lib.Sources(vault, raw))["moved"])
-    except (ValueError, OSError):
-        return 0
-
-
 def check(vault):
     """要補什麼（只讀）：{"state","from","to","sources_rewritten","cards_relinked","missing_sources","old_copy","env","passwords_missing","obsidian_reopen"}。"""
     st = state(vault)
@@ -159,7 +151,6 @@ def check(vault):
         s["spec"] = new_spec  # 只改記憶體裡的 raw，下面算完就丟
     out["sources_rewritten"] = [s.get("alias", "") for s, _spec in plan]
     out["missing_sources"] = _missing(vault, raw)
-    out["cards_relinked"] = _relinks(vault, raw)
     out["old_copy"] = _old_copy(vault, bases)
     # Obsidian（#22）：她用過 Obsidian（知識庫裡有 .obsidian/）而新位置 Obsidian 還沒登記：要重新打開（kb obsidian open）
     out["obsidian_reopen"] = (Path(vault) / ".obsidian").is_dir() and not obsidian.vault_registered(vault)
@@ -170,7 +161,7 @@ def check(vault):
 
 
 def apply(vault, turn_id):
-    """補好：回 check 的結果（cards_relinked 是真的重寫張數），多 "changed"（給工作日誌的程式段）。same、first 只記位置。"""
+    """補好：回 check 的結果，多 "changed"（給工作日誌的程式段）。same、first 只記位置。"""
     st = state(vault)
     try:
         vault_lib.ensure_vault_id(vault)  # 沒有編號的舊知識庫第一次跑時補（密碼與守門的公開函式）；壞檔不覆寫、不擋這次
@@ -191,13 +182,6 @@ def apply(vault, turn_id):
             turn.backup(vault, sources_lib.SOURCES_REL, turn_id)
             kio.write_json_atomic(sources_path, raw)
             changed.append({"path": sources_lib.SOURCES_REL, "action": "modify"})
-    got = cards.sync(vault, sources_lib.load(vault), turn_id)
-    changed += got["changed"]
-    if got["moved"] or got["updated"] or got["dropped"]:
-        cards.render_index(vault, turn_id)
-        changed.append({"path": cards.INDEX_POSIX, "action": "modify"})
-        changed += [{"path": rel, "action": "modify"} for rel in cards.refresh_synthesis(vault, got["touched"], turn_id)]
-    out["cards_relinked"] = len(got["moved"]) + len(got["updated"])
     env.set_vault_path(vault, st["to"])
     out["changed"] = changed
     return out

@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import unittest
+from datetime import date
 from pathlib import Path
 
 from tests import _cards
@@ -241,7 +242,8 @@ class Drift(Base):
         elif how == "moved_unknown_type":
             (V / "廠商").mkdir()
             shutil.move(str(v / "信義王"), str(V / "廠商" / "信義王"))
-        elif how == "missing":
+        elif how == "missing":  # 放寬丙 6-1：進行中、最近還在用、沒有線索的才出這一題，其他交 AI 判斷
+            E.write_card(V, E.QUOTE, "信義王報價", ["信義王"], date=date.today().isoformat())
             shutil.rmtree(v / "信義王")
         return V
 

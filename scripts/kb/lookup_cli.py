@@ -13,11 +13,12 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 def _marks(c):
     out = "〔要重做〕" if c["redo"] else ("〔原檔改過〕" if c["stale"] else "")
-    return out + ("〔你說別信〕" if c["ruled_out"] else "")
+    return out + ("〔你說別信〕" if c["ruled_out"] else "") + ("〔已封存〕" if c.get("archived") else "")
 
 
 def add_arguments(sub):
-    sub.add_argument("name", help="實體名稱或別名（沒登記也可以，會列提到它的卡）")
+    sub.add_argument("name", nargs="?", default="", help="實體名稱或別名（沒登記也可以，會列提到它的卡）")
+    sub.add_argument("--id", help="清冊編號 f-…：只查這份原檔在這台的位置（Obsidian 外掛的開原檔連結用），回 open 與卡的路徑")
     sub.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -48,9 +49,7 @@ def _summary(got):
                              ("agenda", "日程", "條")):
         if got[key]:
             parts.append(f"{label} {len(got[key])} {unit}")
-    line = f"{e['name']}（{_kind(e)}）：" + "、".join(parts)
-    if got["unsorted"]:
-        line += f"；還沒整理 {got['unsorted']} 份"
+    line = f"{e['name']}（{_kind(e)}{'，已封存' if got.get('archived') else ''}）：" + "、".join(parts)
     return line
 
 
@@ -61,10 +60,9 @@ def _card_line(c):
 
 def _lines(got):
     if got["entity"] is None:
-        tail = f"；還沒整理 {got['unsorted']} 份" if got["unsorted"] else ""
         if not got["mentions"]:
-            return [lookup_lib.NOTHING + tail]
-        out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它{tail}"]
+            return [lookup_lib.NOTHING]
+        out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它"]
         out += [f"- {m['title']}（{m['where']}）" for m in got["mentions"]]
         if got["mentions_total"] > len(got["mentions"]):
             out.append(f"……還有 {got['mentions_total'] - len(got['mentions'])} 張")
@@ -102,10 +100,36 @@ def _lines(got):
     return out
 
 
+def _by_id(vault, args):
+    """--id：{"id","open","card_path"}。open 同首頁的 open 物件（path 絕對路徑正斜線｜url｜None 在這台找不到），只讀。"""
+    from kb._lib import cards, home, inventory
+    from kb._lib import sources as sources_lib
+    fid = args.id.strip()
+    entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == fid and e.get("status") == "active"), None)
+    group = cards._scan_groups(vault)[0].get(fid)
+    got = {"id": fid, "open": home._open_target(vault, sources_lib.load(vault), entry) if entry else None,
+           "card_path": group[0]["path"] if group else None}
+    if getattr(args, "json", False):
+        print(json.dumps(got, ensure_ascii=False))
+    else:
+        target = got["open"] or {}
+        print(target.get("path") or target.get("url") or "這台電腦找不到這份原檔")
+    return 0
+
+
 def run(args):
     vault = find_vault(args)
     if vault is None:
         print(NOT_IN_VAULT)
+        return 3
+    if getattr(args, "id", None):
+        try:
+            return _by_id(vault, args)
+        except ValueError as e:
+            print(f"狀態檔讀不到：{e}")
+            return 3
+    if not args.name.strip():
+        print("要給實體名稱，或用 --id 查一份原檔的位置")
         return 3
     try:
         got = lookup_lib.lookup(vault, args.name.strip())

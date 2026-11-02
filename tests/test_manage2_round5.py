@@ -136,4 +136,4 @@ class Sentences(Base):
         shutil.copytree(self.raw / "客戶案件", new)
         code, out = kb("folders", "relocate", "客戶案件", str(new), "--vault", str(self.V))
         self.assertEqual(code, 0, out)
-        self.assertIn("；卡的原檔連結更新了 1 張；", out.splitlines()[0])
+        self.assertNotIn("卡的原檔連結", out.splitlines()[0])  # 放寬丙 9：開原檔是外掛連結，換位置不重寫卡

@@ -1365,7 +1365,7 @@ test('便條（裁定 37）：停手約 1.5 秒存回那一頁（連打只存最
     assert.deepStrictEqual(writes, [], '沒滿 1.5 秒不存');
     mock.timers.tick(1);
     await tickNote();
-    assert.deepStrictEqual(made, ['_extras'], '彈性區的夾沒有就先建');
+    assert.deepStrictEqual(made, ['_個人'], '彈性區的夾沒有就先建');
     assert.deepStrictEqual(writes, [[lib.NOTE_REL, '第一行']], '一次、最後的字、原樣（沒有時間戳、沒有檔頭）');
     assert.strictEqual(plugin.ui.note.dirty, false);
     assert.strictEqual(plugin.ui.note.saved, '第一行');
@@ -1387,7 +1387,7 @@ test('便條（裁定 37）：沒變就不存；打了又改回原樣不存；�
   const { mock } = test;
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const { plugin, writes, store, made } = makeNotePlugin({ [lib.NOTE_REL]: '舊的\n' }, ['_extras']);
+    const { plugin, writes, store, made } = makeNotePlugin({ [lib.NOTE_REL]: '舊的\n' }, ['_個人']);
     await plugin.readNote();
     plugin.noteEdited('舊的\n');
     plugin.noteEdited('舊的\n加一行');
@@ -1414,7 +1414,7 @@ test('便條（裁定 37）：沒變就不存；打了又改回原樣不存；�
 });
 
 test('便條（裁定 37）：存不成就提示、字留著還沒存，之後再存；存的時候她又打了字不會被當成存好', async () => {
-  const { plugin, adapter, writes, toasts } = makeNotePlugin({}, ['_extras']);
+  const { plugin, adapter, writes, toasts } = makeNotePlugin({}, ['_個人']);
   const origError = console.error;
   console.error = () => {};
   try {
@@ -1445,7 +1445,7 @@ test('便條（裁定 37）：離開首頁（view 關掉）與外掛卸載都先
   const { view } = viewOf(null, { flushNote: () => { flushed += 1; } });
   await view.onClose();
   assert.strictEqual(flushed, 1);
-  const { plugin, writes } = makeNotePlugin({}, ['_extras']);
+  const { plugin, writes } = makeNotePlugin({}, ['_個人']);
   plugin.noteEdited('卸載前的字');
   plugin.onunload();
   await tickNote();
@@ -1473,7 +1473,7 @@ test('便條（裁定 39）：移到右上角、跟日期問候同一排；標�
   const title = byClass(view.noteEl, 'wwh-note-title')[0];
   assert.strictEqual(title.textContent, '隨手記');
   title.fire('click');
-  assert.deepStrictEqual(opened, ['_extras/隨手記.md']);
+  assert.deepStrictEqual(opened, ['_個人/隨手記.md']);
   assert.strictEqual(flushed.length, 1, '開頁前先把打到一半的存下來');
   assert.match(CSS, /\.wwh-note \{[^}]*width: 240px/, '約 240px 寬');
   assert.match(CSS, /\.wwh-note \.wwh-note-text:hover,[^{]*\.wwh-note-text:focus,[^{]*\{[^}]*background: transparent/, 'hover、focus 不變白（蓋掉 Obsidian 的底色）');

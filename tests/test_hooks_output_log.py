@@ -547,7 +547,8 @@ class EntitiesUnreadable(unittest.TestCase):
         text = self.E.with_entities(_cards.card_text(item, "信義王報價"), ["信義王"])
         synthesis = self.V / "案子" / "信義王" / "信義王.md"
         synthesis_text = synthesis.read_text(encoding="utf-8")
-        (self.V / ".system" / "entities.json").write_text("{bad", encoding="utf-8")
+        # JSON 壞了會被 recover_json 從綜合卡重建（放寬丙 6-3）；形狀不對的讀不懂照舊擋
+        (self.V / ".system" / "entities.json").write_text('{"entities": 5}', encoding="utf-8")
         want = {"decision": "block", "reason": "實體清單讀不到（.system/entities.json），先停下來說「檢查」"}
         for p, t in ((path, text), (synthesis, synthesis_text)):
             with self.subTest(path=p.name):

@@ -114,6 +114,20 @@ class Mounts(Base):
         self.assertEqual([x["title"] for x in entities.mounts(self.V)["信義王"]], ["內湖李估價"])
 
 
+    def test_mentions_only_with_flag_and_follow_rename(self):
+        """放寬丙 7：提到 預設不算掛載；mentions=True 帶 relation；改名時 提到 欄跟著換。"""
+        rel = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        p = self.V / rel
+        p.write_text(p.read_text(encoding="utf-8").replace("提到: []", "提到: [大安陳]"), encoding="utf-8", newline="\n")
+        self.assertNotIn("大安陳", entities.mounts(self.V))
+        got = entities.mounts(self.V, mentions=True)
+        self.assertEqual([m["relation"] for m in got["大安陳"]], ["mention"])
+        self.assertEqual(got["信義王"][0]["relation"], "main")
+        entities.retarget_cards(self.V, {entities.key("大安陳"): "大安陳二"}, self.t)
+        self.assertIn("提到: [大安陳二]\n", p.read_text(encoding="utf-8"))
+        self.assertIn("實體: [信義王]\n", p.read_text(encoding="utf-8"))
+
+
 class Drift(Base):
     with_entities = True
 

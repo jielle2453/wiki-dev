@@ -1,4 +1,4 @@
-"""_lib/turn：回合（start／current／approve）、相對路徑（原始大小寫，I-027）、回合備份、大改動門檻（D-075）。"""
+"""_lib/turn：回合（start／current）、相對路徑（原始大小寫，I-027）、回合備份、綜合卡張數只記不擋（放寬丙 5）。"""
 import json
 import os
 import shutil
@@ -31,7 +31,7 @@ class Start(unittest.TestCase):
         self.assertEqual(sess["turn"], t["turn"])
         self.assertEqual(sess["prompt_head"], "幫我把 信義王 的現況 改成已完工")
         self.assertEqual(sess["session_id"], SID)
-        self.assertFalse(sess["approved"])
+        self.assertNotIn("approved", sess)
         self.assertEqual(sess["schema_version"], 1)
         self.assertTrue(t["turn"].endswith("-test"), t["turn"])
         self.assertRegex(t["turn"], r"^\d{8}-\d{6}-test$")
@@ -424,14 +424,11 @@ class BeforeWrite(unittest.TestCase):
     def write(self, path, zone="Z1"):
         return turn.before_write(self.V, str(path), str(self.V), zone, SID)
 
-    def test_first_ten_allow_eleventh_denies_big_change(self):
-        for p in self.cards[:10]:
+    def test_no_big_change_block_and_count_is_recorded(self):
+        """放寬丙 5：超過舊上限 10 張也不擋，ai_synthesis 照記張數。"""
+        for p in self.cards[:11]:
             self.assertEqual(self.write(p), (True, "", ""))
-        ok, code, reason = self.write(self.cards[10])
-        self.assertFalse(ok)
-        self.assertEqual(code, "big_change")
-        self.assertIn("10 張", reason)
-        self.assertIn("turn approve", reason)
+        self.assertEqual(turn.modified_synthesis_count(self.V, turn.current(self.V, SID)["turn"]), 11)
 
     def test_same_card_again_does_not_count_twice(self):
         for p in self.cards[:10]:
@@ -449,13 +446,6 @@ class BeforeWrite(unittest.TestCase):
             self.write(p)
         (self.V / "檔案索引" / "x.md").write_text("x", encoding="utf-8")
         self.assertEqual(self.write(self.V / "檔案索引" / "x.md", zone="Z5"), (True, "", ""))
-
-    def test_approve_lifts_limit(self):
-        for p in self.cards[:10]:
-            self.write(p)
-        turn.approve(self.V, SID)
-        self.assertTrue(turn.current(self.V, SID)["approved"])
-        self.assertEqual(self.write(self.cards[10]), (True, "", ""))
 
     def test_new_turn_resets_count(self):
         for p in self.cards[:10]:
@@ -480,16 +470,6 @@ class BeforeWrite(unittest.TestCase):
         ok, code, _reason = self.write(self.cards[0])
         self.assertLess(time.time() - t0, 6)
         self.assertEqual((ok, code), (False, "backup_failed"))
-
-    def test_bad_config_value_falls_back_to_default_and_logs(self):
-        """第一輪 L5：big_change_synthesis_max 不是整數就用預設 10，寫一行 hook-errors.log，不 deny。"""
-        (self.V / ".system" / "config.json").write_text('{"big_change_synthesis_max": "十"}', encoding="utf-8")
-        for p in self.cards[:10]:
-            self.assertEqual(self.write(p), (True, "", ""))
-        ok, code, _ = self.write(self.cards[10])
-        self.assertEqual((ok, code), (False, "big_change"))
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
-        self.assertIn("big_change_synthesis_max", log)
 
     def test_z3_write_backs_up(self):
         p = self.V / "暫存區" / "x.md"
@@ -580,10 +560,8 @@ class ProgramBackup(unittest.TestCase):
         self.assertEqual(self.write(self.cards[1]), (True, "", ""))
         self.assertEqual(turn.modified_synthesis_count(self.V, self.t), 2)
         self.assertEqual(turn.current(self.V, SID)["ai_synthesis"], self.cards[:2])
-        (self.V / ".system" / "config.json").write_text('{"big_change_synthesis_max": 2}', encoding="utf-8")
         turn.backup(self.V, self.cards[2], self.t, by="program")
-        ok, code, _reason = self.write(self.cards[2])
-        self.assertEqual((ok, code), (False, "big_change"))
+        self.assertEqual(self.write(self.cards[2]), (True, "", ""))
 
     def test_only_program_accepted(self):
         with self.assertRaises(ValueError):

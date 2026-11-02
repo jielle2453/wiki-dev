@@ -13,12 +13,12 @@ from pathlib import Path
 from tests._guard_fixture import KB, ROOT, make_vault
 
 SKELETON = ROOT / "skeleton"
-EXPECTED_DIRS = ["暫存區", "_extras", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
+EXPECTED_DIRS = ["暫存區", "_個人", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
 EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".system/sources.json", ".system/profile.json",
                   "系統/客戶設定檔.md", "系統/日程.md"]
 SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep",
-                    "_extras/.gitkeep"}
+                    "_個人/.gitkeep"}
 
 
 def run_kb(*args, cwd):
