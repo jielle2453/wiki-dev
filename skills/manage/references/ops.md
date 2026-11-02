@@ -63,9 +63,9 @@
 
 開場出現 `知識庫換了位置：…` 或 `這台電腦第一次開這個知識庫：…` 就跑 `moved`（只是把舊路徑換新路徑，不用先問）；想先看再做才用 `--check`。
 
-- `--json`：`state`（same｜moved｜new_machine｜first）、`from`、`to`、`sources_rewritten`、`cards_relinked`、`missing_sources`、`old_copy`、`env`、`passwords_missing`。
+- `--json`：`state`（same｜moved｜new_machine｜first）、`from`、`to`、`sources_rewritten`、`missing_sources`、`old_copy`、`env`、`passwords_missing`。
 - 人讀一行一件（沒有要補的是 `位置沒變，沒有要補的`、第一次是 `第一次看這個知識庫，位置記下了`），照著逐件處理：
-  - `來源「X」的位置換成新的了`、`卡的開原檔連結更新了 N 張`：講一句做了什麼；說「退回」換得回來。
+  - `來源「X」的位置換成新的了`：講一句做了什麼；說「退回」換得回來。
   - `這台找不到的來源：A、B`：一個一個 `kb folders locate <別名>` 自己找，找到就 `kb folders relocate` 接上（`references/sources.md`）、說一聲；找不到才問她搬到哪了。
   - `舊位置還有一份：<路徑>；確認新的沒問題就把舊的刪掉`：問一句要不要丟掉，說好就 `kb source-edit trash`。
   - 換電腦時多的幾行是這台缺的元件（照那句講、跑它給的指令）與「憑證管理員沒有這些密碼，要重新記」：密碼不會跟過來，請她逐個重說（走 note 的 `kb unlock`）。

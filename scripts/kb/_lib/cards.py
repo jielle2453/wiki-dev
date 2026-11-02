@@ -22,14 +22,15 @@ from kb._lib.io import FileLock, write_text_atomic
 CARDS_DIR = "檔案索引"
 INDEX_POSIX = "總目錄.md"
 KEYS = ("編號", "出處", "收件", "原檔", "指紋", "內容指紋", "標題", "卡型", "實體", "提到", "待補型別", "文件日期", "讀取", "製卡日期",
-        "範本版本", "敏感資料種類", "開原檔", "卡式", "封存")
-OPTIONAL = ("內容指紋", "收件", "提到", "卡式", "封存")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）；提到：範本第三版加的選填欄，舊卡沒有全算主要（放寬丙 7）
+        "範本版本", "敏感資料種類", "開原檔")
+OPTIONAL = ("內容指紋", "收件", "提到")  # 收件：只有 kb intake 收的檔有（收件匣第 2 點）；提到：範本第三版加的選填欄，舊卡沒有全算主要（放寬丙 7）
 V2_KEYS = ("實體", "待補型別")  # 範本第二版加的兩欄（實體與綜合卡第 4 點）；第一版的卡沒有，不算少鍵
 LIST_KEYS = ("原檔", "敏感資料種類", "實體", "提到", "待補型別")
-# 卡式：只有指路卡寫「指路」（kb cards mode，放寬丙 11，D-331）；封存：YYYY-MM-DD（kb archive，放寬丙 12，D-332）；兩欄都由 cards sync 照清冊補或拿掉，
-# 指路卡不要求「日期與數字」段（段落本來就不驗，carding.md 說清楚）
+# 程式照清冊補的選填欄（不在 KEYS：範本、header、對帳都不管它們，只驗型別）：卡式只有指路卡寫「指路」（kb cards mode，放寬丙 11，D-331）；
+# 封存寫 YYYY-MM-DD（kb archive，放寬丙 12，D-332）；兩欄都由 cards sync_fronts 照清冊補或拿掉。指路卡不要求「日期與數字」段（段落本來就不驗）
+PROGRAM_KEYS = ("卡式", "封存")
 # 檔頭值的型別（測試後修正裁定 21）：這些要是字串，LIST_KEYS 要是清單
-STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔", "卡式", "封存")
+STR_KEYS = ("編號", "指紋", "內容指紋", "出處", "收件", "標題", "卡型", "文件日期", "讀取", "開原檔", *PROGRAM_KEYS)
 ORIGIN_TEXT = {"client_file": "客戶原檔", "intake": "對話收件", "ai_output": "AI 產出"}
 FILL = "（填）"
 DATE_FILL = "（填，YYYY-MM-DD 或 未載）"
@@ -349,7 +350,7 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
     for key in KEYS:
         if key not in OPTIONAL and key not in front and not (key in V2_KEYS and _is_v1(front)):
             return [("missing_key", f"檔頭少了「{key}」")]
-    for key in KEYS:  # 型別先驗（裁定 21）：不對的值不拿去查清冊、比字串
+    for key in KEYS + PROGRAM_KEYS:  # 型別先驗（裁定 21）：不對的值不拿去查清冊、比字串
         if key not in front:
             continue
         if (key in LIST_KEYS and not isinstance(front[key], list)) or (key in STR_KEYS and not isinstance(front[key], str)):

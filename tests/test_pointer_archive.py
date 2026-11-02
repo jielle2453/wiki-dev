@@ -155,6 +155,19 @@ class PointerMode(Base):
         self.assertEqual((change["changes_7d"], change["changes_30d"], change["days_since"]), (5, 5, 0))
         self.assertEqual((change["mode"], change["track"], change["open"], change["entity_done"]), ("full", True, False, False))
 
+    def test_pointer_card_with_the_two_program_fields_stays_valid(self):
+        path = self.card()
+        fid = self.fid()
+        self.ok("cards", "mode", fid, "pointer")
+        self.ok("archive", fid)
+        front = self.front(path)
+        self.assertEqual((front["卡式"], bool(front["封存"])), ("指路", True))
+        by_id = {e["id"]: e for e in __import__("kb._lib.inventory", fromlist=["x"]).load(self.V)["entries"]}
+        self.assertEqual(cards.validate(self.V, path.relative_to(self.V).as_posix(), by_id), (True, ""))
+        bad = cards.set_front_value(path.read_text(encoding="utf-8"), "卡式", "[指路]")
+        path.write_text(bad, encoding="utf-8", newline=chr(10))
+        self.assertFalse(cards.validate(self.V, path.relative_to(self.V).as_posix(), by_id)[0])
+
     def test_mode_refuses_unknown_and_seen_needs_pointer(self):
         self.assertEqual(self.kb("cards", "mode", "f-00000000", "pointer").returncode, 3)
         self.card()
