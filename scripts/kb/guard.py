@@ -808,7 +808,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
                 plan["unknown"] = True
         elif redirect_targets:
             pass
-        if stage_write and any(any(c in t for c in "$%`") for t, _q, _g, a in tokens if a):
+        if any(any(c in t for c in "$%`") for t, _q, _g, a in tokens if a):
             plan["unknown"] = True  # 導向目標帶變數
         if stage_write and not interp and cmdparse.unresolved_paths(stage_text, powershell=(tool == "PowerShell")):
             plan["unknown"] = True  # 路徑裡有展不開的變數
