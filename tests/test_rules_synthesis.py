@@ -59,7 +59,8 @@ class SynthesisRules(unittest.TestCase):
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8").count("--synced"), 1, rel)
         row = next(l for l in (ROOT / "skills/ingest/references/commands.md").read_text(encoding="utf-8").splitlines()
                    if "`entity render`" in l)
-        self.assertIn("改完待更新的綜合卡跑 `kb entity render <名稱> --synced`", row)  # 裁定 11
+        self.assertIn("改完待更新的綜合卡、沒有紀事要加時跑 `kb entity render <名稱> --synced`", row)  # 裁定 11；D-521 S-24
+        self.assertIn("主對話不補", row)
         self.assertNotIn("平常不用 render", row)
 
 
