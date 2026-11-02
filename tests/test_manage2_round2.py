@@ -113,7 +113,7 @@ class AfterRename(Base):
                 mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)), \
                 mock.patch.object(se, "_rename", side_effect=PermissionError(13, "in use")):
             msg = self.refuse(se.do_move, self.V, self.plan(self.fid, dest=str(dest)), self.t, "move", replace=True)
-        self.assertEqual(msg, "有檔開著（估價單.pdf），關掉再試")
+        self.assertEqual(msg, "「估價單.pdf」開著，關掉才動得了：請使用者關掉那個檔（沒存的內容會不見，不要替他關），關好再跑一次。")
         self.assertEqual(trashed, [])
         self.assertEqual((dest / "估價單.pdf").read_bytes(), b"old one")
 
@@ -210,18 +210,21 @@ class Quoting(Base):
         self.assertIsNone(steps[1]["do"])
         self.assertIn("改夾名", steps[1]["note"])
 
-    def test_other_disk_single_quotes(self):
+    def test_other_disk_odd_name_still_plans(self):
+        """放寬甲：不同顆硬碟不再拒絕（不用給開夾指令），夾名有 $ 也照做。"""
         odd = self.raw / "報價與合約" / "Q3$x"
         odd.mkdir()
         with mock.patch.object(se, "_dev", side_effect=lambda p: 2 if "Q3$x" in str(p) else 1):
-            msg = self.refuse(self.plan, self.fid, dest=str(odd))
-        self.assertIn(f"'{odd}'", msg)  # 有 $ 的那個用單引號
-        self.assertNotIn(f'"{odd}"', msg)
+            p = self.plan(self.fid, dest=str(odd))
+        self.assertTrue(p["cross_disk"])
 
-    def test_removable_drive_refused(self):
+    def test_removable_drive_goes_to_backup(self):
+        """放寬甲 待你決定 1：隨身碟、網路磁碟沒有回收筒 -> 先留進回合備份再刪。"""
         with mock.patch.object(se, "_drive_type", return_value=2):
-            msg = self.refuse(se.plan_trash, self.V, self.sources, self.fid, self.V)
-        self.assertEqual(msg, "資源回收筒用不了（隨身碟或網路磁碟），沒有刪")
+            p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+            got = se.do_trash(self.V, p, self.t)
+        self.assertEqual(got["kept"], "backup")
+        self.assertFalse((self.raw / ESTIMATE).exists())
 
 
 # ---------- 第 6 條：檔名 ----------
@@ -232,11 +235,18 @@ class Names(Base):
         os.chmod(target, stat.S_IREAD)
         moved = self.raw / "客戶案件" / "大安陳" / "估價單.pdf"
         self.addCleanup(lambda: [os.chmod(p, stat.S_IWRITE | stat.S_IREAD) for p in (target, moved) if p.exists()])
-        with mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+        with mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)),                 mock.patch.object(se, "shell_trash", side_effect=lambda path: os.remove(path)):
             p = se.plan_trash(self.V, self.sources, self.fid, self.V)
-            self.assertEqual(self.refuse(se.do_trash, self.V, p, self.t), "這份是唯讀的，先取消唯讀再刪")
+            self.assertEqual(se.do_trash(self.V, p, self.t)["kept"], "trash")  # 放寬甲：唯讀的先取消唯讀再丟
+        self.assertFalse(target.exists())
+
+    def test_readonly_moves_fine(self):
+        target = self.raw / ESTIMATE
+        os.chmod(target, stat.S_IREAD)
+        moved = self.raw / "客戶案件" / "大安陳" / "估價單.pdf"
+        self.addCleanup(lambda: [os.chmod(p, stat.S_IWRITE | stat.S_IREAD) for p in (target, moved) if p.exists()])
         self.move(self.fid, str(self.raw / "客戶案件" / "大安陳"))  # 唯讀的照樣搬得動
-        self.assertTrue((self.raw / "客戶案件" / "大安陳" / "估價單.pdf").is_file())
+        self.assertTrue(moved.is_file())
 
     def test_unreadable_names(self):
         text = "這種名字知識庫不會讀，換個名字"

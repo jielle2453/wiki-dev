@@ -123,7 +123,7 @@ class Sentences(Base):
         a.mkdir()
         p, got = self.move(self.fid, str(a))
         self.assertEqual(se.move_sentence(p, got),
-                         "已搬好：估價單.pdf 從 客戶案件/內湖李 搬到 報價與合約/內湖李；卡跟著改了（說「退回」會搬回去）")
+                         "已搬好：估價單.pdf 從 客戶案件/內湖李 搬到 報價與合約/內湖李（說「退回」會搬回去）")
 
     def test_folder_sentence_has_revert(self):
         archive = self.raw / "客戶案件" / "封存"

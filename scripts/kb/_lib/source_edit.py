@@ -138,13 +138,6 @@ def shell_arg(text):
     return f'"{text}"'
 
 
-def other_disk(src_dir, dst_dir):
-    a, b = shell_arg(_real(src_dir)), shell_arg(_real(dst_dir))
-    if a is None or b is None:
-        return OTHER_DISK_NO_CMD
-    return OTHER_DISK.format(cmd=f"kb source-edit open {a} {b}")
-
-
 def recycle_room(path):
     """回 (回收筒已用位元組, 上限位元組)；用不了丟 BinUnavailable。上限讀登錄 BitBucket\\Volume\\{GUID} 的 MaxCapacity（MB），
     NukeOnDelete=1 當用不了；沒有這個鍵用磁碟總量的 5%（Windows 預設）。已用從 SHQueryRecycleBinW 取，它失敗（網路磁碟）也算用不了。"""
@@ -875,8 +868,6 @@ def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
     except OSError as e:
         unmake()
         restore_sources()
-        if getattr(e, "errno", None) == 18 or getattr(e, "winerror", None) == 17:  # EXDEV、ERROR_NOT_SAME_DEVICE
-            raise Refused(other_disk(Path(src).parent, plan["dest_dir"])) from e
         raise Refused(NOT_MOVED.format(why=_why(e))) from e
 
     changed = list(replaced["changed"]) if replaced else []
