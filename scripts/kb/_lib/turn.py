@@ -1,7 +1,7 @@
 """回合：每句話一個回合（D-074）。目前回合按 session 存 .system/turns/<sid>.json，另有 current.json 給 CLI。
 回合備份住 .system/versions/<turn>/：turn.json、manifest.jsonl（一行一檔）、files/<rel>（modify 與 delete 的舊版）、
 folders.jsonl（kb 程式改的資料夾，一行一個動作，D-142）。
-大改動攔截（D-075）：同回合用檔案工具修改既有綜合卡達 big_change_synthesis_max 張就擋，approve 後解除。
+綜合卡大改動攔截拿掉了（放寬丙 5，D-322 第 18 件）：改了幾張只記進 ai_synthesis（工作日誌程式段記張數），不擋；舊回合檔的 approved 欄略過。
 相對路徑保留原始大小寫（I-027：paths.normalize 會小寫，備份與還原不能用它）。
 整批製卡（card-maker，D-195）：kb.py 收全域 --turn 時 OVERRIDE 是那個回合，current() 回它、這次呼叫的備份都進它；
 那個回合已經不是 session 檔的目前回合時，它的欄位（approved、ai_synthesis、note、job_result）存在 versions/<回合>/turn.json
@@ -22,8 +22,6 @@ from kb._lib.io import FileLock, read_json, write_json_atomic, write_text_atomic
 TURNS_REL = Path(".system") / "turns"
 VERSIONS_REL = Path(".system") / "versions"
 CURRENT_NAME = "current.json"
-BIG_CHANGE_REASON = ("這一題已經改了 {n} 張綜合卡，先停下來告訴客戶還有幾張、為什麼；"
-                     "客戶同意後用知識庫腳本 turn approve 解除再繼續。")
 BACKUP_FAILED_REASON = "備份失敗，這次不寫。說「檢查」我看原因"
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
@@ -61,7 +59,7 @@ def journal_key(data):
 
 def start(vault, session_id, prompt, inherit=None, transcript=None):
     """開新回合：寫 turns/<sid>.json（有 sid 才寫）與 current.json。回回合 dict。
-    inherit（工作日誌第二輪 R2-M2）：對話裡退回自己這句時，新回合接著原回合，繼承它的問、note、approved，
+    inherit（工作日誌第二輪 R2-M2）：對話裡退回自己這句時，新回合接著原回合，繼承它的問、note，
     並記 journal_turn（原回合的 journal_turn，沒有就原回合），Stop 與補記才收原回合那一行。
     transcript（收件匣第 3 點）：hook 給的對話紀錄路徑，只存路徑不讀內容（kb intake --pasted 從那裡取貼的圖與文字）；
     inherit 開的不帶舊的。"""
@@ -78,7 +76,6 @@ def start(vault, session_id, prompt, inherit=None, transcript=None):
         "session_id": str(session_id) if session_id else "",
         "started": now.strftime("%Y-%m-%dT%H:%M:%S"),
         "prompt_head": head,
-        "approved": bool(inherit.get("approved")) if inherit else False,  # 同一句話的同意不因退回失效（D-075）
         "note": inherit.get("note", "") if inherit else "",  # 模型叫 kb turn note 給的「做了」（D-084）
         "done": False,  # Stop 或中斷補記後為 true（D-083）
     }
@@ -224,7 +221,7 @@ def _via_turn(vault):
         now = latest + timedelta(seconds=1)
     tid = f"{now:%Y%m%d-%H%M%S}-obsd"
     data = {"schema_version": 1, "turn": tid, "session_id": "", "started": now.strftime("%Y-%m-%dT%H:%M:%S"),
-            "prompt_head": "", "source": "obsidian", "done": True, "approved": False, "note": ""}
+            "prompt_head": "", "source": "obsidian", "done": True, "note": ""}
     meta = _meta_file(vault, tid)
     meta.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(meta, data)
@@ -276,15 +273,6 @@ def _write_turn(vault, data):
     cur = _read_turn(_current_file(vault))
     if not sid or (cur and cur.get("turn") == data["turn"]):
         write_json_atomic(_current_file(vault), data)
-
-
-def approve(vault, session_id=None, turn_id=None):
-    """解除大改動上限；turn_id 給了就改那個回合（kb turn approve --turn，job 回合）。"""
-    tid = turn_id or current(vault, session_id)["turn"]
-    data = change_turn(vault, tid, lambda d: d.update(approved=True) or True)
-    if data is None:
-        raise NoSuchTurn(turn_id)
-    return turn_data(vault, tid)
 
 
 def _meta_file(vault, turn_id):
@@ -791,7 +779,7 @@ def modified_synthesis_count(vault, turn_id):
 
 
 def before_write(vault, target, cwd, zone, session_id, turn_id=None):
-    """守門放行後、真的寫之前：大改動門檻（數 ai_synthesis）、回合備份。回 (ok, code, reason)。
+    """守門放行後、真的寫之前：記 ai_synthesis（只記張數、不擋，放寬丙 5）、回合備份。回 (ok, code, reason)。
     Z1 既有檔放行時把路徑記進回合檔的 ai_synthesis（去重）；同一張再改不重複算。
     turn_id（子代理的寫入，D-195）給了就算那個回合；那個回合不在了照 session 的目前回合。"""
     t = (turn_data(vault, turn_id) if turn_id else None) or current(vault, session_id)
@@ -804,21 +792,14 @@ def before_write(vault, target, cwd, zone, session_id, turn_id=None):
         return True, "", ""
     rel = rel_path(vault, target, cwd)
     if zone == "Z1" and (Path(vault) / rel).is_file():
-        limit = config.get(vault, "big_change_synthesis_max")
-        over = {}
 
-        def count(data):  # 數與記在同一把鎖裡（第一輪修）
+        def count(data):  # 記在鎖裡
             done = list(data.get("ai_synthesis") or [])
             if rel in done:
-                return False
-            if not data.get("approved") and len(done) >= limit:
-                over["n"] = len(done)
                 return False
             data["ai_synthesis"] = done + [rel]
             return True
         change_turn(vault, t["turn"], count)
-        if over:
-            return False, "big_change", BIG_CHANGE_REASON.format(n=over["n"])
     try:
         backup(vault, rel, t["turn"], None)
     except OSError as e:
