@@ -211,6 +211,17 @@ class EntityLog(Base):
                          ["信義王的紀事加了 0 行", f"已經有了：2026-10-25 開會〔{f}〕"])
         self.assertEqual(self.p.read_text(encoding="utf-8"), before)
 
+    def test_multi_sentence_entry(self):
+        """裁定 8：一條不限一句（決定、為什麼、數字、下一步），照樣收、照日期排、擋重複。"""
+        f = self.fid
+        long = (f"2026-10-22 業主決定改用 B 廠的系統櫃。原因是 A 廠交期拖到 12 月，B 廠報價 48 萬、比 A 廠多 3 萬但 11/15 能進場；"
+                f"下一步是 10/28 前簽約、付訂金 10 萬〔{f}〕")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{f}〕", long, f"2026-10-01 報價〔{f}〕"),
+                         ["信義王的紀事加了 3 行"])
+        self.assertEqual(self.events(), [f"- 2026-10-25 開會〔{f}〕", f"- {long}", "- 2026-10-20 登記這個案子",
+                                         f"- 2026-10-01 報價〔{f}〕"])
+        self.assertEqual(self.kb("log", "信義王", long), ["信義王的紀事加了 0 行", f"已經有了：{long}"])
+
     def test_same_day_new_lines_keep_given_order(self):
         f = self.fid
         self.kb("log", "信義王", f"2026-10-20 甲〔{f}〕", f"2026-10-20 乙〔{f}〕")

@@ -67,13 +67,30 @@ class SynthesisRules(unittest.TestCase):
         """D-521：S-21 照 read_ranges 平行讀、紀事不讀；S-22、S-24 紀事用 entity log；S-14、S-16 待更新的由程式加。"""
         for word in ("read_ranges", "平行 Read", "紀事、相關檔不讀"):  # 相關檔：裁定 5
             self.assertIn(word, self.rules["S-21"])
-        self.assertIn('kb entity log <名稱> "<行>"… --synced', self.rules["S-22"])
+        self.assertIn('kb entity log <名稱> "<條>"… --synced', self.rules["S-22"])
         self.assertIn("不用 Edit", self.rules["S-22"])
         for word in ("entity log … --synced", "kb entity render <名稱> --synced"):
             self.assertIn(word, self.rules["S-24"])
         for rule in ("S-14", "S-16"):
             self.assertIn("待更新的由程式加（`entity log`）", self.rules[rule])
         self.assertNotIn("body_line", self.text)
+
+    def test_event_not_one_line(self):
+        """D-521 裁定 7、8：紀事一條不限一句、寫清楚重點；格式不變；一律用 entity log（含指路卡的改動）。"""
+        self.assertIn("一條寫清楚重點（決定了什麼、為什麼、數字、下一步）", self.rules["S-14"])
+        for word in ("`- YYYY-MM-DD 事〔f-…〕`", "不換行", "句尾〔編號〕"):
+            self.assertIn(word, self.rules["S-14"])
+        ref = ROOT / "skills" / "ingest" / "references"
+        files = {"rules": self.text, "card-maker": (ROOT / "agents" / "card-maker.md").read_text(encoding="utf-8"),
+                 "synthesis-batch": (ref / "synthesis-batch.md").read_text(encoding="utf-8"),
+                 "carding": (ref / "carding.md").read_text(encoding="utf-8")}
+        for name, text in files.items():
+            for old in ("一行一件", "紀事加一行", "合成一行", "<行>"):
+                with self.subTest(file=name, old=old):
+                    self.assertNotIn(old, text)
+        pointer = files["carding"].split("`pointer_changed`", 1)[1].split("\n", 1)[0]
+        self.assertIn("kb entity log", pointer)
+        self.assertIn("合成一條", pointer)
 
 if __name__ == "__main__":
     unittest.main()

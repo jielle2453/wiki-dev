@@ -1157,7 +1157,7 @@ NOT_BASIS = "〔{cite}〕不是{name}的依據（掛的檔案卡、口述、裁�
 
 
 def parse_event(line, allowed, name):
-    """一行紀事（S-14 去掉開頭「- 」）→ (日期, 正規化的行)；格式不對或出處不在 allowed 丟 EntityRefused。"""
+    """一條紀事（S-14 去掉開頭「- 」，不限一句）→ (日期, 正規化的行)；格式不對或出處不在 allowed 丟 EntityRefused。"""
     from kb._lib import agenda
     raw = str(line).strip()
     m = _EVENT.match(raw[2:].strip() if raw.startswith("- ") else raw)
