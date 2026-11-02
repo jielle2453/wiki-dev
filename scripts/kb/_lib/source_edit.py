@@ -20,6 +20,7 @@ import copy
 import os
 import re
 import secrets
+import shutil
 from pathlib import Path
 
 from kb import guard
@@ -38,35 +39,32 @@ BAD_NAME_CHARS = '\\/:*?"<>|'
 
 # 拒絕句（exit 3，一字不差；spec 與 a2 回覆的疑義第 1 條）
 EXISTS = "目標已經有「{name}」"
-OPEN = "有檔開著（{name}），關掉再試"
-OTHER_DISK = "不同顆硬碟不代搬；可以幫你打開兩個夾自己拖：{cmd}"
-OTHER_DISK_NO_CMD = "不同顆硬碟不代搬，請在檔案總管自己拖；夾名有特殊符號，開夾的指令給不出來，要我幫你開請先改夾名"
-UNREGISTERED = "「{name}」沒有登記，要先把它加進來才能搬過去"
-EXCLUDED = "「{name}」設成不讀，不搬進去也不搬出來"
-CREDENTIAL = "這個檔名像密碼或金鑰，不動"
-ENTITY_FOLDER = "整個實體夾的改名或換型別用 kb entity"
-TYPE_FOLDER = "整個型別夾的改名用 kb profile type"
+# 放寬甲：同名回 conflict（內容一不一樣、怎麼選），拒絕句寫給 AI
+CONFLICT = ("「{dest}」已經有「{name}」（內容{same}）：一樣的話不用搬；要取代加 --replace（原本那份先進資源回收筒）；"
+            "要另取名加 --name <新名>。")
+OPEN = "「{name}」開著，關掉才動得了：請使用者關掉那個檔（沒存的內容會不見，不要替他關），關好再跑一次。"
+EXCLUDED = "「{name}」使用者說過不讀，不搬進去也不搬出來。"
+CREDENTIAL = "這個檔名像密碼或金鑰，不動。"
 NOT_FOUND = "找不到這個檔：{target}"
 NO_FOLDER = "找不到這個夾：{target}"
 LOCKED = "等不到鎖，沒有動"
 SYSTEM = "「{name}」是知識庫自己用的地方，不搬進去也不搬出來"
-NOT_INTO = "不搬進「{name}」；要放哪個夾跟我說"
-SOURCE_ROOT = "整個登記的資料夾換位置用 kb folders relocate"
 SYNTHESIS_NAME = "「{name}」跟綜合卡同名，換個名字"
 EXTENSION = "副檔名不改：{old} → {new}"
 BAD_NAME = "新名字不能是空的，也不能含 \\ / : * ? \" < > |"
 SAME_PLACE = "「{name}」已經在「{dest}」裡了"
 INTO_ITSELF = "不能把夾搬進它自己裡面"
-TRASH_FOLDER = "整個夾請在檔案總管刪"
 BIN_UNAVAILABLE = "資源回收筒用不了（{why}），沒有刪"
-BIN_TOO_BIG = "這份 {size}，資源回收筒放不下，刪了救不回來；要刪請在檔案總管自己刪"
+BIN_TOO_BIG = "這份 {size}，資源回收筒放不下"
+NO_ROOM = ("「{name}」進不了資源回收筒，這台電腦也放不下先留的一份（還差 {need}），刪了救不回來："
+           "先用白話問使用者確定要刪嗎，說確定才加 --permanent。")
+DRIVE_GONE = "原本放「{name}」的「{place}」現在找不到：先請使用者把隨身碟或磁碟接上再改回。"
 OPEN_TOO_MANY = "一次最多開兩個夾"
-READONLY = "這份是唯讀的，先取消唯讀再刪"
 HIDDEN_NAME = "這種名字知識庫不會讀，換個名字"
 NOT_MOVED = "沒有動：{why}"
 PARTIAL = "已搬好，但後面沒做完；說「退回」可以退回"
 REPLACED_NOT_MOVED = "原本的「{name}」已經丟進資源回收筒，要從那裡拿回來；這份沒搬過去（{why}），還在原位"
-REPLACED_STUCK = "原本的「{name}」已經丟進資源回收筒，要從那裡拿回來；這份搬到一半，請服務人員看"
+REPLACED_STUCK = "原本的「{name}」已經丟進資源回收筒，要從那裡拿回來；這份搬到一半，這是 plugin 程式出錯：照核心規則請服務人員看。"
 REMOVABLE = "隨身碟或網路磁碟"
 DEVICE_NAME = "這種名字 Windows 不收，換個名字"
 CURLY_QUOTES = frozenset(chr(c) for c in range(0x2018, 0x2020))
@@ -86,6 +84,14 @@ NO_ENTITY = "實體清單沒有「{name}」，先 kb entity add"
 
 class Refused(Exception):
     """給人看的那句就是訊息。"""
+
+
+class Conflict(Refused):
+    """同名：句子之外帶 conflict 列（name、dest、same_content、existing），--json 與 results 用。"""
+
+    def __init__(self, text, rows):
+        super().__init__(text)
+        self.rows = rows
 
 
 class BinUnavailable(Exception):
@@ -299,32 +305,17 @@ def credential_inside(vault, path):
 
 
 def check_from(vault, sources, path):
-    """要動的檔或夾在准許的位置嗎；不行丟 Refused。"""
+    """要動的檔或夾在准許的位置嗎；不行丟 Refused。放寬甲：只擋 willy 的區與知識庫根本身、不讀的、檔名像密碼的。"""
     path = Path(path)
     name = path.name
-    parts = _parts(vault, path)
-    if parts == []:
-        raise Refused(SYSTEM.format(name=inventory.KNOWLEDGE))
     zone = _zone(vault, sources, path)
+    vn, pn = normalize(str(vault), None), normalize(str(path), None)
+    if zone in ("Z5", "Z6", "Z7") or guard.is_willy_file(zone, pn, vn):
+        raise Refused(guard.willy_reason(zone, pn, vn, name or inventory.KNOWLEDGE))
     if zone == "Z10":
         raise Refused(EXCLUDED.format(name=name))
-    if zone == "Z11":
-        raise Refused(UNREGISTERED.format(name=name))
-    if zone == "Z9":
-        if any(normalize(str(path), None) == s["root"] for s in sources.entries):
-            raise Refused(SOURCE_ROOT)
-        if _credential(sources, path):
-            raise Refused(CREDENTIAL)
-        return
-    if zone == "Z2":
-        if len(parts) == 2 and path.is_dir():
-            raise Refused(ENTITY_FOLDER)
-        return
-    if zone in ("Z3", "Z4") and len(parts) > 1:
-        return
-    if zone == "Z8" and len(parts) == 1 and path.is_dir() and parts[0].casefold() in _types(vault):
-        raise Refused(TYPE_FOLDER)
-    raise Refused(SYSTEM.format(name=name if zone == "Z1" else parts[0]))
+    if zone == "Z9" and _credential(sources, path):
+        raise Refused(CREDENTIAL)
 
 
 def check_to(vault, sources, dest, target_text, make=False):
@@ -333,21 +324,15 @@ def check_to(vault, sources, dest, target_text, make=False):
     dest = Path(dest)
     if not dest.is_dir() and not make:
         raise Refused(NO_FOLDER.format(target=target_text))
-    parts = _parts(vault, dest)
-    if parts == []:
-        raise Refused(SYSTEM.format(name=inventory.KNOWLEDGE))
     zone = _zone(vault, sources, dest)
+    vn, pn = normalize(str(vault), None), normalize(str(dest), None)
+    if zone in ("Z5", "Z6", "Z7") or guard.is_willy_file(zone, pn, vn):
+        raise Refused(guard.willy_reason(zone, pn, vn, dest.name or inventory.KNOWLEDGE))
     if zone == "Z10":
         raise Refused(EXCLUDED.format(name=dest.name))
-    if zone == "Z11":
-        raise Refused(UNREGISTERED.format(name=dest.name))
-    if zone in ("Z9", "Z2"):
-        if _unread_dir(vault, sources, dest, parts):
-            raise Refused(HIDDEN_NAME)
-        return
-    if zone in ("Z3", "Z4"):
-        raise Refused(NOT_INTO.format(name=parts[0]))
-    raise Refused(SYSTEM.format(name=parts[0]))
+    parts = _parts(vault, dest)
+    if _unread_dir(vault, sources, dest, parts):
+        raise Refused(HIDDEN_NAME)
 
 
 def _alias_form(vault, sources, text):
@@ -585,7 +570,7 @@ def _periodic_source(entries):
     return None
 
 
-def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
+def plan_move(vault, sources, target, cwd, dest=None, new_name=None, to_name=None):
     """move（dest）或 rename（new_name）的事前檢查與影響，不動任何東西。不行丟 Refused。"""
     entry, src = resolve(vault, sources, target, cwd)
     check_from(vault, sources, src)
@@ -599,11 +584,11 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
         known = None if make_dir else entity_folder(vault, dest, cwd)
         dest_dir = Path(vault) / (make_dir or known) if make_dir or known else resolve_folder(vault, sources, dest, cwd)
         check_to(vault, sources, dest_dir, str(dest), make=bool(make_dir))
-        name = src.name
+        name = _check_name(src, to_name, folder) if to_name else src.name
         dn, sn = normalize(str(dest_dir), None), normalize(str(src), None)
         if folder and inside(dn, sn):
             raise Refused(INTO_ITSELF)
-        if dn == normalize(str(src.parent), None):
+        if dn == normalize(str(src.parent), None) and name == src.name:
             raise Refused(SAME_PLACE.format(name=src.name, dest=dest_dir.name))
     dst = Path(dest_dir) / name
     dparts = _parts(vault, dst)
@@ -617,8 +602,7 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
     if folder and dparts is not None and _parts(vault, src) is None and credential_inside(vault, src):
         raise Refused(CREDENTIAL)  # 同理：知識庫裡不查憑證樣式
     try:
-        if _dev(src.parent) != _dev(dest_dir.parent if make_dir else dest_dir):
-            raise Refused(other_disk(src.parent, dest_dir))
+        cross_disk = _dev(src.parent) != _dev(dest_dir.parent if make_dir else dest_dir)
     except OSError as e:
         raise Refused(NOT_FOUND.format(target=target)) from e
     from_uri = uri_of(vault, sources, src)
@@ -633,7 +617,10 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
             "files": len(_files_under(src)), "cards": len(_cards_of(vault, card_ids)),
             "excludes": [rest for _s, _e, rest in moved_ex], "_moved_ex": moved_ex,
             "signs": [Path(f).name for f in _files_under(src) if Path(f).name.startswith("~$")][:SIGNS_MAX],
-            "make_dir": make_dir, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
+            "make_dir": make_dir, "cross_disk": cross_disk, "periodic": _periodic_source(inside_entries if folder else [entry] if entry else [])}
+    plan["same_content"] = bool(existing and not folder and os.path.isfile(dst) and _same_content(src, dst))
+    plan["existing_uri"] = uri_of(vault, sources, dst) if existing else None
+    plan["dest_rel"] = _dest_rel(to_dir_uri)
     plan["download"] = None
     src_root, dst_root = onedrive_root(src), onedrive_root(dest_dir)
     # 只在雲端、而且兩邊在同一個 OneDrive 根才說搬不會下載（第六輪：Dropbox 一類、個人與公司兩個根之間不算）
@@ -643,6 +630,31 @@ def plan_move(vault, sources, target, cwd, dest=None, new_name=None):
         if n:
             plan["download"] = {"files": n, "bytes": size}
     return plan
+
+
+def _same_content(a, b):
+    try:
+        return os.path.getsize(a) == os.path.getsize(b) and inventory.sha256_of(a) == inventory.sha256_of(b)
+    except OSError:
+        return False
+
+
+def _dest_rel(to_dir_uri):
+    """conflict 的 dest：知識庫裡是相對路徑（01 案子/王宅），來源裡是 別名/相對路徑。"""
+    if not to_dir_uri:
+        return ""
+    alias, rel = inventory.split_uri(to_dir_uri)
+    return rel if alias == inventory.KNOWLEDGE and rel else (f"{alias}/{rel}" if rel else alias)
+
+
+def conflict_rows(plan):
+    return [{"name": plan["new_name"], "dest": plan["dest_rel"], "same_content": bool(plan["same_content"]),
+             "existing": plan["existing_uri"]}]
+
+
+def conflict_sentence(plan):
+    return CONFLICT.format(dest=plan["dest_rel"].rpartition("/")[2] or plan["dest_rel"] or Path(plan["dest_dir"]).name,
+                           name=plan["new_name"], same="一樣" if plan["same_content"] else "不一樣")
 
 
 def _check_name(src, new_name, folder):
@@ -685,7 +697,9 @@ def check_lines(plan, op):
     if plan["excludes"]:
         lines.append("裡面不讀的夾：" + "、".join(plan["excludes"]))
     if plan["existing"]:
-        lines.append(EXISTS.format(name=plan["new_name"]))
+        lines.append(conflict_sentence(plan))
+    if plan.get("cross_disk"):
+        lines.append("不同顆硬碟：先複製過去、比對一樣才把原檔丟進資源回收筒")
     if plan["signs"]:
         lines.append("可能有檔開著：" + "、".join(plan["signs"]))
     if plan["download"]:
@@ -715,8 +729,7 @@ def move_sentence(plan, got, op="move"):
         if plan["excludes"]:
             out += "；不讀的「" + "」「".join(x.rpartition("/")[2] for x in plan["excludes"]) + "」跟著搬"
         return out + "（說「退回」會搬回去）"
-    return (f"已搬好：{plan['name']} 從 {a} 搬到 {b}" + ("；卡跟著改了" if got["cards_moved"] else "")
-            + "（說「退回」會搬回去）")
+    return f"已搬好：{plan['name']} 從 {a} 搬到 {b}（說「退回」會搬回去）"
 
 
 def _readonly(path):
@@ -734,10 +747,8 @@ def _writable(path):
 
 
 def _check_deletable(path, name):
-    """丟回收筒之前：唯讀另一句，開著的說關掉；不行丟 Refused。"""
-    if _readonly(path):
-        raise Refused(READONLY)
-    if not _writable(path):
+    """丟回收筒之前：開著的說關掉；不行丟 Refused（唯讀的 do_trash 先取消唯讀）。"""
+    if os.path.isfile(path) and not _readonly(path) and not _writable(path):
         raise Refused(OPEN.format(name=name))
 
 
@@ -769,13 +780,59 @@ def _exclude_versions(vault, moved, new_root):
     return both, final
 
 
-def do_move(vault, plan, turn_id, op, replace=False):
+def _transfer(src, dst, plan):
+    """搬一份：同一顆硬碟 os.rename；不同顆先複製（原檔留著，最後由 do_move 比對一樣才拿掉）。"""
+    if not plan.get("cross_disk"):
+        _rename(src, dst)
+        return
+    try:
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+        if not _same_tree(src, dst):
+            raise OSError("複製過去的內容跟原本的對不上")
+    except BaseException:
+        _remove_path(dst)
+        raise
+
+
+def _untransfer(dst, src, plan):
+    """倒回：同一顆硬碟改回名字；不同顆原檔還在，只拿掉複製過去的那份。"""
+    if plan.get("cross_disk"):
+        _remove_path(dst)
+    else:
+        _rename(dst, src)
+
+
+def _remove_path(path):
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        elif os.path.lexists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def _same_tree(a, b):
+    """兩邊（檔或夾）每份檔的內容指紋一樣。"""
+    if not os.path.isdir(a):
+        return os.path.isfile(b) and _same_content(a, b)
+    fa = sorted(os.path.relpath(f, a) for f in _files_under(a))
+    fb = sorted(os.path.relpath(f, b) for f in _files_under(b))
+    return fa == fb and all(_same_content(os.path.join(a, r), os.path.join(b, r)) for r in fa)
+
+
+def do_move(vault, plan, turn_id, op, replace=False, permanent=False):
     """真的搬。呼叫端已持 sources.json 的鎖。回 {"to_uri","replaced","changed","cards_moved"}；不行丟 Refused。
     改名之前任何一步不行：什麼都沒動。改名之後任何一步失敗：先把檔搬回原位、再照 undo 還原改過的檔與登記表，
     說「沒有動：…」；搬不回去才說「已搬好，但後面沒做完」（moves.jsonl 那行留著，說「退回」搬得回來）。"""
     from kb._lib import cards, entities, pending
     src, dst = plan["src"], plan["dst"]
-    if plan["existing"] and (not replace or plan["kind"] == "folder" or plan["existing_is_dir"]):
+    if plan["existing"] and not replace:
+        raise Conflict(conflict_sentence(plan), conflict_rows(plan))
+    if plan["existing"] and (plan["kind"] == "folder" or plan["existing_is_dir"]):
         raise Refused(EXISTS.format(name=plan["new_name"]))
     sp = Path(vault) / sources_lib.SOURCES_REL
     original = sp.read_bytes()
@@ -806,7 +863,7 @@ def do_move(vault, plan, turn_id, op, replace=False):
         if plan["existing"]:
             replaced = _replace_into(vault, plan, turn_id)
         else:
-            _rename(src, dst)
+            _transfer(src, dst, plan)
     except Refused:
         unmake()
         restore_sources()
@@ -860,7 +917,7 @@ def do_move(vault, plan, turn_id, op, replace=False):
         undo.flush()
     except Exception as e:  # noqa: BLE001  改名之後的任何失敗都要倒回去或說實話
         try:
-            _rename(dst, src)
+            _untransfer(dst, src, plan)
         except Exception:  # noqa: BLE001
             raise Refused(PARTIAL) from e
         unmake()
@@ -873,7 +930,14 @@ def do_move(vault, plan, turn_id, op, replace=False):
         if replaced is not None:
             raise Refused(REPLACED_NOT_MOVED.format(name=plan["new_name"], why=_why(e))) from e
         raise Refused(NOT_MOVED.format(why=_why(e))) from e
-    return {"to_uri": to_uri, "replaced": replaced, "changed": changed,
+    original = None
+    if plan.get("cross_disk"):  # 不同顆硬碟：複製比對過了、清冊也跟上了，才拿掉原檔
+        original = {"kept": None, "refused": None}
+        try:
+            original["kept"] = _discard(vault, sources_lib.load(vault), src, turn_id, permanent=permanent)
+        except Refused as e:  # 放不下備份：原檔不動、兩份都留，交給 AI 問使用者
+            original["refused"] = str(e)
+    return {"to_uri": to_uri, "replaced": replaced, "changed": changed, "original": original,
             "cards_moved": len(got["moved"]) + len(got["updated"])}
 
 
@@ -900,18 +964,18 @@ def _replace_into(vault, plan, turn_id):
     src, dst = Path(plan["src"]), Path(plan["dst"])
     _check_deletable(dst, plan["new_name"])
     tmp = Path(plan["dest_dir"]) / f".kb-move-{secrets.token_hex(4)}{src.suffix}"
-    _rename(src, tmp)  # PermissionError、跨硬碟由呼叫端說
+    _transfer(src, tmp, plan)  # PermissionError 由呼叫端說
     try:
         tplan = plan_trash(vault, sources_lib.load(vault), dst, os.getcwd())
         replaced = do_trash(vault, tplan, turn_id)
     except BaseException:
-        _rename(tmp, src)
+        _untransfer(tmp, src, plan)
         raise
     try:
         _rename(tmp, dst)
     except OSError as e:
         try:
-            _rename(tmp, src)
+            _untransfer(tmp, src, plan)
         except OSError:
             raise Refused(REPLACED_STUCK.format(name=plan["new_name"])) from e
         raise Refused(REPLACED_NOT_MOVED.format(name=plan["new_name"], why=_why(e))) from e
@@ -921,33 +985,44 @@ def _replace_into(vault, plan, turn_id):
 # ---------- 丟資源回收筒 ----------
 
 def plan_trash(vault, sources, target, cwd):
-    """trash 的事前檢查與後果，不動任何東西。不行丟 Refused。"""
-    from kb._lib import cards
+    """trash 的事前檢查與後果，不動任何東西。不行丟 Refused。收檔也收夾（放寬甲）：夾裡每份檔各算一份計畫，空夾直接拿掉；
+    回收筒進不進得去不在這裡判（do_trash 進不了就先留一份進回合備份）。"""
     entry, path = resolve(vault, sources, target, cwd)
-    if path.is_dir():
-        raise Refused(TRASH_FOLDER)
     check_from(vault, sources, path)
     uri = uri_of(vault, sources, path)
+    if path.is_dir():
+        files = _files_under(path)
+        subs = []
+        for f in files:
+            sub_uri = uri_of(vault, sources, Path(f))
+            sub_entry = inventory.entry_for(vault, sub_uri) if sub_uri else None
+            subs.append(_file_plan(vault, sources, sub_entry, Path(f)))
+        has_dirs = any(dirs for _r, dirs, _f in os.walk(path))
+        return {"path": str(path), "name": path.name, "uri": uri, "kind": "folder", "empty": not files and not has_dirs,
+                "files": len(files), "subs": subs, "size": sum(x["size"] for x in subs), "entry_id": None, "cards": [],
+                "card": None, "synthesis": [], "others": 0, "touched": [], "where": _where_of(uri, path),
+                "onedrive": "cloud" if any(x["onedrive"] == "cloud" for x in subs) else ("local" if in_onedrive(path) else None)}
     if entry is None and uri:
         entry = inventory.entry_for(vault, uri)
+    return _file_plan(vault, sources, entry, path)
+
+
+def _where_of(uri, path):
+    alias, rel = inventory.split_uri(uri or "")
+    return "\\".join([alias] + rel.split("/")[:-1]) if uri else str(path.parent)
+
+
+def _file_plan(vault, sources, entry, path):
+    from kb._lib import cards
+    uri = uri_of(vault, sources, path)
     size = os.path.getsize(path)
-    if _drive_type(path) != DRIVE_FIXED:  # 隨身碟、網路磁碟：不跳視窗的呼叫可能直接永久刪
-        raise Refused(BIN_UNAVAILABLE.format(why=REMOVABLE))
     cloud = cloud_only(path)
-    if not cloud:
-        try:
-            used, cap = recycle_room(path)
-        except BinUnavailable as e:
-            raise Refused(BIN_UNAVAILABLE.format(why=e)) from e
-        if used + size > cap:
-            raise Refused(BIN_TOO_BIG.format(size=size_text(size)))
     others = [loc for loc in (entry or {}).get("locations") or []
               if uri and inventory.uri_key(loc.get("uri", "")) != inventory.uri_key(uri)]
     group = (_cards_of(vault, [entry["id"]]).get(entry["id"]) or []) if entry and not others else []
     names = _synthesis_names(vault, cards.entity_names_of(group))
-    alias, rel = inventory.split_uri(uri or "")
-    where = "\\".join([alias] + rel.split("/")[:-1]) if uri else str(path.parent)
-    return {"path": str(path), "name": path.name, "uri": uri, "where": where, "entry_id": entry["id"] if entry else None,
+    return {"path": str(path), "name": path.name, "uri": uri, "kind": "file", "where": _where_of(uri, path),
+            "entry_id": entry["id"] if entry else None,
             "card": group[0]["path"] if group else None, "cards": [c["path"] for c in group], "synthesis": names,
             "touched": cards.entity_names_of(group), "others": len(others), "size": size,
             "onedrive": "cloud" if cloud else ("local" if in_onedrive(path) else None)}
@@ -975,6 +1050,12 @@ TRASH_THIRD = {None: "說「退回上一版」救不回來，刪錯要從資源�
 
 
 def trash_lines(plan):
+    if plan["kind"] == "folder":
+        if plan["empty"]:
+            return [f"要拿掉空夾：{plan['name']}（{plan['where']}）", "說「退回上一版」會建回來"]
+        n = sum(1 for x in plan["subs"] if x["card"])
+        return [f"要丟進資源回收筒：{plan['name']} 整個夾（{plan['files']} 份，{plan['where']}）",
+                f"其中 {n} 份的卡會拿掉" if n else "裡面的檔沒有卡", TRASH_THIRD[plan["onedrive"]]]
     second = "同一份內容在別處還有，卡留著" if plan["others"] else ("那張卡會拿掉" if plan["card"] else "這份沒有卡")
     if plan["synthesis"]:
         second += "；綜合卡要更新：" + "、".join(plan["synthesis"])
@@ -982,34 +1063,97 @@ def trash_lines(plan):
 
 
 def trash_sentence(plan, result):
+    """成功句只講刪了什麼、救不救得回來（D-305）；卡的細節只在 --json。"""
+    kept = result.get("kept")
+    if kept == "removed":
+        return f"已拿掉空夾：{plan['name']}（說「退回」會建回來）"
+    if kept == "permanent":
+        return f"已刪：{plan['name']}（沒有留，救不回來）"
     if plan["onedrive"] == "cloud":
-        head = f"已刪：{plan['name']}"
-    else:
-        head = f"已丟進資源回收筒：{plan['name']}"
-    if result["card_removed"]:
-        head += "；卡拿掉了"
-    if plan["onedrive"] == "cloud":
-        head += "；這份只在雲端，從你所有裝置一起刪了，要救得到 OneDrive 網頁的回收筒"
-    elif plan["onedrive"] == "local":
-        head += "；別台電腦與 OneDrive 上的那份也一起刪了，刪錯要從資源回收筒拿"
+        return f"已刪：{plan['name']}（這份只在雲端，從使用者所有裝置一起刪了，要救得到 OneDrive 網頁的回收筒）"
+    head = f"已丟進資源回收筒：{plan['name']}" if kept != "backup" else f"已刪：{plan['name']}（先留了一份，說「退回」會放回來）"
+    if plan["onedrive"] == "local":
+        head += "；別台電腦與 OneDrive 上的那份也一起刪了"
     return head
 
 
-def do_trash(vault, plan, turn_id):
-    """丟資源回收筒，再照 kb cards drop 那條跟上：條目 deleted、卡拿掉（備份）、待處理關掉、推測日程取消。
-    同一份內容還在別處（清冊多個位置）只拿掉這個位置，卡照 sync 跟上。回 {"changed","card_removed","cancelled"}。"""
-    from kb._lib import agenda, cards, pending
-    _check_deletable(plan["path"], plan["name"])
+def _size_of(path):
+    return sum(os.path.getsize(f) for f in _files_under(path) if os.path.exists(f))
+
+
+def _clear_readonly(path):
+    """唯讀的先取消唯讀（放寬甲）；夾就逐份。"""
+    import stat
+    for f in _files_under(path):
+        try:
+            if not os.access(f, os.W_OK):
+                os.chmod(f, os.stat(f).st_mode | stat.S_IWRITE)
+        except OSError:
+            pass
+
+
+def _backup_key(vault, sources, path):
+    """備份的鍵：知識庫裡是相對路徑；登記的來源是 _src/<別名>/<相對路徑>。"""
+    parts = _parts(vault, path)
+    if parts is not None:
+        return "/".join(parts)
+    uri = uri_of(vault, sources, path)
+    alias, rel = inventory.split_uri(uri)
+    return f"_src/{alias}/{rel}"
+
+
+def _backup_tree(vault, sources, path, turn_id):
+    """把這份（夾就逐份）留進回合備份，比內容指紋一樣；回 True，有一份對不上回 False。"""
+    ok = True
+    for f in _files_under(path):
+        if _parts(vault, f) is not None:
+            turn.backup(vault, "/".join(_parts(vault, f)), turn_id, action="delete")
+        else:
+            turn.backup_source(vault, f, None, turn_id, sources)
+        kept = turn.turn_dir(vault, turn_id) / "files" / _backup_key(vault, sources, f)
+        ok = ok and kept.is_file() and _same_content(f, kept)
+    return ok
+
+
+def _discard(vault, sources, path, turn_id, permanent=False):
+    """把原檔（或夾）拿掉、救得回來：先丟資源回收筒；進不了（隨身碟、網路磁碟沒有回收筒、超過上限）就先留一份進回合備份、
+    比內容指紋一樣再刪；連備份都放不下回 Refused（NO_ROOM，AI 問使用者），說確定才 permanent。回 "trash"｜"backup"｜"permanent"。"""
+    from kb._lib import config
+    path = str(path)
+    name = Path(path).name
+    size = _size_of(path)
     try:
-        shell_trash(plan["path"])
-    except BinUnavailable as e:
-        raise Refused(BIN_UNAVAILABLE.format(why=e)) from e
+        if _drive_type(path) != DRIVE_FIXED:
+            raise BinUnavailable(REMOVABLE)
+        if not os.path.isdir(path) and not cloud_only(path):
+            used, cap = recycle_room(path)
+            if used + size > cap:
+                raise BinUnavailable(BIN_TOO_BIG.format(size=size_text(size)))
+        shell_trash(path)
+        return "trash"
+    except BinUnavailable:
+        pass
+    free = shutil.disk_usage(str(vault)).free
+    need = size + int(config.get(vault, "trash_backup_margin_mb")) * 1024 * 1024
+    if free >= need:
+        if not _backup_tree(vault, sources, path, turn_id):
+            raise Refused(NOT_MOVED.format(why="留的那份跟原檔對不上，沒有刪"))
+        _remove_path(path)
+        return "backup"
+    if permanent:
+        _remove_path(path)
+        return "permanent"
+    raise Refused(NO_ROOM.format(name=name, need=size_text(need - free)))
+
+
+def _forget(vault, plan, turn_id):
+    """檔被拿掉之後清冊與卡跟上（kb cards drop 那條）：條目 deleted、卡拿掉（備份）、待處理關掉、推測日程取消。
+    回 (changed, card_removed, cancelled)。"""
+    from kb._lib import agenda, cards, pending
     changed, card_removed, cancelled = [], False, []
-    if plan["uri"]:
-        turn.record_move(vault, turn_id, "trash", "file", plan["uri"], None)
     fid = plan["entry_id"]
     if fid is None:
-        return {"changed": changed, "card_removed": False, "cancelled": []}
+        return changed, False, []
     key = inventory.uri_key(plan["uri"] or "")
     with FileLock(Path(vault) / inventory.INVENTORY_POSIX):
         turn.backup(vault, inventory.INVENTORY_POSIX, turn_id)
@@ -1050,7 +1194,66 @@ def do_trash(vault, plan, turn_id):
     cards.render_index(vault, turn_id)
     changed.append({"path": cards.INDEX_POSIX, "action": "modify"})
     changed += [{"path": rel, "action": "modify"} for rel in cards.refresh_synthesis(vault, plan["touched"], turn_id)]
-    return {"changed": changed, "card_removed": card_removed, "cancelled": [i["id"] for i in cancelled]}
+    return changed, card_removed, [i["id"] for i in cancelled]
+
+
+def do_trash(vault, plan, turn_id, permanent=False):
+    """丟資源回收筒（進不了先留進回合備份，見 _discard），再照 kb cards drop 那條跟上。同一份內容還在別處（清冊多個位置）
+    只拿掉這個位置。收夾：整夾一次拿掉，夾裡每份檔的清冊與卡跟上；空夾直接 rmdir、回合記一行。
+    回 {"changed","card_removed","cancelled","kept","permanent"}（kept：trash｜backup｜permanent｜removed）。"""
+    sources = sources_lib.load(vault)
+    path = plan["path"]
+    if plan["kind"] == "folder":
+        return _trash_folder(vault, sources, plan, turn_id, permanent)
+    _check_deletable(path, plan["name"])
+    _clear_readonly(path)
+    kept = _discard(vault, sources, path, turn_id, permanent)
+    if plan["uri"] and kept in ("trash", "permanent"):
+        turn.record_move(vault, turn_id, "trash", "file", plan["uri"], None)
+    changed, card_removed, cancelled = _forget(vault, plan, turn_id)
+    return {"changed": changed, "card_removed": card_removed, "cancelled": cancelled, "kept": kept,
+            "permanent": kept == "permanent"}
+
+
+def remove_empty_folder(vault, sources, path, turn_id):
+    """空夾直接拿掉（os.rmdir）、回合記一行（知識庫裡記 folders.jsonl 的 remove，退回會建回來）。夾不空回 False。"""
+    path = Path(path)
+    if any(True for _ in os.scandir(path)):
+        return False
+    _clear_readonly(path)
+    try:
+        os.rmdir(path)
+    except OSError as e:
+        raise Refused(NOT_MOVED.format(why=_why(e))) from e
+    parts = _parts(vault, path)
+    if parts is not None:
+        turn.record_folder(vault, turn_id, "remove", "/".join(parts))
+    else:
+        uri = uri_of(vault, sources, path)
+        if uri:
+            turn.record_move(vault, turn_id, "trash", "folder", uri, None)
+    return True
+
+
+def _trash_folder(vault, sources, plan, turn_id, permanent):
+    path = plan["path"]
+    if plan["empty"]:
+        remove_empty_folder(vault, sources, path, turn_id)
+        return {"changed": [], "card_removed": False, "cancelled": [], "kept": "removed", "permanent": False}
+    for sub in plan["subs"]:
+        _check_deletable(sub["path"], sub["name"])
+    _clear_readonly(path)
+    kept = _discard(vault, sources, path, turn_id, permanent)
+    if plan["uri"] and kept in ("trash", "permanent"):
+        turn.record_move(vault, turn_id, "trash", "folder", plan["uri"], None)
+    changed, removed, cancelled = [], False, []
+    for sub in plan["subs"]:
+        c, r, x = _forget(vault, sub, turn_id)
+        changed += c
+        removed = removed or r
+        cancelled += x
+    return {"changed": changed, "card_removed": removed, "cancelled": cancelled, "kept": kept,
+            "permanent": kept == "permanent"}
 
 
 # ---------- 推薦去處（D-178） ----------

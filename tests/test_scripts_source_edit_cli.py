@@ -66,7 +66,7 @@ class Cli(unittest.TestCase):
         self.assertTrue((self.raw / _entities.ESTIMATE).is_file())
         r = self.kb("move", self.fid, "--to", dest)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout.strip(), "已搬好：估價單.pdf 從 內湖李 搬到 大安陳；卡跟著改了（說「退回」會搬回去）")
+        self.assertEqual(r.stdout.strip(), "已搬好：估價單.pdf 從 內湖李 搬到 大安陳（說「退回」會搬回去）")  # D-305：不講卡
         self.assertIsNone(ID_LIKE.search(r.stdout))
         r = self.kb("rename", "file://客戶案件/大安陳/估價單.pdf", "估價單_簽約版", "--json")
         data = json.loads(r.stdout)
@@ -76,12 +76,86 @@ class Cli(unittest.TestCase):
     def test_refusals_exit_3(self):
         r = self.kb("rename", self.fid, "合約.docx")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "副檔名不改：.pdf → .docx"))
-        r = self.kb("move", self.fid, "--to", str(Path(self.V) / "AI 產出"))
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "不搬進「AI 產出」；要放哪個夾跟我說"))
-        r = self.kb("trash", str(self.raw / "客戶案件"))
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "整個夾請在檔案總管刪"))
+        r = self.kb("move", self.fid, "--to", str(Path(self.V) / "檔案索引"))
+        self.assertEqual(r.returncode, 3)
+        self.assertTrue(r.stdout.startswith("「檔案索引」是 willy 自己的檔：") and r.stdout.strip().endswith("不用跟使用者提這一步。"), r.stdout)
+        r = self.kb("move", self.fid, "--to", str(Path(self.V) / "AI 產出"))  # 放寬甲：AI 產出也收
+        self.assertEqual(r.returncode, 0, r.stdout)
         r = self.kb("open", "a", "b", "c")
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "一次最多開兩個夾"))
+
+    def test_conflict_json_and_name_and_replace(self):
+        dest = self.raw / "客戶案件" / "大安陳"
+        (dest / "估價單.pdf").write_bytes(b"other")
+        r = self.kb("move", self.fid, "--to", str(dest), "--json")
+        self.assertEqual(r.returncode, 3, r.stdout)
+        data = json.loads(r.stdout)
+        self.assertIn("--replace", data["refused"])
+        self.assertEqual(data["conflict"], [{"name": "估價單.pdf", "dest": "客戶案件/大安陳", "same_content": False,
+                                              "existing": "file://客戶案件/大安陳/估價單.pdf"}])
+        self.assertTrue((self.raw / _entities.ESTIMATE).is_file())
+        r = self.kb("move", self.fid, "--to", str(dest), "--name", "估價單_新.pdf")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertTrue((dest / "估價單.pdf").is_file() and (dest / "估價單_新.pdf").is_file())
+
+    def test_multi_move_results_and_contents_auto(self):
+        src = self.raw / "客戶案件" / "講師" / "殷曉琪"
+        src.mkdir(parents=True)
+        (src / "x.pdf").write_bytes(b"x")
+        (src / "y.txt").write_bytes(b"y")
+        dest = self.raw / "報價與合約" / "殷曉琪"
+        dest.mkdir()
+        (dest / "y.txt").write_bytes(b"different")
+        r = self.kb("move", str(src), "--to", str(dest), "--json")
+        data = json.loads(r.stdout)
+        self.assertTrue(data["contents_auto"])
+        by = {x["target"].rpartition("/")[2]: x for x in data["results"]}
+        self.assertTrue(by["x.pdf"]["ok"])
+        self.assertFalse(by["y.txt"]["ok"])
+        self.assertEqual(r.returncode, 3)
+        self.assertTrue((dest / "x.pdf").is_file() and not (dest / "殷曉琪").exists())
+        self.assertEqual(data["conflict"][0]["name"], "y.txt")
+        self.assertTrue(src.is_dir() and (src / "y.txt").is_file())  # 有衝突：原夾不拿掉
+        r = self.kb("move", str(src / "y.txt"), "--to", str(dest), "--replace")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        (src).rmdir()
+
+    def test_contents_flag_removes_emptied_folder(self):
+        src = self.raw / "客戶案件" / "暫放"
+        src.mkdir()
+        (src / "a.txt").write_bytes(b"a")
+        dest = self.raw / "客戶案件" / "大安陳"
+        r = self.kb("move", str(src), "--to", str(dest), "--contents", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((dest / "a.txt").is_file())
+        self.assertFalse(src.exists())
+
+    def test_multi_trash_results(self):
+        import io
+        import argparse
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from kb import source_edit as cli
+        a, b = self.raw / "客戶案件" / "a.txt", self.raw / "客戶案件" / "b.txt"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        parser = argparse.ArgumentParser()
+        cli.add_arguments(parser)
+        args = parser.parse_args(["trash", str(a), str(b), "--json", "--vault", str(self.V)])
+        buf = io.StringIO()
+        old = os.getcwd()
+        os.chdir(self.V)
+        try:
+            with mock.patch.object(se, "shell_trash", side_effect=os.remove), \
+                    mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)), redirect_stdout(buf):
+                code = cli.run(args)
+        finally:
+            os.chdir(old)
+        self.assertEqual(code, 0, buf.getvalue())
+        data = json.loads(buf.getvalue())
+        self.assertEqual([x["ok"] for x in data["results"]], [True, True])
+        self.assertEqual([x["kept"] for x in data["results"]], ["trash", "trash"])
+        self.assertFalse(a.exists() or b.exists())
 
     def test_where_no_ids(self):
         r = self.kb("where", "--entity", "內湖李")

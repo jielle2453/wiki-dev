@@ -109,8 +109,27 @@ class MoveFile(Base):
         p = self.plan(self.fid, new_name="舊")
         self.assertTrue(p["existing"])
         before = self.snapshot()
-        self.assertEqual(self.refuse(se.do_move, self.V, p, self.t, "rename"), "目標已經有「舊.pdf」")
+        self.assertEqual(self.refuse(se.do_move, self.V, p, self.t, "rename"),
+                         "「內湖李」已經有「舊.pdf」（內容不一樣）：一樣的話不用搬；要取代加 --replace（原本那份先進資源回收筒）；要另取名加 --name <新名>。")
         self.assertEqual(self.snapshot(), before)
+
+
+class Conflicts(Base):
+    def test_same_content_and_name_and_check_sentence(self):
+        dest = self.raw / "客戶案件" / "大安陳"
+        shutil.copy2(self.raw / ESTIMATE, dest / "估價單.pdf")
+        p = self.plan(self.fid, dest=str(dest))
+        self.assertTrue(p["same_content"])
+        with self.assertRaises(se.Conflict) as cm:
+            se.do_move(self.V, p, self.t, "move")
+        row = cm.exception.rows[0]
+        self.assertEqual((row["name"], row["dest"], row["same_content"]), ("估價單.pdf", "客戶案件/大安陳", True))
+        self.assertIn("（內容一樣）", str(cm.exception))
+        self.assertIn("--replace", str(cm.exception))
+        # --name 另取名：兩份都在
+        p2 = se.plan_move(self.V, sources_lib.load(self.V), self.fid, self.V, dest=str(dest), to_name="估價單_新.pdf")
+        se.do_move(self.V, p2, self.t, "move")
+        self.assertTrue((dest / "估價單.pdf").is_file() and (dest / "估價單_新.pdf").is_file())
 
 
 class Refusals(Base):
@@ -124,33 +143,32 @@ class Refusals(Base):
     def test_destinations(self):
         outside = self.tmp / "外面"
         outside.mkdir()
-        self.assert_refused("「外面」沒有登記，要先把它加進來才能搬過去", self.fid, dest=str(outside))
+        p = self.plan(self.fid, dest=str(outside))  # 放寬甲：沒登記的地方照收（清冊記成 outside）
+        self.assertEqual(Path(p["dest_dir"]), outside)
         old = self.raw / "公司行政" / "舊檔"
         guard_sources = json.loads((Path(self.V) / ".system/sources.json").read_text(encoding="utf-8"))
         guard_sources["sources"][2]["excludes"].append({"spec": "舊檔", "kind": "unused", "reason": "", "added": "2026-10-22"})
         (Path(self.V) / ".system/sources.json").write_text(json.dumps(guard_sources, ensure_ascii=False), encoding="utf-8")
-        self.assert_refused("「舊檔」設成不讀，不搬進去也不搬出來", self.fid, dest=str(old))
-        self.assert_refused("「.system」是知識庫自己用的地方，不搬進去也不搬出來", self.fid, dest=str(Path(self.V) / ".system"))
-        self.assert_refused("「檔案索引」是知識庫自己用的地方，不搬進去也不搬出來", self.fid, dest=str(Path(self.V) / "檔案索引"))
-        self.assert_refused("「案子」是知識庫自己用的地方，不搬進去也不搬出來", self.fid, dest=str(Path(self.V) / "案子"))
-        self.assert_refused("「知識庫」是知識庫自己用的地方，不搬進去也不搬出來", self.fid, dest=str(self.V))
-        self.assert_refused("不搬進「AI 產出」；要放哪個夾跟我說", self.fid, dest=str(Path(self.V) / "AI 產出"))
-        self.assert_refused("不搬進「收件匣」；要放哪個夾跟我說", self.fid, dest=str(Path(self.V) / "收件匣"))
+        self.assert_refused("「舊檔」使用者說過不讀，不搬進去也不搬出來。", self.fid, dest=str(old))
+        for rel, hint in ((".system", "用對應的 kb 指令改"), ("檔案索引", "用 Edit 或 Write 改")):
+            msg = self.refuse(self.plan, self.fid, dest=str(Path(self.V) / rel))
+            self.assertTrue(msg.startswith(f"「{rel}」是 willy 自己的檔：") and msg.endswith(guard.AI_TAIL), msg)
+        self.assertTrue(self.refuse(self.plan, self.fid, dest=str(self.V)).endswith(guard.AI_TAIL))
+        for rel in ("案子", "AI 產出", "收件匣"):  # 放寬甲：型別夾、AI 產出、收件匣都收
+            self.assertEqual(Path(self.plan(self.fid, dest=str(Path(self.V) / rel))["dest_dir"]), Path(self.V) / rel)
         self.assert_refused("找不到這個夾：" + str(self.tmp / "沒有"), self.fid, dest=str(self.tmp / "沒有"))
 
     def test_objects(self):
         (Path(self.V) / "案子" / "內湖李").mkdir(parents=True, exist_ok=True)
         dest = str(self.raw / "報價與合約")
-        self.assert_refused("整個實體夾的改名或換型別用 kb entity", str(Path(self.V) / "案子" / "內湖李"), dest=dest)
-        self.assert_refused("整個型別夾的改名用 kb profile type", str(Path(self.V) / "案子"), dest=dest)
-        self.assert_refused("這個檔名像密碼或金鑰，不動", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), dest=dest)
-        self.assert_refused("整個登記的資料夾換位置用 kb folders relocate", str(self.raw / "公司行政"), dest=dest)
-        self.assert_refused("「.system」是知識庫自己用的地方，不搬進去也不搬出來",
-                            str(Path(self.V) / ".system" / "sources.json"), dest=dest)
-        self.assert_refused("「信義王.md」是知識庫自己用的地方，不搬進去也不搬出來",
-                            str(Path(self.V) / "案子" / "信義王" / "信義王.md"), dest=dest)
+        # 放寬甲：整個實體夾、型別夾、登記的來源根本身、綜合卡、沒登記的檔都收
+        for src in (Path(self.V) / "案子" / "內湖李", Path(self.V) / "案子", self.raw / "公司行政",
+                    Path(self.V) / "案子" / "信義王" / "信義王.md", self._outside_file()):
+            self.assertEqual(self.plan(str(src), dest=dest)["src"], str(src))
+        self.assert_refused("這個檔名像密碼或金鑰，不動。", str(self.raw / "公司行政" / "薪資" / "網銀密碼.txt"), dest=dest)
+        msg = self.refuse(self.plan, str(Path(self.V) / ".system" / "sources.json"), dest=dest)
+        self.assertTrue(msg.startswith("「sources.json」是 willy 自己的檔：") and msg.endswith(guard.AI_TAIL), msg)
         self.assert_refused("找不到這個檔：f-00000000", "f-00000000", dest=dest)
-        self.assert_refused("「外.txt」沒有登記，要先把它加進來才能搬過去", self._outside_file(), dest=dest)
         self.assert_refused("不能把夾搬進它自己裡面", str(self.raw / "客戶案件" / "內湖李"),
                             dest=str(self.raw / "客戶案件" / "內湖李"))
 
@@ -162,7 +180,7 @@ class Refusals(Base):
     def test_credential_destination_and_synthesis_name(self):
         secret = self.raw / "報價與合約" / "密碼"
         secret.mkdir()
-        self.assert_refused("這個檔名像密碼或金鑰，不動", self.fid, dest=str(secret))
+        self.assert_refused("這個檔名像密碼或金鑰，不動。", self.fid, dest=str(secret))
         md = self.raw / "客戶案件" / "信義王.md"
         md.write_text("x", encoding="utf-8")
         _cards.scan_apply(self.V)
@@ -173,18 +191,44 @@ class Refusals(Base):
 
 
 class Doubles(Base):
-    def test_other_disk(self):
+    def test_other_disk_copies_then_trashes_original(self):
+        """放寬甲：不同顆硬碟不拒絕，複製過去、比內容指紋一樣才把原檔丟資源回收筒。"""
+        src = self.raw / "客戶案件" / "內湖李" / "估價單.pdf"
+        body = src.read_bytes()
         with mock.patch.object(se, "_dev", side_effect=lambda p: 1 if "內湖李" in str(p) else 2):
-            msg = self.refuse(self.plan, self.fid, dest=str(self.raw / "報價與合約"))
-        self.assertTrue(msg.startswith("不同顆硬碟不代搬；可以幫你打開兩個夾自己拖：kb source-edit open \""), msg)
-        self.assertIn("內湖李", msg)
-        self.assertIn("報價與合約", msg)
+            p = self.plan(self.fid, dest=str(self.raw / "報價與合約"))
+        self.assertTrue(p["cross_disk"])
+        trashed = []
+
+        def fake_trash(path):
+            trashed.append(Path(path).name)
+            os.remove(path)
+        with mock.patch.object(se, "shell_trash", side_effect=fake_trash), \
+                mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+            got = se.do_move(self.V, p, self.t, "move")
+        self.assertEqual((self.raw / "報價與合約" / "估價單.pdf").read_bytes(), body)
+        self.assertFalse(src.exists())
+        self.assertEqual(trashed, ["估價單.pdf"])
+        self.assertEqual(got["original"], {"kept": "trash", "refused": None})
+        self.assertEqual(entry(self.V, self.fid)["locations"][0]["uri"], "file://報價與合約/估價單.pdf")
+
+    def test_other_disk_no_room_keeps_both(self):
+        """連回合備份都放不下：原檔不動、兩份都留，回 refused 句交給 AI 問使用者（待你決定 1）。"""
+        src = self.raw / "客戶案件" / "內湖李" / "估價單.pdf"
+        with mock.patch.object(se, "_dev", side_effect=lambda p: 1 if "內湖李" in str(p) else 2):
+            p = self.plan(self.fid, dest=str(self.raw / "報價與合約"))
+        with mock.patch.object(se, "shell_trash", side_effect=se.BinUnavailable("x")), \
+                mock.patch.object(se.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            got = se.do_move(self.V, p, self.t, "move")
+        self.assertTrue(src.exists() and (self.raw / "報價與合約" / "估價單.pdf").exists())
+        self.assertIn("--permanent", got["original"]["refused"])
 
     def test_file_open(self):
         p = self.plan(self.fid, dest=str(self.raw / "報價與合約"))
         before = self.snapshot()
         with mock.patch.object(se, "_rename", side_effect=PermissionError(13, "in use")):
-            self.assertEqual(self.refuse(se.do_move, self.V, p, self.t, "move"), "有檔開著（估價單.pdf），關掉再試")
+            self.assertEqual(self.refuse(se.do_move, self.V, p, self.t, "move"),
+                             "「估價單.pdf」開著，關掉才動得了：請使用者關掉那個檔（沒存的內容會不見，不要替他關），關好再跑一次。")
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(turn.moves(self.V, self.t), [])
 
@@ -195,7 +239,10 @@ class Doubles(Base):
         old_id = _cards.entry_of(self.V, "客戶案件/大安陳/估價單.pdf")["id"]
         p = self.plan(self.fid, dest=str(dest))
         self.assertTrue(p["existing"])
-        self.assertEqual(self.refuse(se.do_move, self.V, p, self.t, "move"), "目標已經有「估價單.pdf」")
+        with self.assertRaises(se.Conflict) as cm:
+            se.do_move(self.V, p, self.t, "move")
+        self.assertFalse(cm.exception.rows[0]["same_content"])
+        self.assertEqual(cm.exception.rows[0]["existing"], "file://客戶案件/大安陳/估價單.pdf")
         calls = []
 
         def fake_trash(path):
@@ -273,11 +320,11 @@ class MoveFolder(Base):
         (proj / ".env").write_text("KEY=1", encoding="utf-8")
         dest = Path(self.V) / "案子" / "內湖李"
         dest.mkdir(parents=True, exist_ok=True)
-        self.assertEqual(self.refuse(self.plan, str(proj), dest=str(dest)), "這個檔名像密碼或金鑰，不動")
+        self.assertEqual(self.refuse(self.plan, str(proj), dest=str(dest)), "這個檔名像密碼或金鑰，不動。")
         (proj / ".env").unlink()
         (proj / "子").mkdir()
         (proj / "子" / "網銀密碼.txt").write_text("x", encoding="utf-8")
-        self.assertEqual(self.refuse(self.plan, str(proj), dest=str(dest)), "這個檔名像密碼或金鑰，不動")
+        self.assertEqual(self.refuse(self.plan, str(proj), dest=str(dest)), "這個檔名像密碼或金鑰，不動。")
 
     def test_folder_with_hidden_into_vault_refused(self):
         lee = self.raw / "客戶案件" / "內湖李"
@@ -285,7 +332,7 @@ class MoveFolder(Base):
         self.add_hidden(0, "內湖李/私人")
         (Path(self.V) / "案子" / "內湖李").mkdir(parents=True, exist_ok=True)
         self.assertEqual(self.refuse(self.plan, str(lee), dest=str(Path(self.V) / "案子" / "內湖李")),
-                         "「私人」設成不讀，不搬進去也不搬出來")
+                         "「私人」使用者說過不讀，不搬進去也不搬出來。")
 
 
 class Areas(Base):
@@ -333,18 +380,65 @@ class Trash(Base):
             p = se.plan_trash(self.V, sources_lib.load(self.V), str(self.raw / "報價與合約" / "估價單.pdf"), self.V)
         self.assertEqual(se.trash_lines(p)[1], "同一份內容在別處還有，卡留著")
 
-    def test_too_big_and_unavailable(self):
-        with mock.patch.object(se, "recycle_room", return_value=(100, 120)):
-            msg = self.refuse(se.plan_trash, self.V, self.sources, self.fid, self.V)
-        self.assertTrue(msg.startswith("這份 ") and msg.endswith("，資源回收筒放不下，刪了救不回來；要刪請在檔案總管自己刪"), msg)
-        with mock.patch.object(se, "recycle_room", side_effect=se.BinUnavailable("這顆磁碟沒有資源回收筒")):
-            self.assertEqual(self.refuse(se.plan_trash, self.V, self.sources, self.fid, self.V),
-                             "資源回收筒用不了（這顆磁碟沒有資源回收筒），沒有刪")
-        self.assertTrue((self.raw / ESTIMATE).is_file())
+    def test_bin_unavailable_keeps_backup_then_deletes(self):
+        """驗收 12b：回收筒用不了 -> 先留進回合備份、比指紋一樣才刪，kept 是 backup；退回後檔回原位。"""
+        src = self.raw / ESTIMATE
+        body = src.read_bytes()
+        for boom in (se.BinUnavailable("這顆磁碟沒有資源回收筒"),):
+            with mock.patch.object(se, "shell_trash", side_effect=boom), mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+                p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+                got = se.do_trash(self.V, p, self.t)
+        self.assertEqual(got["kept"], "backup")
+        self.assertFalse(src.exists())
+        rows = [e for e in turn.entries(self.V, self.t) if e.get("uri") == "file://客戶案件/內湖李/估價單.pdf"]
+        self.assertEqual(rows[0]["action"], "modify")
+        self.assertEqual((turn.turn_dir(self.V, self.t) / "files" / rows[0]["path"]).read_bytes(), body)
 
-    def test_folder_refused(self):
-        self.assertEqual(self.refuse(se.plan_trash, self.V, self.sources, str(self.raw / "客戶案件" / "內湖李"), self.V),
-                         "整個夾請在檔案總管刪")
+    def test_too_big_goes_to_backup_and_no_room_refuses(self):
+        src = self.raw / ESTIMATE
+        with mock.patch.object(se, "recycle_room", return_value=(100, 120)):
+            p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+            with mock.patch.object(se.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+                msg = self.refuse(se.do_trash, self.V, p, self.t)
+        self.assertIn("--permanent", msg)
+        self.assertIn("進不了資源回收筒", msg)
+        self.assertTrue(src.exists())
+        with mock.patch.object(se, "recycle_room", return_value=(100, 120)), \
+                mock.patch.object(se.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            got = se.do_trash(self.V, p, self.t, permanent=True)
+        self.assertEqual(got["kept"], "permanent")
+        self.assertFalse(src.exists())
+
+    def test_permanent_still_trashes_when_bin_works(self):
+        with mock.patch.object(se, "shell_trash", side_effect=self.fake), mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+            p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+            got = se.do_trash(self.V, p, self.t, permanent=True)
+        self.assertEqual(got["kept"], "trash")
+
+    def test_folder_empty_and_with_files(self):
+        empty = self.raw / "客戶案件" / "空夾"
+        empty.mkdir()
+        p = se.plan_trash(self.V, sources_lib.load(self.V), str(empty), self.V)
+        self.assertTrue(p["empty"])
+        got = se.do_trash(self.V, p, self.t)
+        self.assertEqual(got["kept"], "removed")
+        self.assertFalse(empty.exists())
+        lee = self.raw / "客戶案件" / "內湖李"
+        with mock.patch.object(se, "shell_trash", side_effect=lambda x: shutil.rmtree(x)), \
+                mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+            p = se.plan_trash(self.V, sources_lib.load(self.V), str(lee), self.V)
+            got = se.do_trash(self.V, p, self.t)
+        self.assertFalse(lee.exists())
+        self.assertEqual(entry(self.V, self.fid)["status"], "deleted")
+        self.assertTrue(got["card_removed"])
+
+    def test_readonly_file_is_trashed(self):
+        src = self.raw / ESTIMATE
+        os.chmod(src, 0o444)
+        with mock.patch.object(se, "shell_trash", side_effect=self.fake), mock.patch.object(se, "recycle_room", return_value=(0, 10 ** 9)):
+            p = se.plan_trash(self.V, self.sources, self.fid, self.V)
+            se.do_trash(self.V, p, self.t)
+        self.assertFalse(src.exists())
 
     def test_trash_follows_like_drop(self):
         t = self.t
@@ -361,7 +455,7 @@ class Trash(Base):
         self.assertIsNone(pending.open_for(self.V, self.fid, "unreadable"))
         self.assertEqual([i["status"] for i in agenda.load(self.V)["items"]], ["cancelled"])
         self.assertEqual(turn.moves(self.V, t)[0], dict(turn.moves(self.V, t)[0], op="trash", to=None))
-        self.assertEqual(se.trash_sentence(p, got), "已丟進資源回收筒：估價單.pdf；卡拿掉了")
+        self.assertEqual(se.trash_sentence(p, got), "已丟進資源回收筒：估價單.pdf")  # D-305：成功句不講卡
 
 
 class OneDrive(Base):

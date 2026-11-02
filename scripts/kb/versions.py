@@ -678,12 +678,23 @@ def _move_steps(vault, sources, rows):
     return steps, None
 
 
+def _move_any(src, dst):
+    """搬回去：同一顆硬碟 os.rename；不同顆（跨磁碟搬過的）shutil.move 複製再拿掉（放寬甲）。"""
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        if getattr(e, "errno", None) == 18 or getattr(e, "winerror", None) == 17:
+            shutil.move(str(src), str(dst))
+        else:
+            raise
+
+
 def _undo_source_moves(vault, steps):
     """照檢查過的步驟把客戶的檔或夾搬回去；一步失敗就把已搬的倒回去、丟 _FolderFailed。回搬了的。"""
     done = []
     for st in steps:
         try:
-            os.rename(st["dst"], st["src"])
+            _move_any(st["dst"], st["src"])
         except Exception as e:  # noqa: BLE001  白話一句、不丟 traceback
             _roll_back_source_moves(vault, done)
             if isinstance(e, PermissionError):
@@ -696,7 +707,7 @@ def _undo_source_moves(vault, steps):
 def _roll_back_source_moves(vault, done):
     for st in reversed(done):
         try:
-            os.rename(st["src"], st["dst"])
+            _move_any(st["src"], st["dst"])
         except OSError as e:
             ledger.log_error(vault, f"退回倒不回去 {st['from_uri']}: {type(e).__name__}: {e}", source="versions")
 
