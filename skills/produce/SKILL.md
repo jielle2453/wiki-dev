@@ -43,7 +43,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 ## 骨架
 
 - 分辨是哪一種。`kb office check` 看工具並印工作區；缺工具照它的「要先做」問她，說好才 `kb office setup`。
-- **新做**：收資料（實體用 `kb lookup`、按卡型或年列卡用 `kb cards list`、日程用 `kb agenda list`）→ 簡單的直接照用途做成（`references/make.md`），複雜的先寫草稿放暫存區（`references/draft.md`）、她說可以再做：本機檔在工作區做好後 `kb output save … [--draft <草稿>]`，線上文件建好後 `kb output link`；剛回答過的直接做成。
+- **新做**：收資料（實體用 `kb lookup`、按卡型或年列卡用 `kb cards list`、日程用 `kb agenda list`）→ 簡單的直接照用途做成（`references/make.md`），筆記這類 md 成品直接存成定稿（`references/draft.md`「md 本身就是成品的」），複雜的先寫草稿放暫存區（`references/draft.md`）、她說可以再做：本機檔在工作區做好後 `kb output save … [--draft <草稿>]`，線上文件建好後 `kb output link`；剛回答過的直接做成。
 - **改既有、轉格式**：`kb office copy` → 在工作區改（`kb office unpack`／`pack`、或腳本經 `kb office run`）→ 驗（Word 修訂數、Excel `kb office recalc`、簡報 `kb office render`）→ `kb output save … --from <原檔>`。
 - **回答**：說放在哪（哪個夾，或線上文件存在她帳號）、說「退回」可以退這一步（這份檔先留著，要刪再跟我說）、用了哪幾份資料；做了的事合成一行。
 - 末尾跑 `kb asks --about 實體 --json`：`asks` 有就問一件，`later` 等一段事說完帶一句，`tell` 照貼。
