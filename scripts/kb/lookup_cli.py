@@ -6,7 +6,7 @@
 import argparse
 import json
 
-from kb._lib import agenda, entities, rulings
+from kb._lib import agenda, cards, entities, rulings
 from kb._lib import lookup as lookup_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -98,6 +98,8 @@ def _lines(got):
             if i.get("start"):
                 when = f"{agenda.with_weekday(i['start'])}～{when}"
             out.append(f"- {when}{i.get('time', '') + ' ' if i.get('time') else ''}{i['kind']} {i['text']}")
+    if got.get("in_progress"):  # 製作中（D-525）：還沒整理，問到讀原檔
+        out.append("製作中：" + "、".join(cards.wip_label(r) for r in got["in_progress"]))
     return out
 
 

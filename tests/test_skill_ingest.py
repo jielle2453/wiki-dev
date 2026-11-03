@@ -240,3 +240,28 @@ class SimpleCardForAiNotes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Wip(unittest.TestCase):
+    """D-525 第 7 點、裁定 3、5：她說整理才用，開場有變動那條拿掉；md 用 --ids 只做卡；commands.md 有 cards wip。"""
+
+    def test_triggers(self):
+        front, body = split(SKILL.read_text(encoding="utf-8"))
+        fields = dict(line.split(":", 1) for line in front)
+        self.assertNotIn("開場", fields["description"])
+        self.assertNotIn("開場有變動先派整理", body)
+        self.assertIn("cards wip", body)
+        self.assertIn("--ids", body)
+        self.assertIn("不只 X", body)
+
+    def test_commands_has_wip(self):
+        text = (SKILL.parent / "references" / "commands.md").read_text(encoding="utf-8")
+        self.assertIn("`cards wip [--json]`", text)
+        self.assertIn("主對話也用它整理每句開頭那行列的 md", text)
+
+    def test_md_card_logs_entities(self):
+        """裁定 6：md 卡寫完，對卡上的實體各跑一次 kb entity log --synced；不讀綜合卡、不改現況。"""
+        text = (SKILL.parent / "references" / "carding.md").read_text(encoding="utf-8")
+        line = next(ln for ln in text.splitlines() if ln.startswith("2. md 檔例外"))
+        self.assertIn("kb entity log <實體> '<文件日期> <卡標題>〔<卡編號>〕' --synced", line)
+        self.assertIn("不讀綜合卡、不改現況", line)

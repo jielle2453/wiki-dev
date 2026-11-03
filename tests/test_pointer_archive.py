@@ -17,7 +17,6 @@ CHANGED_BLOCKS = [("h", "大安陳第一次會議"), ("p", "討論廚房動線�
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = _cards.make_card_vault()
-        self.set_config(recard_idle_minutes=0)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -124,7 +123,7 @@ class PointerMode(Base):
         self.assertTrue(item["diff_truncated"])
         self.assertEqual(len(item["diff"]), 30)
 
-    def test_pointer_changed_not_counted_and_open_file_still_deferred(self):
+    def test_pointer_changed_not_counted_and_open_file_still_listed(self):
         self.card()
         fid = self.fid()
         self.ok("cards", "mode", fid, "pointer")
@@ -132,10 +131,10 @@ class PointerMode(Base):
         self.change_file()
         data = self.todo()
         self.assertEqual(data["plan"], before)  # 不算進整理的份數
-        (self.raw / "客戶案件/大安陳/~$會議紀錄_1.docx").write_bytes(b"x")  # 鎖檔：照 D-329 先不列
+        (self.raw / "客戶案件/大安陳/~$會議紀錄_1.docx").write_bytes(b"x")  # 鎖檔：D-525 拿掉 D-329，開著也照列
         data = self.todo()
-        self.assertEqual(data["pointer_changed"], [])
-        self.assertEqual([d["why"] for d in data["deferred"]], ["open"])
+        self.assertEqual([d["id"] for d in data["pointer_changed"]], [fid])
+        self.assertNotIn("deferred", data)
 
     def test_change_counts_from_fingerprint_times(self):
         self.card()

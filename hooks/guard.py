@@ -42,7 +42,7 @@ AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent、--session 或 --via"
 GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session", "--via")  # --via 只有 Obsidian 外掛自己帶（#22，D-255），模型帶的照 SELF_FLAGS 擋
 # card-maker 用得到的（agents/card-maker.md、skills/ingest/references/ 的規則檔）：(子命令, 子子命令)；子子命令 "" 是沒有子子命令的
-AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "skip"), ("convert", ""), ("version", ""),
+AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "wip"), ("cards", "skip"), ("convert", ""), ("version", ""),
                ("agenda", "add"), ("agenda", "edit"), ("agenda", "recheck"), ("agenda", "scanned"), ("agenda", "cancel"),
                ("agenda", "list"), ("entity", "add"), ("entity", "suggest-close"), ("entity", "clean"), ("entity", "list"),
                ("entity", "tag"), ("entity", "render"), ("entity", "log")}

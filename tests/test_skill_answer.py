@@ -80,7 +80,9 @@ class Body(unittest.TestCase):
         for want in ("note", "ingest", "manage", "produce"):
             with self.subTest(hand_off=want):
                 self.assertIn(want, part)
-        self.assertIn("開場有新檔", part, "裁定 18：收例句 13")
+        self.assertIn("in_progress", part, "D-525：製作中的檔讀原檔答")
+        self.assertIn("還沒整理，照原檔", part)
+        self.assertNotIn("開場有新檔", part, "D-525：不再開場先整理")
 
     def test_principles_have_reasons_and_codes(self):
         part = self.section("## 原則", "## 骨架")

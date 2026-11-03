@@ -16,7 +16,6 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = E.make_entity_vault(with_entities=True)
         self.t = turn.start(self.V, None, "")["turn"]
-        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")  # 剛寫的檔不算「剛改過」（D-329）
         self.quote = self.card(E.QUOTE, "信義王報價", ["信義王"])
         self.est = self.card(E.ESTIMATE, "信義王估價", ["信義王"])
 

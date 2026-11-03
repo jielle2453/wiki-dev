@@ -87,6 +87,7 @@ def add_arguments(sub):
     bt.add_argument("batch", help="批次編號（b-…）")
     st = subs.add_parser("status", help="背景整理到哪了（只讀）", description="還在跑幾批、這次做好幾份、還剩幾份。")
     sp = subs.add_parser("stop", help="停背景整理", description="放掉這個對話的批次；回要停的子代理。")
+    wp = subs.add_parser("wip", help="製作中的檔（只讀）", description="新放、改過、她還沒說整理的檔（md 以外）與算在哪個實體下（D-525）。")
     mo = subs.add_parser("mode", help="這份檔記成完整卡或指路卡", description="會一直改的檔：記成指路卡（pointer）或完整卡（full）；只記清冊，判斷交 AI。")
     mo.add_argument("id", help="清冊編號（f-…）")
     mo.add_argument("state", choices=["full", "pointer"], help="full 完整卡、pointer 指路卡")
@@ -96,7 +97,7 @@ def add_arguments(sub):
     ur = subs.add_parser("unreadable", help="線上文件讀不到，記進待處理", description="只收線上文件（link 條目）。")
     ur.add_argument("id", help="清冊編號（out-… 或 f-…）")
     ur.add_argument("--reason", required=True, help="讀不到的原因，例：線上文件打不開")
-    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, mo, sn, ur):
+    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, wp, mo, sn, ur):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -162,6 +163,17 @@ def _entity_parts(data):
     if data.get("pointer_changed"):
         parts.append(f"指路卡的檔有變 {len(data['pointer_changed'])}")
     return parts
+
+
+def _wip(vault, as_json):
+    rows = cards.wip(vault)
+    if as_json:
+        print(json.dumps(rows, ensure_ascii=False))
+        return 0
+    print(f"製作中 {len(rows)} 份" + ("：" if rows else ""))
+    for r in rows:
+        print(f"- {cards.wip_label(r)}" + (f"（{'、'.join(r['entities'])}）" if r["entities"] else ""))
+    return 0
 
 
 def _todo(vault, args, as_json):
@@ -717,6 +729,8 @@ def run(args):
             return _todo(vault, args, as_json)
         if command == "list":
             return _list(vault, args, as_json)
+        if command == "wip":
+            return _wip(vault, as_json)
         if command == "edits":
             return _edits(vault, args, as_json)
         if command == "dispatch":
