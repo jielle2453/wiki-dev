@@ -57,6 +57,7 @@ def add_arguments(sub):
     subs = sub.add_subparsers(dest="cards_command", metavar="<子子命令>", required=True)
     td = subs.add_parser("todo", help="列出該做的卡", description="列出還沒有卡、該重做、該搬的卡；不寫檔。")
     td.add_argument("--limit", type=_limit, help="人讀輸出最多列幾份，預設 ingest_auto_max")
+    td.add_argument("--full", action="store_true", help="--json 給整份（預設 moved 只給前 10 筆、profile 只給 about）")
     sy = subs.add_parser("sync", help="原檔搬了，卡跟著搬", description="把 todo 裡 moved 的卡搬到原檔現在的位置。")
     dr = subs.add_parser("drop", help="拿掉原檔已刪的卡", description="原檔不見、客戶說刪了，拿掉它的卡。")
     dr.add_argument("id", help="清冊編號（f-…）")
@@ -176,6 +177,20 @@ def _wip(vault, as_json):
     return 0
 
 
+MOVED_SHOWN = 10
+
+
+def _brief(data):
+    """todo --json 預設給主對話的精簡版（輕流程 todo 精簡）：搬動由 cards sync 做、主對話只要筆數，moved 超過 10 筆只留前 10 筆
+    加 moved_total；profile 只留 about（S-03 認客戶自己），給製卡者的整份在 cards batch 裡照舊。"""
+    out = dict(data)
+    if len(data.get("moved") or []) > MOVED_SHOWN:
+        out["moved"], out["moved_total"] = data["moved"][:MOVED_SHOWN], len(data["moved"])
+    if isinstance(data.get("profile"), dict):
+        out["profile"] = {"about": data["profile"].get("about") or []}
+    return out
+
+
 def _todo(vault, args, as_json):
     data = cards.todo(vault, sources_lib.load(vault))
     try:  # 回合狀態：記了才認得出「整理中被按停止」（D-156）；記不到不擋 todo
@@ -183,7 +198,7 @@ def _todo(vault, args, as_json):
     except OSError:
         pass
     if as_json:
-        print(json.dumps(data, ensure_ascii=False))
+        print(json.dumps(data if args.full else _brief(data), ensure_ascii=False))
         return 0
     limit = args.limit if args.limit is not None else config.get(vault, "ingest_auto_max")
     print("\n".join(_todo_lines(vault, data, limit)))

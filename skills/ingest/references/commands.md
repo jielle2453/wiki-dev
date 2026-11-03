@@ -40,7 +40,7 @@
 
 `--json`：`{"id","uri","path","kind","temp","chars","parts","encoding","pages","big","unreadable","pending_id","scanned_pages","images","ask_save","unlocked"}`（`unlocked` 是 password｜saved｜null）（`scanned_pages` 是掃描頁的頁碼清單、`images` 是轉出的 PNG 路徑清單，PDF 才有），沒有的欄是 null，失敗時也印這份（`unreadable` 是原因）；`kind` 是 docx｜xlsx｜pptx｜text｜pdf｜image｜legacy_office｜encrypted｜unsupported。
 
-## cards todo [--json] [--limit N]
+## cards todo [--json] [--limit N] [--full]
 
 不寫任何檔。人讀第一行：
 
@@ -50,6 +50,8 @@
 PDF 元件剛裝好時最前面多一行 `PDF 元件裝好了，N 份 PDF 回到待製卡`（之前記成「還沒裝 PDF 元件」的待處理自動關掉）。全部 0 印 `卡都是最新的`；有檔頭壞的卡第一行尾多「；檔頭有問題 N 張」，同編號多張多「；同編號多張 N 組（跑 kb cards sync）」。實體與綜合卡有事時第一行尾再接「；待掛實體 N」「；綜合卡 待建 N（待確認 N）、待更新 N、有問題 N」「；實體夾有變 N」「；日程待重對 N」「；日程待抽 N」（0 的項不印；日程待抽不為 0 時不會印「卡都是最新的」）；`missing_types` 有值時多一行（卡型在設定檔沒有的份數；照 carding.md 直接加進設定檔）。不製卡的份數不為 0 時第二行 `不製卡：檔名像密碼或金鑰 N、只在雲端 N、太大 N、讀不到 N、依設定不整理 N`（0 的項不印）。之後每份一行 `- 新 f-… 客戶案件/信義王/報價_v3.pdf → 檔案索引/客戶案件/信義王/<標題>-3f9a1b2c.md`（重做的是 `- 重做 f-… <原檔> → <舊卡路徑>`），`--limit` 預設是開場的份數上限，多的印 `……還有 N 份`。
 
 `--json`：`new`、`stale`、`broken`、`unlinked`、`synthesis_*`、日程這些是製卡的材料，欄位說明在 carding.md、agenda-scan.md、synthesis-batch.md、synthesis-broken.md 的「材料的欄位」（製卡交給 card-maker，主對話只在 `plan` 有 `cards` 那步時用）。製作中另有 `cards wip [--json]`（只讀，D-525）：todo 的 `new`、`stale` 去掉 md、線上文件與標了重做的，`[{"id","path","name","mtime","entities"}]`，新改的在前；`path` 是原檔，`entities` 是算在哪個實體下（實體夾，或檔名有名稱、別名），都沒有是 `[]`；人讀 `製作中 N 份：` 接每份「- <檔名>（M/D 改）（實體）」；她說整理就照骨架整理全部，收工照核心規則 R-13 帶一句。
+
+`--json` 預設精簡：`moved` 超過 10 筆只給前 10 筆加 `moved_total`（搬動照 `cards sync` 做，不用看每筆），`profile` 只給 `about`；要整份加 `--full`。
 
 `--json` 另有 `plan`、`asks`、`tell`、`announce` 四樣程式算好的，照著做（`new`、`stale` 等是做事的材料，這四樣才是順序與問法；第一條是日程的指引）：
 - 日程（`kb agenda`、`kb entity progress`、`kb asks`）的指令與逾期題的答法看 note skill 的 `references/agenda.md`；日程有出入、結案兩種題照 `asks` 的結果做；`plan` 的 `agenda_recheck`、`agenda_unscanned` 兩步照 agenda-scan.md 做（`kb agenda scanned` 的說明在 note 的 `references/agenda.md`）。
