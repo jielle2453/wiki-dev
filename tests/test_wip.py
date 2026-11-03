@@ -58,6 +58,20 @@ class Wip(unittest.TestCase):
         self.assertEqual((row["id"], row["entities"]), (self.contract, ["信義王"]))
         self.assertTrue(row["mtime"].startswith(str(datetime.date.today().year)))
 
+    def test_not_wip_entry_not_listed(self):
+        """裁定 13：有卡的檔記成照設定不整理後又改了，wip 跟每句開頭一樣不列（cards.not_wip）。"""
+        from tests import _ooxml
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        for e in data["entries"]:
+            if e["id"] == self.contract:
+                e["skip_kind"] = "合約"
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        _ooxml.docx(self.V / "案子" / "信義王" / "合約.docx", [("p", "改過的合約")])
+        _cards.scan_apply(self.V)
+        self.assertNotIn(self.contract, {r["id"] for r in cards.wip(self.V)})
+        self.assertEqual(lookup.lookup(self.V, "信義王")["in_progress"], [r for r in cards.wip(self.V) if "信義王" in r["entities"]])
+
     def test_redo_not_listed(self):
         """標了重做（卡讀錯）的不算製作中（裁定 2）：todo 照常列 stale，wip 不列。"""
         r = run_kb("cards", "redo", self.contract, cwd=self.V)

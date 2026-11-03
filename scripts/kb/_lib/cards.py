@@ -987,7 +987,7 @@ def _wip_entities(entry, name, ent_data, vault):
 
 
 def wip(vault, sources=None, deadline=None, sorted_=None):
-    """製作中（D-525）：todo 的 new＋stale，不列 md、線上文件與標了重做的（裁定 2），不另存。
+    """製作中（D-525）：todo 的 new＋stale，不列 md、線上文件、標了重做的（裁定 2）與 not_wip 的（裁定 13），不另存。
     回 [{"id","path","name","mtime","entities"}]，新改的排前面；path 是原檔絕對路徑，mtime 是本機時間 ISO 字串（讀不到 None）。"""
     from datetime import datetime
     from kb._lib import inventory
@@ -996,7 +996,7 @@ def wip(vault, sources=None, deadline=None, sorted_=None):
     rows = []
     for item in s["out"]["new"] + [i for i in s["out"]["stale"] if i.get("reason") != REDO_REASON]:
         entry = by_id.get(item["id"])
-        if entry is None or entry.get("kind") == "link" or not entry.get("locations"):
+        if entry is None or entry.get("kind") == "link" or not entry.get("locations") or not_wip(entry):  # 跟每句開頭同一套（裁定 13）
             continue
         uri = entry["locations"][0]["uri"]
         name = uri.rsplit("/", 1)[-1]
