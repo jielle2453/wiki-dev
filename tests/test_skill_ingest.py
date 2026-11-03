@@ -253,6 +253,8 @@ class Wip(unittest.TestCase):
         self.assertIn("cards wip", body)
         self.assertIn("--ids", body)
         self.assertIn("不只 X", body)
+        self.assertIn("一律 `cards dispatch` 不帶 `--ids`", body, "裁定 15：她說整理 md 也照常整理")
+        self.assertIn("她這句沒說整理", body)
 
     def test_commands_has_wip(self):
         text = (SKILL.parent / "references" / "commands.md").read_text(encoding="utf-8")

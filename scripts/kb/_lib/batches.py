@@ -705,10 +705,12 @@ def _cross_job(vault, data, job, key, reason, entry):
 # ---------- dispatch ----------
 
 def _only_ids(parts, ids):
-    """--ids：只留 cards 裡那幾份，其他種類不派（建置抽樣，build 第 6 點）。"""
+    """--ids：只留 cards 裡那幾份與那幾份卡的日程重對（agenda_recheck，出處卡在 ids 裡），抽日程、綜合卡、主對話做的不派
+    （建置抽樣，build 第 6 點；製作中裁定 17：md 改了她沒說整理，日程也跟著重對）。"""
     want = set(ids)
     got = {k: [] for k in parts}
     got["cards"] = [x for x in parts["cards"] if x[1] in want]
+    got["agenda"] = [x for x in parts.get("agenda") or [] if x[0] == "agenda_recheck" and x[2].get("card") in want]
     return got
 
 

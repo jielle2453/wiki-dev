@@ -172,8 +172,8 @@ KB = ROOT / "scripts" / "kb.py"
 CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
 WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
 MISSING = "有 {} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
-MD = ("有 {} 份 md 新放或改過（{}）：先跑 kb inventory scan，再照 ingest 只整理這幾份"
-      "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；其他製作中的不一起整理。")
+MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
+      "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # 裁定 15
 DRIFT = "實體夾有變 {}：跑 kb cards todo --json，只照 asks 問實體夾那題，不做卡。"  # D-525 裁定 1
 CHANGE_HEAD = re.compile(r"^(有 \d+ 份|實體夾有變 |變動還沒比完)")
 SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"

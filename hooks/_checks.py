@@ -27,8 +27,8 @@ DETECTED_SEEN_KEEP = 300  # session 檔 checks.detected 最多留幾條（已記
 SOURCE = "session"  # log 的 source；turn.py 改成 "turn"
 
 WIP_LINE = "有 {n} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
-MD_LINE = ("有 {n} 份 md 新放或改過（{names}）：先跑 kb inventory scan，再照 ingest 只整理這幾份"
-           "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；其他製作中的不一起整理。")  # D-525 第 8 點、裁定 3
+MD_LINE = ("有 {n} 份 md 新放或改過（{names}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
+           "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # D-525 第 8 點、裁定 3、15
 MISSING_LINE = "有 {n} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
 NAMES_SHOWN = 3
 WIP_DAILY = "製作中 {n} 份：{names}；跟客戶說一句還有這幾份沒整理、要整理說一聲，不問、不追。"  # D-525 第 5 點

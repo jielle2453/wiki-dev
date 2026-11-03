@@ -285,6 +285,16 @@ class Buckets(Base):
         got, _a, _d = synthesis.insert_events(text, [("2026-10-25", "2026-10-25 開會〔f-00000001〕")])
         self.assertEqual(got, text.replace("## 紀事\n", "## 紀事\n- 2026-10-25 開會〔f-00000001〕\n\n"))
 
+    def test_same_day_same_card_replaces(self):
+        """製作中裁定 16：同一天、同一個〔卡編號〕已有一條就換掉，不另加；別張、別天的不動；一字不差的照舊算已經有。"""
+        text = ("---\na: 1\n---\n# x\n\n## 紀事\n- 2026-10-25 舊說法〔f-00000001〕\n- 2026-10-25 別張〔f-00000002〕\n"
+                "- 2026-10-01 甲〔f-00000001〕\n\n" + self.FILES)
+        got, added, dup = synthesis.insert_events(text, [("2026-10-25", "2026-10-25 新說法〔f-00000001〕")])
+        self.assertEqual(added, ["2026-10-25 新說法〔f-00000001〕"])
+        self.assertEqual(got, text.replace("- 2026-10-25 舊說法〔f-00000001〕\n", "- 2026-10-25 新說法〔f-00000001〕\n"))
+        again, added, dup = synthesis.insert_events(got, [("2026-10-25", "2026-10-25 新說法〔f-00000001〕")])
+        self.assertEqual((again, added, dup), (got, [], ["2026-10-25 新說法〔f-00000001〕"]))
+
     def test_insert_events_keeps_file_section(self):
         """D-521 裁定 5：舊版面紀事在相關檔前面時加的行不進相關檔；D-523：沒有紀事段一律補在全卡最後（相關檔下面）。"""
         new = "- 2026-10-25 開會〔f-00000001〕"

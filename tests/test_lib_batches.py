@@ -574,3 +574,17 @@ class ReadLists(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OnlyIds(unittest.TestCase):
+    def test_keeps_cards_and_their_agenda_recheck(self):
+        """製作中裁定 17：--ids 派那幾份做卡，加那幾份卡的日程重對（agenda_recheck）；別張的重對、抽日程、綜合卡、主對話的不派。"""
+        parts = {"cards": [("new", "f-00000001", {"id": "f-00000001"}), ("stale", "f-00000002", {"id": "f-00000002"})],
+                 "agenda": [("agenda_recheck", "a-00000001", {"card": "f-00000001"}),
+                            ("agenda_recheck", "a-00000002", {"card": "f-00000009"}),
+                            ("agenda_unscanned", "f-00000003", {"id": "f-00000003"})],
+                 "synthesis": [("synthesis_stale", "e-00000001", {})], "main": [("new", "f-00000004", {})]}
+        got = batches._only_ids(parts, ["f-00000001"])
+        self.assertEqual([k for _b, k, _i in got["cards"]], ["f-00000001"])
+        self.assertEqual([k for _b, k, _i in got["agenda"]], ["a-00000001"])
+        self.assertEqual((got["synthesis"], got["main"]), ([], []))
