@@ -702,5 +702,17 @@ class Layout(Base):
         self.assertLess(new.index("## 推算"), new.index(synthesis.FILE_BEGIN))
 
 
+    def test_with_file_section_crlf_card(self):
+        """裁定 9（jacky）：全 CRLF 的新版面卡換相關檔那段：照 CRLF、相關檔與紀事之間一個空行、跑第二次不變。"""
+        new_files = self.FILES.replace("[[a.md|甲]]", "[[b.md|乙]]")
+        text = self.old(self.NOW, self.FILES + "\n", self.EVENTS).replace("\n", "\r\n")
+        got = synthesis.with_file_section(text, new_files)
+        self.assertNotIn("\n", got.replace("\r\n", ""))
+        self.assertEqual(got, self.old(self.NOW, new_files + "\n", self.EVENTS).rstrip("\n").replace("\n", "\r\n") + "\r\n")
+        self.assertEqual(synthesis.with_file_section(got, new_files), got)
+        bare = self.old(self.NOW, self.EVENTS).replace("\n", "\r\n")  # 沒有那段：插在紀事前，也照 CRLF
+        self.assertEqual(synthesis.with_file_section(bare, self.FILES),
+                         self.old(self.NOW, self.FILES + "\n", self.EVENTS).replace("\n", "\r\n"))
+
 if __name__ == "__main__":
     unittest.main()
