@@ -740,7 +740,13 @@ def _mark_line(mark):
 
 def with_file_section(text, section):
     """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段時插在「## 紀事」前面（D-523），沒有紀事段才接在最後；
-    其他字原樣。"""
+    其他字原樣；全 CRLF 的卡照 CRLF 寫（D-523 裁定 9）。"""
+    if _all_crlf(text):
+        return _with_file_section(text.replace("\r\n", "\n"), section).replace("\n", "\r\n")
+    return _with_file_section(text, section)
+
+
+def _with_file_section(text, section):
     span = _span(text)
     if span is None:
         if not section:
@@ -748,8 +754,8 @@ def with_file_section(text, section):
         ev = _EVENTS_HEAD.search(text)
         if ev is not None:
             return text[:ev.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[ev.start():]
-        return text.rstrip("\n") + "\n\n" + section + "\n"
-    head, tail = text[:span[0]].rstrip("\n"), text[span[1]:].strip("\n")
+        return text.rstrip("\r\n") + "\n\n" + section + "\n"
+    head, tail = text[:span[0]].rstrip("\r\n"), text[span[1]:].strip("\r\n")
     return head + ("\n\n" + section if section else "") + ("\n\n" + tail if tail else "") + "\n"
 
 
