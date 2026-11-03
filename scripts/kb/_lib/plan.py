@@ -313,10 +313,10 @@ DRIFT_RECENT_DAYS = 30
 
 
 def _ask_missing_drift(d):
-    """綜合卡不見（放寬丙 6-1，D-311）：交 AI 判斷，只有進行中、last_activity 30 天內、similar 與 same_name_new 空、
-    deleted_with 0（沒有線索）才照 D-310 問一題；其他不出題。"""
+    """綜合卡不見（放寬丙 6-1，D-311）：交 AI 判斷，只有進行中（progress 空的也算，跟 entities 一致）、last_activity 30 天內、
+    similar 與 same_name_new 空、deleted_with 0（沒有線索）才照 D-310 問一題；其他不出題。"""
     last = d.get("last_activity")
-    if d.get("progress") != "ongoing" or not last or d.get("similar") or d.get("same_name_new") or d.get("deleted_with"):
+    if (d.get("progress") or "ongoing") != "ongoing" or not last or d.get("similar") or d.get("same_name_new") or d.get("deleted_with"):
         return False
     try:
         return (date.today() - date.fromisoformat(last)).days <= DRIFT_RECENT_DAYS

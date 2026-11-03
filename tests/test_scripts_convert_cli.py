@@ -67,6 +67,28 @@ class Convert(Base):
         self.check_meeting(self.kb("convert", str(self.raw / _cards.MEETING)), e["id"])
         self.check_meeting(self.kb("convert", os.path.join("..", "raw", *_cards.MEETING.split("/"))), e["id"])
 
+    def moved(self):
+        """把會議紀錄搬到別的夾、不跑 scan（兩句之間搬，每句開頭只比對、不寫清冊）；回 (清冊條目, 新位置去掉 file:// 的寫法)。"""
+        e = _cards.entry_of(self.V, _cards.MEETING)
+        alias = _cards.MEETING.split("/", 1)[0]
+        new_rel = f"{alias}/搬過來/{_cards.MEETING.rsplit('/', 1)[-1]}"
+        (self.raw / alias / "搬過來").mkdir()
+        os.replace(self.raw / _cards.MEETING, self.raw / new_rel)
+        return e, new_rel
+
+    def test_moved_alias_path_reads(self):
+        """刪綜合卡說一聲 第 4 點：搬了以後用 changes --moved 的 to 去掉 file:// 的寫法（別名/相對路徑）也讀得到。"""
+        e, alias_path = self.moved()
+        r = self.kb("convert", alias_path)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(r.stdout.startswith("暫存檔："), r.stdout)
+
+    def test_moved_uri_reads(self):
+        """搬了以後用 changes --moved 的 to（file:// 整串）讀得到。"""
+        e, alias_path = self.moved()
+        r = self.kb("convert", "file://" + alias_path)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def pdf(self, src=TEXT_PDF, name="報價.pdf"):
         p = self.raw / "客戶案件" / name
         shutil.copy2(src, p)
