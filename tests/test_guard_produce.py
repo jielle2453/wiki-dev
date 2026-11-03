@@ -207,6 +207,15 @@ class OpenFile(Base):
                 d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
                 self.assertEqual((d.decision, d.ledger_rows), ("pass", []))
 
+    def test_open_obsidian_link_pass(self):
+        """輕流程 todo 精簡第 2 點：answer 教 AI 用 start／Start-Process 開卡上的 obsidian:// 連結，守門要放行。"""
+        link = "obsidian://wiki-with-willy-open?id=f-3f9a1b2c"
+        for tool, cmd in (("Bash", f'start "" "{link}"'), ("Bash", f'cmd //c start "" "{link}"'),
+                          ("PowerShell", f"Start-Process '{link}'"), ("PowerShell", f'start "{link}"')):
+            with self.subTest(cmd=cmd):
+                d = self.ps(cmd) if tool == "PowerShell" else self.bash(cmd)
+                self.assertEqual(d.decision, "pass", d)
+
     def test_new_window_for_claude_pass(self):
         """#18：開新視窗跑 claude。"""
         for cmd in ("Start-Process powershell -ArgumentList '-NoExit','-Command','claude --name 問答測試 --plugin-dir C:\\x'",

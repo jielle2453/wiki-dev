@@ -183,7 +183,7 @@ answer 只讀；要把剛才算好的答案留下來，說「把剛才的答案�
 
 - `kb changes`：跟清冊上次掃描比，列新增、修改、搬動、不見的檔名；只看不改。`--all` 列全部，`--quick` 走開場那條快的路。
 - `kb inventory scan`：全掃一次，把變動套進清冊；寫前先備份，說「退回上一版」救得回。`--source <別名>` 只掃一個來源。原檔不見的會記進待處理，找回來自動關掉。
-- `kb cards todo`：列還沒有卡、該重做、該搬的卡與讀不到、原檔不見的份數；只看不改。`--json` 全列。
+- `kb cards todo`：列還沒有卡、該重做、該搬的卡與讀不到、原檔不見的份數；只看不改。`--json` 給主對話的精簡版（`moved` 最多 10 筆、`profile` 只給 `about`），`--full` 全列。
 - `kb cards dispatch`：把要整理的切批交給背景的製卡助手（對話裡用；`--source <別名>` 只整理一個來源；建置時 `--ids <編號,…>` 只做那幾份、`--adopt` 讀舊 wiki 切好的段）；`kb cards status`：整理到哪了；`kb cards stop`：停背景整理；`kb cards batch <批次>`：製卡助手拿自己那批的材料（只看不改）；`kb cards unreadable <編號> --reason "線上文件打不開"`：線上文件讀不到，記進待處理。
 - `kb cards sync`：原檔搬了，卡跟著搬；`kb cards drop <編號>`：原檔已刪，拿掉它的卡；`kb cards index`：重寫 `總目錄.md`。
 - `kb cards skip <編號> --kind <種類>`：記成依客戶設定檔不整理（種類要在設定檔第三節是「不整理」），有卡的拿掉。

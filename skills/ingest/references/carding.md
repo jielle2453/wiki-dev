@@ -8,7 +8,9 @@
 
 - `cards`：一～六節寫卡、第七節補掛實體；每寫完一張新卡或重做的卡，同一份內容接著照 agenda-scan.md 抽日期、跑 `kb agenda scanned <卡編號>`。
 
-## 材料的欄位（`cards batch` 的 `items` 與 `cards todo --json`）
+## 材料的欄位（`cards batch` 的 `items` 與 `cards todo --json --full`）
+
+`cards todo --json` 不加 `--full` 是給主對話的精簡版：`profile` 只有 `about`、`moved` 最多 10 筆；製卡照 `cards batch`。
 
 共用欄位（`prefix`、`vault`、`<鍵>_abs`、`bucket`、`profile`、`entities`）在 batch.md；日程的在 agenda-scan.md，綜合卡的在 synthesis-batch.md、synthesis-broken.md。
 
