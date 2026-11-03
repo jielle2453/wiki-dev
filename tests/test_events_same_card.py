@@ -21,6 +21,11 @@ class IfAbsent(unittest.TestCase):
         new, added, _ = synthesis.insert_events(CARD, [("2026-11-05", "2026-11-05 台船展示前確認〔f-0000000a〕")], True)
         self.assertEqual(added, [])
 
+    def test_multi_card_line_with_one_new_card_written(self):
+        """review 第 2 條：一行掛兩張卡、只有一張已有紀事，照寫（新那張的出處不丟）。"""
+        _new, added, _ = synthesis.insert_events(CARD, [("2026-11-04", "2026-11-04 合併〔f-0000000a〕〔f-0000000c〕")], True)
+        self.assertEqual(len(added), 1)
+
     def test_new_card_written(self):
         new, added, _ = synthesis.insert_events(CARD, [("2026-11-03", "2026-11-03 新檔〔f-0000000c〕")], True)
         self.assertEqual(added, ["2026-11-03 新檔〔f-0000000c〕"])

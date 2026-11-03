@@ -1256,7 +1256,7 @@ def insert_events(text, events, if_absent=False):
     同一天、舊行的卡編號都在某條新行裡的，舊行拿掉、換成新行（製作中裁定 16：AI 不讀紀事，同一份卡同一天只留一條）；
     舊行掛的卡比新行多的不換（別張的出處不丟），跟這批某條一字不差的不換（照舊算已經有）。
     沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。
-    if_absent（D-526）：新行的卡編號在紀事裡已經有任何一條（不論哪天）就不加、算已經有（md 簡單卡那條固定短條用）。"""
+    if_absent（D-526）：新行的卡編號每一張在紀事裡都已經有（不論哪天）就不加、算已經有（md 簡單卡那條固定短條用）。"""
     crlf = _all_crlf(text)
     lines = _lines(text)
     start = _body_start(lines)
@@ -1265,7 +1265,7 @@ def insert_events(text, events, if_absent=False):
     logged = set().union(*(_card_ids(l) for l in lines[span[0] + 1:span[1]])) if span and if_absent else set()
     added, dup, todo = [], [], []
     for day, line in events:
-        if _same_event(f"- {line}") in have or line in added or (logged and _card_ids(line) & logged):
+        if _same_event(f"- {line}") in have or line in added or (logged and _card_ids(line) and _card_ids(line) <= logged):
             dup.append(line)
         else:
             added.append(line)
