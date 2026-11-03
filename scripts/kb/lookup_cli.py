@@ -6,7 +6,7 @@
 import argparse
 import json
 
-from kb._lib import agenda, entities, rulings
+from kb._lib import agenda, cards, entities, rulings
 from kb._lib import lookup as lookup_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -72,7 +72,8 @@ def _lines(got):
     if e["aliases"]:
         out.append("別名：" + "、".join(e["aliases"]))
     if got["synthesis"]:
-        out.append(f"綜合卡：{got['synthesis']}")
+        rng = "、".join(f"{a}～{a + n - 1}" for a, n in got.get("read_ranges") or [])
+        out.append(f"綜合卡：{got['synthesis']}" + (f"（讀第 {rng} 行；紀事要用再 Grep）" if rng else ""))
     tags = [f"{t['field']} {'、'.join(t['words'])}" for t in got.get("tags") or [] if t["words"]]
     if tags:
         out.append("標籤：" + "；".join(tags))
@@ -97,6 +98,8 @@ def _lines(got):
             if i.get("start"):
                 when = f"{agenda.with_weekday(i['start'])}～{when}"
             out.append(f"- {when}{i.get('time', '') + ' ' if i.get('time') else ''}{i['kind']} {i['text']}")
+    if got.get("in_progress"):  # 製作中（D-525）：還沒整理，問到讀原檔
+        out.append("製作中：" + "、".join(cards.wip_label(r) for r in got["in_progress"]))
     return out
 
 

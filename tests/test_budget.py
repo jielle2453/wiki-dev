@@ -4,6 +4,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -222,9 +223,9 @@ class OpeningAllLines(unittest.TestCase):
     def test_turn_lines_within_budget(self):
         """每句開頭的行（變動、整理指示、找不到來源、設定檔、日程）同時都在的第一句：守 TURN_MAX_LINES、TURN_MAX_CHARS。"""
         lines = turn_status(all_lines_vault)
-        for head in ("有變動（", "有變動：", "這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（"):
+        for head in ("這台電腦找不到來源", "設定檔被手改了（", "日程：逾期 1（", "實體夾有變 2："):
             self.assertEqual(sum(1 for ln in lines if ln.startswith(head)), 1, (head, lines))
-        self.assertTrue(next(ln for ln in lines if ln.startswith("有變動（")).endswith("、實體夾有變 2"), lines)
+        self.assertEqual(sum(1 for ln in lines if re.match(r"有 \d+ 份新放或改過（製作中）", ln)), 1, lines)  # D-525
         self.assertLessEqual(len(lines), TURN_MAX_LINES)
         self.assertLessEqual(len("\n".join(lines)), TURN_MAX_CHARS, len("\n".join(lines)))
 
@@ -265,7 +266,7 @@ class OpeningVersionLines(unittest.TestCase):
 
     def test_finish_line_hides_the_ingest_hint_so_it_is_not_the_worst_case(self):
         lines = turn_status(version_line_vault("a"))
-        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
+        self.assertFalse([ln for ln in lines if re.match(r"有 \d+ 份", ln)], lines)
 
 
 PREFERENCE_MAX = 20  # 開場那組（整理成卡以外，D-504）；整理成卡那組不進開場

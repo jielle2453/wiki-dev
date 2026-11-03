@@ -86,6 +86,24 @@ class Find(Base):
         self.assertEqual([c["id"] for c in got["cards"]], [self.quote, self.contract])
         self.assertEqual([c["card_type"] for c in got["cards"]], ["報價", "合約"])
 
+    def test_read_ranges_skip_header_files_and_events(self):
+        """D-522：有綜合卡給 read_ranges，不含檔頭、相關檔、紀事任何一行；沒綜合卡是 None。"""
+        self.assertIsNone(lookup.lookup(self.V, "林小姐")["read_ranges"])  # 客戶自己沒有綜合卡
+        card = self.V / "案子" / "信義王" / "信義王.md"
+        card.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["---", "編號: e-0f3e9a21", "名稱: 信義王", "---", "", "# 信義王", "", "一句。", "", "## 現況", "- 點〔f-00000000〕",
+                 "", "## 推算", "- 算〔f-00000000〕", "", "<!-- willy:檔 開始 -->", "## 相關檔", "- 報價", "<!-- willy:檔 結束 -->",
+                 "", "## 紀事", "- 2026-10-01 報價〔f-00000000〕", ""]
+        card.write_text("\n".join(lines), encoding="utf-8")
+        got = lookup.lookup(self.V, "信義王宅")["read_ranges"]
+        read = {n for a, k in got for n in range(a, a + k)}
+        self.assertTrue(read)
+        for n, line in enumerate(lines, 1):
+            if n <= 4 or n >= 16:
+                self.assertNotIn(n, read, line)
+        self.assertIn(10, read)
+        self.assertIn(13, read)
+
     def test_merged_redirects(self):
         data = json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8"))["entities"]
         E.put_entities(self.V, data + [E.entity("e-99999999", "王家", status="merged", merged_into=E.XINYI)])

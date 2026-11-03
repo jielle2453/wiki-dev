@@ -77,16 +77,30 @@ def _tags(entry, prof):
             for t in profile.tags_for(prof, entry.get("type")) if entities.tag_value(entry.get("tags"), t["field"]) is not None]
 
 
+def _read_ranges(vault, rel):
+    """綜合卡要讀的行號範圍（D-522：檔頭、相關檔、紀事不讀，同 synthesis.read_ranges）；沒卡或讀不到回 None。"""
+    from kb._lib import synthesis
+    if not rel:
+        return None
+    try:
+        text = (Path(vault) / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return synthesis.read_ranges(text) or None
+
+
 def lookup(vault, query):
-    """回 {"query","entity","synthesis","cards","statements","rulings","findings","agenda","unsorted","mentions","verify_max"}
+    """回 {"query","entity","synthesis","read_ranges","cards","statements","rulings","findings","agenda","unsorted","mentions","verify_max",
+    "in_progress"（算在這個實體下的製作中檔，同 cards.wip 的欄位；沒登記是空的，D-525）}
     （沒登記多 mentions_total）。verify_max 是要逐份核對的份數上限（answer_verify_max，answer 裁定 6）；裁示帶日期（短標用）。"""
     from kb._lib import agenda, cards, findings, inventory, rulings, statements, synthesis
     ent = entities.load(vault)
-    unsorted = cards.unsorted(vault)
+    sorted_ = cards.light_sort(vault)
+    unsorted = cards.unsorted(vault, sorted_=sorted_)
     e, _hit = entities.find(ent, query)
-    out = {"query": query, "entity": None, "synthesis": None, "cards": [], "statements": [], "rulings": [], "findings": [],
+    out = {"query": query, "entity": None, "synthesis": None, "read_ranges": None, "cards": [], "statements": [], "rulings": [], "findings": [],
            "agenda": [], "unsorted": unsorted, "mentions": [], "verify_max": config.get(vault, "answer_verify_max"),
-           "tags": []}
+           "tags": [], "in_progress": []}
     if e is None or e.get("status") != "active":
         found = mentions(vault, query)
         limit = config.get(vault, "lookup_mentions_max")
@@ -104,6 +118,7 @@ def lookup(vault, query):
     out["archived"] = bool(e.get("archived"))  # 實體封存了：不拿來答「現在」的事（放寬丙 12）
     if e.get("type") and not entities.is_self(e):
         out["synthesis"] = entities.locate(vault, e, ent)
+        out["read_ranges"] = _read_ranges(vault, out["synthesis"])
         out["tags"] = _tags(e, prof)
     out["cards"] = cards.newest_first([cards.card_brief(vault, by_id[m["id"]], groups[m["id"]][0], ruled_out)
                                        for m in ms if m["id"] in by_id and m["id"] in groups])
@@ -120,6 +135,7 @@ def lookup(vault, query):
         ctx = findings.context(vault, ent, mounts, groups)
         out["findings"] = [_finding(findings.brief(vault, c, titles, ctx)) for c in finds]
     out["agenda"] = _agenda(vault, name)
+    out["in_progress"] = [r for r in cards.wip(vault, sorted_=sorted_) if name in r["entities"]]  # 製作中（D-525）
     return out
 
 

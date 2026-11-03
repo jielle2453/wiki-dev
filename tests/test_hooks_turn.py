@@ -24,9 +24,12 @@ def run_hook(data, cwd=None):
 
 
 def settle(vault):
-    """把假知識庫的來源套進清冊：每句開頭才不會印「有變動」（放寬丙 3b 把變動行挪到每句開頭）。"""
-    from kb._lib import inventory, sources as sources_lib, turn
+    """把假知識庫的來源套進清冊：每句開頭才不會印變動行（放寬丙 3b 把變動行挪到每句開頭）；今天那批記成做過，
+    不印每天第一句的「製作中」（D-525，清冊裡的檔都還沒卡）。"""
+    from datetime import date
+    from kb._lib import env, inventory, sources as sources_lib, turn
     inventory.apply(vault, inventory.scan(vault, sources_lib.load(vault)), turn.start(vault, None, "")["turn"])
+    env.set_daily_done(vault, date.today().isoformat())
     shutil.rmtree(vault / ".system" / "turns")  # 還沒有任何回合的樣子
 
 
@@ -425,6 +428,8 @@ class EachTurnChecks(unittest.TestCase):
                 "ended": None, "time": None, "text": "事", "entities": [], "status": "open", "source": "confirmed",
                 "origin": None, "lead_days": None, "created_turn": "t", "history": []}
         (self.V / ".system" / "agenda.json").write_text(json.dumps({"schema_version": 1, "items": [item]}), encoding="utf-8")
+        from kb._lib import env as env_lib
+        env_lib.set_daily_done(self.V, (date.today() - timedelta(days=1)).isoformat())  # settle 記成今天做過，這裡要今天還沒做
         first = self.say()
         self.assertTrue([ln for ln in first if ln.startswith("日程：逾期 1")], first)
         env = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))

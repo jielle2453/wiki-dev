@@ -1,6 +1,7 @@
 """kb cards dispatch／batch／status／stop／unreadable 與全域 --turn 黑箱（card-maker，驗收 1、2、2b、6、9、12、13b、13c）：
 真的跑 CLI，成功與拒絕句一字不差。知識庫是 tests/fixtures/inventory 複本，補到 45 份待製卡。"""
 import json
+from pathlib import Path
 import shutil
 import unittest
 
@@ -92,7 +93,8 @@ class Batch(Base):
         b = self.js("cards", "dispatch")["batches"][2]["batch"]
         got = json.loads(self.ok("--turn", self.t, "--agent", "a0204e72", "cards", "batch", b, "--json"))
         self.assertEqual((got["batch"], got["kind"], got["prefix"]), (b, "cards", PREFIX))
-        self.assertEqual(got["read"], [f"{plugin_root().as_posix()}/skills/ingest/references/carding.md 批次、材料的欄位、一～七、九節"])
+        ref = f"{plugin_root().as_posix()}/skills/ingest/references/"  # D-521：每種批次整份讀的檔
+        self.assertEqual(got["read"], [ref + "batch.md", ref + "carding.md", ref + "agenda-scan.md"])
         todo_new = {i["id"]: i for i in self.todo()["new"]}
         self.assertEqual(len(got["items"]), 5)
         for item in got["items"]:

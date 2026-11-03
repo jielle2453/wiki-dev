@@ -21,14 +21,15 @@ SCHEMA = 1
 
 
 def strip_files(body):
-    """綜合卡最後一段「相關檔」（synthesis.file_section，程式的快取，放寬丙 7）拿掉：它不是她或 Claude 寫的，不算內文。"""
+    """綜合卡「相關檔」那段（synthesis.file_section，程式的快取，放寬丙 7）拿掉：它不是她或 Claude 寫的，不算內文。
+    記號要整行才算（同 synthesis._span，裁定 24）。後面接的是「## 」段（D-523：紀事在相關檔下面）就空一行接，
+    跟 with_file_section 補上那段之前一樣（D-523 疑義裁定 1）；接的是她打的字照舊直接接，不多算一個空行。"""
     from kb._lib import synthesis
-    i = body.find(synthesis.FILE_BEGIN)
-    if i < 0:
+    span = synthesis._span(body)
+    if span is None:
         return body
-    j = body.find(synthesis.FILE_END, i)
-    tail = body[j + len(synthesis.FILE_END):].lstrip("\n") if j >= 0 else ""
-    return body[:i].rstrip("\n") + "\n" + tail
+    tail = body[span[1]:].lstrip("\n")
+    return body[:span[0]].rstrip("\n") + ("\n\n" if tail.startswith("## ") else "\n") + tail
 
 
 def body_of(text):

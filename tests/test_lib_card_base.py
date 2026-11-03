@@ -38,6 +38,26 @@ class Body(unittest.TestCase):
         self.assertEqual(card_base.body_of("---\r\na: 1\r\n---\r\n# T\r\n"), "# T\n")
         self.assertEqual(card_base.body_of("沒有檔頭\n"), "沒有檔頭\n")
 
+    def test_strip_files_whole_line_only(self):
+        """裁定 24：記號要整行才算（同 synthesis._span）；行中間的記號字串是內文，照留。"""
+        from kb._lib import synthesis
+        inline = "- 2026-10-30 備註 " + synthesis.FILE_BEGIN + " x〔f-00000001〕\n"
+        body = "# T\n\n## 紀事\n" + inline + "- 2026-10-01 甲\n"
+        self.assertEqual(card_base.strip_files(body), body)
+        files = "　" + synthesis.FILE_BEGIN + "\n## 相關檔\n- [[a.md|甲]]\n" + synthesis.FILE_END + "\n"
+        self.assertEqual(card_base.strip_files(body + "\n" + files + "\n## 備註\n二\n"), body + "\n## 備註\n二\n")
+
+    def test_files_in_middle_keep_blank_line(self):
+        """D-523 疑義裁定 1：相關檔夾在推算與紀事中間，補上或拿掉那段，body_of 一樣（後面還有字就空一行接）。"""
+        from kb._lib import synthesis
+        text = "---\na: 1\n---\n# T\n\n## 現況\n- 一\n\n## 推算\n- 二\n\n## 紀事\n- 2026-10-01 甲\n"
+        files = synthesis.FILE_BEGIN + "\n## 相關檔\n- [[a.md|甲]]\n" + synthesis.FILE_END
+        got = synthesis.with_file_section(text, files)
+        self.assertIn(synthesis.FILE_END + "\n\n## 紀事", got)
+        self.assertEqual(card_base.body_of(got), card_base.body_of(text))
+        self.assertEqual(card_base.body_of(text + "\n" + files + "\n"), card_base.body_of(text), "在最後照舊")
+        self.assertEqual(card_base.strip_files("一\n\n" + files + "\n她打的字\n"), "一\n她打的字\n", "後面是她打的字照舊直接接")
+
     def test_hunks_add_and_delete(self):
         self.assertEqual(card_base.hunks("a\nb\n", "a\nb\nc\n"), [{"before": "", "after": "c"}])
         self.assertEqual(card_base.hunks("a\nb\nc", "a\nc"), [{"before": "b", "after": ""}])

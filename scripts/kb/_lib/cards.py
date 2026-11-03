@@ -512,26 +512,20 @@ def _profile_or_default(vault):
     return (data, False) if data is not None else (profile.defaults(), True)
 
 
-def defer_why(vault, sources, entry):
-    """改過內容的檔先不重做卡（放寬丙 3b-5，D-329）：同夾有鎖檔（Word、Excel 開著時的 ~$<完整檔名> 或 ~$<檔名去掉前兩個字>）回 "open"，
-    修改時間在 recard_idle_minutes 分鐘內回 "recent"（設 0 就不看修改時間），都不是回 None。link 條目、讀不到檔回 None。"""
-    import time
+def is_open(vault, sources, entry):
+    """同夾有鎖檔（Word、Excel 開著時的 ~$<完整檔名> 或 ~$<檔名去掉前兩個字>）嗎；只給 change_info 當依據（D-331）。
+    D-525 拿掉 D-329：開著、剛改過都不再延後整理。link 條目、讀不到檔回 False。"""
     from kb._lib import inventory
     if entry.get("kind") == "link" or not entry.get("locations"):
-        return None
+        return False
     path = inventory.path_of(vault, sources, entry["locations"][0]["uri"])
     if path is None:
-        return None
+        return False
     path = Path(path)
     try:
-        if any((path.parent / ("~$" + name)).exists() for name in (path.name, path.name[2:])):
-            return "open"
-        minutes = config.get(vault, "recard_idle_minutes")
-        if minutes > 0 and time.time() - path.stat().st_mtime < minutes * 60:
-            return "recent"
+        return any((path.parent / ("~$" + name)).exists() for name in (path.name, path.name[2:]))
     except OSError:
-        return None
-    return None
+        return False
 
 
 # ---------- 會一直改的檔（放寬丙 11，D-331）：程式只記與給依據，判斷交 AI ----------
@@ -572,7 +566,7 @@ def change_info(vault, sources, entry, card, ent_data):
     times = [t for t in (_parse_time(fp.get("time")) for fp in (entry.get("fingerprints") or [])[1:]) if t is not None]
     days = [(now - t).total_seconds() / 86400 for t in times]
     return {"changes_7d": sum(1 for d in days if d <= 7), "changes_30d": sum(1 for d in days if d <= 30),
-            "days_since": int(min(days)) if days else None, "open": defer_why(vault, sources, entry) == "open",
+            "days_since": int(min(days)) if days else None, "open": is_open(vault, sources, entry),
             "entity_done": entity_done(ent_data, card["front"]), "mode": entry.get("card_mode") or FULL,
             "track": entry.get("track") is not False}
 
@@ -746,7 +740,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
     """todo 的檔案分桶（new、stale、moved、duplicates、broken、orphans、unreadable、missing、skipped、unlinked、missing_types）：
     回 (out, groups, 設定檔)。light 給 unsorted：new、stale 只放 {"id"}、不印 header（份數照算，跟 todo 第一行同一個數）；
     deadline（time.monotonic 的時刻）過了丟 TimeoutError（開場 hook 有時限）。不寫檔。
-    改過內容但檔還開著或剛改過的（defer_why）不進 stale，另放 deferred: [{id, why}]（放寬丙 3b-5）。
+    改過內容的照常進 stale，開著、剛改過都不延後（D-525 拿掉 D-329）。
     stale 每項多 change（改得多勤，放寬丙 11）；指路卡（清冊 card_mode pointer）的檔改了不進 stale，改放 pointer_changed: [{id, title, change, diff}]；
     清冊封存（archived）的檔不進 new、stale，也不算份數（放寬丙 12）。
     produce 第 5 點：AI 產出的（草稿）.md 不列；link 條目的 new 項 kind 是 link、path 是 None、多 url；
@@ -775,7 +769,7 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
     groups, broken = _scan_groups(vault, deadline)
     out = {"new": [], "stale": [], "moved": [], "duplicates": [], "orphans": [], "unreadable": [], "missing": [],
            "skipped": dict({k: 0 for k in SKIPPED_READS}, skipped=0), "broken": list(broken), "pdf_restored": restored,
-           "unlinked": [], "missing_types": {}, "unbacked": 0, "deferred": [], "pointer_changed": []}
+           "unlinked": [], "missing_types": {}, "unbacked": 0, "pointer_changed": []}
     data, out["profile_missing"] = _profile_or_default(vault)
     out["profile"] = profile.card_types_for_todo(data)
     have_types = {entities.key(t["name"]) for t in data.get("types") or []}
@@ -843,8 +837,6 @@ def _sort_files(vault, sources, ent_data, entries, restored=0, light=False, dead
             out["moved"].append({"id": cid, "from": keep["path"], "to": card_dir(entry)})
         elif entry.get("archived") and ("fingerprint" in names or redo):
             continue  # 封存的：不重做、不算份數（放寬丙 12，D-332）
-        elif "fingerprint" in names and not redo and (why := defer_why(vault, sources, entry)):
-            out["deferred"].append({"id": cid, "why": why})  # 檔還開著或剛改過：先不列、不算份數（D-329）
         elif "fingerprint" in names and not redo and entry.get("card_mode") == "pointer":  # 指路卡：不重做，交 AI 看差別（放寬丙 11）
             out["pointer_changed"].append({"id": cid} if light else dict(
                 {"id": cid, "title": _title(keep), "change": change_info(vault, sources, entry, keep, ent_data)},
@@ -956,15 +948,75 @@ def _purge_pending(vault, sources):
 
 # ---------- 查詢（answer 第 1、2 點） ----------
 
-def unsorted(vault, sources=None, deadline=None):
-    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）。只數檔：
-    健檢標的要改寫綜合卡另外講（開場那行，lint 桌面版確認後）。deadline 給開場 hook：過了丟 TimeoutError。"""
+def light_sort(vault, sources=None, deadline=None):
+    """unsorted、wip 共用的分桶（light，不寫檔、不跑 _restore_pdf）：回 {"out","sources","entries","entities"}。"""
     from kb._lib import entities, inventory
     from kb._lib import sources as sources_lib
     sources = sources if sources is not None else sources_lib.load(vault)
-    out, _groups, _data = _sort_files(vault, sources, entities.load(vault), inventory.load(vault)["entries"],
-                                      light=True, deadline=deadline)
+    ent, entries = entities.load(vault), inventory.load(vault)["entries"]
+    out, _groups, _data = _sort_files(vault, sources, ent, entries, light=True, deadline=deadline)
+    return {"out": out, "sources": sources, "entries": entries, "entities": ent}
+
+
+def unsorted(vault, sources=None, deadline=None, sorted_=None):
+    """還沒整理的份數：todo 第一行「待製卡」的同一個數（new＋stale），同一套分桶、不寫檔（不跑 _restore_pdf）。只數檔：
+    健檢標的要改寫綜合卡另外講（開場那行，lint 桌面版確認後）。deadline 給開場 hook：過了丟 TimeoutError。"""
+    out = (sorted_ or light_sort(vault, sources, deadline))["out"]
     return len(out["new"]) + len(out["stale"])
+
+
+def not_wip(entry):
+    """這份改了也不算製作中（D-525 裁定 8，同 _sort_files 不進 new、stale 的那幾種）：指路卡、清冊封存、照設定不整理的。
+    不看「讀取」：有卡的改了不管讀取都進 stale，沒卡的密碼檔有「可以讀」裁示也進 new（review 第 1 條）。
+    每句開頭的變動行用它篩清冊裡已有的檔；新放的（清冊還沒有）照算。"""
+    return entry.get("card_mode") == POINTER or bool(entry.get("archived")) or bool(entry.get("skip_kind"))
+
+
+def _wip_entities(entry, name, ent_data, vault):
+    """這份算在哪幾個實體下（D-525）：實體夾照 prefill_entities，加上檔名（不含副檔名）含 active、沒封存的實體的名稱或別名的
+    （比法同 lookup.mentions：entities.key 包含；封存的不掛，裁定 9）；自己不算。"""
+    from kb._lib import entities
+    out = list(prefill_entities(entry, ent_data, vault))
+    stem = entities.key(Path(name).stem)
+    for e in (ent_data or {}).get("entities") or []:
+        if e.get("status") != "active" or e.get("archived") or entities.is_self(e) or e["name"] in out:
+            continue
+        if any(k and k in stem for k in (entities.key(n) for n in [e["name"], *(e.get("aliases") or [])])):
+            out.append(e["name"])
+    return out
+
+
+def wip(vault, sources=None, deadline=None, sorted_=None):
+    """製作中（D-525）：todo 的 new＋stale，不列 md、線上文件、標了重做的（裁定 2）與 not_wip 的（裁定 13），不另存。
+    回 [{"id","path","name","mtime","entities"}]，新改的排前面；path 是原檔絕對路徑，mtime 是本機時間 ISO 字串（讀不到 None）。"""
+    from datetime import datetime
+    from kb._lib import inventory
+    s = sorted_ or light_sort(vault, sources, deadline)
+    by_id = {e.get("id"): e for e in s["entries"]}
+    rows = []
+    for item in s["out"]["new"] + [i for i in s["out"]["stale"] if i.get("reason") != REDO_REASON]:
+        entry = by_id.get(item["id"])
+        if entry is None or entry.get("kind") == "link" or not entry.get("locations") or not_wip(entry):  # 跟每句開頭同一套（裁定 13）
+            continue
+        uri = entry["locations"][0]["uri"]
+        name = uri.rsplit("/", 1)[-1]
+        if name.lower().endswith(".md"):
+            continue
+        path = inventory.path_of(vault, s["sources"], uri)
+        try:
+            mtime = datetime.fromtimestamp(Path(path).stat().st_mtime).isoformat(timespec="seconds")
+        except (OSError, TypeError):
+            mtime = None
+        rows.append({"id": entry["id"], "path": str(path) if path else None, "name": name, "mtime": mtime,
+                     "entities": _wip_entities(entry, name, s["entities"], vault)})
+    rows.sort(key=lambda r: r["mtime"] or "", reverse=True)
+    return rows
+
+
+def wip_label(row):
+    """一份製作中的檔給人讀：「<檔名>（M/D 改）」，沒有修改時間只給檔名。"""
+    m = row.get("mtime") or ""
+    return f"{row['name']}（{int(m[5:7])}/{int(m[8:10])} 改）" if len(m) >= 10 else row["name"]
 
 
 def card_state(vault, entry, card):

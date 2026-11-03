@@ -41,11 +41,11 @@ ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改
 AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent、--session 或 --via"
 GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session", "--via")  # --via 只有 Obsidian 外掛自己帶（#22，D-255），模型帶的照 SELF_FLAGS 擋
-# card-maker 用得到的（agents/card-maker.md、carding.md）：(子命令, 子子命令)；子子命令 "" 是沒有子子命令的
-AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "skip"), ("convert", ""), ("version", ""),
+# card-maker 用得到的（agents/card-maker.md、skills/ingest/references/ 的規則檔）：(子命令, 子子命令)；子子命令 "" 是沒有子子命令的
+AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "wip"), ("cards", "skip"), ("convert", ""), ("version", ""),
                ("agenda", "add"), ("agenda", "edit"), ("agenda", "recheck"), ("agenda", "scanned"), ("agenda", "cancel"),
                ("agenda", "list"), ("entity", "add"), ("entity", "suggest-close"), ("entity", "clean"), ("entity", "list"),
-               ("entity", "tag")}
+               ("entity", "tag"), ("entity", "render"), ("entity", "log")}
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
 SECRET_FLAGS = ("--password", "--value")  # 值是密碼的旗標：改寫會把值印進 hook 的輸出（#20 裁定 5 實作疑義）
@@ -169,6 +169,24 @@ def split_global(tokens):
     return head, cmd, sub
 
 
+def _positionals(tokens, sub, value_flags=("--vault",)):
+    """子子命令 sub 後面不是旗標、也不是旗標值的字（--vault x 的 x 不算；-- 之後的都算）。"""
+    rest = tokens[tokens.index(sub) + 1:] if sub in tokens else []
+    out, skip, dash = [], False, False
+    for t in rest:
+        if dash:
+            out.append(t)
+        elif t == "--":
+            dash = True
+        elif skip:
+            skip = False
+        elif t.startswith("-"):
+            skip = t in value_flags
+        else:
+            out.append(t)
+    return out
+
+
 def _flag_name(token):
     return token.split("=", 1)[0] if token.startswith("--") else None
 
@@ -213,6 +231,8 @@ def scope(payload, tool, d, agent_turn):
             return AGENT_DENY, None
         if (cmd, sub) == ("entity", "tag") and _has_flag(tokens, TAG_DENY):
             return AGENT_DENY, None
+        if (cmd, sub) == ("entity", "render") and not _positionals(tokens, sub):
+            return AGENT_DENY, None  # 不帶名稱是重寫全部綜合卡，製卡助手用不到（D-521 裁定 18）
         return None, with_turn(ti, agent_turn, payload.get("agent_id"))
     if tokens is None:
         return None, None

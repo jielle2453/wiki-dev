@@ -37,6 +37,11 @@ class RulesCore(unittest.TestCase):
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-13 "))
         self.assertTrue(line.endswith("問最近改了什麼用 kb journal recent --changed 答。"), line)
 
+    def test_r13_closing_mentions_wip(self):
+        """D-525 第 6 點：收工、今天先這樣時有製作中就帶一句，不問。"""
+        line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-13 "))
+        self.assertIn("客戶說「收工」「今天先這樣」，跑 kb cards wip，有製作中的就在回答最後帶一句還有哪幾份沒整理，不問", line)
+
     def test_r04_trash_through_kb(self):
         """manage 第二版第 10 點（D-173、I-116）：R-04 刪除改成經 kb 丟資源回收筒；放寬乙改成先留一份就做、不先講後果。R-07 改成先拍快照再代做。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-04 "))

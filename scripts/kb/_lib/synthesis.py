@@ -24,15 +24,16 @@ from pathlib import Path
 from kb._lib import config, entities, profile
 from kb._lib.io import write_text_atomic
 
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"  # D-523：紀事放最後
+OLD_VERSIONS = ("1",)  # 遷移前的舊版面照舊算有效（遷移見 migrate_layout）
 KEYS = ("編號", "型別", "大類", "名稱", "別名", "範本版本", "整理到", "更新日", "檔案卡", "相關實體")
 CACHE_KEYS = ("檔案卡", "相關實體")
-BASE_SECTIONS = ("現況", "紀事", "推算")
+BASE_SECTIONS = ("現況", "推算", "紀事")  # 現況在最上，推算、紀事接在第四節的段後面（D-523）
 BLOCK_KEYS = ("整理到", "檔案卡")  # 一行一項（"  - …"）；其他清單寫一行 [a, b]
 LIST_KEYS = ("別名", "相關實體") + BLOCK_KEYS
 BASE_HINTS = {"現況": "這件事現在怎樣：一點一行、事實變了就改寫，每點結尾〔f-…〕（口述是〔s-…〕）",
-              "紀事": "日期倒序、只增不改：決定、改版、關鍵事件",
-              "推算": "從多張卡算出來的：結果、算法、依據、算的日期；沒有就整段不寫"}
+              "推算": "從多張卡算出來的：結果、算法、依據、算的日期；沒有就整段不寫",
+              "紀事": "日期倒序、只增不改：決定、改版、關鍵事件"}
 STALE_CODE = "synced"
 TAG_ONLY_REASON = "補標籤"
 REDO = "redo"  # 整理到 那行的指紋欄：客戶說卡讀錯了，等卡重寫（實作回報裁定 1）
@@ -52,13 +53,14 @@ def category_text(prof, type_name):
 
 
 def sections_for(prof, type_):
-    """綜合卡要寫的段：固定三段（現況、紀事、推算）加設定檔第四節那個型別的列，[{"name","required","hint"}]。"""
-    out = [{"name": n, "required": False, "hint": BASE_HINTS[n]} for n in BASE_SECTIONS]
+    """綜合卡要寫的段 [{"name","required","hint"}]：現況、設定檔第四節那個型別的列、推算、紀事（D-523）。"""
+    base = [{"name": n, "required": False, "hint": BASE_HINTS[n]} for n in BASE_SECTIONS]
+    out = base[:1]
     for s in (prof or {}).get("synthesis_sections") or []:
         if entities.key(s.get("type")) == entities.key(type_):
             out += [{"name": x["name"], "required": bool(x.get("required")), "hint": x.get("hint", "")}
                     for x in s.get("sections") or []]
-    return out
+    return out + base[1:]
 
 
 # ---------- 快取欄 ----------
@@ -580,13 +582,15 @@ def problems(vault, rel, text, data, mounts, prof, know=None):
         if front[k] != v:
             out.append(("field", f"「{k}」照 kb cards todo 給的檔頭抄"))
             break
-    if front["範本版本"] != TEMPLATE_VERSION:
+    if front["範本版本"] != TEMPLATE_VERSION and str(front["範本版本"]) not in OLD_VERSIONS:
         out.append(("version", f"範本版本該是 {TEMPLATE_VERSION}"))
     have = front["整理到"]
     know = know if know is not None else knowledge(vault)
     stmts, ruls, finds = basis(know, entry["name"], mounts)
     ms = mounts.get(entry["name"], [])
-    if not isinstance(have, list) or sorted(have) != sorted(synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds)):
+    if not isinstance(have, list):  # 不是清單是抄錯格式，不算只差整理到（裁定 6）
+        out.append(("synced_shape", "整理到 照 kb cards todo 給的檔頭抄（一行一項）"))
+    elif sorted(have) != sorted(synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds)):
         out.append((STALE_CODE, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"))
     day = front["更新日"]
     ok = isinstance(day, str) and bool(_DATE.match(day))
@@ -653,8 +657,8 @@ def safe_problems(vault, rel, text, data, mounts, prof, know=None):
         return [("parse", f"檔頭解析不了：{type(e).__name__}")]
 
 
-def validate(vault, rel, data=None, mounts=None, prof=None, know=None):
-    """PostToolUse 與測試用：回 (ok, reason)，只報第一個錯。"""
+def validate(vault, rel, data=None, mounts=None, prof=None, know=None, allow_stale=False):
+    """PostToolUse 與測試用：回 (ok, reason)，只報第一個錯。allow_stale：只差整理到算過（hook 用，D-518）。"""
     try:
         text = (Path(vault) / rel).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
@@ -667,6 +671,8 @@ def validate(vault, rel, data=None, mounts=None, prof=None, know=None):
     except Exception as e:  # noqa: BLE001
         return False, f"檔頭解析不了：{type(e).__name__}"
     found = safe_problems(vault, rel, text, data, mounts, prof, know)
+    if allow_stale:
+        found = [f for f in found if f[0] != STALE_CODE]
     return (False, found[0][1]) if found else (True, "")
 
 
@@ -686,7 +692,7 @@ def _wiki(m):
 
 
 def file_section(mounts_of_it):
-    """綜合卡最後一段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
+    """綜合卡紀事上面那段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
     `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
     ordered = sorted(sorted(mounts_of_it, key=lambda m: m["id"]), key=_date_key, reverse=True)
     main, old, other, seen = [], [], [], set()
@@ -712,20 +718,44 @@ def file_section(mounts_of_it):
 
 
 def _span(text):
-    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到結尾。"""
-    i = text.find(FILE_BEGIN)
-    if i < 0:
+    """檔案清單那段在 text 裡的 (開始, 結束)，沒有回 None；有開始記號沒有結束記號就算到「## 紀事」之前，沒有紀事到結尾
+    （D-523：紀事在相關檔下面，不能被算進那段）。記號要自己佔一整行才算（裁定 14：紀事或內文中間出現同一串字不算）。"""
+    begin = _mark_line(FILE_BEGIN).search(text)
+    if begin is None:
         return None
-    j = text.find(FILE_END, i)
-    return (i, j + len(FILE_END)) if j >= 0 else (i, len(text))
+    end = _mark_line(FILE_END).search(text, begin.end())
+    if end:
+        return begin.start(), end.end()
+    ev = _EVENTS_HEAD.search(text, begin.end())
+    return begin.start(), (ev.start() if ev else len(text))
+
+
+_EVENTS_HEAD = re.compile(r"(?m)^## 紀事[^\S\r\n]*(?=\r?$)")  # 同 _events_span 的 rstrip：行尾全形空白也算
+
+
+def _mark_line(mark):
+    """記號整行（前後只有空白，同 _file_lines 的 strip）；\r 不算空白，CRLF 也認。"""
+    return re.compile(r"(?m)^[^\S\r\n]*" + re.escape(mark) + r"[^\S\r\n]*(?=\r?$)")
 
 
 def with_file_section(text, section):
-    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段就接在最後；其他字原樣。"""
+    """text 的檔案清單那段換成 section（空字串就拿掉）；沒有那段時插在「## 紀事」前面（D-523），沒有紀事段才接在最後；
+    其他字原樣；全 CRLF 的卡照 CRLF 寫（D-523 裁定 9）。"""
+    if _all_crlf(text):
+        return _with_file_section(text.replace("\r\n", "\n"), section).replace("\n", "\r\n")
+    return _with_file_section(text, section)
+
+
+def _with_file_section(text, section):
     span = _span(text)
     if span is None:
-        return text.rstrip("\n") + "\n\n" + section + "\n" if section else text
-    head, tail = text[:span[0]].rstrip("\n"), text[span[1]:].strip("\n")
+        if not section:
+            return text
+        ev = _EVENTS_HEAD.search(text)
+        if ev is not None:
+            return text[:ev.start()].rstrip("\r\n") + "\n\n" + section + "\n\n" + text[ev.start():]
+        return text.rstrip("\r\n") + "\n\n" + section + "\n"
+    head, tail = text[:span[0]].rstrip("\r\n"), text[span[1]:].strip("\r\n")
     return head + ("\n\n" + section if section else "") + ("\n\n" + tail if tail else "") + "\n"
 
 
@@ -817,6 +847,66 @@ def render_cache(vault, entity_names, turn_id):
         if need:
             _follow_fixes(vault, e, rel, new != text, *maps)
     return written
+
+
+NO_ENTITY = "找不到這個實體"
+NO_CARD = "還沒有綜合卡"
+
+
+def _synced_card(vault, e, data, mounts, prof, know):
+    """mark_synced 的檢查：回 (相對路徑, 卡的內文, 不寫的原因)；原因是 None 才寫（合法綜合卡，只差整理到也算）。"""
+    rel = card_rel(e, vault) if e.get("type") else None
+    p = Path(vault) / rel if rel else None
+    if p is None or not p.is_file():
+        return rel, None, NO_CARD
+    try:
+        text = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as err:
+        return rel, None, f"檔頭解析不了：{type(err).__name__}"
+    bad = [r for code, r in safe_problems(vault, rel, text, data, mounts, prof, know) if code != STALE_CODE]
+    return rel, text, (bad[0] if bad else None)
+
+
+def mark_synced(vault, names, turn_id, keep_crlf=False):
+    """AI 用 Edit 改完內文之後（D-518）：合法綜合卡（只差整理到也算）的 整理到（header_for 同一算法）、更新日（今天）、
+    檔案卡、相關實體 換成現行的，其他檔頭行與內文不動；內容沒變不寫；寫前 turn.backup(by="program")。
+    名稱可以是別名。回 (寫了的相對路徑, skipped [{"name","reason"}])；找不到、沒卡、卡有別的錯的不寫、列進 skipped。
+    keep_crlf：原檔是 CRLF 就照 CRLF 寫回（entity log 用，裁定 16）。"""
+    from kb._lib import turn
+    data = entities.load(vault)
+    mounts = entities.mounts(vault, data)
+    prof = entities._profile(vault)
+    know = knowledge(vault)
+    today = date.today().isoformat()
+    maps = None
+    written, skipped, seen = [], [], set()
+    for name in names:
+        e, _hit = entities.find(data, name)
+        if e is None:
+            skipped.append({"name": name, "reason": NO_ENTITY})
+            continue
+        if e.get("id") in seen:
+            continue
+        rel, text, reason = _synced_card(vault, e, data, mounts, prof, know)
+        seen.add(e.get("id"))  # 檢查完才記：寫了或確定 skipped 的同一個實體再給一次只算一筆（裁定 9）
+        if reason:
+            skipped.append({"name": name, "reason": reason})
+            continue
+        p = Path(vault) / rel
+        ms = mounts.get(e["name"], [])
+        stmts, ruls, finds = basis(know, e["name"], mounts)
+        new = replace_front(text, {"整理到": synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds),
+                                   "更新日": today, "檔案卡": card_lines(ms), "相關實體": related(data, mounts, e)})
+        need = new != text or bool(e.get("aliases"))
+        if need and maps is None:
+            maps = _fix_maps(vault)
+        if new != text:
+            turn.backup(vault, rel, turn_id, by="program")
+            write_text_atomic(p, new.replace("\n", "\r\n") if keep_crlf and _all_crlf(p.read_bytes()) else new)
+            written.append(rel)
+        if need:
+            _follow_fixes(vault, e, rel, new != text, *maps)
+    return written, skipped
 
 
 def _fix_maps(vault):
@@ -1035,6 +1125,275 @@ def buckets(vault, data, mounts, prof):
     return {"synthesis_new": new, "synthesis_stale": stale, "synthesis_broken": broken, "entity_drift": drift_items}
 
 
+def _body_start(lines):
+    """內文第一行的索引（0 起算）：檔頭結尾 --- 的下一行；沒有檔頭回 0。"""
+    if not lines or lines[0].lstrip("﻿").strip() != "---":
+        return 0
+    return next((n + 1 for n, line in enumerate(lines[1:], 1) if line.strip() == "---"), 0)
+
+
+def _section_end(lines, n):
+    """從 n 起第一個「## 」或「相關檔」開始記號的索引，沒有回檔尾（段落到那裡為止，裁定 5）。"""
+    return next((i for i in range(n, len(lines)) if lines[i].startswith("## ") or lines[i].strip() == FILE_BEGIN),
+                len(lines))
+
+
+def _events_span(lines, start=0):
+    """「## 紀事」那段的 (標題索引, 段尾索引)；沒有回 None。"""
+    head = next((n for n in range(start, len(lines)) if lines[n].rstrip() == "## 紀事"), None)
+    return None if head is None else (head, _section_end(lines, head + 1))
+
+
+def _file_lines(lines, start=0):
+    """「相關檔」那段的 (開始記號索引, 結束記號下一行)；沒結束記號算到「## 紀事」之前、沒有紀事到檔尾（同 _span）；
+    沒有回 None。"""
+    i = next((n for n in range(start, len(lines)) if lines[n].strip() == FILE_BEGIN), None)
+    if i is None:
+        return None
+    end = next((n + 1 for n in range(i + 1, len(lines)) if lines[n].strip() == FILE_END), None)
+    if end is None:
+        end = next((n for n in range(i + 1, len(lines)) if lines[n].rstrip() == "## 紀事"), len(lines))
+    return i, end
+
+
+def _all_crlf(text):
+    """每個換行都是 CRLF 才算 CRLF 檔（混用的照 LF 寫，不整檔轉）。text 可以是 str 或 bytes。"""
+    cr, lf = ("\r\n", "\n") if isinstance(text, str) else (b"\r\n", b"\n")
+    n = text.count(cr)
+    return n > 0 and n == text.count(lf)
+
+
+def _lines(text):
+    """只照 \n 切行（Read 也是；splitlines 會在 U+2028、換頁字元這類字切開）；\r\n 當一個換行，檔尾換行不算一行。"""
+    lines = str(text or "").replace("\r\n", "\n").split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def read_ranges(text):
+    """AI 要讀的範圍 [[起行（1 起算）, 行數], …]：內文去掉「## 紀事」那段（D-521，紀事由程式加、AI 不讀）與
+    程式寫的「相關檔」那段（裁定 5）。"""
+    lines = _lines(text)
+    start = _body_start(lines)
+    skip = sorted(s for s in (_events_span(lines, start), _file_lines(lines, start)) if s)
+    parts, at = [], start
+    for a, b in skip:
+        parts.append((at, a))
+        at = max(at, b)
+    parts.append((at, len(lines)))
+    return [[a + 1, b - a] for a, b in parts if any(l.strip() for l in lines[a:b])]  # 只有空行的不算一段
+
+
+# ---------- 紀事（entity log，D-521）----------
+
+_EVENT = re.compile(r"^(\S+)\s+(.*?\S)\s*((?:〔[^〔〕]*〕)+)$")
+_CITE_ID = re.compile(r"^[fscr]-[0-9a-f]{8}$")
+EVENT_FORMAT = "紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：{}"
+CITE_FORMAT = "出處編號格式不對：〔{}〕（要寫成〔f-xxxxxxxx〕這樣）"
+NOT_BASIS = "〔{cite}〕不是{name}的依據（掛的檔案卡、口述、裁示、推算）"
+EVENT_BREAK = "一條不能換行：{}"
+EVENT_MARK = "一條不能有 <!-- 或 willy: 這種記號：{}"
+_BREAKS = ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e")  # 同 ledger 的換行類（tab 除外）
+
+
+def parse_event(line, allowed, name):
+    """一條紀事（S-14 去掉開頭「- 」，不限一句）→ (日期, 正規化的行)；格式不對或出處不在 allowed 丟 EntityRefused。"""
+    from kb._lib import agenda
+    if any(c in str(line) for c in _BREAKS):  # 裁定 15：寫成一行、讀回來會被拆成兩行（造出假的 ## 標題）
+        raise entities.EntityRefused(EVENT_BREAK.format("".join("↵" if c in _BREAKS else c for c in str(line))))
+    if "<!--" in str(line) or "willy:" in str(line):  # 裁定 14：程式的記號（相關檔）不准夾進紀事
+        raise entities.EntityRefused(EVENT_MARK.format(line))
+    raw = str(line).strip()
+    m = _EVENT.match(raw[2:].strip() if raw.startswith("- ") else raw)
+    if m is None:
+        raise entities.EntityRefused(EVENT_FORMAT.format(line))
+    try:
+        day = agenda.parse_date(m.group(1)).isoformat()
+    except agenda.AgendaRefused:
+        raise entities.EntityRefused(EVENT_FORMAT.format(line)) from None
+    cites = [c.strip() for c in re.findall(r"〔([^〔〕]*)〕", m.group(3))]
+    every = [c.strip() for c in re.findall(r"〔([^〔〕]*)〕", m.group(2))] + cites  # 行中間的〔〕也驗
+    bad = next((c for c in every if not _CITE_ID.match(c)), None)
+    if bad is not None:
+        raise entities.EntityRefused(CITE_FORMAT.format(bad))
+    foreign = next((c for c in every if c not in allowed), None)
+    if foreign is not None:
+        raise entities.EntityRefused(NOT_BASIS.format(cite=foreign, name=name))
+    return day, f"{day} {m.group(2)}{''.join(f'〔{c}〕' for c in cites)}"
+
+
+def _same_event(line):
+    """去重用：行尾空白、〔前的空白不算。"""
+    return re.sub(r"\s+〔", "〔", line.rstrip())
+
+
+_CARD_REF = re.compile(r"〔([^〕]*)〕")
+_CARD_ID = re.compile(r"\bf-[0-9a-f]{8}\b")
+
+
+def _card_ids(line):
+    """一條紀事的出處卡編號（〔〕裡的 f-xxxxxxxx，可以多個）；口述、推算這類編號不算（裁定 16 只說卡編號）。"""
+    return {c for ref in _CARD_REF.findall(line) for c in _CARD_ID.findall(ref)}
+
+
+def _event_day(line):
+    m = re.match(r"^- (\d{4}-\d{2}-\d{2})(?:\s|$)", line)
+    return m.group(1) if m else None
+
+
+def insert_events(text, events):
+    """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加；
+    同一天、舊行的卡編號都在某條新行裡的，舊行拿掉、換成新行（製作中裁定 16：AI 不讀紀事，同一份卡同一天只留一條）；
+    舊行掛的卡比新行多的不換（別張的出處不丟），跟這批某條一字不差的不換（照舊算已經有）。
+    沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。"""
+    crlf = _all_crlf(text)
+    lines = _lines(text)
+    start = _body_start(lines)
+    span = _events_span(lines, start)
+    have = {_same_event(l) for l in lines[span[0] + 1:span[1]]} if span else set()
+    added, dup, todo = [], [], []
+    for day, line in events:
+        if _same_event(f"- {line}") in have or line in added:
+            dup.append(line)
+        else:
+            added.append(line)
+            todo.append((day, f"- {line}"))
+    if not todo:
+        return text, added, dup
+    if span is None:
+        block = ["## 紀事"] + [l for _d, l in sorted(todo, key=lambda x: x[0], reverse=True)]  # sorted 穩定：同日照給的順序
+        head = list(lines)  # 相關檔沒結束記號時那段只到「## 紀事」之前（_span），補在最後不會被算進去
+        while head and not head[-1].strip():
+            head.pop()
+        return _join(head + [""] + block, True, crlf), added, dup
+    keep = {_same_event(f"- {line}") for line in dup}
+    new_ids = [(day, _card_ids(line)) for day, line in todo]
+
+    def replaced(old):
+        ids, day = _card_ids(old), _event_day(old)
+        return bool(ids) and _same_event(old) not in keep and any(day == d and ids <= n for d, n in new_ids)
+    sec = [l for l in lines[span[0] + 1:span[1]] if not replaced(l)]
+    for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
+        at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
+        if at is None:
+            at = max((i for i, l in enumerate(sec) if l.strip()), default=-1) + 1
+        sec.insert(at, line)
+    if span[1] < len(lines) and sec and sec[-1].strip():  # 裁定 20：後面接相關檔記號或下一段時空一行
+        sec.append("")
+    new = lines[:span[0] + 1] + sec + lines[span[1]:]
+    return _join(new, text.endswith("\n"), crlf), added, dup
+
+
+def _join(lines, end_nl, crlf):
+    out = "\n".join(lines) + ("\n" if end_nl else "")
+    return out.replace("\n", "\r\n") if crlf else out
+
+
+# ---------- 版面遷移（D-523）----------
+
+def _blocks(body):
+    """內文切成 [(種類, 行)]：開頭（標題與第一個 ## 之前）"pre"、每個 ## 段（種類是標題行）、相關檔 "file"
+    （開始到結束記號，連同之後到下一個 ## 之前的字；沒結束記號算到檔尾，種類是 "open"）。行可以帶行尾 \r。"""
+    out, kind, buf, in_file = [], "pre", [], False
+    for line in body:
+        if in_file:
+            buf.append(line)
+            in_file = line.strip() != FILE_END
+            continue
+        if line.strip() == FILE_BEGIN or line.startswith("## "):
+            out.append((kind, buf))
+            kind, buf, in_file = ("file", [line], True) if line.strip() == FILE_BEGIN else (line.rstrip(), [line], False)
+            continue
+        buf.append(line)
+    out.append(("open" if in_file else kind, buf))
+    return out
+
+
+def migrate_layout(text):
+    """範本版本 1 → 2（D-523）：「## 推算」整段搬到其他段後面（相關檔前）、「## 紀事」整段搬到全卡最後（相關檔後）；
+    一段 = 標題到下一個「## 」或相關檔記號之前。她自己加的段照原來的先後；段與段之間一個空行；檔頭只改範本版本，
+    段的內容一字不動、每行照原本的換行（混用的不整檔轉）。沒檔頭、檔頭沒有範本版本、相關檔沒結束記號丟 ValueError
+    （migrate 列進 skipped）。"""
+    raw = str(text)
+    bom = "﻿" if raw.startswith("﻿") else ""
+    rl = raw[len(bom):].split("\n")  # 每行留著自己的 \r
+    if rl and rl[-1] == "":
+        rl.pop()
+    lines = [l[:-1] if l.endswith("\r") else l for l in rl]
+    start = _body_start(lines)
+    if start == 0:
+        raise ValueError("沒有檔頭")
+    ver = next((n for n in range(1, start - 1) if re.match(r"^範本版本\s*:", lines[n])), None)
+    if ver is None:
+        raise ValueError("檔頭沒有範本版本")
+    cr = "\r" if _all_crlf(raw) else ""
+    head = rl[:start]
+    head[ver] = f"範本版本: {TEMPLATE_VERSION}" + ("\r" if rl[ver].endswith("\r") else "")
+    blocks = []
+    for kind, buf in _blocks(rl[start:]):
+        if kind == "open":
+            raise ValueError("相關檔少了結束記號")
+        while buf and not buf[-1].strip():
+            buf = buf[:-1]
+        if buf or kind == "pre":
+            blocks.append((kind, buf))
+    pre = [b for k, b in blocks if k == "pre"]
+    order = ([b for k, b in blocks if k not in ("pre", "## 推算", "## 紀事", "file")]
+             + [b for k, b in blocks if k == "## 推算"] + [b for k, b in blocks if k == "file"]
+             + [b for k, b in blocks if k == "## 紀事"])
+    body = pre[0] if pre else []
+    for b in order:
+        body = body + ([cr] if body else []) + b
+    out = head + body
+    if cr:  # 全 CRLF：檔尾沒換行的最後一行搬到中間也要帶 \r
+        out = [l if l.endswith("\r") else l + "\r" for l in out]
+    return bom + "\n".join(out) + "\n"
+
+
+def add_events(vault, name, lines, turn_id, synced=False):
+    """kb entity log（D-521）：lines 照 insert_events 加進實體綜合卡的紀事；寫前 turn.backup(by="program")，寫完驗 validate；
+    照 hook 的做法記基準（程式加的不算她手改，她沒處理的手改留成待處理，D-270）。synced 再照 mark_synced 標記整理到。
+    拒絕（什麼都不寫）丟 EntityRefused：找不到、沒卡、綜合卡有整理到以外的錯、行的格式不對、出處不在依據裡。
+    回 {"name","rel","added","skipped","written","synced","synced_reason"}。"""
+    from kb._lib import card_base, turn
+    data = entities.load(vault)
+    e, _hit = entities.find(data, name)
+    if e is None:
+        raise entities.EntityRefused(f"{NO_ENTITY}：{name}")
+    mounts = entities.mounts(vault, data)
+    prof = entities._profile(vault)
+    know = knowledge(vault)
+    rel, text, reason = _synced_card(vault, e, data, mounts, prof, know)
+    if reason == NO_CARD:
+        raise entities.EntityRefused(f"{e['name']}{NO_CARD}")
+    if reason:
+        raise entities.EntityRefused(f"{e['name']}的綜合卡有錯：{reason}")
+    stmts, ruls, finds = basis(know, e["name"], mounts)
+    allowed = {m["id"] for m in mounts.get(e["name"], [])} | {x["id"] for x in list(stmts) + list(ruls) + list(finds)}
+    events = [parse_event(line, allowed, e["name"]) for line in lines]
+    p = Path(vault) / rel
+    text = p.read_bytes().decode("utf-8")  # 不經 read_text：\r\n 照原樣留
+    new, added, dup = insert_events(text, events)
+    out = {"name": e["name"], "rel": rel, "added": added, "skipped": dup, "written": [], "synced": False,
+           "synced_reason": None}
+    if new != text:
+        turn.backup(vault, rel, turn_id, by="program")
+        write_text_atomic(p, new)
+        out["written"].append(rel)
+        # 同 hook 的做法：她有沒處理的手改（回合備份的內文跟基準不同）留成待處理，基準換成程式寫完的，加的紀事不算她改
+        card_base.record_write(vault, rel, turn_id, Path(vault) / turn.VERSIONS_REL / turn_id / "files" / rel)
+        ok, why = validate(vault, rel, allow_stale=True)
+        if not ok:  # 加之前驗過，照理不會到這裡；只記 log
+            from kb._lib import ledger
+            ledger.log_error(vault, f"entity log 之後綜合卡驗不過 {rel}：{why}", source="synthesis")
+    if synced:
+        got, skipped = mark_synced(vault, [e["name"]], turn_id, keep_crlf=True)
+        out["synced"], out["synced_reason"] = not skipped, (skipped[0]["reason"] if skipped else None)
+        out["written"] += [r for r in got if r not in out["written"]]
+    return out
+
+
 def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
     from kb._lib import cards, findings, rulings, statements
     front = cards.parse_front(text)
@@ -1069,8 +1428,7 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
         else:
             removed.append({"id": c, "path": groups[c][0]["path"] if c in groups else None, "title": titles.get(c),
                             "source": "card"})
-    return {"entity_id": e["id"], "name": e["name"], "path": rel,
-            "header": header_for(vault, e, ms, today, data, mounts, prof, know),
+    return {"entity_id": e["id"], "name": e["name"], "path": rel, "read_ranges": read_ranges(text),
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}

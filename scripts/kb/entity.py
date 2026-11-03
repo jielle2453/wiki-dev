@@ -1,4 +1,4 @@
-"""kb entity add／confirm／accept／rename／merge／remove／rebuild／clean／list／render／progress／suggest-close／alias
+"""kb entity add／confirm／accept／rename／merge／remove／rebuild／clean／list／render／log／progress／suggest-close／alias
 （實體與綜合卡第 3 點，D-115～D-117、D-057；日程第 4 點，D-126、D-127；note 改知識第 4 點，D-148）。
 
 實體清單只准這裡寫（I-080）：寫入的子子命令在 entities.json 的鎖裡讀改寫（等 30 秒，等不到「等不到鎖，沒有寫入」exit 3），
@@ -12,6 +12,8 @@ tag <名稱> 欄=詞[,詞] …（D-505）：寫標籤正本（欄= 後面空著�
 有綜合卡就把那幾行照正本寫回卡上（備份 by program）。tag --from-card [<名稱>…]（裁定 6）：她在 Obsidian 手改了綜合卡的標籤行，
 合字典的照她改的寫進正本、算 --said；不合字典的不寫、印問句（不給名稱就是 entities.tag_edits 全部）。
 rename 搬了夾、夾裡有客戶原檔時，鎖外接著 inventory.scan（只掃知識庫）加 apply，讓原檔的新位置入冊（同 folders add）。
+log <名稱> <行>…（D-521）：紀事由程式加進綜合卡（synthesis.add_events），--synced 加完標記整理到。
+render [名稱…]：只重寫那幾張的快取欄；--synced 另換 整理到、更新日（D-518，AI 用 Edit 改完內文之後跑），有沒寫的 exit 1。
 終端機跑的記一段工作日誌程式段（D-085），command 是 entity <子子命令>；對話裡叫的併進回合。
 """
 import argparse
@@ -52,7 +54,15 @@ def add_arguments(sub):
     cl.add_argument("path", help="放錯的綜合卡（相對總資料夾，例：01 案子/王宅/王宅.md）")
     ls = subs.add_parser("list", help="列出實體", description="列出實體、掛了幾張檔案卡、有沒有綜合卡。")
     ls.add_argument("--tag", action="append", help="照標籤篩：欄=詞（多個詞用逗號分開，是或）；可以重複（不同欄是且）")
-    rd = subs.add_parser("render", help="重寫綜合卡的快取欄", description="重寫全部綜合卡檔頭的 檔案卡、相關實體 兩欄。")
+    rd = subs.add_parser("render", help="重寫綜合卡的快取欄", description="重寫綜合卡檔頭的 檔案卡、相關實體 兩欄（沒給名稱就全部）；"
+                         "--synced 另把 整理到、更新日 換成現行的（Edit 改完內文之後跑）。")
+    rd.add_argument("names", nargs="*", metavar="名稱", help="實體名稱或別名；沒給就全部")
+    rd.add_argument("--synced", action="store_true", help="整理到、更新日 也換成現行的（至少給一個名稱）")
+    lg = subs.add_parser("log", help="綜合卡的紀事加幾行", description="照日期倒序把紀事加進綜合卡的「## 紀事」（D-521）；"
+                         "一字不差已有的不加。--synced 加完再標記整理到。")
+    lg.add_argument("ref", help="名稱、別名或編號（e-…）")
+    lg.add_argument("lines", nargs="+", metavar="行", help="YYYY-MM-DD 事〔f-xxxxxxxx〕（出處可以多個〔〕）")
+    lg.add_argument("--synced", action="store_true", help="加完把 整理到、更新日 換成現行的（同 render --synced）")
     pg = subs.add_parser("progress", help="事類實體的狀態", description="事類實體記成進行中、結案或擱置；結案連帶結束它的期間條目。")
     pg.add_argument("ref", help="名稱或編號（e-…）")
     pg.add_argument("state", help="進行中、結案、擱置")
@@ -73,7 +83,7 @@ def add_arguments(sub):
     tg.add_argument("pairs", nargs="*", help="欄=詞（多個詞用逗號分開；欄= 後面空著是看過、沒有）；--from-card 時是更多名稱")
     tg.add_argument("--said", action="store_true", help="她親口說的：這一欄之後照她說的留著")
     tg.add_argument("--from-card", action="store_true", help="她在卡上手改了標籤行：合字典的照她改的記進正本")
-    for p in (ad, cf, ac, rn, mg, rm, rb, cl, ls, rd, pg, sc, al, tg):
+    for p in (ad, cf, ac, rn, mg, rm, rb, cl, ls, rd, lg, pg, sc, al, tg):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -513,19 +523,39 @@ def _print_tagged(vault, rows, got):
     return 0
 
 
-def _render(vault, as_json, conversation, turn_id):
-    written = synthesis.render_cache(vault, None, turn_id)
+SYNCED_NEEDS_NAME = "--synced 要給至少一個實體名稱"
+
+
+def _render(vault, args, as_json, conversation, turn_id):
+    names = list(getattr(args, "names", None) or [])
+    if getattr(args, "synced", False):
+        written, skipped = synthesis.mark_synced(vault, names, turn_id)
+    else:
+        written, skipped = synthesis.render_cache(vault, names or None, turn_id), []
     line = f"重寫了 {len(written)} 張綜合卡的檔頭"
     if written:
         journal_cli.record_program_or_warn(vault, line, [{"path": rel, "action": "modify"} for rel in written],
                                            "entity render", conversation)
-    _out(as_json, [line], {"written": written})
-    return 0
+    _out(as_json, [line] + [f"沒寫 {s['name']}：{s['reason']}" for s in skipped], {"written": written, "skipped": skipped})
+    return 1 if skipped else 0
+
+
+def _log(vault, args, as_json, conversation, turn_id):
+    got = synthesis.add_events(vault, args.ref, args.lines, turn_id, args.synced)
+    line = f"{got['name']}的紀事加了 {len(got['added'])} 行" + ("，已標記整理到" if got["synced"] else "")
+    if got["written"]:
+        journal_cli.record_program_or_warn(vault, line, [{"path": rel, "action": "modify"} for rel in got["written"]],
+                                           "entity log", conversation)
+    lines = [line] + [f"已經有了：{x}" for x in got["skipped"]]
+    if args.synced and not got["synced"]:
+        lines.append(f"沒標記整理到：{got['synced_reason']}")
+    _out(as_json, lines, {k: got[k] for k in ("name", "added", "skipped", "synced")})
+    return 1 if args.synced and not got["synced"] else 0
 
 
 WRITERS = {"add": _add, "confirm": _confirm, "accept": _accept, "rename": _rename, "merge": _merge, "remove": _remove,
            "rebuild": _rebuild, "clean": _clean, "progress": _progress, "suggest-close": _suggest_close, "alias": _alias,
-           "tag": _tag}
+           "tag": _tag, "log": _log}
 
 
 def run(args):
@@ -539,12 +569,15 @@ def run(args):
     try:
         if command == "list":
             return _list(vault, as_json, args.tag)
+        if command == "render" and getattr(args, "synced", False) and not args.names:
+            _out(as_json, [SYNCED_NEEDS_NAME], {"error": SYNCED_NEEDS_NAME})
+            return 2
         if getattr(args, "check", False):  # 先算後果、什麼都不寫（也不開回合），Obsidian 的確認框用（#22，D-256）
             return _check(vault, args, as_json)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
         if command == "render":
-            return _render(vault, as_json, conversation, turn_id)
+            return _render(vault, args, as_json, conversation, turn_id)
         return WRITERS[command](vault, args, as_json, conversation, turn_id)
     except entities.EntityRefused as e:
         print(str(e))

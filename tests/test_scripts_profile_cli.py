@@ -245,7 +245,8 @@ class Apply(Base):
         self.assertEqual(self.data(), before_json)
         # fixture 是 schema 2 的 md：手改過的 md 備進回合的是舊 JSON 的渲染（schema 3 多一個空的第六節）
         self.assertEqual(self.md_text(), profile.render_text(profile.load(self.V)))
-        want = before_md.replace("型別名會變成知識庫第一層的資料夾名", "型別名前面會加上編號當資料夾名（例：01 案子）")  # 提示句改了（裁定 4）
+        want = (before_md.replace("型別名會變成知識庫第一層的資料夾名", "型別名前面會加上編號當資料夾名（例：01 案子）")  # 提示句改了（裁定 4）
+                .replace("除了現況、紀事、推算，", "除了現況、推算、紀事，"))  # D-523 段順序
         self.assertEqual(self.md_text()[:len(want)], want)
         self.assertFalse((self.V / "02 工地").exists())
         self.assertTrue((self.V / "03 工班" / "a.txt").is_file())

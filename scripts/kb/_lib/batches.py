@@ -84,10 +84,25 @@ SAY_DONE_NONE = "整理完了：{n} 份沒做成"
 SAY_FAILED = "，{n} 份沒做成"
 DEFAULT_FAIL = "製卡助手沒做成"
 TWICE_FAIL = "製卡助手兩次沒做成：{}"
-CARDING = "skills/ingest/references/carding.md"
-READ = {"cards": [f"{CARDING} 批次、材料的欄位、一～七、九節"], "agenda": [f"{CARDING} 批次、材料的欄位、第九節"],
-        "synthesis": ["rules/synthesis.md", f"{CARDING} 批次、材料的欄位、第八節"],
-        "adopt": [f"{CARDING} 批次、第十二節"]}
+REF = "skills/ingest/references/"
+# 先讀的規則（相對 plugin 的路徑），每份整份讀（D-521：規則拆成模組，每種批次只讀用得到的）
+READ = {"cards": [REF + "batch.md", REF + "carding.md", REF + "agenda-scan.md"],
+        "agenda": [REF + "batch.md", REF + "agenda-scan.md"],
+        "synthesis": ["rules/synthesis.md", REF + "batch.md", REF + "synthesis-batch.md"],
+        "adopt": [REF + "batch.md", REF + "adopt.md"]}
+BROKEN_READ = REF + "synthesis-broken.md"  # 綜合卡批次的項目有 synthesis_broken 才加
+
+
+def read_list(kind, buckets=()):
+    """批次輸出的 read：要整份讀的規則檔絕對路徑；buckets 是這批項目的 bucket（有 synthesis_broken 多一份）。"""
+    root = plugin_root()
+    rels = READ[kind] + ([BROKEN_READ] if kind == "synthesis" and "synthesis_broken" in set(buckets) else [])
+    return [(root / rel).as_posix() for rel in rels]
+
+
+def read_text(read):
+    """read 清單的人讀版：檔名用「、」接起來。"""
+    return "、".join(Path(p).name for p in read)
 HOLD_FACTOR = 3  # 過期但子代理沒停、last_seen 還新：認領到幾倍時間
 TOUCH_EVERY = 60  # 秒：同一批 last_seen 隔這麼久才再寫一次（子代理每個 kb 呼叫都會碰，不每次都寫檔）
 _REPORT_LINE = re.compile(r"^\s*-\s*(\S+?)\s*[：:]\s*(.+?)\s*$")
@@ -690,10 +705,12 @@ def _cross_job(vault, data, job, key, reason, entry):
 # ---------- dispatch ----------
 
 def _only_ids(parts, ids):
-    """--ids：只留 cards 裡那幾份，其他種類不派（建置抽樣，build 第 6 點）。"""
+    """--ids：只留 cards 裡那幾份與那幾份卡的日程重對（agenda_recheck，出處卡在 ids 裡），抽日程、綜合卡、主對話做的不派
+    （建置抽樣，build 第 6 點；製作中裁定 17：md 改了她沒說整理，日程也跟著重對）。"""
     want = set(ids)
     got = {k: [] for k in parts}
     got["cards"] = [x for x in parts["cards"] if x[1] in want]
+    got["agenda"] = [x for x in parts.get("agenda") or [] if x[0] == "agenda_recheck" and x[2].get("card") in want]
     return got
 
 
@@ -986,8 +1003,7 @@ def dispatch_adopt(vault, session_id, turn_id):
 def _adopt_view(vault, b):
     d = (Path(vault) / ADOPT_POSIX).resolve()
     items = [{"name": n, "chunk": (d / n).as_posix()} for n in b.get("items") or [] if (d / n).is_file()]
-    root = plugin_root().as_posix()
-    return {"batch": b["batch"], "kind": ADOPT, "prefix": prefix(), "read": [f"{root}/{r}" for r in READ[ADOPT]],
+    return {"batch": b["batch"], "kind": ADOPT, "prefix": prefix(), "read": read_list(ADOPT),
             "items": items, "report": ADOPT_REPORT.replace("<批次>", b["batch"])}
 
 
@@ -1033,9 +1049,8 @@ def batch_view(vault, batch_id, agent_id=None):
                 found[k] = dict(item, bucket=bucket)
                 if bucket == "synthesis_new" and (base / item.get("path", "")).is_file() and item.get("path"):
                     found[k]["existing_card"] = item["path"]  # 目標已經有檔（別的批次剛寫過）：先 Read、紀事只增（A 段修）
-    root = plugin_root().as_posix()
     return {"batch": batch_id, "kind": b["kind"], "prefix": prefix(), "vault": base.as_posix(),
-            "read": [f"{root}/{r}" for r in READ[b["kind"]]],
+            "read": read_list(b["kind"], [found[k]["bucket"] for k in want if k in found]),
             "items": [_with_abs(base, found[k]) for k in want if k in found], "profile": out.get("profile"),
             "entities": out.get("entities")}
 

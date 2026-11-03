@@ -12,7 +12,9 @@ from kb._lib import cards  # noqa: E402
 
 SKILL_DIR = ROOT / "skills" / "ingest"
 SKILL = SKILL_DIR / "SKILL.md"
-REFS = ("references/carding.md", "references/commands.md", "references/redo.md")
+MODULES = ("batch.md", "carding.md", "agenda-scan.md", "synthesis-batch.md", "synthesis-broken.md", "adopt.md")  # D-521
+REFS = tuple(f"references/{m}" for m in MODULES) + ("references/commands.md", "references/redo.md")
+AGENT_ONLY = tuple(f"references/{m}" for m in MODULES if m != "carding.md")
 EVALS = ROOT / "tests" / "evals" / "ingest.json"
 TEMPLATE = ROOT / "templates" / "card.md"
 MANAGE = ROOT / "skills" / "manage" / "SKILL.md"
@@ -90,7 +92,8 @@ class Body(unittest.TestCase):
 
     def test_references_exist_and_short(self):
         for ref in REFS:
-            self.assertIn(ref, self.body)
+            if ref not in AGENT_ONLY:  # 拆出來的模組給製卡助手照批次的 read 讀，SKILL.md 不列（D-521）
+                self.assertIn(ref, self.body)
             p = SKILL_DIR / ref
             with self.subTest(reference=ref):
                 self.assertTrue(p.is_file())
@@ -173,11 +176,95 @@ class CardMakerSkeleton(unittest.TestCase):
             with self.subTest(head=head):
                 self.assertIn(head, commands)
         self.assertNotIn("按停止", commands)
-        carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        modules = "".join((SKILL_DIR / "references" / m).read_text(encoding="utf-8") for m in MODULES)
         for want in ("## 批次（card-maker）", "## 材料的欄位", "被擋或打回：", "kb cards unreadable"):
             with self.subTest(want=want):
-                self.assertIn(want, carding)
+                self.assertIn(want, modules)
+
+
+# 原 carding.md 每一節的關鍵句（D-521 驗收 5：拆成模組後每條都還在某一份）
+OLD_SECTIONS = {
+    "批次": ("第一步跑 `kb cards batch <批次> --json`", "清單只用 `items`，不跑 `cards todo`", "「被擋或打回：」那行的寫法也在那裡",
+           "多回一行「字典外：<型別>的<欄>：<詞>」", "製卡者是背景的 card-maker"),
+    "材料的欄位": ("`moved`：`{\"id\",\"from\",\"to\"}`", "`orphans`：卡的編號不在清冊", "`profile_missing` 是 true 時",
+              "`card_types`（`[{\"name\",\"sections\"", "`entities`：`[{\"name\",\"type\",\"aliases\",\"self\"}]`",
+              "`agenda_recheck`：`{\"id\"（日程條目）", "`unlinked`：`{\"id\",\"path\",\"reason\",\"types\",\"prefill\"}`",
+              "`synthesis_new`：`{\"entity_id\"", "「出處點不開」", "`synthesis_broken`：`{\"path\",\"reason\"}`",
+              "`entity_drift`：`{\"entity_id\"", "`tag_only: true`", "`missing_types`："),
+    "一": ("先跑 `convert <編號>`，照它印的做",), "二": ("檔頭是卡的第一段",), "三": ("檔頭之後寫 `# <標題>`",),
+    "四": ("正文夠用就好",), "五": ("表外但明顯是證號",), "六": ("轉換結果是空的（空檔）",), "七": ("`unlinked` 是要補掛實體的舊卡",),
+    "八": ("`synthesis_broken` 每項 `{path, reason}`", "再跑 `kb entity clean <path>`"),
+    "九": ("**直接加（D-128）**", "**結束證據（D-127）**", "**待重對（`agenda_recheck`，D-130）**", "**工期**"),
+    "十": ("**「可以讀」的密碼檔**", "開的時候印「密碼不對」"), "十一": ("`names` 每項是到門檻",), "十二": ("`items` 每項 `{name, chunk}`",),
+    "十三": ("`stale` 每項帶 `change`", "指路卡（檔頭 `卡式: 指路`", "`pointer_changed`（`{id, title, change, diff}`"),
+}
+SECTION_REF = re.compile(r"carding\.md[^\n。；，、（]{0,6}?第?([一二三四五六七八九十]{1,3})(?:～([一二三四五六七八九十]{1,3}))?節")
+
+
+class ModuleSplit(unittest.TestCase):
+    """D-521 驗收 5：原 carding.md 每條規則都在某一份新檔；design/ 以外沒有指到 carding.md 不存在的節號。"""
+
+    def test_every_old_rule_kept(self):
+        modules = "".join((SKILL_DIR / "references" / m).read_text(encoding="utf-8") for m in MODULES)
+        for sec, phrases in OLD_SECTIONS.items():
+            for want in phrases:
+                with self.subTest(section=sec, want=want):
+                    self.assertIn(want, modules)
+
+    def test_no_dangling_section_refs(self):
+        carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        heads = set(re.findall(r"^## ([一二三四五六七八九十]+)、", carding, re.M))
+        self.assertEqual(heads, {"一", "二", "三", "四", "五", "六", "七", "十", "十一", "十三"})  # 十三 留 carding.md（裁定 4）
+        skip = ("design", "tests", ".git")
+        for f in list(ROOT.rglob("*.md")) + list(ROOT.rglob("*.py")):
+            rel = f.relative_to(ROOT)
+            if rel.parts[0] in skip or rel.name == "CHANGELOG.md":
+                continue
+            for m in SECTION_REF.finditer(f.read_text(encoding="utf-8")):
+                for num in filter(None, m.groups()):
+                    with self.subTest(file=str(rel), ref=m.group(0)):
+                        self.assertIn(num, heads)
+
+
+class SimpleCardForAiNotes(unittest.TestCase):
+    """D-519（#33）：md 檔的卡（不管誰寫的）寫簡單版，只寫重點三到五點。"""
+
+    def test_carding_simple_version(self):
+        carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        line = next(ln for ln in carding.splitlines() if "簡單版" in ln)
+        for want in ("md 檔（不管誰寫的）", "## 重點", "三到五點", "D-519"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+        self.assertIn("2. md 檔例外：只寫第 1 點的簡單版", carding)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Wip(unittest.TestCase):
+    """D-525 第 7 點、裁定 3、5：她說整理才用，開場有變動那條拿掉；md 用 --ids 只做卡；commands.md 有 cards wip。"""
+
+    def test_triggers(self):
+        front, body = split(SKILL.read_text(encoding="utf-8"))
+        fields = dict(line.split(":", 1) for line in front)
+        self.assertNotIn("開場", fields["description"])
+        self.assertNotIn("開場有變動先派整理", body)
+        self.assertIn("cards wip", body)
+        self.assertIn("--ids", body)
+        self.assertIn("不只 X", body)
+        self.assertIn("一律 `cards dispatch` 不帶 `--ids`", body, "裁定 15：她說整理 md 也照常整理")
+        self.assertIn("她這句沒說整理", body)
+
+    def test_commands_has_wip(self):
+        text = (SKILL.parent / "references" / "commands.md").read_text(encoding="utf-8")
+        self.assertIn("`cards wip [--json]`", text)
+        self.assertIn("主對話也用它整理每句開頭那行列的 md", text)
+
+    def test_md_card_logs_entities(self):
+        """裁定 6：md 卡寫完，對卡上的實體各跑一次 kb entity log --synced；不讀綜合卡、不改現況。"""
+        text = (SKILL.parent / "references" / "carding.md").read_text(encoding="utf-8")
+        line = next(ln for ln in text.splitlines() if ln.startswith("2. md 檔例外"))
+        self.assertIn("kb entity log <實體> '<文件日期> <卡標題>〔<卡編號>〕'", line)
+        self.assertNotIn("--synced", line, "裁定 7：只加紀事，不標整理到")
+        self.assertIn("不讀綜合卡、不改現況", line)

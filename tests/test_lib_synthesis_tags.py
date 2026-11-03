@@ -66,8 +66,8 @@ class Validate(Base):
         self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (True, ""))
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertIn("設定檔讀不到，綜合卡的標籤行沒有驗", log)
-        (self.V / T.XINYI_REL).write_text(good.replace("範本版本: 1", "範本版本: 2"), encoding="utf-8")
-        self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (False, "範本版本該是 1"), "其他照驗")
+        (self.V / T.XINYI_REL).write_text(good.replace("範本版本: 2", "範本版本: 9"), encoding="utf-8")
+        self.assertEqual(synthesis.validate(self.V, T.XINYI_REL, prof=prof), (False, "範本版本該是 2"), "其他照驗")
 
 
 class Header(Base):
@@ -81,7 +81,8 @@ class Header(Base):
         T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["階段: 施工", "工種: [水電]"])
         E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
         (item,) = self.buckets()["synthesis_stale"]
-        self.assertEqual(item["header"].splitlines()[-3:], ["工種: [水電]", "階段: 施工", "---"], "照第八節的順序")
+        self.assertNotIn("header", item)  # D-520：待更新的檔頭程式管，不給；檔頭照 header_for 算
+        self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-3:], ["工種: [水電]", "階段: 施工", "---"], "照第八節的順序")
         T.set_tags(self.V, (T.DEFAULT_TAGS[1],))
         self.assertEqual(self.buckets()["synthesis_broken"], [], "裁定 13：第八節沒有的欄成了字典外的鍵，不擋")
         self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-3:], ["階段: 施工", "工種: [水電]", "---"],
@@ -107,7 +108,8 @@ class Header(Base):
         T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, [])
         E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"])
         (item,) = self.buckets()["synthesis_stale"]
-        self.assertEqual(item["header"].splitlines()[-2:], ["相關實體: []", "---"], "沒標過的不替它加空行")
+        self.assertNotIn("header", item)  # D-520
+        self.assertEqual(T.header(self.V, E.XINYI).splitlines()[-2:], ["相關實體: []", "---"], "沒標過的不替它加空行")
 
     def test_synthesis_new_header(self):
         (self.V / T.XINYI_REL).unlink()

@@ -236,7 +236,6 @@ class Periodic(Base):
         self.tmp, self.V, self.raw = _cards.make_card_vault()
         _cards.mark_dates_scanned(self.V)
         turn.start(self.V, None, "")
-        (self.V / ".system" / "config.json").write_text('{"recard_idle_minutes": 0}', encoding="utf-8")  # 剛寫的檔不算「剛改過」（D-329）
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

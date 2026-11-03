@@ -4,23 +4,21 @@
 
 一張檔案卡讓之後的人不用打開原檔就知道「這是什麼、重點在哪、要查細節去哪一頁」。卡是索引不是副本：抄多少由你判斷，數值要用時回原檔讀（D-032）。範本在 plugin 的 `templates/card.md`，只看段落樣式；它第一行的註解不抄（卡的第一行一定是 `---`），檔頭照材料的 `header`。
 
-## 批次（card-maker）
+做卡批次（`kind` 是 cards）：先照 batch.md，再照下面。
 
-- 第一步跑 `kb cards batch <批次> --json`：`prefix` 是 kb 指令前綴（下面寫 `kb …`、`convert …` 的都接在它後面）；`vault` 是總資料夾的絕對路徑，項目裡相對總資料夾的路徑（`dir`、`existing_card`、`path`、`target`、`card_path`）都另給 `<鍵>_abs` 絕對路徑，讀寫一律用它；`kind` 是 cards｜agenda｜synthesis｜adopt（第十二節）；`read` 是先讀的規則；`items` 是這批要做的，每項跟下一節的欄位同一組、多 `bucket`（來自哪一桶，不是 `type`：`synthesis_new` 的 `type` 是實體型別；new、stale、broken、unlinked、agenda_recheck、agenda_unscanned、synthesis_new、synthesis_stale、synthesis_broken）；`profile`、`entities` 同下一節。已經做好的項目不再列。
-- `cards`：一～六節寫卡、第七節補掛實體；每寫完一張新卡或重做的卡，同一份內容接著照第九節抽日期、跑 `kb agenda scanned <卡編號>`。`agenda`：第九節。`synthesis`：`rules/synthesis.md`，`synthesis_broken` 照第八節；項目帶 `existing_card`（目標已經有卡）一定先 Read，現況改寫、紀事只增，紀事少了會被打回。帶 `tag_only: true` 的是還沒有綜合卡、只補標籤的實體（`{"entity_id","name","type","tag_only","cards","tags","tags_said","reason"}`，`tags` 是現在標的）：只讀 `cards` 那幾張檔案卡（`path_abs`），照 `profile.tags` 那個型別的字典判斷每一欄，一個實體跑一次 `kb entity tag <名稱> 欄=詞[,詞] …`（看過、沒有寫 `欄=`；`tags_said` 裡的欄不寫），不寫綜合卡；字典外的照 S-33 回報。
-- 清單只用 `items`，不跑 `cards todo`、不自己找檔；不跑 `turn note`、`cards dispatch`。
-- 做完照 card-maker 本文的回報格式回一則給主對話：讀舊 wiki 以外的批次只有份數與沒做成的原因，不寫檔案內容、摘要、人名、金額、日期（D-022），「被擋或打回：」那行的寫法也在那裡；寫綜合卡遇到字典外、她明顯在意的條件（S-33），多回一行「字典外：<型別>的<欄>：<詞>」（還沒有那一欄的，條件寫在欄的位置；開頭不加「- 」，那是沒做成的寫法；只寫詞，不寫是誰），主對話照 D-231 問她要不要加；讀舊 wiki 的批次照第十二節的格式。
+- `cards`：一～六節寫卡、第七節補掛實體；每寫完一張新卡或重做的卡，同一份內容接著照 agenda-scan.md 抽日期、跑 `kb agenda scanned <卡編號>`。
 
-## 材料的欄位（`cards batch` 的 `items` 與 `cards todo --json`）
+## 材料的欄位（`cards batch` 的 `items` 與 `cards todo --json --full`；不加 `--full` 的 `profile` 只有 `about`、`moved` 最多 10 筆）
 
+共用欄位（`prefix`、`vault`、`<鍵>_abs`、`bucket`、`profile`、`entities`）在 batch.md；日程的在 agenda-scan.md，綜合卡的在 synthesis-batch.md、synthesis-broken.md。
+
+- `profile` 裡做卡用的：`card_types`（`[{"name","sections":[{"name","required","hint"}]}]`，卡型與段落照它）與 `exclusions`（`[{"kind","action"}]`，`action` 是 `kind_only` 或 `no_card`）。`profile_missing` 是 true 時設定檔讀不到、這塊是預設值，人讀最後多一行 `客戶設定檔讀不到，卡型用預設`；照常做卡，不用跟客戶說。
 - `new`、`stale`：每項 `id`、`uri`、`path`（原檔絕對路徑）、`origin`、`kind`、`dir`（卡放的夾）、`filename_pattern`（`<標題>-八碼.md`）、`existing_card`（stale 才有，舊卡路徑）、`created`（條目產出那天，AI 產出的卡寫起草日用）、`header`（照抄的檔頭）。stale 可帶 `reason`：「客戶說卡讀錯了」是客戶糾正過（`kb cards redo`），整張照原檔重讀重寫，不沿用舊卡的寫法。
 - `moved`：`{"id","from","to"}`，用 `cards sync` 處理；只有開原檔連結對不上（來源搬家）也在這裡，`to` 跟原夾相同。`duplicates`：`{"id","keep","drop":[…]}`，同編號多張卡；`cards sync` 留 `keep`、刪 `drop`（備進回合，退得回來）。
 - `missing`：`{"id","uri","missing_since","pending_id","question"}`；客戶答過（先留著、不用管）的不再列，怎麼問怎麼答由 `asks` 給。`unreadable`：`{"id","uri","reason","pending_id"}`，已在待處理，講法在 `tell`；客戶說先跳過（`pending dismiss <pending_id>`）的不再列進 `new`，檔案換了才重讀。
-- `orphans`：卡的編號不在清冊或原檔已不在；這版不處理，不用動它。`broken`：`{"path","reason"}`，檔頭有問題的卡；編號對得到清冊的多帶 `id`、`header`（carding.md 第六節）。`skipped`：`{"credential","placeholder","too_large","error","skipped"}` 份數；`skipped` 是跑過 `cards skip` 的（依設定不整理）。說過「可以讀」的密碼檔不算在 `credential`，列進 `new`（carding.md 第十節）。
-- `profile`：客戶設定檔的 `card_types`（`[{"name","sections":[{"name","required","hint"}]}]`，卡型與段落照它）與 `exclusions`（`[{"kind","action"}]`，`action` 是 `kind_only` 或 `no_card`）。`profile_missing` 是 true 時設定檔讀不到、這塊是預設值，人讀最後多一行 `客戶設定檔讀不到，卡型用預設`；照常做卡，不用跟客戶說。另有 `types`（`[{"name","category"}]`）、`synthesis_sections`（`[{"type","sections"}]`，設定檔第四節）、`about`（`[{"name","kind","aliases"}]`，客戶自己）、`tags`（設定檔第八節的標籤字典 `{型別: [{"field","words","multi"}]}`，寫綜合卡時照它標，`rules/synthesis.md` S-33）、`preferences`（設定檔第六節偏好的句子清單，寫卡照第三節第 4 點）。
-- `entities`：`[{"name","type","aliases","self"}]`，登記的實體（`self` 是 false、company 或 person）；檔案卡 `實體` 欄照 `name` 寫。案子這類「事」的另有 `progress`（ongoing｜closed｜paused）與 `asked_evidence`（問過結案的依據，同一份不再問）。
-- 日程（carding.md 第九節）：`agenda_recheck`：`{"id"（日程條目）,"card","card_path","kind","date","text","source"}`，出處卡重做後待重對的條目。`agenda_unscanned`：`{"id"（卡編號）,"card_path","title","existing":[{"id","kind","date","text"}]}`，還沒抽過日期的卡，`existing` 是這張卡已加進日程、還 open 的條目。`agenda_counts`：`{"overdue","today","upcoming"}`，開場日程行的三個數字，做卡時不用管。`unlinked`：`{"id","path","reason","types","prefill"}`，要補掛實體的卡（carding.md 第七節）。`missing_types`：`{型別名: 張數}`，`待補型別` 裡型別表沒有的。
-- `synthesis_new`：`{"entity_id","name","type","category","confirmed","path","cards":[{"id","path","title"}],"statements","rulings","sections","header","question"}`，`path` 相對總資料夾，`sections` 是 `[{"name","required","hint"}]`、已含現況、紀事、推算，`question` 只有沒確認的有。`synthesis_stale`：`{"entity_id","name","path","header","statements","rulings","added","changed","removed"}`；`statements` 是有效口述 `[{"id","text","date"}]`、`rulings` 是裁示 `[{"id","kind","text","cards":[{"id","title"}]}]`（`kind` 是 spoken_wins｜ruled_out），`added`／`changed`／`removed` 每項帶 `source`（card｜statement｜ruling；口述、裁示的內容在項目的 `text`），`changed` 可帶 `reason`「客戶說卡讀錯了」（卡照原檔重寫過，綜合卡裡照舊卡寫的句子要改）。項目本身可帶 `reason` 與 `ids`（健檢標的，lint 題）：「出處點不開」是內文的〔…〕指到不存在、不採用或已收回的（`ids` 是那幾個），照現有的依據改寫那幾句、紀事裡的舊紀錄留著；「有空段」是有段只剩標題，有內容就補、沒有就拿掉那段；「設定檔改了」是那類綜合卡要寫的段變了（照 `sections` 重排）；「補標籤（欄）」「補標籤（欄：詞／詞）」是字典加了欄或詞：原因只有補標籤、`added`／`changed`／`removed` 都空的，只 Read `path_abs` 那張綜合卡、只改括號裡那幾欄的標籤行（照 `profile.tags`；不換整個檔頭，檔頭其他行與內文一字不動，S-06、S-21、S-24 的例外）；混了別的原因照一般更新，標籤照 S-33 一起寫。added／changed／removed 可能都是空的，照原因改寫就好。`synthesis_broken`：`{"path","reason"}`。`entity_drift`：`{"entity_id","name","type","kind","found","question"}`（`found` 是找到的卡，相對總資料夾，`missing` 是 null），`kind` 是 folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing，怎麼問怎麼答在 `asks`。寫法看 `rules/synthesis.md`。
+- `orphans`：卡的編號不在清冊或原檔已不在；這版不處理，不用動它。`broken`：`{"path","reason"}`，檔頭有問題的卡；編號對得到清冊的多帶 `id`、`header`（第六節）。`skipped`：`{"credential","placeholder","too_large","error","skipped"}` 份數；`skipped` 是跑過 `cards skip` 的（依設定不整理）。說過「可以讀」的密碼檔不算在 `credential`，列進 `new`（第十節）。
+- `unlinked`：`{"id","path","reason","types","prefill"}`，要補掛實體的卡（第七節）。`missing_types`：`{型別名: 張數}`，`待補型別` 裡型別表沒有的。
+- `entity_drift`：`{"entity_id","name","type","kind","found","question"}`（`found` 是找到的卡，相對總資料夾，`missing` 是 null），`kind` 是 folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing，怎麼問怎麼答在 `asks`。
 
 ## 一、讀原檔
 
@@ -62,8 +60,8 @@
 ## 三、正文
 檔頭之後寫 `# <標題>`，接著：
 
-1. 第一段一到兩句：這是什麼文件、給誰、做什麼用。AI 產出的卡（出處「AI 產出」）第一段寫明「AI 於 YYYY-MM-DD 起草」，日期用 todo 那一項的 `created`（是 null 就用製卡日期）。
-2. 段落照那個卡型在 `profile.card_types` 的 `sections`，順序照表，每段一個 `## <name>`；`required` 是 true 的段沒內容寫一行 `未知`，其他沒內容整段不寫；那段寫什麼以 `hint` 為準。卡型沒有「沒讀到的部分」而讀取是「部分」時，照樣在最後加這段。預設值是這四段，以 todo 給的為準：
+1. 第一段一到兩句：這是什麼文件、給誰、做什麼用。AI 產出的卡（出處「AI 產出」）第一段寫明「AI 於 YYYY-MM-DD 起草」，日期用 todo 那一項的 `created`（是 null 就用製卡日期）。md 檔（不管誰寫的）寫簡單版：第一段之後寫 `## 重點` 三到五點（講了什麼、決定了什麼、要做的事），〔位置〕照第 3 點純文字那種；`required` 的段照第 2 點，其他段不寫。md 是純文字，細節之後回原檔讀，不整份抄（D-032、D-519）。
+2. md 檔例外：只寫第 1 點的簡單版（`## 重點` 一段），不照 `sections`。md 卡寫完，對卡上的「實體」各跑一次 `kb entity log <實體> '<文件日期> <卡標題>〔<卡編號>〕'`（單引號包；文件日期是未載就用 todo 那項的 `created`），綜合卡就有紀事一條、相關檔程式補；只加紀事、不標整理到，不讀綜合卡、不改現況（D-525 裁定 6、7）。其他檔：段落照那個卡型在 `profile.card_types` 的 `sections`，順序照表，每段一個 `## <name>`；`required` 是 true 的段沒內容寫一行 `未知`，其他沒內容整段不寫；那段寫什麼以 `hint` 為準。卡型沒有「沒讀到的部分」而讀取是「部分」時，照樣在最後加這段。預設值是這四段，以 todo 給的為準：
    - `## 重點`：這份檔要記住的事，一點一行。
    - `## 日期與數字`：期限、金額、數量、面積；照原檔寫，不換算。
    - `## 提到的人與單位`：人名加角色、公司、廠商。
@@ -105,29 +103,6 @@
 - 用 Edit 只改檔頭：`v1` 的在 `卡型` 那行之後加 `實體: […]`、`待補型別: […]` 兩行，`範本版本: 1` 改成 `範本版本: 2`；`types_added` 的把那幾個型別從 `待補型別` 拿掉，從卡的正文找出屬於那個型別的名稱（例如廠商名），照第二節 `entity add` 後掛進 `實體`。正文不動。
 - 被打回照原因改（多半是名稱沒登記或寫了別名）。
 
-## 八、壞掉或放錯位置的綜合卡
-
-`synthesis_broken` 每項 `{path, reason}`；製卡助手拿到的批次另帶跟 `synthesis_stale` 一樣齊的材料：`target`（該放的路徑）、`header`（該有的檔頭，照抄）、`entity_id`、`name`、`type`、`sections`、`cards`（掛的檔案卡）、`statements`、`rulings`、`findings`。寫法看 `${CLAUDE_PLUGIN_ROOT}/rules/synthesis.md`，寫之前先讀它。
-
-- `reason` 是「綜合卡該放在 …」（寫到了錯的路徑）：Read `path` 那張拿正文，檔頭換成 `header`，整張寫到 `target`，再跑 `kb entity clean <path>`（相對總資料夾）清掉錯的那張。
-- 其他 `reason`（檔頭有錯、檔頭解析不了）：檔頭換成 `header` 整張寫回 `target`；正文讀得到就沿用、照 `reason` 改，讀不到或空的就照 `cards`、`statements`、`rulings` 從頭寫，不憑空補內容。
-- 沒帶 `header` 的（找不到是哪個實體的）不會派給製卡助手，由主對話照 `plan` 的 `cards` 那步處理，處理不了就跟客戶說。
-
-## 九、日程與狀態
-
-每寫完一張新卡或重做的卡，接著照這節抽；日程批次的 `agenda_recheck` 先做（見最後兩點），再做 `agenda_unscanned`（既有知識庫的舊卡、重做過的卡、客戶說「把日期也整理進日程」）。每張卡讀它的正文（`日期與數字`、各段；不夠才 `convert`）抽日期、加進日程，抽完跑 `kb agenda scanned <卡編號>`，沒抽到任何日期也要跑，程式才知道這張卡看過了，不然下次還會列。`existing` 是這張卡已加進日程、還 open 的條目，已經在的不再加。日程的加改取消由程式管（`kb agenda`，客戶口述的走 note skill）。
-
-- **直接加（D-128）**：抽到的日期直接加，不逐條先問客戶；加了哪些由回答末尾的 `tell` 告知，錯了客戶說一聲就改。
-- **抽取規則（D-062）**：未來的日期**加一個動作**才進日程（「10/20 前付第二期款」「11/30 交屋」「下次 10/5 開會」）；過去的日期是紀事，只寫進卡正文與綜合卡紀事，不進日程。會議紀錄的開會日是過去，裡面提到的下次開會與期限才是未來。沒有動作的日期（「合約簽於 9/1」）不加。
-- **先查重**：`existing` 已有的不加；別張卡或客戶口述加過的，加之前跑一次 `kb agenda list --json`，已有一條 open 的、日期相同而且說的是同一件事的，就不再加。重做過的卡，舊版抽的條目由程式排在前面的待重對處理（`agenda_recheck`），這裡不要重加一條。
-- **年份**：文件沒寫年份時，取這份文件的 `文件日期` 之後最近的那天；文件日期是「未載」就照 plugin 根的 `skills/note/references/agenda.md` 第二節的換算。
-- **怎麼加**：每個日期跑一次 `kb agenda add --card <這張卡的編號> --kind <到期｜會議｜承諾｜提醒｜期間> --date <YYYY-MM-DD> --text "<一句>"`，掛它講到的實體用 `--entity <名稱>`（要是登記過的名稱）。種類照文意：對方規定的期限是到期，我方答應的是承諾，開會是會議。`--card` 讓程式記出處與那張卡現在的指紋，來源標推測；同一張卡同種類、同日期、同文字再加一次不會重複。加進日程的幾條由 `tell` 帶出來，不用自己列（D-128）。
-- **工期**：合約或進度表寫了開始到結束，加成「期間」，`--start` 填開始日、`--date` 填預計結束，只掛那個案子一個實體；案子還沒登記（程式說實體清單沒有）就先不加期間，照第二節登記後再加。
-- **待重對（`agenda_recheck`，D-130）**：每項是出處卡重做過、還沒結束的日程條目。重讀新版卡後，照 `source` 處理：
-  - `inferred`（推測）：新版日期或內容變了就 `kb agenda edit <編號> --date <新日期> --card <那張卡>`（`--card` 讓來源維持推測、記下新版指紋）；新版已經沒有這件事就 `kb agenda cancel <編號>`；沒變就 `kb agenda recheck <編號>`。
-  - `confirmed`、`corrected`（客戶說過或改過的）：不自己改，新版沒變就 `recheck <編號>`；新版寫法不同就 `recheck <編號> --propose-date <新日期>`（要改文字再加 `--propose-text "<一句>"`），程式會在 `asks` 問客戶用哪個，你自己不問。
-- **結束證據（D-127）**：讀到驗收紀錄、尾款收清、文件寫明結案這類，對掛著的事類實體跑 `kb entity suggest-close <名稱> --evidence <這張卡的編號>`；程式會問客戶、問過的依據不再問，你不直接改狀態。「驗收第一期」這類中間事件不算。
-
 ## 十、密碼檔與加密的 PDF
 
 - **「可以讀」的密碼檔**（客戶說「那份網站密碼檔可以讀」，D-183）：照一般寫卡，但正文只寫這份是什麼、列了哪些項目的名字（「建材商訂貨網、公司網銀、雲端相簿三組帳密〔工作表「帳密」〕」），**任何帳號、密碼、代碼的值都不抄**；`敏感資料種類` 記「密碼」。回答與 `kb turn note` 都不寫任何值（只說整理了這份、列了哪幾組的名字）。她之後問其中一組時，answer 會回原檔讀，卡上不需要值。
@@ -138,12 +113,8 @@
 
 `names` 每項是到門檻、還沒確認的新名字（名稱、型別、掛的卡標題）。照掛的卡判斷（D-202）：有把握的跑 `kb entity accept <名稱>`（記成 AI 判斷，算確認、不問、綜合卡照寫）；有疑慮的不動，留給 `asks` 的名字題。有疑慮的三種：可能跟已登記的是同一個（名字像、同一個業主換了叫法，先 `kb entity list` 比一下）、分不清是人還是公司或案子（型別可能放錯）、只出現一次、像打錯或縮寫。其他從卡上看得清楚的就是有把握。平常整理照 `asks` 一次最多問三題；建置時有疑慮的一次列完。AI 判斷錯了，客戶一句話照 note 改名或合併。
 
-## 十二、讀舊 wiki（adopt 批次，建置收舊 llm-wiki）
-
-`items` 每項 `{name, chunk}`：用 Read 讀 `chunk`（第一行是來源檔與第幾段），撈四種候選：她說過、原檔可能沒有的事（口述：掛哪個實體、哪天、一句）、規則（以後怎麼做、哪份別信）、還沒到的日期加一個動作（日程）、還在等她確認的。舊 AI 自己的操作紀錄（哪天整理了什麼）不撈，密碼、帳號這類值不抄。不寫任何檔、不跑 `cards batch` 以外的指令；回報照 `cards batch` 給的 `report` 格式，一行一條，讀不成的段寫 `- <段名>：<原因>`。
-
 ## 十三、會一直改的檔（主對話，D-331）
 
 - `stale` 每項帶 `change`（`changes_7d`、`changes_30d`、`days_since`、`open`、`entity_done`、`mode`、`track`）：照它判斷這份做完整卡還是指路卡。參考做法：新檔先完整；一週改好幾次的換指路（`kb cards mode <編號> pointer`）；停兩週或掛的實體結案了，換回完整（`mode <編號> full`）再做一次完整卡。客戶說「這份不會再改」「這份每週更新」「這份不用記過程」照做（不記過程是 `--track no`）。
 - 指路卡（檔頭 `卡式: 指路`，不要求「日期與數字」段）只寫：這是什麼、在哪、有哪些工作表與欄位、多久更新；不抄數字，要數字回原檔讀。
-- `pointer_changed`（`{id, title, change, diff}`：指路卡的檔改了，不算進份數）：讀 `diff`（`track` 是 false 沒有）。差別是「事」就在綜合卡紀事加一行（一天改很多次可合成一行）；數字跳動不記，一直只是數字的跑 `mode <編號> pointer --track no`。看完（寫了紀事、換了卡式、什麼都不做都算）跑 `kb cards seen <編號>`，不跑下次照樣列。
+- `pointer_changed`（`{id, title, change, diff}`：指路卡的檔改了，不算進份數）：讀 `diff`（`track` 是 false 沒有）。差別是「事」就用 `kb entity log <那張卡掛的實體> 'YYYY-MM-DD 事〔<卡編號>〕'` 在綜合卡紀事加一條（寫清楚重點、不換行；一天改很多次可合成一條）：被拒時，那個實體沒有綜合卡的不記、照常跑 `cards seen`；其他原因照拒絕句改好再跑一次，還是被拒就不跑 `cards seen`、跟她說那件還沒記到；數字跳動不記，一直只是數字的跑 `mode <編號> pointer --track no`。看完（寫了紀事、換了卡式、什麼都不做都算）跑 `kb cards seen <編號>`，不跑下次照樣列。

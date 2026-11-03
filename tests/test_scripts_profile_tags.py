@@ -192,7 +192,7 @@ class AddTag(Base):
         r = self.kb("add", "標籤", "型別=案子", "欄名=工種", "詞=油漆、拆除")
         self.assertEqual((r.returncode, r.stdout.splitlines()[0]), (0, "已加標籤的詞：案子的工種多了油漆、拆除；3 張案子的綜合卡要補標籤"))
         self.assertEqual(self.fixes()[T.XINYI_REL], "補標籤（預算）、補標籤（工種：油漆／拆除）")
-        todo = json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)
+        todo = json.loads(run_kb("cards", "todo", "--json", "--full", cwd=self.V).stdout)
         got = {i["path"]: i.get("reason") for i in todo["synthesis_stale"]}
         self.assertEqual(got[LI_REL], "補標籤（預算）、補標籤（工種：油漆／拆除）")
         self.assertEqual(todo["profile"]["tags"]["案子"][0]["field"], "工種")

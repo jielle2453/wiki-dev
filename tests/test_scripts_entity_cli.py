@@ -111,6 +111,251 @@ class ConfirmListRender(Base):
         self.assertEqual(self.kb("render"), ["重寫了 1 張綜合卡的檔頭"])
         self.assertEqual(self.kb("render"), ["重寫了 0 張綜合卡的檔頭"])
 
+    def test_render_named_only_rewrites_that_card_cache(self):
+        """D-518 驗收 6：給名稱只重寫那張的 檔案卡、相關實體 兩欄，整理到不動。"""
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王", "大安陳"])
+        daan = (self.V / "案子/大安陳/大安陳.md").read_text(encoding="utf-8")
+        self.assertEqual(self.kb("render", "信義王"), ["重寫了 1 張綜合卡的檔頭"])
+        front = self.front("案子/信義王/信義王.md")
+        self.assertEqual((len(front["檔案卡"]), front["整理到"]), (1, []))
+        self.assertEqual((self.V / "案子/大安陳/大安陳.md").read_text(encoding="utf-8"), daan)
+        r = run_kb("entity", "render", "--json", cwd=self.V)
+        self.assertEqual(json.loads(r.stdout), {"written": ["案子/大安陳/大安陳.md"], "skipped": []})
+
+
+class RenderSynced(Base):
+    """D-518 驗收 1～5：kb entity render <名稱> --synced 由程式換 整理到、更新日、檔案卡、相關實體，內文與其他檔頭行不動。"""
+    CARD = "案子/信義王/信義王.md"
+
+    def body_and_tags(self, rel):
+        text = (self.V / rel).read_text(encoding="utf-8")
+        head, _sep, body = text[4:].partition("\n---\n")
+        keep = [l for l in head.splitlines() if l.partition(":")[0] not in ("整理到", "更新日", "檔案卡", "相關實體")
+                and not l.startswith("  - ")]
+        return keep, body
+
+    def test_synced_rewrites_header_keeps_body(self):
+        from datetime import date
+        from kb._lib import synthesis
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        p = self.V / self.CARD
+        p.write_text(p.read_text(encoding="utf-8") + "- 2026-10-21 收到報價\n", encoding="utf-8", newline="\n")
+        before = self.body_and_tags(self.CARD)
+        self.assertEqual(synthesis.validate(self.V, self.CARD), (False, "整理到不是現行的，重跑 kb cards todo 拿新檔頭"))
+        t = self.new_turn()
+        self.assertEqual(self.kb("render", "信義王", "--synced"), ["重寫了 1 張綜合卡的檔頭"])
+        self.assertEqual(synthesis.validate(self.V, self.CARD), (True, ""))
+        self.assertEqual(self.body_and_tags(self.CARD), before)
+        front = self.front(self.CARD)
+        self.assertEqual((front["更新日"], len(front["檔案卡"]), len(front["整理到"])), (date.today().isoformat(), 1, 1))
+        self.assertNotIn(E.XINYI, [i["entity_id"] for i in self.todo()["synthesis_stale"]])
+        self.assertEqual({r["path"]: r["by"] for r in turn.entries(self.V, t)}[self.CARD], "program")
+        mtime = p.stat().st_mtime_ns
+        self.assertEqual(self.kb("render", "信義王", "--synced"), ["重寫了 0 張綜合卡的檔頭"])
+        self.assertEqual(p.stat().st_mtime_ns, mtime)
+
+    def test_alias_same_as_name(self):
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        r = run_kb("entity", "render", "信義王宅", "--synced", "--json", cwd=self.V)
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, {"written": [self.CARD], "skipped": []}))
+        self.assertEqual(self.todo()["synthesis_stale"], [])
+
+    def test_synced_needs_a_name(self):
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        before = (self.V / self.CARD).read_text(encoding="utf-8")
+        self.assertEqual(self.kb("render", "--synced", code=2), ["--synced 要給至少一個實體名稱"])
+        r = run_kb("entity", "render", "--synced", "--json", cwd=self.V)
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (2, {"error": "--synced 要給至少一個實體名稱"}))
+        self.assertEqual((self.V / self.CARD).read_text(encoding="utf-8"), before)
+
+    def test_skipped(self):
+        p = self.V / "案子/大安陳/大安陳.md"
+        p.write_text(p.read_text(encoding="utf-8").replace("## 現況", "## 近況"), encoding="utf-8", newline="\n")
+        before = p.read_text(encoding="utf-8")
+        r = run_kb("entity", "render", "不存在", "王宅", "大安陳", "--synced", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"written": [], "skipped": [
+            {"name": "不存在", "reason": "找不到這個實體"}, {"name": "王宅", "reason": "還沒有綜合卡"},
+            {"name": "大安陳", "reason": "正文要有 # 大安陳 與 ## 現況"}]})
+        self.assertEqual(p.read_text(encoding="utf-8"), before)
+        self.assertEqual(self.kb("render", "不存在", "--synced", code=1),
+                         ["重寫了 0 張綜合卡的檔頭", "沒寫 不存在：找不到這個實體"])
+
+
+class EntityLog(Base):
+    """D-521 驗收 2：kb entity log 加紀事（倒序、同日在上、重複不加、沒有段會補、--synced）與四種拒絕。"""
+    CARD = "案子/信義王/信義王.md"
+
+    def setUp(self):
+        super().setUp()
+        self.fid = self.front(E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"]))["編號"]
+        self.p = self.V / self.CARD
+
+    def events(self):
+        text = self.p.read_text(encoding="utf-8")
+        sec = text.split("## 紀事\n", 1)[1].split("\n## ", 1)[0]
+        return [l for l in sec.splitlines() if l.startswith("- ")]
+
+    def test_insert_order_and_duplicate(self):
+        from kb._lib import card_base
+        t = self.new_turn()
+        f = self.fid
+        lines = self.kb("log", "信義王", f"2026-10-25 開會〔{f}〕", f"2026-10-01 報價〔{f}〕", f"2026-10-20 收訂〔{f}〕")
+        self.assertEqual(lines, ["信義王的紀事加了 3 行"])
+        self.assertEqual(self.events(), [f"- 2026-10-25 開會〔{f}〕", f"- 2026-10-20 收訂〔{f}〕", "- 2026-10-20 登記這個案子",
+                                         f"- 2026-10-01 報價〔{f}〕"])
+        self.assertEqual({r["path"]: r["by"] for r in turn.entries(self.V, t)}[self.CARD], "program")
+        self.assertEqual(card_base.edits(self.V)["edits"], [], "程式加的不算她手改")
+        before = self.p.read_text(encoding="utf-8")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{f}〕"),
+                         ["信義王的紀事加了 0 行", f"已經有了：2026-10-25 開會〔{f}〕"])
+        self.assertEqual(self.p.read_text(encoding="utf-8"), before)
+
+    def test_multi_sentence_entry(self):
+        """裁定 8：一條不限一句（決定、為什麼、數字、下一步），照樣收、照日期排、擋重複。"""
+        f = self.fid
+        long = (f"2026-10-22 業主決定改用 B 廠的系統櫃。原因是 A 廠交期拖到 12 月，B 廠報價 48 萬、比 A 廠多 3 萬但 11/15 能進場；"
+                f"下一步是 10/28 前簽約、付訂金 10 萬〔{f}〕")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{f}〕", long, f"2026-10-01 報價〔{f}〕"),
+                         ["信義王的紀事加了 3 行"])
+        self.assertEqual(self.events(), [f"- 2026-10-25 開會〔{f}〕", f"- {long}", "- 2026-10-20 登記這個案子",
+                                         f"- 2026-10-01 報價〔{f}〕"])
+        self.assertEqual(self.kb("log", "信義王", long), ["信義王的紀事加了 0 行", f"已經有了：{long}"])
+
+    def test_same_day_new_lines_keep_given_order(self):
+        f = self.fid
+        self.kb("log", "信義王", f"2026-10-20 甲〔{f}〕", f"2026-10-20 乙〔{f}〕")
+        self.assertEqual(self.events()[:3], [f"- 2026-10-20 甲〔{f}〕", f"- 2026-10-20 乙〔{f}〕", "- 2026-10-20 登記這個案子"])
+
+    def test_adds_section_at_end(self):
+        """D-523：沒有紀事段就補在全卡最後。"""
+        text = self.p.read_text(encoding="utf-8")
+        self.p.write_text(text.replace("## 紀事\n- 2026-10-20 登記這個案子\n\n", ""), encoding="utf-8", newline="\n")
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕")
+        text = self.p.read_text(encoding="utf-8")
+        self.assertTrue(text.endswith(f"## 時程\n未知\n\n## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n"))
+
+    def test_file_section_untouched(self):
+        """裁定 5、D-523：紀事是最後一段時相關檔插在它上面；加的行進紀事，相關檔那段一字不動。"""
+        from kb._lib import synthesis
+        text = self.p.read_text(encoding="utf-8")
+        cut = text.index("\n## ", text.index("## 紀事"))  # 紀事之後的段拿掉，紀事變成最後一段
+        self.p.write_text(text[:cut + 1], encoding="utf-8", newline="\n")
+        synthesis.render_cache(self.V, ["信義王"], self.new_turn())
+        text = self.p.read_text(encoding="utf-8")
+        i, j = text.find(synthesis.FILE_BEGIN), text.find(synthesis.FILE_END)
+        self.assertTrue(0 < i < j < text.index("## 紀事"), "render_cache 要把相關檔寫在紀事上面")
+        files = text[i:j]
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", f"2026-10-01 報價〔{self.fid}〕", "--synced")
+        text = self.p.read_text(encoding="utf-8")
+        self.assertEqual(text[text.find(synthesis.FILE_BEGIN):text.find(synthesis.FILE_END)], files)
+        self.assertEqual(self.events()[0], f"- 2026-10-25 開會〔{self.fid}〕")
+        self.assertTrue(text.rstrip("\n").endswith(f"- 2026-10-01 報價〔{self.fid}〕"))
+
+    def test_synced_json(self):
+        r = run_kb("entity", "log", "信義王宅", f"2026-10-25 開會〔{self.fid}〕", "--synced", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"name": "信義王", "added": [f"2026-10-25 開會〔{self.fid}〕"],
+                                                "skipped": [], "synced": True})
+        self.assertEqual(self.todo()["synthesis_stale"], [])
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-26 再開會〔{self.fid}〕", "--synced"),
+                         ["信義王的紀事加了 1 行，已標記整理到"])
+
+    def test_refusals_leave_file(self):
+        before = self.p.read_text(encoding="utf-8")
+        f = self.fid
+        cases = [
+            (("不存在", f"2026-10-25 開會〔{f}〕"), "找不到這個實體：不存在"),
+            (("王宅", f"2026-10-25 開會〔{f}〕"), "王宅還沒有綜合卡"),
+            (("信義王", f"開會〔{f}〕"), f"紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：開會〔{f}〕"),
+            (("信義王", "2026-10-25 開會"), "紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：2026-10-25 開會"),
+            (("信義王", "2026-02-30 開會〔{}〕".format(f)), "紀事要寫成「YYYY-MM-DD 事〔f-xxxxxxxx〕」：2026-02-30 開會〔{}〕".format(f)),
+            (("信義王", "2026-10-25 開會〔f-123〕"), "出處編號格式不對：〔f-123〕（要寫成〔f-xxxxxxxx〕這樣）"),
+            (("信義王", "2026-10-25 開會〔f-00000000〕"), "〔f-00000000〕不是信義王的依據（掛的檔案卡、口述、裁示、推算）"),
+        ]
+        for args, want in cases:
+            with self.subTest(want=want):
+                self.assertEqual(self.kb("log", *args, code=3)[0], want)
+                self.assertEqual(self.p.read_text(encoding="utf-8"), before)
+
+    def test_marks_and_line_breaks_refused(self):
+        """裁定 14、15：夾帶 <!-- 或 willy: 記號、換行類字元的條拒收，檔案不變。"""
+        from kb._lib import synthesis
+        before = self.p.read_text(encoding="utf-8")
+        f = self.fid
+        for bad in (f"2026-10-30 備註 {synthesis.FILE_BEGIN} x〔{f}〕", f"2026-10-30 備註 <!-- 註解 --> x〔{f}〕",
+                    f"2026-10-30 willy:檔 x〔{f}〕"):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.kb("log", "信義王", bad, code=3)[0], synthesis.EVENT_MARK.format(bad))
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-30 甲 ## 現況 假的〔{f}〕", code=3)[0],
+                         synthesis.EVENT_BREAK.format(f"2026-10-30 甲↵## 現況 假的〔{f}〕"))  # 拒絕句把換行印成 ↵
+        self.assertEqual(self.p.read_text(encoding="utf-8"), before)
+        for ch in ("\r", "\n", "\u2028", "\u2029", "\u0085", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e"):  # 同 ledger 的換行類
+            with self.subTest(ch=repr(ch)), self.assertRaises(entities.EntityRefused) as cm:
+                synthesis.parse_event(f"2026-10-30 甲{ch}乙〔{f}〕", {f}, "信義王")
+            self.assertTrue(str(cm.exception).startswith("一條不能換行"))
+
+    def test_synced_keeps_crlf(self):
+        """裁定 16：entity log --synced 寫回保留原檔的 CRLF。"""
+        self.p.write_bytes(self.p.read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", "--synced")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertIn("整理到:\r\n", raw)
+        self.assertIn(f"## 紀事\r\n- 2026-10-25 開會〔{self.fid}〕\r\n", raw)
+        self.assertNotIn("\n", raw.replace("\r\n", ""))
+
+    def test_synced_mixed_eol_not_converted(self):
+        """review：只有幾行是 CRLF（其餘 LF）時不把整檔轉成 CRLF。"""
+        head, rest = self.p.read_text(encoding="utf-8").split("\n", 1)
+        self.p.write_bytes((head + "\r\n" + rest).encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", "--synced")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertLessEqual(raw.count("\r\n"), 1)
+        self.assertIn(f"## 紀事\n- 2026-10-25 開會〔{self.fid}〕\n", raw)
+
+    def test_pending_hand_edit_kept_and_program_line_not_hers(self):
+        """review 1：她有沒處理的手改時，那段留成待處理，程式加的紀事不算進她改的。"""
+        from kb._lib import card_base
+        card_base.record(self.V, self.CARD)
+        self.p.write_text(self.p.read_text(encoding="utf-8").replace("- 還沒有掛上的檔案卡\n", "- 還沒有掛上的檔案卡\n- 她加的一句\n"),
+                          encoding="utf-8", newline="\n")
+        self.new_turn()
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕")
+        (got,) = card_base.edits(self.V)["edits"]
+        text = "\n".join(h["after"] for h in got["hunks"])
+        self.assertIn("她加的一句", text)
+        self.assertNotIn("開會", text)
+
+    def test_odd_line_breaks_and_crlf_kept(self):
+        """review 3：只認 \\n 換行：U+2028、換頁字元不被拆開；CRLF 照留。"""
+        from kb._lib import synthesis
+        text = self.p.read_text(encoding="utf-8").replace("- 還沒有掛上的檔案卡", "- 還沒有 掛上\x0c的檔案卡")
+        self.p.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+        self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕")
+        raw = self.p.read_bytes().decode("utf-8")
+        self.assertIn("- 還沒有 掛上\x0c的檔案卡\r\n", raw)
+        self.assertIn(f"## 紀事\r\n- 2026-10-25 開會〔{self.fid}〕\r\n- 2026-10-20 登記這個案子\r\n", raw)
+        self.assertNotIn("\n", raw.replace("\r\n", ""))
+        lines = raw.split("\n")
+        for a, n in synthesis.read_ranges(raw):
+            self.assertFalse([l for l in lines[a - 1:a - 1 + n] if "紀事" in l or "開會" in l])
+
+    def test_inline_cite_checked_and_dedupe_ignores_spacing(self):
+        """review 4、5：行中間的〔出處〕也驗；舊行〔前多空白、行尾空白也算已經有了。"""
+        f = self.fid
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 依〔f-deadbeef〕報價〔{f}〕", code=3)[0],
+                         "〔f-deadbeef〕不是信義王的依據（掛的檔案卡、口述、裁示、推算）")
+        text = self.p.read_text(encoding="utf-8")
+        self.p.write_text(text.replace("- 2026-10-20 登記這個案子", f"- 2026-10-21 收訂 〔{f}〕  "), encoding="utf-8", newline="\n")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-21 收訂〔{f}〕"), ["信義王的紀事加了 0 行", f"已經有了：2026-10-21 收訂〔{f}〕"])
+
+    def test_refuses_broken_card(self):
+        """D-521 裁定 3：綜合卡有整理到以外的錯也拒絕、不寫檔。"""
+        self.p.write_text(self.p.read_text(encoding="utf-8").replace("範本版本: 1", "範本版本: 9"), encoding="utf-8", newline="\n")
+        before = self.p.read_text(encoding="utf-8")
+        self.assertEqual(self.kb("log", "信義王", f"2026-10-25 開會〔{self.fid}〕", code=3)[0], "信義王的綜合卡有錯：範本版本該是 2")
+        self.assertEqual(self.p.read_text(encoding="utf-8"), before)
+
 
 class Rename(Base):
     def test_moves_folder_card_and_client_file(self):

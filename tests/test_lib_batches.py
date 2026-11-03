@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tests._guard_fixture import ROOT  # noqa: F401  （把 scripts/ 放進 sys.path）
 from kb._lib import batches, turn  # noqa: E402
+from kb._lib.paths import plugin_root  # noqa: E402
 
 SID = "sid-1"
 
@@ -541,5 +542,49 @@ class NameQuestion(unittest.TestCase):
                          "我要幫「王宅」（案子，掛了 3 份檔）整理一頁現況：名字這樣叫對嗎？它跟其他案子是同一件嗎？")
 
 
+class ReadLists(unittest.TestCase):
+    """D-521 驗收 4：批次的 read 是每種批次整份要讀的檔（絕對路徑）；綜合卡批次有 broken 才多 synthesis-broken.md。"""
+    REF = "skills/ingest/references/"
+
+    def names(self, kind, buckets=()):
+        root = plugin_root().as_posix() + "/"
+        got = batches.read_list(kind, buckets)
+        self.assertTrue(all(isinstance(p, str) and p.startswith(root) and Path(p).is_file() for p in got), got)
+        return [p[len(root):] for p in got]
+
+    def test_each_kind(self):
+        self.assertEqual(self.names("synthesis", ["synthesis_new", "synthesis_stale"]),
+                         ["rules/synthesis.md", self.REF + "batch.md", self.REF + "synthesis-batch.md"])
+        self.assertEqual(self.names("synthesis", ["synthesis_stale", "synthesis_broken"]),
+                         ["rules/synthesis.md", self.REF + "batch.md", self.REF + "synthesis-batch.md",
+                          self.REF + "synthesis-broken.md"])
+        self.assertEqual(self.names("cards", ["new"]), [self.REF + "batch.md", self.REF + "carding.md", self.REF + "agenda-scan.md"])
+        self.assertEqual(self.names("agenda", ["agenda_unscanned"]), [self.REF + "batch.md", self.REF + "agenda-scan.md"])
+        self.assertEqual(self.names("adopt"), [self.REF + "batch.md", self.REF + "adopt.md"])
+
+    def test_synthesis_budget(self):
+        """D-520 是 8,900 字；拆模組後綜合卡批次（沒有 broken）三份合計 ≤ 7,200（D-521 裁定 22）
+        （D-521 裁定 1、6）。"""
+        total = sum(len(Path(p).read_text(encoding="utf-8")) for p in batches.read_list("synthesis", ["synthesis_stale"]))
+        self.assertLessEqual(total, 7200)  # 裁定 22
+
+    def test_read_text_lists_names(self):
+        self.assertEqual(batches.read_text(batches.read_list("agenda")), "batch.md、agenda-scan.md")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class OnlyIds(unittest.TestCase):
+    def test_keeps_cards_and_their_agenda_recheck(self):
+        """製作中裁定 17：--ids 派那幾份做卡，加那幾份卡的日程重對（agenda_recheck）；別張的重對、抽日程、綜合卡、主對話的不派。"""
+        parts = {"cards": [("new", "f-00000001", {"id": "f-00000001"}), ("stale", "f-00000002", {"id": "f-00000002"})],
+                 "agenda": [("agenda_recheck", "a-00000001", {"card": "f-00000001"}),
+                            ("agenda_recheck", "a-00000002", {"card": "f-00000009"}),
+                            ("agenda_unscanned", "f-00000003", {"id": "f-00000003"})],
+                 "synthesis": [("synthesis_stale", "e-00000001", {})], "main": [("new", "f-00000004", {})]}
+        got = batches._only_ids(parts, ["f-00000001"])
+        self.assertEqual([k for _b, k, _i in got["cards"]], ["f-00000001"])
+        self.assertEqual([k for _b, k, _i in got["agenda"]], ["a-00000001"])
+        self.assertEqual((got["synthesis"], got["main"]), ([], []))

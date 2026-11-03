@@ -21,8 +21,8 @@ class Base(unittest.TestCase):
     def kb(self, *args):
         return run_kb(*args, cwd=self.V)
 
-    def todo(self):
-        r = self.kb("cards", "todo", "--json")
+    def todo(self, *more):
+        r = self.kb("cards", "todo", "--json", *more)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return json.loads(r.stdout)
 
@@ -534,7 +534,7 @@ class TodoProfile(Base):
 
     def test_profile_block(self):
         from kb._lib import profile
-        data = self.todo()
+        data = self.todo("--full")
         self.assertEqual(data["profile"], profile.card_types_for_todo(profile.load(self.V)))
         self.assertFalse(data["profile_missing"])
         self.assertEqual(data["skipped"]["skipped"], 0)
@@ -542,7 +542,7 @@ class TodoProfile(Base):
     def test_broken_profile_uses_defaults(self):
         from kb._lib import profile
         (self.V / ".system" / "profile.json").write_text("{bad", encoding="utf-8")
-        data = self.todo()
+        data = self.todo("--full")
         self.assertEqual(data["profile"], profile.card_types_for_todo(profile.defaults()))
         self.assertTrue(data["profile_missing"])
         r = self.kb("cards", "todo")
@@ -718,7 +718,7 @@ class RedoMount(unittest.TestCase):
         (item,) = self.todo()["synthesis_stale"]
         self.assertEqual(item["name"], "大安陳")
         self.assertEqual([(x["id"], x.get("reason")) for x in item["changed"]], [(self.fid, "客戶說卡讀錯了")])
-        card.write_text(self.E.synthesis_text(item["header"], "大安陳"), encoding="utf-8")
+        card.write_text(self.E.synthesis_text(self.E.stale_header(self.V, item), "大安陳"), encoding="utf-8")
         self.assertEqual(self.todo()["synthesis_stale"], [])
 
     def test_redo_json_synthesis_and_revert_restores_it(self):

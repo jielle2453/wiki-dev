@@ -17,7 +17,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = E.make_entity_vault(with_entities=True)
         self.title = "大安陳會議一"
-        (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 100, "recard_idle_minutes": 0}), encoding="utf-8")
+        (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 100}), encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

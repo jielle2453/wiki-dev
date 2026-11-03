@@ -3,6 +3,7 @@ compact 才有摺疊那行、不在知識庫或壞 JSON 無輸出 exit 0、stdou
 清冊題：變動行三種（無、有數字、incomplete）、找不到來源第一次印第二次不印、清冊壞掉其他行照印且 log 一行。"""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -169,8 +170,12 @@ class SessionHook(unittest.TestCase):
 
 KB = ROOT / "scripts" / "kb.py"
 CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
-CHANGES = ("有變動（新增 {}、修改 {}、不見 {}）：照 ingest 整理，要做卡的不超過 20 份就在背景做、"
-           "不跟客戶報數字；超過先問一句要不要全部做（額度）。")
+WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
+MISSING = "有 {} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
+MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
+      "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # 裁定 15
+DRIFT = "實體夾有變 {}：跑 kb cards todo --json，只照 asks 問實體夾那題，不做卡。"  # D-525 裁定 1
+CHANGE_HEAD = re.compile(r"^(有 \d+ 份|實體夾有變 |變動還沒比完)")
 SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
 
@@ -218,7 +223,7 @@ class OpeningBigOoxml(unittest.TestCase):
         lines = turn_lines(self.V)  # 變動比對挪到每句開頭（放寬丙 3b）
         elapsed = time.monotonic() - start
         self.assertLess(elapsed, 10.0, f"每句開頭花了 {elapsed:.1f} 秒")
-        self.assertTrue(set(lines) & {CHANGES_INCOMPLETE, CHANGES.format(0, 1, 0)}, lines)
+        self.assertTrue(set(lines) & {CHANGES_INCOMPLETE, WIP.format(1)}, lines)
         r = run(payload(self.V))  # 開場本身不比對、不印變動
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertTrue(ctx.endswith(CORE.read_text(encoding="utf-8")))
@@ -248,7 +253,7 @@ class OpeningInventory(unittest.TestCase):
         return lines[:-1] + more + lines[-1:] if lines[-1] == COMPACT_LINE else lines + more
 
     def change_lines(self, lines):
-        return [ln for ln in lines if ln.startswith(("變動：", "有變動（", "變動還沒比完"))]
+        return [ln for ln in lines if CHANGE_HEAD.match(ln)]
 
     def test_no_change_no_line(self):
         self.assertEqual(self.change_lines(self.status()), [])
@@ -257,7 +262,7 @@ class OpeningInventory(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣\n", encoding="utf-8")
         (self.raw / "行政" / "請款" / "r.docx").unlink()
-        self.assertEqual(self.change_lines(self.status()), [CHANGES.format(1, 1, 1)])
+        self.assertEqual(self.change_lines(self.status()), [WIP.format(2), MISSING.format(1)])
 
     def test_moves_and_duplicates_are_not_counted(self):
         shutil.copy2(self.raw / "客戶案件" / "a.txt", self.raw / "客戶案件" / "a 副本.txt")
@@ -268,8 +273,8 @@ class OpeningInventory(unittest.TestCase):
         """審閱裁定 10：沒有清冊等於全部新增。"""
         (self.V / ".system" / "inventory.json").unlink()
         lines = self.change_lines(self.status())
-        self.assertEqual(len(lines), 1)
-        self.assertRegex(lines[0], r"^有變動（新增 [1-9]\d*、修改 0、不見 0）：")
+        self.assertRegex(lines[0], r"^有 [1-9]\d* 份新放或改過（製作中）：")
+        self.assertTrue(all(ln.startswith("有 ") and "不見" not in ln for ln in lines), lines)
 
     def test_incomplete_line(self):
         # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
@@ -341,13 +346,9 @@ class OpeningInventory(unittest.TestCase):
                          {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
-INGEST_HINT = ("有變動：先照 ingest skill 整理（開始前照 announce 說一句），整理完再完整回答客戶；"
-               "超過 {n} 份先在回答最後問一句要不要全部整理，理由講額度、不講內部名詞。")  # D-156、note 改規則實作中裁定 1
-UNSORTED_HINT = INGEST_HINT[len("有變動："):]  # answer 裁定 14：「還有 N 份沒整理完」後面那句不寫「有變動：」
-
-
-class OpeningIngestHint(unittest.TestCase):
-    """ingest 製卡第 7 點、驗收 15：變動行印出來時緊接著一行指示；沒變動不印；n 讀 ingest_auto_max；整段守 8 行 400 字。"""
+class OpeningWip(unittest.TestCase):
+    """D-525 第 1、8 點與裁定 3、驗收 2、6：新放、改過的檔（md 以外）印製作中那行，不叫整理、不帶份數上限；同一份同一個對話只講一次；
+    md 照舊叫整理那幾份（按過停止不印）；不見照舊叫 scan、sync。"""
 
     setUp = OpeningInventory.setUp
     tearDown = OpeningInventory.tearDown
@@ -355,7 +356,7 @@ class OpeningIngestHint(unittest.TestCase):
     change_lines = OpeningInventory.change_lines
 
     def hint_lines(self, lines):
-        return [ln for ln in lines if ln.startswith("有變動：")]
+        return [ln for ln in lines if "照 ingest" in ln or "ingest skill" in ln]
 
     def skip_all(self):
         """清冊每份都記成依設定不整理：沒有還沒整理的（D-161 之前「沒變動」的樣子）。"""
@@ -369,15 +370,15 @@ class OpeningIngestHint(unittest.TestCase):
         self.skip_all()
         lines = self.status()
         self.assertEqual(self.hint_lines(lines), [])
-        self.assertEqual([ln for ln in lines if ln.startswith("還有 ")], [])
+        self.assertEqual([ln for ln in lines if ln.startswith(("還有 ", "製作中 "))], [])
 
     def test_unsorted_without_change_prints_nothing(self):
-        """放寬丙 3（D-310(2)）：沒有新變動、清冊還有沒做成卡的 → 不再報「還有 N 份沒整理完」，也沒有整理指示。"""
+        """放寬丙 3（D-310(2)）：沒有新變動、清冊還有沒做成卡的 → 不報「還有 N 份沒整理完」，也沒有整理指示。"""
         sys.path.insert(0, str(ROOT / "scripts"))
         from kb._lib import cards
         self.assertGreater(cards.unsorted(self.V), 0)
         lines = self.status()
-        self.assertEqual([ln for ln in lines if "沒整理" in ln or "要跟著搬" in ln or "要改寫" in ln], [])
+        self.assertEqual([ln for ln in lines if "沒整理完" in ln or "要跟著搬" in ln or "要改寫" in ln], [])
         self.assertEqual(self.hint_lines(lines), [])
         self.assertEqual(self.change_lines(lines), [])
 
@@ -401,12 +402,13 @@ class OpeningIngestHint(unittest.TestCase):
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(log), 1, log)
 
-    def test_stopped_session_gets_no_hint(self):
-        """answer 測試後修正裁定 14（F-2）：同一個 session 按過停止，照 D-156 不再叫 AI 整理（變動行還是印）。"""
+    def test_stopped_session_gets_no_md_hint(self):
+        """answer 測試後修正裁定 14（F-2）：按過停止，md 不再叫整理；製作中那行不是整理指示，照印。"""
         (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記" + chr(10), encoding="utf-8")
         self.stop_session()
         lines = turn_lines(self.V, "abc")
-        self.assertIn(CHANGES.format(1, 0, 0), lines)
+        self.assertIn(WIP.format(1), lines)
         self.assertEqual(self.hint_lines(lines), [])
 
     def test_over_time_budget_prints_no_change_lines(self):
@@ -420,38 +422,147 @@ class OpeningIngestHint(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
         self.assertEqual(mod.turn_lines(self.V, "s-late"), [])
 
-    def test_hint_right_after_change_line(self):
+    def test_wip_line_does_not_ask_to_sort(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
         lines = self.status()
-        i = lines.index(CHANGES.format(1, 0, 0))
-        self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
-        self.assertEqual(len(self.hint_lines(lines)), 1)
+        self.assertIn(WIP.format(1), lines)
+        self.assertEqual(self.hint_lines(lines), [])
+        self.assertFalse([ln for ln in lines if "20 份" in ln], lines)  # 不帶份數上限
         self.assertLessEqual(len(lines), 8)
 
-    def test_same_change_is_told_once_per_conversation(self):
+    def test_same_file_is_told_once_per_conversation(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
-        self.assertIn(CHANGES.format(1, 0, 0), turn_lines(self.V, "same"))
-        self.assertEqual(turn_lines(self.V, "same"), [])  # 同一件同一個對話講過就不再印
+        self.assertIn(WIP.format(1), turn_lines(self.V, "same"))
+        self.assertEqual(turn_lines(self.V, "same"), [])  # 同一份同一個對話講過就不再印
         (self.raw / "客戶案件" / "新2.txt").write_text("新二" + chr(10), encoding="utf-8")
-        self.assertIn(CHANGES.format(2, 0, 0), turn_lines(self.V, "same"))
+        self.assertIn(WIP.format(1), turn_lines(self.V, "same"))  # 只數沒講過的那份
 
-    def test_hint_after_incomplete_line(self):
+    def test_many_files_told_once(self):
+        """一次放的份數比 told 留的條數（30）多，下一句也不再講（told_files）。"""
+        for i in range(40):
+            (self.raw / "客戶案件" / f"批{i}.txt").write_text(f"{i}" + chr(10), encoding="utf-8")
+        self.assertIn(WIP.format(40), turn_lines(self.V, "many"))
+        self.assertEqual(turn_lines(self.V, "many"), [])
+
+    def test_changed_again_told_again(self):
+        """裁定 18：同一份同一個內容一個對話只講一次，又改了再講；製作中、md 都一樣。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記\n", encoding="utf-8")
+        first = turn_lines(self.V, "again")
+        self.assertIn(WIP.format(1), first)
+        self.assertIn(MD.format(1, "筆記.md"), first)
+        self.assertEqual(turn_lines(self.V, "again"), [])
+        (self.raw / "客戶案件" / "新.txt").write_text("新，又改了\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記\n展示改到 12/8\n", encoding="utf-8")
+        second = turn_lines(self.V, "again")
+        self.assertIn(WIP.format(1), second)
+        self.assertIn(MD.format(1, "筆記.md"), second)
+
+    def told_files(self, sid):
+        return json.loads((self.V / ".system" / "turns" / f"{sid}.json").read_text(encoding="utf-8"))["checks"]["told_files"]
+
+    def test_one_key_per_file(self):
+        """review 第 5 條：又改了記新鍵時，同一份的舊鍵拿掉，不佔 FILES_KEEP。"""
+        p = self.raw / "客戶案件" / "新.txt"
+        for text in ("一", "一二", "一二三"):
+            p.write_text(text + "\n", encoding="utf-8")
+            turn_lines(self.V, "one-key")
+        self.assertEqual(len([k for k in self.told_files("one-key") if k.startswith("wip|") and "新.txt" in k]), 1)
+
+    def test_missing_key_kept_after_scan_applied(self):
+        """review 第 4 條：清冊套用後那份在 still_missing，還是不見，鍵留著（回來了才忘掉）。"""
+        (self.raw / "行政" / "請款" / "r.docx").unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "applied"))
+        r = subprocess.run([sys.executable, str(KB), "inventory", "scan"], capture_output=True, text=True, encoding="utf-8",
+                           cwd=str(self.V), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        turn_lines(self.V, "applied")
+        self.assertTrue([k for k in self.told_files("applied") if k.startswith("missing|") and k.endswith("r.docx")])
+
+    def test_missing_again_told_again(self):
+        """裁定 18：不見講過、回來了、又不見，再講一次。"""
+        p = self.raw / "行政" / "請款" / "r.docx"
+        body = p.read_bytes()
+        p.unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+        p.write_bytes(body)
+        self.assertNotIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+        p.unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+
+    def test_missing_told_once(self):
+        (self.raw / "行政" / "請款" / "r.docx").unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "gone"))
+        self.assertEqual(turn_lines(self.V, "gone"), [])
+
+    def test_md_line_names_only_md(self):
+        """第 8 點、裁定 3：md 照舊叫整理那幾份（列檔名），同一回合的其他檔走製作中、不一起整理。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記" + chr(10), encoding="utf-8")
+        lines = turn_lines(self.V, "md")
+        self.assertIn(MD.format(1, "筆記.md"), lines)
+        self.assertIn(WIP.format(1), lines)
+        self.assertEqual(turn_lines(self.V, "md"), [])
+
+    def test_md_names_shown_three(self):
+        for i in range(4):
+            (self.raw / "客戶案件" / f"n{i}.md").write_text(f"# {i}" + chr(10), encoding="utf-8")
+        (line,) = [ln for ln in self.status() if " md 新放或改過" in ln]
+        self.assertRegex(line, r"^有 4 份 md 新放或改過（n\d\.md、n\d\.md、n\d\.md等）：")
+
+    def test_pointer_archived_skipped_not_wip(self):
+        """裁定 8：指路卡、清冊封存、照設定不整理的檔改了，每句開頭不算製作中（跟 kb cards wip 同一套）。"""
+        p = self.V / ".system" / "inventory.json"
+        base = p.read_text(encoding="utf-8")
+        for field, value in (("card_mode", "pointer"), ("archived", True), ("skip_kind", "請款")):
+            with self.subTest(field=field):
+                data = json.loads(base)
+                (entry,) = [e for e in data["entries"] if any(loc["uri"].endswith("/a.txt") for loc in e["locations"])]
+                entry[field] = value
+                p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                (self.raw / "客戶案件" / "a.txt").write_text(f"改過 {field}\n", encoding="utf-8")
+                self.assertEqual([ln for ln in turn_lines(self.V, f"filter-{field}") if CHANGE_HEAD.match(ln)], [])
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")  # 新放的（清冊沒有）照算
+        self.assertIn(WIP.format(1), turn_lines(self.V, "filter-new"))
+
+    def test_incomplete_line_no_hint(self):
         # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
         (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")
         (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣" + chr(10), encoding="utf-8")
         lines = self.status()
-        self.assertEqual(lines[lines.index(CHANGES_INCOMPLETE) + 1], INGEST_HINT.format(n=20))
+        self.assertIn(CHANGES_INCOMPLETE, lines)
+        self.assertEqual(self.hint_lines(lines), [])
 
-    def test_hint_reads_ingest_auto_max(self):
-        (self.V / ".system" / "config.json").write_text(json.dumps({"ingest_auto_max": 3}), encoding="utf-8")
-        (self.raw / "客戶案件" / "新.txt").write_text("新" + chr(10), encoding="utf-8")
-        lines = self.status()
-        self.assertEqual(self.hint_lines(lines), [INGEST_HINT.format(n=3)])
-        self.assertIn(CHANGES.replace("20", "3").format(1, 0, 0), lines)
+
+class DailyWip(unittest.TestCase):
+    """D-525 第 5 點、驗收 5：每天第一句有製作中才多一行（最多 3 個檔名），沒有不印。"""
+
+    setUp = OpeningInventory.setUp
+    tearDown = OpeningInventory.tearDown
+
+    def daily(self):
+        return [ln for ln in turn_lines(self.V) if ln.startswith("製作中 ")]
+
+    def test_line_when_wip_then_not_again_today(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from kb._lib import cards
+        from tests import _cards
+        for i in range(3):
+            (self.raw / "客戶案件" / f"加{i}.txt").write_text(f"{i}" + chr(10), encoding="utf-8")
+        _cards.scan_apply(self.V)
+        n = len(cards.wip(self.V))
+        self.assertGreater(n, 3)
+        (line,) = self.daily()
+        self.assertRegex(line, rf"^製作中 {n} 份：[^、]+、[^、]+、[^、]+…；跟客戶說一句還有這幾份沒整理、要整理說一聲，不問、不追。$")
+        self.assertEqual(self.daily(), [])  # 每天第一句才印
+
+    def test_no_wip_no_line(self):
+        OpeningWip.skip_all(self)
+        self.assertEqual(self.daily(), [])
 
 
 class OpeningEntityDrift(unittest.TestCase):
-    """實體與綜合卡第 7 點、驗收 13：實體夾有變接在變動行後、或自成一行，下一行是有變動指示；實體清單壞了變動行照印、log 一行；
+    """實體與綜合卡第 7 點、驗收 13：實體夾有變自成一行、只叫問 asks 那題（D-525 裁定 1）；實體清單壞了變動行照印、log 一行；
     只寫 env.json。fixture 的 案子/信義王/信義王.md 換成 tests/fixtures/entities 的綜合卡，信義王 card true。"""
 
     setUp_inventory = OpeningInventory.setUp
@@ -478,8 +589,8 @@ class OpeningEntityDrift(unittest.TestCase):
         (self.V / "案子" / "信義王").rename(self.V / "案子" / "王宅")
         before = self.stamps()
         lines = self.status()
-        i = lines.index("變動：實體夾有變 1")
-        self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
+        self.assertIn(DRIFT.format(1), lines)
+        self.assertFalse([ln for ln in lines if "照 ingest" in ln], lines)
         after = self.stamps()
         self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
@@ -487,13 +598,13 @@ class OpeningEntityDrift(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         shutil.rmtree(self.V / "案子" / "大安陳")
         lines = self.status()
-        i = lines.index(CHANGES.format(1, 0, 0) + "、實體夾有變 1")
-        self.assertEqual(lines[i + 1], INGEST_HINT.format(n=20))
+        self.assertIn(WIP.format(1), lines)
+        self.assertIn(DRIFT.format(1), lines)
 
     def test_broken_entities_change_line_still_printed(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         (self.V / ".system" / "entities.json").write_text("{bad", encoding="utf-8")
-        self.assertEqual(self.change_lines(self.status()), [CHANGES.format(1, 0, 0)])
+        self.assertEqual(self.change_lines(self.status()), [WIP.format(1)])
         # 放寬丙 6-3：實體清單壞了，沒有備份就從綜合卡檔頭重建，壞的留在 .system/broken/，不再只寫 log
         (kept,) = list((self.V / ".system" / "broken").iterdir())
         self.assertEqual(kept.read_text(encoding="utf-8"), "{bad")
@@ -833,22 +944,19 @@ class OpeningMoved(unittest.TestCase):
         self.assertNotIn(self.MOVED, lines)
         self.assertNotIn(self.NEW, lines)
 
-    def test_moved_line_before_changes_line_and_no_ingest_hint(self):
+    def test_moved_line_and_no_change_lines(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         self.put_env({self.me(): {"vault_path": "D:/lin/桌面/知識庫"}})
         before = (self.V / ".system" / "env.json").read_bytes()
         lines = self.status()
         self.assertIn(self.MOVED, lines)
-        changes = [i for i, ln in enumerate(lines) if ln.startswith(("變動：", "有變動（"))]
-        self.assertTrue(changes)
-        self.assertLess(lines.index(self.MOVED), changes[0])
-        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
+        self.assertFalse([ln for ln in lines if CHANGE_HEAD.match(ln)], lines)  # 先補位置：變動行讓位（D-525 起沒有另一行數字）
         env_after = json.loads((self.V / ".system" / "env.json").read_text(encoding="utf-8"))
         self.assertEqual(env_after["machines"][self.me()]["vault_path"], "D:/lin/桌面/知識庫", "只讀，不寫 vault_path")
 
-    def test_without_moved_the_ingest_hint_is_still_there(self):
+    def test_without_moved_the_wip_line_is_there(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
-        self.assertTrue([ln for ln in self.status() if ln.startswith("有變動：")])
+        self.assertIn(WIP.format(1), self.status())
 
     def test_new_machine_line(self):
         self.put_env({"OTHER-PC": {"vault_path": "D:/lin/知識庫"}})
@@ -913,22 +1021,18 @@ class OpeningUpgrade(unittest.TestCase):
         lines = self.status()
         want = f"已換到 {self.plugin()}：先跑 kb upgrade --finish 再做別的。"
         self.assertEqual(lines[1], want)
-        changes = [i for i, ln in enumerate(lines) if ln.startswith(("變動：", "有變動（"))]
-        self.assertTrue(changes)
-        self.assertLess(1, changes[0])
 
-    def test_changed_version_hides_the_ingest_hint_but_not_the_changes_line(self):
-        """有 --finish 要做時整理指示不印，免得轉格式前就開始整理。"""
+    def test_changed_version_hides_the_change_lines(self):
+        """有 --finish 要做時變動行不印（D-525：製作中、md 那行都叫跑 scan），免得轉格式前就記清冊、整理。"""
         self.put_history("0.1.0")
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         lines = self.status()
-        self.assertTrue([ln for ln in lines if ln.startswith(("變動：", "有變動（"))])
-        self.assertFalse([ln for ln in lines if ln.startswith("有變動：")], lines)
+        self.assertFalse([ln for ln in lines if CHANGE_HEAD.match(ln)], lines)
 
-    def test_same_version_keeps_the_ingest_hint(self):
+    def test_same_version_keeps_the_wip_line(self):
         self.put_history(self.plugin())
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
-        self.assertTrue([ln for ln in self.status() if ln.startswith("有變動：")])
+        self.assertIn(WIP.format(1), self.status())
 
     def test_new_version_line_for_a_big_upgrade(self):
         self.put_history(self.plugin())
@@ -963,7 +1067,7 @@ class OpeningUpgrade(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
         lines = self.status()
         self.assertEqual(self.version_lines(lines), [])
-        self.assertTrue([ln for ln in lines if ln.startswith("有變動：")], "壞檔不影響整理指示")
+        self.assertIn(WIP.format(1), lines, "壞檔不影響變動行")
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertEqual(log.count("upgrade-history.json"), 2)  # 開場一次、第一句開頭一次（各自的行程只記一行）
         self.assertEqual((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"), "{壞")
@@ -1162,8 +1266,8 @@ class LintFixCounted(unittest.TestCase):
         for cache in (checks._DRIFT, checks._SCAN):
             cache.clear()
         with mock.patch.object(checks, "file_compare", return_value=(None, report)),                 mock.patch.object(checks, "drift_count", return_value=0):
-            self.assertIsNone(checks.line_changes(self.V))
-            self.assertIsNone(checks.line_ingest_hint(self.V))
+            self.assertEqual(checks.change_lines(self.V), ([], []))
+            self.assertIsNone(checks.line_drift(self.V))
 
     def test_cards_unsorted_counts_files_only(self):
         from tests import _lint as L

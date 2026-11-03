@@ -57,6 +57,7 @@ def add_arguments(sub):
     subs = sub.add_subparsers(dest="cards_command", metavar="<子子命令>", required=True)
     td = subs.add_parser("todo", help="列出該做的卡", description="列出還沒有卡、該重做、該搬的卡；不寫檔。")
     td.add_argument("--limit", type=_limit, help="人讀輸出最多列幾份，預設 ingest_auto_max")
+    td.add_argument("--full", action="store_true", help="--json 給整份（預設 moved 只給前 10 筆、profile 只給 about）")
     sy = subs.add_parser("sync", help="原檔搬了，卡跟著搬", description="把 todo 裡 moved 的卡搬到原檔現在的位置。")
     dr = subs.add_parser("drop", help="拿掉原檔已刪的卡", description="原檔不見、客戶說刪了，拿掉它的卡。")
     dr.add_argument("id", help="清冊編號（f-…）")
@@ -87,6 +88,7 @@ def add_arguments(sub):
     bt.add_argument("batch", help="批次編號（b-…）")
     st = subs.add_parser("status", help="背景整理到哪了（只讀）", description="還在跑幾批、這次做好幾份、還剩幾份。")
     sp = subs.add_parser("stop", help="停背景整理", description="放掉這個對話的批次；回要停的子代理。")
+    wp = subs.add_parser("wip", help="製作中的檔（只讀）", description="新放、改過、她還沒說整理的檔（md 以外）與算在哪個實體下（D-525）。")
     mo = subs.add_parser("mode", help="這份檔記成完整卡或指路卡", description="會一直改的檔：記成指路卡（pointer）或完整卡（full）；只記清冊，判斷交 AI。")
     mo.add_argument("id", help="清冊編號（f-…）")
     mo.add_argument("state", choices=["full", "pointer"], help="full 完整卡、pointer 指路卡")
@@ -96,7 +98,7 @@ def add_arguments(sub):
     ur = subs.add_parser("unreadable", help="線上文件讀不到，記進待處理", description="只收線上文件（link 條目）。")
     ur.add_argument("id", help="清冊編號（out-… 或 f-…）")
     ur.add_argument("--reason", required=True, help="讀不到的原因，例：線上文件打不開")
-    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, mo, sn, ur):
+    for p in (td, sy, dr, ix, sk, rd, mt, ed, ls, dp, bt, st, sp, wp, mo, sn, ur):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -164,6 +166,31 @@ def _entity_parts(data):
     return parts
 
 
+def _wip(vault, as_json):
+    rows = cards.wip(vault)
+    if as_json:
+        print(json.dumps(rows, ensure_ascii=False))
+        return 0
+    print(f"製作中 {len(rows)} 份" + ("：" if rows else ""))
+    for r in rows:
+        print(f"- {cards.wip_label(r)}" + (f"（{'、'.join(r['entities'])}）" if r["entities"] else ""))
+    return 0
+
+
+MOVED_SHOWN = 10
+
+
+def _brief(data):
+    """todo --json 預設給主對話的精簡版（輕流程 todo 精簡）：搬動由 cards sync 做、主對話只要筆數，moved 超過 10 筆只留前 10 筆
+    加 moved_total；profile 只留 about（S-03 認客戶自己），給製卡者的整份在 cards batch 裡照舊。"""
+    out = dict(data)
+    if len(data.get("moved") or []) > MOVED_SHOWN:
+        out["moved"], out["moved_total"] = data["moved"][:MOVED_SHOWN], len(data["moved"])
+    if isinstance(data.get("profile"), dict):
+        out["profile"] = {"about": data["profile"].get("about") or []}
+    return out
+
+
 def _todo(vault, args, as_json):
     data = cards.todo(vault, sources_lib.load(vault))
     try:  # 回合狀態：記了才認得出「整理中被按停止」（D-156）；記不到不擋 todo
@@ -171,7 +198,7 @@ def _todo(vault, args, as_json):
     except OSError:
         pass
     if as_json:
-        print(json.dumps(data, ensure_ascii=False))
+        print(json.dumps(data if args.full else _brief(data), ensure_ascii=False))
         return 0
     limit = args.limit if args.limit is not None else config.get(vault, "ingest_auto_max")
     print("\n".join(_todo_lines(vault, data, limit)))
@@ -640,7 +667,7 @@ def _batch(vault, batch_id, agent, as_json):
     if as_json:
         print(json.dumps(got, ensure_ascii=False))
     else:
-        print(f"批次 {batch_id}：{batches.KIND_TEXT[got['kind']]} {len(got['items'])} 項；先讀 " + "、".join(got["read"]))
+        print(f"批次 {batch_id}：{batches.KIND_TEXT[got['kind']]} {len(got['items'])} 項；先讀 " + batches.read_text(got["read"]))
     return 0
 
 
@@ -717,6 +744,8 @@ def run(args):
             return _todo(vault, args, as_json)
         if command == "list":
             return _list(vault, args, as_json)
+        if command == "wip":
+            return _wip(vault, as_json)
         if command == "edits":
             return _edits(vault, args, as_json)
         if command == "dispatch":

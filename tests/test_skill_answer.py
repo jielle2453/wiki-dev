@@ -80,7 +80,9 @@ class Body(unittest.TestCase):
         for want in ("note", "ingest", "manage", "produce"):
             with self.subTest(hand_off=want):
                 self.assertIn(want, part)
-        self.assertIn("開場有新檔", part, "裁定 18：收例句 13")
+        self.assertIn("in_progress", part, "D-525：製作中的檔讀原檔答")
+        self.assertIn("還沒整理，照原檔", part)
+        self.assertNotIn("開場有新檔", part, "D-525：不再開場先整理")
 
     def test_principles_have_reasons_and_codes(self):
         part = self.section("## 原則", "## 骨架")
@@ -267,6 +269,18 @@ class Evals(unittest.TestCase):
         for want in ("現在", "多少", "在哪", "幾次", "這週", "改了什麼", "要我確認", "結案了嗎"):
             with self.subTest(want=want):
                 self.assertIn(want, positives)
+
+
+
+class ReadRanges(unittest.TestCase):
+    """D-522：綜合卡照 read_ranges 讀、紀事要用才 Grep（學舊 llm-wiki 的 log）。"""
+
+    def test_find_and_skill_say_so(self):
+        find = REFS["find.md"].read_text(encoding="utf-8")
+        self.assertIn("`read_ranges`", find)
+        self.assertIn("檔頭與紀事不讀", find)
+        self.assertIn("才用 Grep 在那張卡撈紀事", find)
+        self.assertIn("取 `read_ranges`，照第一節的讀法讀、紀事不讀", find)  # 第九節照條件找也一樣
 
 
 if __name__ == "__main__":

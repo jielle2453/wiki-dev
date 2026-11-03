@@ -53,10 +53,10 @@ class Add(Base):
         (stale,) = [i for i in self.todo()["synthesis_stale"] if i["name"] == "信義王"]
         self.assertIn({"id": item["id"], "text": item["text"], "date": item["date"], "source": "finding"}, stale["added"])
         self.assertEqual([c["id"] for c in stale["findings"]], [item["id"]])
-        self.assertIn(f"  - {item['id']} -\n", stale["header"])
+        self.assertIn(f"  - {item['id']} -\n", E.stale_header(self.V, stale))
         turn.start(self.V, "test-sid", "整理")
         body = "一句講這是什麼。\n\n## 現況\n- 一點〔f-00000000〕\n\n## 紀事\n- 2026-10-20 登記這個案子\n"  # 紀事只增
-        r = write_via_tools(self.V, self.V / XINYI_REL, E.synthesis_text(stale["header"], "信義王", body))
+        r = write_via_tools(self.V, self.V / XINYI_REL, E.synthesis_text(E.stale_header(self.V, stale), "信義王", body))
         self.assertEqual((r.returncode, r.stdout), (0, ""), r.stdout)
 
     def test_repeated_flags_also_work(self):
@@ -102,7 +102,7 @@ class ReplaceWithdraw(Base):
     def test_todo_removed_and_added_after_replace(self):
         old = self.add()
         (stale,) = [i for i in self.todo()["synthesis_stale"] if i["name"] == "信義王"]
-        (self.V / XINYI_REL).write_text(E.synthesis_text(stale["header"], "信義王"), encoding="utf-8")
+        (self.V / XINYI_REL).write_text(E.synthesis_text(E.stale_header(self.V, stale), "信義王"), encoding="utf-8")
         self.assertEqual(self.todo()["synthesis_stale"], [])
         new = self.add("--replaces", old, text="信義王報價合計 180 萬")
         (stale,) = self.todo()["synthesis_stale"]
