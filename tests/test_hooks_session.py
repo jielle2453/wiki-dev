@@ -174,7 +174,8 @@ WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；
 MISSING = "有 {} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
 MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
       "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # 裁定 15
-DRIFT = "實體夾有變 {}：跑 kb cards todo --json，只照 asks 問實體夾那題，不做卡。"  # D-525 裁定 1
+DRIFT = ("實體夾有變 {}：跑 kb cards todo --json，照 ingest「實體夾有變」那段處理"
+         "（刪了綜合卡照 entity_drift 判斷、做完說一聲），不做卡。")  # D-525 裁定 1；刪綜合卡說一聲 第 2 點
 CHANGE_HEAD = re.compile(r"^(有 \d+ 份|實體夾有變 |變動還沒比完)")
 SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
@@ -590,7 +591,7 @@ class OpeningEntityDrift(unittest.TestCase):
         before = self.stamps()
         lines = self.status()
         self.assertIn(DRIFT.format(1), lines)
-        self.assertFalse([ln for ln in lines if "照 ingest" in ln], lines)
+        self.assertFalse([ln for ln in lines if "照 ingest" in ln and ln != DRIFT.format(1)], lines)  # 實體夾那行本身指到 ingest
         after = self.stamps()
         self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 

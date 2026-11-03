@@ -166,6 +166,21 @@ def open_link(path):
 OPEN_PROTOCOL = "obsidian://wiki-with-willy-open?id="
 
 
+def old_link_same_place(vault, sources, entry, link):
+    """開原檔是舊格式（file:）、指著原檔現在的位置：先不換（刪綜合卡說一聲 裁定 5：1 萬張卡升級後第一句要等約 9 分鐘），
+    卡重做或真的搬了才順便換。只解連結、比字串，不碰磁碟。"""
+    from kb._lib import inventory
+
+    if entry.get("kind") == "link" or not str(link).startswith("file:") or not entry.get("locations"):
+        return False
+    try:
+        old = urllib.request.url2pathname(str(link)[len("file:"):])
+        now = inventory.path_of(vault, sources, entry["locations"][0].get("uri", ""))
+    except (ValueError, OSError):
+        return False
+    return now is not None and os.path.normcase(os.path.normpath(old)) == os.path.normcase(os.path.normpath(str(now)))
+
+
 def entry_link(vault, sources, entry):
     """開原檔（放寬丙 9，D-328）：Obsidian 外掛連結 obsidian://wiki-with-willy-open?id=<清冊編號>，點了由外掛叫 kb 查這台的位置再開，
     所以來源搬家、換電腦卡不用重寫；link 條目是網址本身。連結不帶 vault=（開的是目前這個知識庫；多個知識庫同時開的情形待 Obsidian 實跑確認）。"""
@@ -377,7 +392,7 @@ def problems(vault, rel, front, entries_by_id, sources=None, ent_data=False, pro
     want_intake = intake_text(entry)
     if want_intake is not None and front.get("收件") != want_intake:
         out.append(("intake", INTAKE_WRONG))
-    if front["開原檔"] != entry_link(vault, sources, entry):
+    if front["開原檔"] != entry_link(vault, sources, entry) and not old_link_same_place(vault, sources, entry, front["開原檔"]):
         out.append(("link", "開原檔那行照 kb cards todo 印的抄"))
     folder, _, name = rel.rpartition("/")
     if folder.casefold() != card_dir(entry).casefold():

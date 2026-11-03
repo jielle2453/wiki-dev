@@ -245,6 +245,17 @@ if __name__ == "__main__":
 class Wip(unittest.TestCase):
     """D-525 第 7 點、裁定 3、5：她說整理才用，開場有變動那條拿掉；md 用 --ids 只做卡；commands.md 有 cards wip。"""
 
+    def test_drift_deleted_synthesis_card(self):
+        """刪綜合卡說一聲 第 1 點（D-311(3)）：實體夾有變那段，綜合卡被刪的照 entity_drift 判斷、用現有指令做、最後說一聲。"""
+        body = split(SKILL.read_text(encoding="utf-8"))[1]
+        line = next((l for l in body.splitlines() if "實體夾有變" in l), "")
+        for want in ("carding.md", "entity remove", "說一聲", "asks", "D-311(3)"):
+            self.assertIn(want, line)
+        ref = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        field = next((l for l in ref.splitlines() if l.startswith("- `entity_drift`")), "")
+        for want in ("progress", "last_activity", "deleted_with", "mounts", "similar", "D-311(3)"):
+            self.assertIn(want, field)
+
     def test_triggers(self):
         front, body = split(SKILL.read_text(encoding="utf-8"))
         fields = dict(line.split(":", 1) for line in front)

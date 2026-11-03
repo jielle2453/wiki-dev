@@ -34,8 +34,9 @@ NAMES_SHOWN = 3
 WIP_DAILY = "製作中 {n} 份：{names}；跟客戶說一句還有這幾份沒整理、要整理說一聲，不問、不追。"  # D-525 第 5 點
 CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
 MOVED_HINT = ("有 {n} 件搬動：跑 kb changes --moved --json，照內容判斷要不要改掛（搬到結案夾、桌面、客戶自己的夾就不用動也不用提）；"
-              "先看夾名、檔名一批一起判斷，看不出來的才讀內容，卡跟著走不重做。")  # 放寬丙 5-3，字句照乙
-DRIFT_LINE = "實體夾有變 {n}：跑 kb cards todo --json，只照 asks 問實體夾那題，不做卡。"  # D-525 裁定 1
+              "先看夾名、檔名一批一起判斷，看不出來的才讀內容，卡跟著走不重做；看完 changes --moved 之後要讀搬過的檔，再跑 kb inventory scan。")  # 放寬丙 5-3，字句照乙；刪綜合卡說一聲 裁定 6
+DRIFT_LINE = ("實體夾有變 {n}：跑 kb cards todo --json，照 ingest「實體夾有變」那段處理"
+              "（刪了綜合卡照 entity_drift 判斷、做完說一聲），不做卡。")  # D-525 裁定 1；刪綜合卡說一聲 第 2 點
 MOVED_LINE_TEXT = "知識庫換了位置：先跑 kb moved 補好再做別的。"
 NEW_MACHINE_LINE = "這台電腦第一次開這個知識庫：先跑 kb moved 看要補什麼。"
 MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"

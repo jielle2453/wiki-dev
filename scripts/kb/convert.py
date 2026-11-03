@@ -1,7 +1,8 @@
 """kb convert <目標>（D-099，ingest 製卡第 2 點）：把一份原檔抽成純文字暫存檔給製卡者 Read；圖片只指路給 Read。
 PDF 走選配 pypdfium2（裁定 36）：文字層寫暫存檔，掃描頁轉 PNG 到 .system/temp/；沒裝 exit 3 進待處理。
 
-目標三種寫法：清冊編號（f-…、out-…）、uri（file://別名/相對路徑）、磁碟路徑（絕對或相對 cwd）；路徑經 inventory.uri_of
+目標三種寫法：清冊編號（f-…、out-…）、uri（file://別名/相對路徑）、磁碟路徑（絕對或相對 cwd）；相對路徑在 cwd 底下不存在、
+第一段是登記的別名，就當 uri 讀（刪綜合卡說一聲 第 4 點：AI 拿 changes --moved 的 to 去掉 file:// 來讀）；路徑經 inventory.uri_of
 反查清冊條目，對不到也照轉但不寫待處理。總資料夾只從 cwd 往上找，不收 --vault（測試後修正裁定 15：會把原檔內容帶給 AI 的
 子命令不准由參數指定總資料夾）。判斷都過、要寫暫存（或指給 Read）之前才清 .system/temp/ 裡超過 temp_keep_hours 的一般檔；
 temp 是重解析點就不清（裁定 17）。暫存檔名只用驗過格式的編號，否則用指紋前 12 碼（裁定 16）。
@@ -133,6 +134,9 @@ def resolve(vault, sources, target, cwd):
         return inventory.entry_for(vault, target), inventory.path_of(vault, sources, target), target
     path = Path(target) if os.path.isabs(target) else Path(cwd) / target
     path = Path(os.path.abspath(path))
+    head = target.replace("\\", "/").split("/", 1)[0]
+    if not os.path.isabs(target) and not os.path.exists(long_path(path)) and any(s["alias"].casefold() == head.casefold() for s in sources.entries):
+        return resolve(vault, sources, "file://" + target.replace("\\", "/"), cwd)
     uri = inventory.uri_of(vault, sources, path)
     entry = inventory.entry_for(vault, uri) if uri else None
     if entry is not None:  # uri_of 可能是 normalize 過的小寫：換成清冊裡那個位置的原始寫法

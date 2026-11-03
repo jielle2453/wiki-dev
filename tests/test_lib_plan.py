@@ -309,6 +309,11 @@ class Asks(Base):
                 self.assertEqual(self.build(entity_drift=[drift("missing", **facts)])["asks"], [])
         self.assertEqual(len(self.build(entity_drift=[drift("missing")])["asks"]), 1)
 
+    def test_drift_missing_progress_none_is_ongoing(self):
+        """刪綜合卡說一聲 第 3 點：舊實體沒填進度（None）當進行中，照樣出「不要了還是刪錯了」（跟 entities.py 一致）。"""
+        ask = self.one(entity_drift=[drift("missing", progress=None)])
+        self.assertEqual(ask["kind"], "drift_missing")
+
     def test_drift_missing(self):
         ask = self.one(entity_drift=[drift("missing")])
         self.assertEqual(ask["kind"], "drift_missing")

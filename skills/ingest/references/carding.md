@@ -18,7 +18,7 @@
 - `missing`：`{"id","uri","missing_since","pending_id","question"}`；客戶答過（先留著、不用管）的不再列，怎麼問怎麼答由 `asks` 給。`unreadable`：`{"id","uri","reason","pending_id"}`，已在待處理，講法在 `tell`；客戶說先跳過（`pending dismiss <pending_id>`）的不再列進 `new`，檔案換了才重讀。
 - `orphans`：卡的編號不在清冊或原檔已不在；這版不處理，不用動它。`broken`：`{"path","reason"}`，檔頭有問題的卡；編號對得到清冊的多帶 `id`、`header`（第六節）。`skipped`：`{"credential","placeholder","too_large","error","skipped"}` 份數；`skipped` 是跑過 `cards skip` 的（依設定不整理）。說過「可以讀」的密碼檔不算在 `credential`，列進 `new`（第十節）。
 - `unlinked`：`{"id","path","reason","types","prefill"}`，要補掛實體的卡（第七節）。`missing_types`：`{型別名: 張數}`，`待補型別` 裡型別表沒有的。
-- `entity_drift`：`{"entity_id","name","type","kind","found","question"}`（`found` 是找到的卡，相對總資料夾，`missing` 是 null），`kind` 是 folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing，怎麼問怎麼答在 `asks`。
+- `entity_drift`：`{"entity_id","name","type","kind","found","question"}`（`found` 是找到的卡，相對總資料夾，`missing` 是 null），`kind` 是 folder_renamed｜card_renamed｜both_renamed｜moved_type｜missing，怎麼問怎麼答在 `asks`；missing（綜合卡被刪）多 `progress`（空的當進行中）、`last_activity`、`source`、`mounts`、`similar`、`same_name_new`、`deleted_with`，照 SKILL.md「實體夾有變」那條判斷、做完說一聲（D-311(3)）。
 
 ## 一、讀原檔
 

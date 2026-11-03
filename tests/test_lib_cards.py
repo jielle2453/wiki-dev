@@ -378,6 +378,46 @@ class AfterTest(Vault):
         self.assertEqual(self.todo()["moved"], [])
         self.assertIn(rel, {e["path"] for e in turn.entries(self.V, t)})
 
+    def old_link_card(self):
+        """開原檔換成舊格式（file:）、指著原檔現在的位置。"""
+        p = self.card()
+        text = p.read_text(encoding="utf-8")
+        front = cards.parse_front(text)
+        old = cards.open_link(self.raw / _cards.MEETING)
+        self.assertTrue(old.startswith("file:"))
+        text = text.replace(front["開原檔"], old)
+        p.write_text(text, encoding="utf-8")
+        return p, text, front
+
+    def test_old_link_same_place_not_moved(self):
+        """刪綜合卡說一聲 裁定 5：只是開原檔格式舊、位置沒變 → 不列 moved、sync 不改寫、檢查不報開原檔。"""
+        p, text, front = self.old_link_card()
+        self.assertEqual(self.todo()["moved"], [])
+        t = turn.start(self.V, None, "升級後第一句")["turn"]
+        got = cards.sync(self.V, self.sources(), t)
+        self.assertEqual((got["moved"], got["updated"]), ([], []))
+        self.assertEqual(p.read_text(encoding="utf-8"), text)
+        rel = p.relative_to(self.V).as_posix()
+        self.assertEqual(cards.validate(self.V, rel, self.by_id(), self.sources()), (True, ""))
+
+    def test_old_link_location_without_uri(self):
+        """review 第 3 條：位置少 uri 欄回假（照舊重寫），不丟 KeyError 把卡歸成壞的。"""
+        entry = {"id": "f-1", "locations": [{}]}
+        self.assertFalse(cards.old_link_same_place(self.V, self.sources(), entry, "file:///C:/a.docx"))
+
+    def test_old_link_really_moved_gets_new_link(self):
+        """裁定 5：真的搬了 → 在 moved，sync 順便換成新連結。"""
+        p, text, front = self.old_link_card()
+        (self.raw / "客戶案件" / "信義王").mkdir(exist_ok=True)
+        os.replace(self.raw / _cards.MEETING, self.raw / "客戶案件" / "信義王" / "會議紀錄_1.docx")
+        _cards.scan_apply(self.V)
+        (moved,) = self.todo()["moved"]
+        self.assertEqual(moved["id"], front["編號"])
+        t = turn.start(self.V, None, "搬了")["turn"]
+        cards.sync(self.V, self.sources(), t)
+        (card,) = (self.V / "檔案索引" / "客戶案件" / "信義王").glob("*.md")
+        self.assertEqual(cards.parse_front(card.read_text(encoding="utf-8"))["開原檔"], front["開原檔"])
+
     def test_22_old_file_link_replaced_once_by_plugin_link(self):
         """放寬丙 9（驗收 22）：開原檔是外掛連結、沒有 file:///；舊卡的 file:/// 經 sync 換一次，編號不變，再跑 sync 不再動。"""
         p = self.card()

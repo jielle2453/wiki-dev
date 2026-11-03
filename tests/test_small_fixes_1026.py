@@ -87,7 +87,8 @@ class CoreR10(unittest.TestCase):
         answer = text[text.index("- **回答**"):text.index("- **客戶回了**")]
         self.assertIn("問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）", answer)
         principles = text[text.index("## 原則"):text.index("## 骨架")]
-        self.assertEqual(sum(1 for x in principles.splitlines() if x.startswith("- **")), 10)
+        # D-525（a633029，製作中 spec 第 7 點）拿掉「開場有變動先派整理，做完再完整回答」（修訂 D-156），10 條 → 9 條
+        self.assertEqual(sum(1 for x in principles.splitlines() if x.startswith("- **")), 9)
 
 
 # ---------- 4（作廢）、5、14：skill 文字 ----------

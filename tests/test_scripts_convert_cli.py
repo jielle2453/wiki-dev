@@ -67,6 +67,36 @@ class Convert(Base):
         self.check_meeting(self.kb("convert", str(self.raw / _cards.MEETING)), e["id"])
         self.check_meeting(self.kb("convert", os.path.join("..", "raw", *_cards.MEETING.split("/"))), e["id"])
 
+    def moved(self):
+        """把會議紀錄搬到別的夾、不跑 scan（兩句之間搬，每句開頭只比對、不寫清冊）；回 (清冊條目, 新位置去掉 file:// 的寫法)。"""
+        e = _cards.entry_of(self.V, _cards.MEETING)
+        alias = _cards.MEETING.split("/", 1)[0]
+        new_rel = f"{alias}/搬過來/{_cards.MEETING.rsplit('/', 1)[-1]}"
+        (self.raw / alias / "搬過來").mkdir()
+        os.replace(self.raw / _cards.MEETING, self.raw / new_rel)
+        return e, new_rel
+
+    def test_moved_alias_path_reads(self):
+        """刪綜合卡說一聲 第 4 點：搬了以後用 changes --moved 的 to 去掉 file:// 的寫法（別名/相對路徑）也讀得到。"""
+        e, alias_path = self.moved()
+        r = self.kb("convert", alias_path)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(r.stdout.startswith("暫存檔："), r.stdout)
+
+    def test_moved_id_reads_after_scan(self):
+        """刪綜合卡說一聲 裁定 6：搬了、還沒 scan 用編號讀不到（清冊還是舊位置）；照每句開頭那行先 inventory scan 就讀得到。"""
+        e, _ = self.moved()
+        self.assertEqual(self.kb("convert", e["id"]).stdout.splitlines()[0], "讀不到：找不到原檔")
+        self.scan()
+        r = self.kb("convert", e["id"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_moved_uri_reads(self):
+        """搬了以後用 changes --moved 的 to（file:// 整串）讀得到。"""
+        e, alias_path = self.moved()
+        r = self.kb("convert", "file://" + alias_path)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def pdf(self, src=TEXT_PDF, name="報價.pdf"):
         p = self.raw / "客戶案件" / name
         shutil.copy2(src, p)
@@ -291,6 +321,18 @@ class Refuse(Base):
         self.refused(e["id"], "讀不到：這個位置你說過不讀")
         (self.raw / "客戶案件" / "大安陳" / "新.txt").write_text("x", encoding="utf-8")
         self.refused(self.raw / "客戶案件" / "大安陳" / "新.txt", "讀不到：這個位置你說過不讀")
+
+    def test_alias_path_still_guarded(self):
+        """刪綜合卡說一聲 review 第 3、9 條：「別名/路徑」寫法照樣擋排除夾、憑證名、跳出來源根。"""
+        r = self.kb("folders", "exclude", str(self.raw / "客戶案件" / "大安陳"), "--kind", "unused")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.refused(_cards.MEETING, "讀不到：這個位置你說過不讀")
+        (self.raw / "客戶案件" / "信義王" / "id_rsa").write_text("x", encoding="utf-8")
+        self.refused("客戶案件/信義王/id_rsa", "讀不到：檔名像密碼或金鑰，預設不讀")
+        (self.tmp / "別處.txt").write_text("x", encoding="utf-8")
+        for up in ("客戶案件/../../別處.txt", "客戶案件/../../../別處.txt", "客戶案件\\..\\..\\別處.txt"):
+            with self.subTest(up):
+                self.refused(up, "讀不到：不在登記的資料夾裡")
 
     def test_unlisted_credential_name(self):
         p = self.raw / "客戶案件" / "信義王" / "id_rsa"
