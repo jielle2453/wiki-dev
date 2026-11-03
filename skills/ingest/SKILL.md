@@ -23,7 +23,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - 開場有「設定檔有改」、客戶說「設定檔改好了」「套用」→ 照 commands.md 的 profile 節。
 - 「把 D 槽加進來」「不要讀…」「那個資料夾不要了」，或**來源根**（登記的那個資料夾本身）搬了、改名 → 走 manage；manage 加完問要不要整理，客戶說要才回到這裡。來源**裡面**的檔或子夾搬了、改名 → 這裡。
 - 拖檔、貼圖說存、貼一段說「存起來」→ 骨架的「收件」；貼的文字沒說存是口述（note），像整份文件才問存不存（D-049）。
-- 說「我改了報價單」但 `changes` 查無變動（沒做完或還沒存檔）→ 照 commands.md 的 `changes` 那條。
+- 說「我改了報價單」但 `changes` 查無變動（還沒存檔等）→ 照 commands.md 的 `changes` 那條。
 - 問卡裡的內容（「上次那份報價在哪」）不是整理，直接讀卡回答。
 - 「先整理報價那夾就好」→ `cards dispatch --source <那個來源的別名>`；「整理到哪了」→ `cards status`；「先停」「今天先到這裡」→ 骨架的「客戶說停」。
 - 「剛剛那批整理得不對」「全部退回」「退到整理之前」→ 照 `references/redo.md`，不用 `versions revert` 一句一句往前退。
@@ -51,12 +51,12 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
   - `names`：照 carding.md 第十一節判斷每個新名字，有把握的跑 `entity accept`，有疑慮的不動（`asks` 會問）（D-202）。
   - `dispatch`：跑 `cards dispatch --json`，照「讀派工結果」做；先用現有資料回答這句、末尾說還在整理。
   - `cards`（線上文件、密碼檔）：照 carding.md 自己寫卡；打回後還是不行、或讀不到又沒記進待處理，只停那一份、告訴客戶。
-- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位、等的時候怎麼回（`cards status`）照 commands.md 的 cards dispatch 一節。
-- **客戶說停**（「先停」「今天先到這裡」）：跑 `cards stop --json`，`agents` 每個用 TaskStop 停掉，再跑 `cards status` 照它那句講（停下前在寫的卡會寫完）；這個對話之後不自動整理。客戶說「整理」「繼續整理」就直接跑 `cards dispatch --json`（`plan` 最前面的 `resume` 就是這步，D-200）。
-- **回答**：`plan` 做完（有 `dispatch` 就等到 `done`），重跑 `cards todo --json`，完整回答派工那一句客戶問的，答案在前；問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）。做了的事合成一行（檔名最多 5 個，多的說「另外整理了 N 件，說『剛剛做了什麼』看細節」），`failed` 裡 `tell` 沒帶到的照原因講；`tell` 的句子原樣貼；`asks` 有就問一件 `question`，結果的 `label` 列成選項，回答裡說的回覆方式要跟畫面上的一致；`n` 不給客戶看。
+- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。
+- **客戶說停**（「先停」「今天先到這裡」）：跑 `cards stop --json`，`agents` 每個用 TaskStop 停掉，再跑 `cards status` 照它那句講（停下前在寫的卡會寫完）；這個對話之後不自動整理。客戶說「整理」「繼續整理」就直接跑 `cards dispatch --json`（即 `plan` 最前面的 `resume`，D-200）。
+- **回答**：`plan` 做完（有 `dispatch` 就等到 `done`），重跑 `cards todo --json`，完整回答派工那一句客戶問的，答案在前；問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）。做了的事合成一行（檔名最多 5 個；好幾件就說「另外整理了 N 件，說『剛剛做了什麼』看細節」），`failed` 裡 `tell` 沒帶到的照原因講；`tell` 的句子原樣貼；`asks` 有就問一件 `question`，結果的 `label` 列成選項，回答裡說的回覆方式要跟畫面上的一致；`n` 不給客戶看。
 - **客戶回了**：
   - 回覆要對到你上一句列出的唯一一個結果才照做，對不到或有兩個可能就問清楚，這句不做；對之前不要重跑 `cards todo --json`，結果會變。對到了照它的 `do` 依序執行，`fill` 的空格填客戶說的：帶 `rule` 的照 `rule` 寫成一句白話，其他有空白或特殊字元加雙引號；客戶沒給就先問。
-  - 做完之後（`note`、`then`、清單沒有的事、回「拿計畫」）照 commands.md 的 `asks` 一節。
+  - 做完之後（`note`、`then`、清單沒有的事、回「拿計畫」）照 commands.md 的 `asks` 那條。
 - **收尾記做了**（D-084），一句白話、不含 `" $ ` \` 這四種字元：`dispatch` 給了 `note_cmd` 就把 `{做了什麼}` 換成這句照跑，這一句沒另外改知識庫就不再跑 `turn note`；其他時候改了知識庫，送出最終回答前最後跑 `turn note "<白話一句>"`（再跑會蓋掉前一次）。
 
 ## 共通
