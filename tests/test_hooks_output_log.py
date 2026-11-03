@@ -444,7 +444,7 @@ class SynthesisCheck(unittest.TestCase):
         self.update(self.E.WANG, source="confirmed")
         cases = [
             (rel, good.replace("名稱: 王宅", "名稱: 王"), "「名稱」照 kb cards todo 給的檔頭抄"),
-            (rel, good.replace("範本版本: 1", "範本版本: 3"), "範本版本該是 2"),
+            (rel, good.replace("範本版本: 2", "範本版本: 3"), "範本版本該是 2"),
             (rel, good.replace("更新日: ", "更新日: x"), "更新日要寫 YYYY-MM-DD"),
             (rel, good.replace("## 現況", "## 近況"), "正文要有 # 王宅 與 ## 現況"),
             (rel, __import__("re").sub(r"整理到:\n(  - .*\n)*", "整理到: 已整理\n", good),
