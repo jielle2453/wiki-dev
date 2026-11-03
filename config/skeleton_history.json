@@ -82,5 +82,9 @@
   "0.31.1": {
     ".claude/settings.json": "7bc059b1ebedefa4a052efe5216ae840cd3693763960a695fba8d846cccea0e3",
     "CLAUDE.md": "708aa3fda99eeccc93f55b462f1e03cd369d51e429bce487f22a0d18c97360d7"
+  },
+  "0.32.0": {
+    ".claude/settings.json": "7bc059b1ebedefa4a052efe5216ae840cd3693763960a695fba8d846cccea0e3",
+    "CLAUDE.md": "b55d737af3b098be342194f0d6535807608e8402ebb4dddd4be9745428d38718"
   }
 }
