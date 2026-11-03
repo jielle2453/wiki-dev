@@ -966,10 +966,10 @@ def unsorted(vault, sources=None, deadline=None, sorted_=None):
 
 
 def not_wip(entry):
-    """這份改了也不算製作中（D-525 裁定 8，同 _sort_files 不進 new、stale 的那幾種）：指路卡、清冊封存、照設定不整理、讀不了的。
+    """這份改了也不算製作中（D-525 裁定 8，同 _sort_files 不進 new、stale 的那幾種）：指路卡、清冊封存、照設定不整理的。
+    不看「讀取」：有卡的改了不管讀取都進 stale，沒卡的密碼檔有「可以讀」裁示也進 new（review 第 1 條）。
     每句開頭的變動行用它篩清冊裡已有的檔；新放的（清冊還沒有）照算。"""
-    return (entry.get("card_mode") == POINTER or bool(entry.get("archived")) or bool(entry.get("skip_kind"))
-            or entry.get("read") in SKIPPED_READS)
+    return entry.get("card_mode") == POINTER or bool(entry.get("archived")) or bool(entry.get("skip_kind"))
 
 
 def _wip_entities(entry, name, ent_data, vault):

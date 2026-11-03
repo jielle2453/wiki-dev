@@ -254,11 +254,13 @@ def change_lines(vault, told_files=(), session_id=None):
     seen = set(told_files)
     from kb._lib import cards, inventory
 
-    try:  # 指路卡、封存、照設定不整理、讀不了的不算（裁定 8，同 kb cards wip）；清冊讀不到就不篩
-        skip = {inventory.uri_key(loc["uri"]) for e in inventory.load(vault)["entries"] if cards.not_wip(e)
-                for loc in e.get("locations") or [] if loc.get("uri")}
-    except ValueError:
-        skip = set()
+    skip = set()
+    if report["added"] or report["modified"]:
+        try:  # 指路卡、封存、照設定不整理的不算（裁定 8，同 kb cards wip）；清冊讀不到就不篩、記一行 log
+            skip = {inventory.uri_key(loc["uri"]) for e in inventory.load(vault)["entries"] if cards.not_wip(e)
+                    for loc in e.get("locations") or [] if loc.get("uri")}
+        except (ValueError, OSError) as e:
+            log_vault(vault, e)
 
     def fresh(kind, uris):
         return [u for u in dict.fromkeys(uris) if f"{kind}|{u}" not in seen]

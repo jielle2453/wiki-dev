@@ -77,3 +77,69 @@ plugin 驗證：claude -p Sonnet，PASS、錯誤 0、警告 2（card-maker 沒 `
 附帶一點：`guard.py` 的 `AGENT_ALLOW` 加了 `("cards","wip")`，製卡助手用不到它（R-13 是主對話跑）。多開一個白名單項目，無害，但可以不加。
 
 共 7 條
+
+## 第二輪：只審 d0d20f3（裁定 7～9 的 diff）
+
+claude -p Sonnet、high，US$0.19。
+
+| # | 處理 |
+|---|---|
+| 1 not_wip 看讀取，跟 stale、可以讀的密碼檔不一致 | 改：not_wip 不看讀取 |
+| 2 redo 的檔又改了 hook 仍印製作中；wip 沒共用 not_wip | 沒改，回報設計（判斷 redo 要讀卡算 sha；wip 照分桶本來就同條件） |
+| 3 清冊讀檔 OSError 會讓變動行整個掛 | 改：接 ValueError、OSError，記一行 log |
+| 4 清冊讀不到時不篩 | 照註解；file_compare 先讀過清冊，正常走不到 |
+| 5 每句多讀一次清冊 | 改：沒有新增、修改就不讀 |
+| 6～8 | 審查確認沒問題 |
+| 9 實體的 archived 欄位在不在 | 在（lookup 的 archived 也讀它） |
+
+### review 原文
+
+我已讀完 diff，也對照了 `_sort_files`、`wip()`、`uri_key`、`kb entity log` 的參數。以下是結果。
+
+**1. `cards.py:968-972` `not_wip` 的 `read in SKIPPED_READS` 跟 `_sort_files` 不同**
+- `_sort_files` 的 new 迴圈（870-873）有 `ok = read=="ok" or (read=="credential" and eid in readable)`。有「可以讀」裁示的 credential 會進 new。`not_wip` 沒看 `rulings.readable_ids`，直接當「讀不了」排除。
+- 輸入：credential 檔有可以讀的裁示，使用者新放或改了它。`kb cards wip` 會列，每句開頭的變動行不會。裁定 8 要求兩邊同一套篩法，這裡不一致。
+- stale 迴圈（833-848）完全不看 `read`。已有卡的條目，`read` 是 placeholder、too_large、error 或 credential，原檔改了就進 stale、`wip` 會列。`not_wip` 卻把它擋掉。
+- 建議：`not_wip` 的 `read` 判斷只套用在「沒有卡」的新放檔上，或乾脆不看 `read`。有「可以讀」裁示的 credential 要放行。
+
+**2. `not_wip` 沒擋 `wip()` 會擋的條目，兩邊也不是共用同一個函式**
+- `wip()`（997-1000）排除 redo 的 stale（`reason == REDO_REASON`）。`not_wip` 沒看 `redo`。
+- `wip()` 也排除 `kind == "link"`。link 的 uri 是網址，不會出現在 report，所以這條不會壞。
+- 輸入：檔案被標了重做（`entry.redo` 有效），之後又被改。`wip` 不列，每句開頭仍印「製作中」。
+- `wip()` 並沒有呼叫 `not_wip`，全專案只有 hook 在用它（grep 結果）。「同一套篩法」靠人手對齊，之後很容易再漂。
+- 建議：讓 `wip()` 也用 `not_wip`，並把 redo 判斷放進去。判斷 redo 要 `card_sha`，需要讀卡，成本較高。
+- 不確定：草稿（`is_draft`）、`unreadable_open` 的條目、`not_for_card` 在 hook 端也沒擋，`wip` 端有擋。草稿算不算製作中，我沒把握，請看裁定 8 的原意。
+
+**3. `hooks/_checks.py:257-261` 例外處理太窄**
+- 只接 `ValueError`。`inventory.load` 讀檔若丟 `OSError`（檔被鎖、權限），例外會往上衝出 `change_lines`，整個每句開頭掛掉。
+- 同一檔的 `file_compare` 用 `except Exception` 並 `log_vault`，這裡不一致。
+- 建議：改成 `except (ValueError, OSError) as e:`，並 `log_vault(vault, e)`。
+
+**4. 清冊讀不到時的降級行為**
+- `skip = set()` 的結果，是所有指路卡、封存、skip_kind 的檔又會被報成製作中。這跟註解「清冊讀不到就不篩」一致，行為沒壞。
+- 但 `file_compare` 的 `inventory.scan` 必然已讀過清冊，正常不會走到這裡，這條是防禦用。
+- 不確定：清冊損壞時，其實該跟 `file_compare` 一樣回 `[],[]`，而不是多印一堆。
+
+**5. 時間預算**
+- `inventory.load` 是整份 JSON 重讀、重解析。`file_compare` 內的 scan 已讀過一次，結果沒帶出來，所以每句開頭多讀一次。
+- 大清冊下這筆成本會吃掉 `TURN_BUDGET`，而且 `change_lines` 在 `file_compare` 之後才算，預算已被 scan 用掉一部分。
+- 沒量過實際耗時，我標「不確定」。
+- 建議：讓 `file_compare` 把已載入的 entries 一起快取進 `_SCAN`，或至少在 `report["added"]` 與 `["modified"]` 都為空時跳過載入。現在是無條件載入。
+
+**6. `uri_key` 比對（確認沒問題）**
+- 兩邊都走 `inventory.uri_key`（正斜線、casefold），形狀一致。`_kb_keys` 也是同一套。
+- 唯一風險：report 的 uri 如果是 `file://別名/相對路徑`，locations 的 uri 也是同一形式，我沒看到不一致。
+
+**7. `POINTER` 順序（確認沒問題）**
+- `POINTER` 在 `cards.py:534` 定義，`not_wip` 在 968，執行時已存在。沒有順序問題。
+
+**8. `carding.md` 與 `entity.py`（確認沒問題）**
+- `kb entity log <實體> '<行>'` 只收 `ref` 與 `lines`，`--synced` 是可選。去掉後的句子跟參數相符。
+- 「`entity log` 只加紀事」跟 entity.py:62 的說明（「--synced 加完再標記整理到」）一致。
+- 檔頭 15 行的 docstring 沒改，仍相容。
+
+**9. `_wip_entities` 加 `e.get("archived")`（`cards.py:982`）**
+- 實體 `archived` 欄位是否真的存在，我沒查證。`status != "active"` 已經涵蓋封存的情況嗎？若實體封存是用 `status`，這個條件是多餘但無害。若欄位名稱不同，就沒效果。
+- 標「不確定」，請對照 `entities.py` 的封存欄位名。
+
+共 3 條（第 1、2、3 條是確定的正確性問題；第 4、5、9 條是不確定項，不計入）
