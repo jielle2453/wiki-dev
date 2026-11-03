@@ -30,7 +30,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 
 1. **討論與決策**（設計）。每個抉擇當場寫進 `decisions.md`。你說「可以」才算定；只在對話裡講過的不算。
 2. **寫 spec**（設計）。一題的大小以實作 session 一次對話做得完為準。**驗收準則沒寫完，spec 不算完。** 你看過說可以，狀態改「定稿」才交出去。從 issue 來的題，先看 `backlog.md` 索引同一區，相關的列進 spec 一起做、做完一起關。每一步換階段時，spec 的狀態與 issue 的狀態 label 一起改（開發中、測試中、確認中、發行中；issue 沒有「定稿」，spec 定稿時 issue 還是設計中）；發行後關 issue。
-3. **實作**（新 session，在 repo）。只給 spec。只改「可以動」列的檔。有疑義停下來回報，不自己決定。寫的時候只跑 spec「相關測試」列的檔（`python -m pytest -q <檔>…`）；做完 commit，**commit 之後**再跑一次相關測試加 `test_repo_hygiene` 看 exit code（`test_repo_hygiene` 只查已追蹤的檔，commit 前的綠不算，I-112），紅了修完再 commit。不跑全套（conventions 技術基線「測試」）。回報之前對自己的 diff 跑一次 `/code-review high`，修掉正確性的問題（風格的不用）再 commit。不 push。回報改了哪些檔、commit hash、測試結果、疑義，以及 spec 以外發現的問題（不寫進 backlog）。
+3. **實作**（新 session，在 repo）。只給 spec。只改「可以動」列的檔。有疑義停下來回報，不自己決定。寫的時候只跑 spec「相關測試」列的檔（`python -m pytest -q <檔>…`）；做完 commit，**commit 之後**再跑一次相關測試加 `test_repo_hygiene` 看 exit code（`test_repo_hygiene` 只查已追蹤的檔，commit 前的綠不算，I-112），紅了修完再 commit。不跑全套（conventions 技術基線「測試」）。回報之前對自己的 diff 跑一次 `/code-review high`（走 API 的 `claude -p` 用 Sonnet），修掉正確性的問題（風格的不用）再 commit；一題只跑一次完整的，之後修正（疑義、測試發現）只審修過的那段 diff（D-524）。不 push。回報改了哪些檔、commit hash、測試結果、疑義，以及 spec 以外發現的問題（不寫進 backlog）。
 4. **測試**（新 session，在實作的 worktree）。只給 spec。逐條驗，每條寫過或不過附證據。不改程式。報告存 worktree 的 `design/reports/<題目>-測試.md`，只 commit 這份報告。同一題拆成幾支（例如 #32 的 D-518、D-520、D-521）的，全部做完併成一支再測一輪，不每支各開測試。修完回測（第 2 輪起）只驗修過的那幾條與它們的相關測試，不整份重測（D-524）。
 5. **確認**（新 session，在測試 vault；也可以你親自做）。先還原來源。照「確認情境」操作，記實際輸出與落差。不改程式。報告存實作 worktree 的 `design/reports/<題目>-確認.md`，只 commit 這份報告。確認情境分兩種，spec 裡各自標：
    - **自動**：客戶的話與預期結果。在 `<測試環境>` 的知識庫複本用 `claude -p --plugin-dir <worktree>`，一句一個新對話跑，判過或不過，附回答原文。權限模式用預設，不准 auto 或 `--dangerously-skip-permissions`（auto 會替守門擋掉，守門有洞也測不出）。守門的情境看 `.system/ledger.tsv` 有沒有那筆 deny、理由對不對，只看原檔沒變不算過。
@@ -46,7 +46,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 
 1. spec 只寫三節：要做的事（一條一列：哪個檔、哪一句或函式、改成怎樣）、可以動／不可以動（含相關測試）、驗收準則（一條一個指令或預期輸出）。
 2. 照樣開 worktree 與分支 `spec/<題目>` 改，不直接改 main 的程式。
-3. 跑相關測試；commit 之後再跑一次相關測試加 `test_repo_hygiene`，再對 diff 跑 `/code-review high`，修掉正確性的問題。
+3. 跑相關測試；commit 之後再跑一次相關測試加 `test_repo_hygiene`，再對 diff 跑一次 `/code-review high`（Sonnet），修掉正確性的問題；之後的修正只審修過的那段（D-524）。
 4. 驗收準則逐條實跑，結果寫進 spec 紀錄節。
 5. 只有客戶看得到的幾條要確認，優先自動。
 6. 發行照步驟 6，你說「發行」才做。
@@ -62,7 +62,7 @@ plugin 在 CLI 與 VS Code 用 `claude --plugin-dir "<repo>"` 載入（代號見
 | 實作 | 先寫測試、看它紅了再實作；寫的時候只跑相關測試，收尾 commit 之後再跑相關測試看 exit code 才回報（不跑全套）（這兩條寫在開場訊息裡，不靠 superpowers）；碰到什麼用對應的 `plugin-dev:hook-development`／`skill-development`／`command-development`／`agent-development`；寫或改 skill 描述時再用 `anthropic-skills:skill-creator`（內建，不用裝）寫描述、建 `tests/evals/<skill>.json` 的 20 句（D-091），描述要守 D-070 的 150 字；測試紅了先找出原因再改，不猜著改 |
 | 改寫既有 skill | 照 D-132：`skill-creator` 的新舊版對照（同幾個真實情境，舊版快照與新版各跑一次）；本文照 D-132 五條自查，再跑 agent `plugin-dev:skill-reviewer` |
 | 實作收尾 | 回報前對自己的 diff 跑 `/code-review high`，修掉正確性的問題；動過 manifest、目錄、hooks.json 跑 agent `plugin-dev:plugin-validator`；動過 SKILL.md 跑 agent `plugin-dev:skill-reviewer` |
-| 測試 | `code-review` 等級 high；碰守門、權限、路徑時加 `security-review`；改了 skill 描述時用 `anthropic-skills:skill-creator` 的 `run_eval` 跑 `tests/evals/<skill>.json`（門檻見 D-091），在同時裝著舊 `llm-wiki` 的機器上跑 |
+| 測試 | 不另跑完整 `code-review`（實作已跑過，D-524）：讀實作的 review 結果，只對它沒看到的地方（驗收準則、碰守門的路徑）看；碰守門、權限、路徑時加 `security-review`；改了 skill 描述時用 `anthropic-skills:skill-creator` 的 `run_eval` 跑 `tests/evals/<skill>.json`（門檻見 D-091），在同時裝著舊 `llm-wiki` 的機器上跑 |
 | 確認、發行 | 無，照流程手動 |
 
 plugin-dev 要先裝：`claude plugin install plugin-dev@claude-plugins-official`（使用者層，每台開發機各裝一次）。
@@ -151,7 +151,7 @@ superpowers 選用、預設停用（2026-10-20）：它在每個對話開頭注�
 
 ```
 你在 <worktree>（實作的 worktree，分支 spec/<題目>）。先 git merge main（拿最新的 spec），再讀 design/specs/<題目>.md。你的工作是驗證，不是修改。
-- 怎麼做照 design/process.md 第三節「各步驟用哪個 skill」：code-review 等級 high，碰守門、權限、路徑時加 security-review。
+- 怎麼做照 design/process.md 第三節「各步驟用哪個 skill」：不另跑完整 code-review（實作跑過），碰守門、權限、路徑時加 security-review（Sonnet）。
 - plugin-dev 審查：這題動到 hook／skill／command／agent 的話，先讀對應的 plugin-dev 指引當依據審那些檔；收尾跑 plugin-dev:plugin-validator 對整個 repo。結果寫報告一節「plugin-dev 審查」，沒問題也寫一句。
 - 對「驗收準則」逐條執行，每條寫 過／不過 與證據。
 - 只跑 spec「相關測試」列的檔，加 grep -l 找到引用改動檔的測試；不跑全套。紅的先在 main 跑一次，分清新壞的與本來就壞的。
