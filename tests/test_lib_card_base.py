@@ -56,6 +56,7 @@ class Body(unittest.TestCase):
         self.assertIn(synthesis.FILE_END + "\n\n## 紀事", got)
         self.assertEqual(card_base.body_of(got), card_base.body_of(text))
         self.assertEqual(card_base.body_of(text + "\n" + files + "\n"), card_base.body_of(text), "在最後照舊")
+        self.assertEqual(card_base.strip_files("一\n\n" + files + "\n她打的字\n"), "一\n她打的字\n", "後面是她打的字照舊直接接")
 
     def test_hunks_add_and_delete(self):
         self.assertEqual(card_base.hunks("a\nb\n", "a\nb\nc\n"), [{"before": "", "after": "c"}])

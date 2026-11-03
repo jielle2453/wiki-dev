@@ -581,6 +581,8 @@ class Layout(Base):
         text = (ROOT / "templates" / "synthesis.md").read_text(encoding="utf-8")
         self.assertIn("範本版本: 2\n", text)
         self.assertEqual(heads(text), ["## 現況", "## 時程", "## 金額", "## 推算", "## 紀事"])
+        broken = (ROOT / "skills" / "ingest" / "references" / "synthesis-broken.md").read_text(encoding="utf-8")
+        self.assertIn("正文各段照 現況、自訂段、推算、相關檔、紀事 的順序排", broken)  # D-523 疑義裁定 3
 
     def test_render_cache_puts_files_above_events(self):
         """驗收 2：新版面的卡補相關檔時插在紀事前面；紀事不在最後的舊版照舊接在最後。"""
