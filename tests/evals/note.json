@@ -15,7 +15,7 @@
   {"query": "信義王現在怎樣了？做到哪一步", "should_trigger": false},
   {"query": "上次那份報價在哪？信義王的第二版", "should_trigger": false},
   {"query": "幫我把信義王的報價整理成 Word 檔，我要寄給業主", "should_trigger": false},
-  {"query": "最近有什麼要注意的嗎", "should_trigger": false},
+  {"query": "把剛才跟業主討論的寫成一份筆記給我", "should_trigger": false},
   {"query": "我把信義王的合約換成新版了，檔名一樣", "should_trigger": false},
   {"query": "內湖李的估價單上寫的總價是多少", "should_trigger": false},
   {"query": "私人那個資料夾不要讀了", "should_trigger": false}

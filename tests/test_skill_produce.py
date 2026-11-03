@@ -14,7 +14,7 @@ SKILL = SKILL_DIR / "SKILL.md"
 REFS = {name: SKILL_DIR / "references" / name for name in ("draft.md", "make.md")}
 EVALS = ROOT / "tests" / "evals" / "produce.json"
 DESC = ("要 AI 做出一份東西都用這個：做成 Word、Excel、PowerPoint、PDF、線上文件或簡報，「幫我做一份報價」「照去年的合約寫新的」"
-        "「合約付款條件改成 30 天」「剛才那個表存成檔」「這週日程印出來」「草稿可以了，定稿」；問資料、記下來、整理檔案、搬檔、寄出去不用這個。")
+        "「合約付款條件改成 30 天」「剛才那個表存成檔」「剛才討論的寫成筆記」「草稿可以了，定稿」；問資料、記下來、整理檔案、搬檔、寄出去不用這個。")
 DESC_MAX = 150
 BODY_MAX_CHARS = 3000
 REFERENCE_MAX_LINES = 150
@@ -173,6 +173,17 @@ class Round2(unittest.TestCase):
     def test_answer_says_excel_file(self):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("做成文件、Excel 檔、簡報", answer)
+
+    def test_notes_saved_final_not_draft(self):
+        """D-519（#33）：筆記這類 md 成品直接存成定稿；她說先不要整理才標草稿。"""
+        line = next(ln for ln in self.body.splitlines() if "本身就是成品" in ln)
+        for want in ("直接存成定稿", "先不要整理", "D-519"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+        sec = self.draft[self.draft.index("## md 本身就是成品的"):self.draft.index("## 放哪、叫什麼")]
+        for want in ("Write", "筆記/", "暫存區/筆記/", "不收 md", "先不要整理", "（草稿）.md", "drop-draft"):
+            with self.subTest(want=want):
+                self.assertIn(want, sec)
 
 
 class Evals(unittest.TestCase):

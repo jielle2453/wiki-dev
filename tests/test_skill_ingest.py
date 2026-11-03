@@ -226,5 +226,17 @@ class ModuleSplit(unittest.TestCase):
                         self.assertIn(num, heads)
 
 
+class SimpleCardForAiNotes(unittest.TestCase):
+    """D-519（#33）：md 檔的卡（不管誰寫的）寫簡單版，只寫重點三到五點。"""
+
+    def test_carding_simple_version(self):
+        carding = (SKILL_DIR / "references" / "carding.md").read_text(encoding="utf-8")
+        line = next(ln for ln in carding.splitlines() if "簡單版" in ln)
+        for want in ("md 檔（不管誰寫的）", "## 重點", "三到五點", "D-519"):
+            with self.subTest(want=want):
+                self.assertIn(want, line)
+        self.assertIn("2. md 檔例外：只寫第 1 點的簡單版", carding)
+
+
 if __name__ == "__main__":
     unittest.main()
