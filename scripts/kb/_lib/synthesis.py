@@ -1237,24 +1237,35 @@ def _card_ids(line):
     return {c for ref in _CARD_REF.findall(line) for c in _CARD_ID.findall(ref)}
 
 
+def same_card_events(text, ids):
+    """D-526：紀事裡出處卡編號跟 ids 有交集的那幾行（去掉開頭「- 」）；給綜合卡批次，寫紀事前只看這幾行、不讀整段。"""
+    lines = _lines(text)
+    span = _events_span(lines, _body_start(lines))
+    if not span or not ids:
+        return []
+    return [l[2:] for l in lines[span[0] + 1:span[1]] if l.startswith("- ") and _card_ids(l) & set(ids)]
+
+
 def _event_day(line):
     m = re.match(r"^- (\d{4}-\d{2}-\d{2})(?:\s|$)", line)
     return m.group(1) if m else None
 
 
-def insert_events(text, events):
+def insert_events(text, events, if_absent=False):
     """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加；
     同一天、舊行的卡編號都在某條新行裡的，舊行拿掉、換成新行（製作中裁定 16：AI 不讀紀事，同一份卡同一天只留一條）；
     舊行掛的卡比新行多的不換（別張的出處不丟），跟這批某條一字不差的不換（照舊算已經有）。
-    沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。"""
+    沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。
+    if_absent（D-526）：新行的卡編號在紀事裡已經有任何一條（不論哪天）就不加、算已經有（md 簡單卡那條固定短條用）。"""
     crlf = _all_crlf(text)
     lines = _lines(text)
     start = _body_start(lines)
     span = _events_span(lines, start)
     have = {_same_event(l) for l in lines[span[0] + 1:span[1]]} if span else set()
+    logged = set().union(*(_card_ids(l) for l in lines[span[0] + 1:span[1]])) if span and if_absent else set()
     added, dup, todo = [], [], []
     for day, line in events:
-        if _same_event(f"- {line}") in have or line in added:
+        if _same_event(f"- {line}") in have or line in added or (logged and _card_ids(line) & logged):
             dup.append(line)
         else:
             added.append(line)
@@ -1351,7 +1362,7 @@ def migrate_layout(text):
     return bom + "\n".join(out) + "\n"
 
 
-def add_events(vault, name, lines, turn_id, synced=False):
+def add_events(vault, name, lines, turn_id, synced=False, if_absent=False):
     """kb entity log（D-521）：lines 照 insert_events 加進實體綜合卡的紀事；寫前 turn.backup(by="program")，寫完驗 validate；
     照 hook 的做法記基準（程式加的不算她手改，她沒處理的手改留成待處理，D-270）。synced 再照 mark_synced 標記整理到。
     拒絕（什麼都不寫）丟 EntityRefused：找不到、沒卡、綜合卡有整理到以外的錯、行的格式不對、出處不在依據裡。
@@ -1374,7 +1385,7 @@ def add_events(vault, name, lines, turn_id, synced=False):
     events = [parse_event(line, allowed, e["name"]) for line in lines]
     p = Path(vault) / rel
     text = p.read_bytes().decode("utf-8")  # 不經 read_text：\r\n 照原樣留
-    new, added, dup = insert_events(text, events)
+    new, added, dup = insert_events(text, events, if_absent)
     out = {"name": e["name"], "rel": rel, "added": added, "skipped": dup, "written": [], "synced": False,
            "synced_reason": None}
     if new != text:
@@ -1429,6 +1440,7 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
             removed.append({"id": c, "path": groups[c][0]["path"] if c in groups else None, "title": titles.get(c),
                             "source": "card"})
     return {"entity_id": e["id"], "name": e["name"], "path": rel, "read_ranges": read_ranges(text),
+            "same_card_events": same_card_events(text, {x.get("id") for x in added + changed}),
             "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}

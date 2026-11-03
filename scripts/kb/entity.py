@@ -63,6 +63,7 @@ def add_arguments(sub):
     lg.add_argument("ref", help="名稱、別名或編號（e-…）")
     lg.add_argument("lines", nargs="+", metavar="行", help="YYYY-MM-DD 事〔f-xxxxxxxx〕（出處可以多個〔〕）")
     lg.add_argument("--synced", action="store_true", help="加完把 整理到、更新日 換成現行的（同 render --synced）")
+    lg.add_argument("--if-absent", action="store_true", help="這行的卡編號在紀事裡已經有任何一條就不加（md 簡單卡那條，D-526）")
     pg = subs.add_parser("progress", help="事類實體的狀態", description="事類實體記成進行中、結案或擱置；結案連帶結束它的期間條目。")
     pg.add_argument("ref", help="名稱或編號（e-…）")
     pg.add_argument("state", help="進行中、結案、擱置")
@@ -541,7 +542,7 @@ def _render(vault, args, as_json, conversation, turn_id):
 
 
 def _log(vault, args, as_json, conversation, turn_id):
-    got = synthesis.add_events(vault, args.ref, args.lines, turn_id, args.synced)
+    got = synthesis.add_events(vault, args.ref, args.lines, turn_id, args.synced, args.if_absent)
     line = f"{got['name']}的紀事加了 {len(got['added'])} 行" + ("，已標記整理到" if got["synced"] else "")
     if got["written"]:
         journal_cli.record_program_or_warn(vault, line, [{"path": rel, "action": "modify"} for rel in got["written"]],
