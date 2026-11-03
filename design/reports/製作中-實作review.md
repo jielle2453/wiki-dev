@@ -189,3 +189,64 @@ claude -p Sonnet、high，US$0.27。plugin 驗證 PASS、錯誤 0、警告 1（p
 - 建置抽樣沒壞：`ids_running` 算 job 底下所有跑著的批次，`close_ids_job` 收掉 job。沒派出去的 agenda_recheck 留給之後的全量 job。
 
 共 3 條
+
+## 第四輪：只審 d940a0c（裁定 18 的 diff）
+
+claude -p Sonnet、high，US$0.14。plugin 驗證 PASS、錯誤 0、警告 1（py_compile 被擋），US$0.11。
+
+| # | 處理 |
+|---|---|
+| 1 舊格式鍵（沒帶指紋）升版後那個對話重講一次 | 不改：只在升版當下開著的對話、最多一次；第 5 條的修正順手把舊格式鍵拿掉 |
+| 2 取不到大小、時間時鍵尾空的，下一句取到了多講一次 | 不改：偶發、最多一次 |
+| 3 同一份 stat 兩次 | 改：每份只 stat 一次 |
+| 4 missing 鍵只看這次新不見的 | 改：missing、still_missing 都算還不見（先紅後綠） |
+| 5 又改了舊鍵不拿掉、佔 FILES_KEEP | 改：記新鍵時同一份的舊鍵拿掉（先紅後綠） |
+
+### review 原文
+
+我只讀了 `git show d940a0c`，再對照 `scripts/kb/_lib/inventory.py` 的 `path_of`、`abs_of_uri` 和 `scan`。沒有跑測試，也沒有改檔。結果有 3 條有把握的問題、2 條不確定。
+
+**1. 舊格式鍵升版後全部重講一次**
+- 位置：`hooks/_checks.py:279-283`（`key` 和 `fresh`）。
+- 升版前留在 session 檔裡的舊鍵是「wip|uri」或「md|uri」，沒有 stamp。新鍵是「wip|uri|大小:時間」，兩者永遠對不上。
+- 所以升版後的第一句，這個對話裡所有仍在變動清單的檔都會再講一次。不會報錯，因為鍵只拿來比字串。
+- 舊鍵不會被清掉，只會佔 `FILES_KEEP`（1000 條）的名額，直到被截斷。
+- 建議：`fresh` 比對時，也把「kind|uri」這個無 stamp 的舊鍵當成已講過；或者只認一次舊格式。
+
+**2. `_stamp` 取不到檔時鍵尾是空字串，同一份檔會被多講一次**
+- 位置：`hooks/_checks.py:243-250`、`:279-280`。
+- `path_of` 回 None（別名對不到）、檔剛好被刪、或 `os.stat` 暫時失敗，都會得到「kind|uri|」。
+- 下一句如果 `stat` 成功，鍵變成「kind|uri|size:mtime」，會再講一次。
+- `FILES_KEEP` 截斷也會讓舊鍵掉出去，造成類似的重講，但那是量的問題。
+- `scan` 看得到、`stat` 卻失敗，常見於路徑超長或權限問題，這時每句都只會是「kind|uri|」，反而不會重講，所以這條只是偶發的多講一次。
+- 建議：stamp 取不到時，改用 `scan` 已經拿到的值，或乾脆不記鍵。
+
+**3. `key()` 對同一個 uri 呼叫兩次 `os.stat`，兩次之間檔又變就會漏講**
+- 位置：`hooks/_checks.py:279-296`。
+- `fresh` 裡先算一次 stamp 做過濾，最後 `keys += [key(kind, u) ...]` 又算一次。
+- 兩次之間檔如果又被改，記下去的是「新 stamp」，而這次講的是舊內容。下一句的 stamp 相同，所以不再講，這次寫入就被吞掉了。
+- 從 `file_compare` 比完到 `stat` 之間檔又變，也是同樣的情況。窗口很小，影響也輕。
+- 建議：每個 uri 只算一次 stamp，用 dict 存起來，過濾和記鍵都用同一份。
+
+**4. 不確定：missing 鍵的修剪只用「這次新不見」的清單**
+- 位置：`hooks/_checks.py:266-267`。
+- 我查過 `inventory.scan`（`inventory.py:1097-1106`）：`report["missing"]` 只放這次由 active 轉成 missing 的條目，之前就不見的放 `still_missing`。
+- 如果 quick scan 不 apply，清冊裡的狀態不變，下一句同一份檔還是 active 轉 missing，鍵會留著，不會重講。
+- 但只要有別的流程把清冊 apply 了，那份檔下一句就在 `still_missing` 裡、不在 `missing` 裡，鍵會被誤刪。
+- 之後如果有人把 `still_missing` 也併進 `fresh("missing", …)`，或這份檔先被 apply 成 missing 又在別處被還原，就會重講。目前我沒找到會出錯的路徑，所以只列為不確定。
+- 規格說的是「回來了才忘掉」。比較貼近的做法是：只保留「現在仍不見」的鍵，也就是 `missing` 加 `still_missing` 的聯集，而不是只看 `missing`。
+
+**5. 不確定：`told_files[-FILES_KEEP:]` 截斷的負擔比以前重**
+- 位置：`hooks/_checks.py:600`（`turn_lines` 最後一行）。
+- 現在每改一次檔就多一個新鍵，舊 stamp 的鍵不會被拿掉。同一份檔在長對話裡反覆編輯，鍵數成長比以前快。
+- 截斷是從舊的砍起，被砍掉的鍵對應的檔如果還在變動清單裡，會再講一次。
+- 順序上，這次新加的鍵在尾端，不會先被砍。
+- 建議：記新鍵時，順便移除同 kind、同 uri 的舊 stamp 鍵。
+
+**已確認沒問題的部分**
+- `os.stat(None)` 丟的是 `TypeError`，已被 `_stamp` 的 `except` 接住。
+- `incomplete`、讓位（`yield_to_upgrade`）、`file_compare` 失敗這三條路徑，都回原樣的 `told`，沒有修剪。
+- `turn_lines` 在 `guarded` 回 None 時，`told_files` 保持原樣，接法正確。
+- `link`、來源找不到時，`path_of` 回 None 或不存在的路徑，`_stamp` 回空字串，不會拋出例外。
+
+共 5 條

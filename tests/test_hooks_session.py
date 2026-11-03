@@ -458,6 +458,27 @@ class OpeningWip(unittest.TestCase):
         self.assertIn(WIP.format(1), second)
         self.assertIn(MD.format(1, "筆記.md"), second)
 
+    def told_files(self, sid):
+        return json.loads((self.V / ".system" / "turns" / f"{sid}.json").read_text(encoding="utf-8"))["checks"]["told_files"]
+
+    def test_one_key_per_file(self):
+        """review 第 5 條：又改了記新鍵時，同一份的舊鍵拿掉，不佔 FILES_KEEP。"""
+        p = self.raw / "客戶案件" / "新.txt"
+        for text in ("一", "一二", "一二三"):
+            p.write_text(text + "\n", encoding="utf-8")
+            turn_lines(self.V, "one-key")
+        self.assertEqual(len([k for k in self.told_files("one-key") if k.startswith("wip|") and "新.txt" in k]), 1)
+
+    def test_missing_key_kept_after_scan_applied(self):
+        """review 第 4 條：清冊套用後那份在 still_missing，還是不見，鍵留著（回來了才忘掉）。"""
+        (self.raw / "行政" / "請款" / "r.docx").unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "applied"))
+        r = subprocess.run([sys.executable, str(KB), "inventory", "scan"], capture_output=True, text=True, encoding="utf-8",
+                           cwd=str(self.V), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        turn_lines(self.V, "applied")
+        self.assertTrue([k for k in self.told_files("applied") if k.startswith("missing|") and k.endswith("r.docx")])
+
     def test_missing_again_told_again(self):
         """裁定 18：不見講過、回來了、又不見，再講一次。"""
         p = self.raw / "行政" / "請款" / "r.docx"

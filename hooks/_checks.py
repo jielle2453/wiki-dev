@@ -254,7 +254,8 @@ def _stamp(vault, sources, uri):
 def change_lines(vault, told_files=(), session_id=None):
     """每句開頭的變動（D-525）：回 (行清單, 更新後的 told_files)。md 以外的新增、修改 → WIP_LINE（製作中，不叫整理）；md → MD_LINE
     （這個 session 按過停止不印，answer 裁定 14）；不見 → MISSING_LINE。同一份同一個內容一個對話只講一次，又改了再講（裁定 18：
-    鍵「wip|uri|大小:修改時間」「md|uri|…」；不見的鍵「missing|uri」在檔回來後拿掉，又不見再講）。清冊裡記成指路卡、封存、照設定不整理、讀不了的不算（cards.not_wip，裁定 8）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
+    鍵「wip|uri|大小:修改時間」「md|uri|…」，記新鍵時同一份的舊鍵拿掉；不見的鍵「missing|uri」在檔回來後拿掉（missing、
+    still_missing 都不算回來），又不見再講）。清冊裡記成指路卡、封存、照設定不整理、讀不了的不算（cards.not_wip，裁定 8）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
     --finish 轉格式時都不印。不報「還有幾份沒整理」（放寬丙 3，D-310(2)）。"""
     told = list(told_files)
     got = file_compare(vault)
@@ -263,7 +264,7 @@ def change_lines(vault, told_files=(), session_id=None):
     sources, report = got
     if report["incomplete"]:
         return [CHANGES_INCOMPLETE], told
-    gone = set(report["missing"])
+    gone = set(report["missing"]) | set(report.get("still_missing") or [])
     told = [k for k in told if not (k.startswith("missing|") and k[len("missing|"):] not in gone)]
     seen = set(told)
     from kb._lib import cards, inventory
@@ -276,8 +277,14 @@ def change_lines(vault, told_files=(), session_id=None):
         except (ValueError, OSError) as e:
             log_vault(vault, e)
 
+    stamps = {}  # 每份只 stat 一次：過濾與記鍵用同一個（review 第 3 條）
+
     def key(kind, uri):
-        return f"missing|{uri}" if kind == "missing" else f"{kind}|{uri}|{_stamp(vault, sources, uri)}"
+        if kind == "missing":
+            return f"missing|{uri}"
+        if uri not in stamps:
+            stamps[uri] = _stamp(vault, sources, uri)
+        return f"{kind}|{uri}|{stamps[uri]}"
 
     def fresh(kind, uris):
         return [u for u in dict.fromkeys(uris) if key(kind, u) not in seen]
@@ -292,6 +299,8 @@ def change_lines(vault, told_files=(), session_id=None):
         lines.append(WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
                      else MD_LINE.format(n=len(uris), names=_names(uris)))
         keys += [key(kind, u) for u in uris]
+    old = {k.rsplit("|", 1)[0] for k in keys if not k.startswith("missing|")}  # 同一份的舊鍵（含沒帶指紋的舊格式）
+    told = [k for k in told if k not in old and k.rsplit("|", 1)[0] not in old]
     return lines, told + keys
 
 
