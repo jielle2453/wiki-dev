@@ -464,7 +464,7 @@ class EachTurnChecks(unittest.TestCase):
         lines = [ln for ln in got if "kb changes --moved" in ln]
         self.assertEqual(len(lines), 1, got)
         self.assertTrue(lines[0].startswith("有 1 件搬動：跑 kb changes --moved --json，照內容判斷"), lines[0])
-        self.assertIn("要讀搬過的檔先跑 kb inventory scan", lines[0])  # 刪綜合卡說一聲 裁定 6：清冊還是舊位置，用編號讀不到
+        self.assertIn("看完 changes --moved 之後要讀搬過的檔，再跑 kb inventory scan", lines[0])  # 刪綜合卡說一聲 裁定 6：清冊還是舊位置，用編號讀不到
         self.assertEqual([ln for ln in self.say() if "kb changes --moved" in ln], [])
         shutil.move(self.raw / "客戶案件" / "a.txt", self.raw / "行政" / "a.txt")
         again = [ln for ln in self.say() if "kb changes --moved" in ln]

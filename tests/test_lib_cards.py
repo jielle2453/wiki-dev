@@ -400,6 +400,11 @@ class AfterTest(Vault):
         rel = p.relative_to(self.V).as_posix()
         self.assertEqual(cards.validate(self.V, rel, self.by_id(), self.sources()), (True, ""))
 
+    def test_old_link_location_without_uri(self):
+        """review 第 3 條：位置少 uri 欄回假（照舊重寫），不丟 KeyError 把卡歸成壞的。"""
+        entry = {"id": "f-1", "locations": [{}]}
+        self.assertFalse(cards.old_link_same_place(self.V, self.sources(), entry, "file:///C:/a.docx"))
+
     def test_old_link_really_moved_gets_new_link(self):
         """裁定 5：真的搬了 → 在 moved，sync 順便換成新連結。"""
         p, text, front = self.old_link_card()

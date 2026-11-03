@@ -42,6 +42,12 @@ class RulesCore(unittest.TestCase):
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-13 "))
         self.assertIn("客戶說「收工」「今天先這樣」，跑 kb cards wip，有製作中的就在回答最後帶一句還有哪幾份沒整理，不問", line)
 
+    def test_r10_two_states_only(self):
+        """刪綜合卡說一聲 裁定 7：禁講補登記、製作中；檔只講還沒整理、整理好了；加資料夾說加進來、看得到。"""
+        line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-10 "))
+        self.assertIn("型別表、守門、清冊、登記、製作中、設定檔第幾節", line)
+        self.assertIn("檔只講還沒整理、整理好了兩種；加資料夾說加進來、看得到", line)
+
     def test_r04_trash_through_kb(self):
         """manage 第二版第 10 點（D-173、I-116）：R-04 刪除改成經 kb 丟資源回收筒；放寬乙改成先留一份就做、不先講後果。R-07 改成先拍快照再代做。"""
         line = next(ln for ln in self.text.splitlines() if ln.startswith("- R-04 "))

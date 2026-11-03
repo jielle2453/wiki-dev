@@ -175,7 +175,7 @@ def old_link_same_place(vault, sources, entry, link):
         return False
     try:
         old = urllib.request.url2pathname(str(link)[len("file:"):])
-        now = inventory.path_of(vault, sources, entry["locations"][0]["uri"])
+        now = inventory.path_of(vault, sources, entry["locations"][0].get("uri", ""))
     except (ValueError, OSError):
         return False
     return now is not None and os.path.normcase(os.path.normpath(old)) == os.path.normcase(os.path.normpath(str(now)))
