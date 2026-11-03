@@ -240,18 +240,32 @@ def _names(uris):
     return "、".join(names[:NAMES_SHOWN]) + ("等" if len(names) > NAMES_SHOWN else "")
 
 
+def _stamp(vault, sources, uri):
+    """檔現在的「大小:修改時間」（裁定 18：同一份又改了再講）；找不到檔回空字串。"""
+    from kb._lib import inventory
+
+    try:
+        st = os.stat(inventory.path_of(vault, sources, uri))
+    except (OSError, TypeError, ValueError):
+        return ""
+    return f"{st.st_size}:{st.st_mtime_ns}"
+
+
 def change_lines(vault, told_files=(), session_id=None):
-    """每句開頭的變動（D-525）：回 (行清單, 新鍵清單)。md 以外的新增、修改 → WIP_LINE（製作中，不叫整理）；md → MD_LINE
-    （這個 session 按過停止不印，answer 裁定 14）；不見 → MISSING_LINE。同一份同一個對話只講一次（鍵「wip|uri」「md|uri」
-    「missing|uri」記進 checks.told_files）。清冊裡記成指路卡、封存、照設定不整理、讀不了的不算（cards.not_wip，裁定 8）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
+    """每句開頭的變動（D-525）：回 (行清單, 更新後的 told_files)。md 以外的新增、修改 → WIP_LINE（製作中，不叫整理）；md → MD_LINE
+    （這個 session 按過停止不印，answer 裁定 14）；不見 → MISSING_LINE。同一份同一個內容一個對話只講一次，又改了再講（裁定 18：
+    鍵「wip|uri|大小:修改時間」「md|uri|…」；不見的鍵「missing|uri」在檔回來後拿掉，又不見再講）。清冊裡記成指路卡、封存、照設定不整理、讀不了的不算（cards.not_wip，裁定 8）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
     --finish 轉格式時都不印。不報「還有幾份沒整理」（放寬丙 3，D-310(2)）。"""
+    told = list(told_files)
     got = file_compare(vault)
     if got is None or yield_to_upgrade(vault):
-        return [], []
-    report = got[1]
+        return [], told
+    sources, report = got
     if report["incomplete"]:
-        return [CHANGES_INCOMPLETE], []
-    seen = set(told_files)
+        return [CHANGES_INCOMPLETE], told
+    gone = set(report["missing"])
+    told = [k for k in told if not (k.startswith("missing|") and k[len("missing|"):] not in gone)]
+    seen = set(told)
     from kb._lib import cards, inventory
 
     skip = set()
@@ -262,8 +276,11 @@ def change_lines(vault, told_files=(), session_id=None):
         except (ValueError, OSError) as e:
             log_vault(vault, e)
 
+    def key(kind, uri):
+        return f"missing|{uri}" if kind == "missing" else f"{kind}|{uri}|{_stamp(vault, sources, uri)}"
+
     def fresh(kind, uris):
-        return [u for u in dict.fromkeys(uris) if f"{kind}|{u}" not in seen]
+        return [u for u in dict.fromkeys(uris) if key(kind, u) not in seen]
     changed = [u for u in report["added"] + report["modified"] if inventory.uri_key(u) not in skip]
     groups = (("wip", fresh("wip", [u for u in changed if not _is_md(u)])),
               ("md", [] if _stopped(vault, session_id) else fresh("md", [u for u in changed if _is_md(u)])),
@@ -274,8 +291,8 @@ def change_lines(vault, told_files=(), session_id=None):
             continue
         lines.append(WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
                      else MD_LINE.format(n=len(uris), names=_names(uris)))
-        keys += [f"{kind}|{u}" for u in uris]
-    return lines, keys
+        keys += [key(kind, u) for u in uris]
+    return lines, told + keys
 
 
 def line_drift(vault):
@@ -578,10 +595,9 @@ def turn_lines(vault, session_id):
         if moved and not yield_to_upgrade(vault):
             tell(moved[0])
             told.extend(moved[1])
-        lines, keys = guarded(change_lines, vault, told_files, session_id) or ([], [])
+        lines, told_files = guarded(change_lines, vault, told_files, session_id) or ([], told_files)
         for line in lines:
             tell(line, once=line == CHANGES_INCOMPLETE)
-        told_files.extend(keys)
         tell(guarded(line_drift, vault), once=True)
     checks = {"stamps": stamps, "told": told[-TOLD_KEEP:], "told_files": told_files[-FILES_KEEP:], "detected": detected}
     try:

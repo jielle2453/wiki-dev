@@ -444,6 +444,31 @@ class OpeningWip(unittest.TestCase):
         self.assertIn(WIP.format(40), turn_lines(self.V, "many"))
         self.assertEqual(turn_lines(self.V, "many"), [])
 
+    def test_changed_again_told_again(self):
+        """裁定 18：同一份同一個內容一個對話只講一次，又改了再講；製作中、md 都一樣。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記\n", encoding="utf-8")
+        first = turn_lines(self.V, "again")
+        self.assertIn(WIP.format(1), first)
+        self.assertIn(MD.format(1, "筆記.md"), first)
+        self.assertEqual(turn_lines(self.V, "again"), [])
+        (self.raw / "客戶案件" / "新.txt").write_text("新，又改了\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "筆記.md").write_text("# 筆記\n展示改到 12/8\n", encoding="utf-8")
+        second = turn_lines(self.V, "again")
+        self.assertIn(WIP.format(1), second)
+        self.assertIn(MD.format(1, "筆記.md"), second)
+
+    def test_missing_again_told_again(self):
+        """裁定 18：不見講過、回來了、又不見，再講一次。"""
+        p = self.raw / "行政" / "請款" / "r.docx"
+        body = p.read_bytes()
+        p.unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+        p.write_bytes(body)
+        self.assertNotIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+        p.unlink()
+        self.assertIn(MISSING.format(1), turn_lines(self.V, "gone-again"))
+
     def test_missing_told_once(self):
         (self.raw / "行政" / "請款" / "r.docx").unlink()
         self.assertIn(MISSING.format(1), turn_lines(self.V, "gone"))
