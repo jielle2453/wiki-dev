@@ -135,7 +135,7 @@ def resolve(vault, sources, target, cwd):
     path = Path(target) if os.path.isabs(target) else Path(cwd) / target
     path = Path(os.path.abspath(path))
     head = target.replace("\\", "/").split("/", 1)[0]
-    if not os.path.isabs(target) and not os.path.exists(long_path(path)) and any(s["alias"] == head for s in sources.entries):
+    if not os.path.isabs(target) and not os.path.exists(long_path(path)) and any(s["alias"].casefold() == head.casefold() for s in sources.entries):
         return resolve(vault, sources, "file://" + target.replace("\\", "/"), cwd)
     uri = inventory.uri_of(vault, sources, path)
     entry = inventory.entry_for(vault, uri) if uri else None

@@ -314,6 +314,18 @@ class Refuse(Base):
         (self.raw / "客戶案件" / "大安陳" / "新.txt").write_text("x", encoding="utf-8")
         self.refused(self.raw / "客戶案件" / "大安陳" / "新.txt", "讀不到：這個位置你說過不讀")
 
+    def test_alias_path_still_guarded(self):
+        """刪綜合卡說一聲 review 第 3、9 條：「別名/路徑」寫法照樣擋排除夾、憑證名、跳出來源根。"""
+        r = self.kb("folders", "exclude", str(self.raw / "客戶案件" / "大安陳"), "--kind", "unused")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.refused(_cards.MEETING, "讀不到：這個位置你說過不讀")
+        (self.raw / "客戶案件" / "信義王" / "id_rsa").write_text("x", encoding="utf-8")
+        self.refused("客戶案件/信義王/id_rsa", "讀不到：檔名像密碼或金鑰，預設不讀")
+        (self.tmp / "別處.txt").write_text("x", encoding="utf-8")
+        for up in ("客戶案件/../../別處.txt", "客戶案件/../../../別處.txt", "客戶案件\\..\\..\\別處.txt"):
+            with self.subTest(up):
+                self.refused(up, "讀不到：不在登記的資料夾裡")
+
     def test_unlisted_credential_name(self):
         p = self.raw / "客戶案件" / "信義王" / "id_rsa"
         p.write_text("x", encoding="utf-8")
