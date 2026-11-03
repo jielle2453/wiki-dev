@@ -1233,7 +1233,7 @@ _CARD_ID = re.compile(r"\bf-[0-9a-f]{8}\b")
 
 
 def _card_ids(line):
-    """一條紀事的出處卡編號（〔〕裡的 f-xxxxxxxx，可以多個）。"""
+    """一條紀事的出處卡編號（〔〕裡的 f-xxxxxxxx，可以多個）；口述、推算這類編號不算（裁定 16 只說卡編號）。"""
     return {c for ref in _CARD_REF.findall(line) for c in _CARD_ID.findall(ref)}
 
 
@@ -1244,7 +1244,8 @@ def _event_day(line):
 
 def insert_events(text, events):
     """events [(日期, 行)] 插進「## 紀事」：日期倒序、同一天的新行在舊行上面、新行之間照給的順序；一字不差已有的不加；
-    同一天、有同一個〔卡編號〕的舊行拿掉、換成新行（製作中裁定 16：AI 不讀紀事，同一份卡同一天只留一條）。
+    同一天、舊行的卡編號都在某條新行裡的，舊行拿掉、換成新行（製作中裁定 16：AI 不讀紀事，同一份卡同一天只留一條）；
+    舊行掛的卡比新行多的不換（別張的出處不丟），跟這批某條一字不差的不換（照舊算已經有）。
     沒有紀事段就在全卡最後補一段（D-523：紀事在相關檔下面）。回 (新內文, 加了的行, 已經有的行)。"""
     crlf = _all_crlf(text)
     lines = _lines(text)
@@ -1266,9 +1267,13 @@ def insert_events(text, events):
         while head and not head[-1].strip():
             head.pop()
         return _join(head + [""] + block, True, crlf), added, dup
-    replace = {(day, c) for day, line in todo for c in _card_ids(line)}
-    sec = [l for l in lines[span[0] + 1:span[1]]
-           if not (_event_day(l) and any((_event_day(l), c) in replace for c in _card_ids(l)))]
+    keep = {_same_event(f"- {line}") for line in dup}
+    new_ids = [(day, _card_ids(line)) for day, line in todo]
+
+    def replaced(old):
+        ids, day = _card_ids(old), _event_day(old)
+        return bool(ids) and _same_event(old) not in keep and any(day == d and ids <= n for d, n in new_ids)
+    sec = [l for l in lines[span[0] + 1:span[1]] if not replaced(l)]
     for day, line in reversed(todo):  # 倒著插、每行插在同一天舊行之上：同一天的新行最後照給的順序
         at = next((i for i, l in enumerate(sec) if _event_day(l) and _event_day(l) <= day), None)
         if at is None:
