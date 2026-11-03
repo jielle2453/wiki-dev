@@ -83,6 +83,14 @@ class Convert(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(r.stdout.startswith("暫存檔："), r.stdout)
 
+    def test_moved_id_reads_after_scan(self):
+        """刪綜合卡說一聲 裁定 6：搬了、還沒 scan 用編號讀不到（清冊還是舊位置）；照每句開頭那行先 inventory scan 就讀得到。"""
+        e, _ = self.moved()
+        self.assertEqual(self.kb("convert", e["id"]).stdout.splitlines()[0], "讀不到：找不到原檔")
+        self.scan()
+        r = self.kb("convert", e["id"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_moved_uri_reads(self):
         """搬了以後用 changes --moved 的 to（file:// 整串）讀得到。"""
         e, alias_path = self.moved()
