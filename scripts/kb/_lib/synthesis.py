@@ -692,7 +692,7 @@ def _wiki(m):
 
 
 def file_section(mounts_of_it):
-    """綜合卡最後一段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
+    """綜合卡紀事上面那段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
     `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
     ordered = sorted(sorted(mounts_of_it, key=lambda m: m["id"]), key=_date_key, reverse=True)
     main, old, other, seen = [], [], [], set()

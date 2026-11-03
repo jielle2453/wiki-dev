@@ -585,7 +585,7 @@ class Layout(Base):
         self.assertIn("正文各段照 現況、自訂段、推算、相關檔、紀事 的順序排", broken)  # D-523 疑義裁定 3
 
     def test_render_cache_puts_files_above_events(self):
-        """驗收 2：新版面的卡補相關檔時插在紀事前面；紀事不在最後的舊版照舊接在最後。"""
+        """驗收 2：補相關檔時插在紀事前面（紀事不在最後也一樣，review）；沒有紀事段才接在最後。"""
         E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
         p = self.V / XINYI_REL
         p.write_text(E.synthesis_text(self.header(E.XINYI), "信義王", "一句。\n\n" + self.NOW + "\n" + self.CUSTOM + "\n"
