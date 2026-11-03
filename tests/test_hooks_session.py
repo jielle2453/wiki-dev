@@ -464,6 +464,21 @@ class OpeningWip(unittest.TestCase):
         (line,) = [ln for ln in self.status() if " md 新放或改過" in ln]
         self.assertRegex(line, r"^有 4 份 md 新放或改過（n\d\.md、n\d\.md、n\d\.md等）：")
 
+    def test_pointer_archived_skipped_not_wip(self):
+        """裁定 8：指路卡、清冊封存、照設定不整理、讀不了的檔改了，每句開頭不算製作中（跟 kb cards wip 同一套）。"""
+        p = self.V / ".system" / "inventory.json"
+        base = p.read_text(encoding="utf-8")
+        for field, value in (("card_mode", "pointer"), ("archived", True), ("skip_kind", "請款"), ("read", "too_large")):
+            with self.subTest(field=field):
+                data = json.loads(base)
+                (entry,) = [e for e in data["entries"] if any(loc["uri"].endswith("/a.txt") for loc in e["locations"])]
+                entry[field] = value
+                p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                (self.raw / "客戶案件" / "a.txt").write_text(f"改過 {field}\n", encoding="utf-8")
+                self.assertEqual([ln for ln in turn_lines(self.V, f"filter-{field}") if CHANGE_HEAD.match(ln)], [])
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")  # 新放的（清冊沒有）照算
+        self.assertIn(WIP.format(1), turn_lines(self.V, "filter-new"))
+
     def test_incomplete_line_no_hint(self):
         # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
         (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")

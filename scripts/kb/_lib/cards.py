@@ -965,14 +965,21 @@ def unsorted(vault, sources=None, deadline=None, sorted_=None):
     return len(out["new"]) + len(out["stale"])
 
 
+def not_wip(entry):
+    """這份改了也不算製作中（D-525 裁定 8，同 _sort_files 不進 new、stale 的那幾種）：指路卡、清冊封存、照設定不整理、讀不了的。
+    每句開頭的變動行用它篩清冊裡已有的檔；新放的（清冊還沒有）照算。"""
+    return (entry.get("card_mode") == POINTER or bool(entry.get("archived")) or bool(entry.get("skip_kind"))
+            or entry.get("read") in SKIPPED_READS)
+
+
 def _wip_entities(entry, name, ent_data, vault):
-    """這份算在哪幾個實體下（D-525）：實體夾照 prefill_entities，加上檔名（不含副檔名）含 active 實體的名稱或別名的
-    （比法同 lookup.mentions：entities.key 包含）；自己不算。"""
+    """這份算在哪幾個實體下（D-525）：實體夾照 prefill_entities，加上檔名（不含副檔名）含 active、沒封存的實體的名稱或別名的
+    （比法同 lookup.mentions：entities.key 包含；封存的不掛，裁定 9）；自己不算。"""
     from kb._lib import entities
     out = list(prefill_entities(entry, ent_data, vault))
     stem = entities.key(Path(name).stem)
     for e in (ent_data or {}).get("entities") or []:
-        if e.get("status") != "active" or entities.is_self(e) or e["name"] in out:
+        if e.get("status") != "active" or e.get("archived") or entities.is_self(e) or e["name"] in out:
             continue
         if any(k and k in stem for k in (entities.key(n) for n in [e["name"], *(e.get("aliases") or [])])):
             out.append(e["name"])

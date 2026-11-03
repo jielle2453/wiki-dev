@@ -42,6 +42,14 @@ class Wip(unittest.TestCase):
             self.assertEqual(set(r), {"id", "path", "name", "mtime", "entities"})
         self.assertNotIn(self.contract, {r["id"] for r in rows.values()}, "有卡、沒改過的不列")
 
+    def test_archived_entity_not_matched_by_filename(self):
+        data = json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8"))["entities"]
+        for e in data:
+            if e["name"] == "王先生":
+                e["archived"] = True
+        E.put_entities(self.V, data)
+        self.assertEqual(self.by_name()["王董估價.txt"]["entities"], [])
+
     def test_changed_listed(self):
         from tests import _ooxml
         _ooxml.docx(self.V / "案子" / "信義王" / "合約.docx", [("p", "改過的合約")])

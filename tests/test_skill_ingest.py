@@ -263,5 +263,6 @@ class Wip(unittest.TestCase):
         """裁定 6：md 卡寫完，對卡上的實體各跑一次 kb entity log --synced；不讀綜合卡、不改現況。"""
         text = (SKILL.parent / "references" / "carding.md").read_text(encoding="utf-8")
         line = next(ln for ln in text.splitlines() if ln.startswith("2. md 檔例外"))
-        self.assertIn("kb entity log <實體> '<文件日期> <卡標題>〔<卡編號>〕' --synced", line)
+        self.assertIn("kb entity log <實體> '<文件日期> <卡標題>〔<卡編號>〕'", line)
+        self.assertNotIn("--synced", line, "裁定 7：只加紀事，不標整理到")
         self.assertIn("不讀綜合卡、不改現況", line)

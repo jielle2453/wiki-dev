@@ -243,7 +243,7 @@ def _names(uris):
 def change_lines(vault, told_files=(), session_id=None):
     """每句開頭的變動（D-525）：回 (行清單, 新鍵清單)。md 以外的新增、修改 → WIP_LINE（製作中，不叫整理）；md → MD_LINE
     （這個 session 按過停止不印，answer 裁定 14）；不見 → MISSING_LINE。同一份同一個對話只講一次（鍵「wip|uri」「md|uri」
-    「missing|uri」記進 checks.told_files）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
+    「missing|uri」記進 checks.told_files）。清冊裡記成指路卡、封存、照設定不整理、讀不了的不算（cards.not_wip，裁定 8）。沒比完 → [CHANGES_INCOMPLETE]；搬動、重複、之前就不見的不算；要先補位置或
     --finish 轉格式時都不印。不報「還有幾份沒整理」（放寬丙 3，D-310(2)）。"""
     got = file_compare(vault)
     if got is None or yield_to_upgrade(vault):
@@ -252,10 +252,17 @@ def change_lines(vault, told_files=(), session_id=None):
     if report["incomplete"]:
         return [CHANGES_INCOMPLETE], []
     seen = set(told_files)
+    from kb._lib import cards, inventory
+
+    try:  # 指路卡、封存、照設定不整理、讀不了的不算（裁定 8，同 kb cards wip）；清冊讀不到就不篩
+        skip = {inventory.uri_key(loc["uri"]) for e in inventory.load(vault)["entries"] if cards.not_wip(e)
+                for loc in e.get("locations") or [] if loc.get("uri")}
+    except ValueError:
+        skip = set()
 
     def fresh(kind, uris):
         return [u for u in dict.fromkeys(uris) if f"{kind}|{u}" not in seen]
-    changed = report["added"] + report["modified"]
+    changed = [u for u in report["added"] + report["modified"] if inventory.uri_key(u) not in skip]
     groups = (("wip", fresh("wip", [u for u in changed if not _is_md(u)])),
               ("md", [] if _stopped(vault, session_id) else fresh("md", [u for u in changed if _is_md(u)])),
               ("missing", fresh("missing", report["missing"])))
