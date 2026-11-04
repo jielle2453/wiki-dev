@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import agenda, config, inventory, paths, turn
+from kb._lib import agenda, config, inventory, paths, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -241,7 +241,7 @@ def _list(vault, args, as_json):
     items = sorted(items, key=lambda i: (i.get("start") or i.get("date", ""), i.get("date", ""), i.get("time") or "",
                                          i.get("id", "")))
     if as_json:
-        print(json.dumps({"items": items}, ensure_ascii=False))
+        print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "agenda")}, ensure_ascii=False))
         return 0
     if not items:
         print("日程是空的")

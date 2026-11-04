@@ -130,6 +130,27 @@ class StreamsTest(unittest.TestCase):
         self.assertEqual((streams.stream_dir(self.V, "agenda") / "m-other.jsonl").read_text(encoding="utf-8"), before)
         self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 3)
 
+    def test_write_compacts_when_own_file_is_big(self):
+        old = streams.COMPACT_BYTES
+        streams.COMPACT_BYTES = 2000
+        try:
+            streams.write(self.V, "agenda", {}, {"a-1": {"t": 0}})
+            for i in range(1, 40):
+                streams.write(self.V, "agenda", {"a-1": {"t": i - 1}}, {"a-1": {"t": i}})
+        finally:
+            streams.COMPACT_BYTES = old
+        lines = streams.own_file(self.V, "agenda").read_text(encoding="utf-8").splitlines()
+        self.assertLess(len(lines), 40)
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 39)
+
+    def test_conflicts_of_for_json_output(self):
+        self.put("m-a", "entities", {"op": "create", "id": "e-1", "seq": 1, "base": 0, "by": "m-a", "set": {"name": "X"}})
+        self.put("m-a", "entities", {"op": "set", "id": "e-1", "seq": 2, "base": 1, "by": "m-a", "set": {"name": "甲"}})
+        self.put("m-b", "entities", {"op": "set", "id": "e-1", "seq": 2, "base": 1, "by": "m-b", "set": {"name": "乙"}})
+        got = streams.conflicts_of(self.V, "entities")
+        self.assertEqual((got[0]["id"], got[0]["field"]), ("e-1", "name"))
+        self.assertEqual(streams.conflicts_of(self.V, "agenda"), [])
+
     def test_mask_rewrites_own_lines(self):
         streams.write(self.V, "statements", {}, {"s-1": {"text": "祕密", "status": "active"}})
         streams.write_mask(self.V, "statements", ["s-1"], ["text"])

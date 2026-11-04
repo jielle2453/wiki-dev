@@ -8,7 +8,7 @@ import argparse
 import json
 
 from kb import journal_cli
-from kb._lib import credentials, statements, turn
+from kb._lib import credentials, statements, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -99,7 +99,7 @@ def _list(vault, args, as_json):
     order = {id(s): i for i, s in enumerate(data["statements"])}  # 同一天照記的先後，新的在上
     items = sorted(items, key=lambda s: (s.get("date") or "", order[id(s)]), reverse=True)
     if as_json:
-        print(json.dumps({"statements": items}, ensure_ascii=False))
+        print(json.dumps({"statements": items, "conflicts": streams.conflicts_of(vault, "statements")}, ensure_ascii=False))
         return 0
     if not items:
         print("口述清單是空的")

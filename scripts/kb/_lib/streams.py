@@ -57,6 +57,7 @@ def legacy_rel(kind):
 def _is_archived(rec):
     return bool(rec.get("archived"))
 
+COMPACT_BYTES = 1_000_000  # 自己的檔超過這個大小，寫完順手併掉被同一台後面的行蓋過的舊行
 hard_delete = False  # purge 期間：刪掉的筆連這台檔裡的舊行一起拿掉（原文不留在自己的檔裡）
 stats = {"merges": 0}  # 快取沒命中、真的合併的次數（測試計次用）
 _TURN = {}  # (vault, kind) → 最近一次 turn.backup 記的回合代號
@@ -386,6 +387,9 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
             noted.append({"kind": kind, "id": rid, "seq": prev + 1})
         noted += noted_extra
         _append(path, lines)
+        big = path.stat().st_size > COMPACT_BYTES
+    if big:
+        compact(vault, kind)
     load(vault, kind)  # 順便更新衍生副本
     if turn_id:
         _note_turn_lines(vault, turn_id, noted)
@@ -753,3 +757,13 @@ def revert_line(vault, kind, rid, effects, turn_id, who=None):
                 new.pop(f, None)
     write(vault, kind, {rid: cur}, {rid: new}, turn_id=turn_id, who=who, reverts=ref)
     return True
+
+
+def conflicts_of(vault, kind):
+    """kb <種類> list／show --json 的 conflicts：沒有流水檔或讀不了就是空清單。"""
+    try:
+        if not exists(vault, kind):
+            return []
+        return conflicts_json(load(vault, kind))
+    except (OSError, ValueError):
+        return []

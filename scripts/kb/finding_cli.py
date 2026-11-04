@@ -8,7 +8,7 @@ import argparse
 import json
 
 from kb import journal_cli
-from kb._lib import entities, findings, turn
+from kb._lib import entities, findings, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -80,7 +80,7 @@ def _list(vault, args, as_json):
     ctx = findings.context(vault, ent) if items else None
     rows = [dict(c, stale=findings.stale(vault, c, ctx)) for c in items]
     if as_json:
-        print(json.dumps({"findings": rows}, ensure_ascii=False))
+        print(json.dumps({"findings": rows, "conflicts": streams.conflicts_of(vault, "findings")}, ensure_ascii=False))
         return 0
     if not rows:
         print("推算清單是空的")
