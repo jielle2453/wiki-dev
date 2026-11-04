@@ -91,8 +91,8 @@ def _read_ranges(vault, rel):
 
 def lookup(vault, query):
     """回 {"query","entity","synthesis","read_ranges","cards","statements","rulings","findings","agenda","unsorted","mentions","verify_max",
-    "in_progress"（算在這個實體下的製作中檔，同 cards.wip 的欄位；沒登記是空的，D-525）}
-    （沒登記多 mentions_total）。verify_max 是要逐份核對的份數上限（answer_verify_max，answer 裁定 6）；裁示帶日期（短標用）。"""
+    "in_progress"（算在這個實體下的製作中檔，同 cards.wip 的欄位，D-525；沒登記也沒卡提到時是全部製作中的檔，檔名有問的詞的在前，#37）}
+    （沒登記多 mentions_total；沒卡提到再多 in_progress_total）。verify_max 是要逐份核對的份數上限（answer_verify_max，answer 裁定 6）；裁示帶日期（短標用）。"""
     from kb._lib import agenda, cards, findings, inventory, rulings, statements, synthesis
     ent = entities.load(vault)
     sorted_ = cards.light_sort(vault)
@@ -105,6 +105,9 @@ def lookup(vault, query):
         found = mentions(vault, query)
         limit = config.get(vault, "lookup_mentions_max")
         out.update(mentions=found[:limit], mentions_total=len(found))
+        if not found:  # 還沒整理的檔沒有卡，可能就在裡面（#37）
+            wip = sorted(cards.wip(vault, sorted_=sorted_), key=lambda r: query not in r["name"])
+            out.update(in_progress=wip[:limit], in_progress_total=len(wip))
         return out
     prof = entities._profile(vault)
     name = e["name"]

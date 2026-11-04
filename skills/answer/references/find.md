@@ -17,7 +17,7 @@
 - `rulings`：裁示，口述為準（`spoken_wins`）排在前面；`cards` 是它掛的卡，`date` 是客戶說的那天（短標用）。
 - `findings`：之前記下的推算。`stale` 是 false 的直接用（短標〔我算的〕）；true 的沒有 `text`，只有 `redo`（算法），照材料重算，不要提舊結果。
 - `agenda`：掛著它、還沒結束的日程。
-- `in_progress`：算在它底下的製作中檔（她放了、改了還沒說整理，D-525）：`name`、`path`（原檔）、`mtime`。問到的事跟它有關就讀那份原檔答（Word、Excel 用 `kb convert`），標「還沒整理，照原檔」。
+- `in_progress`：算在它底下的製作中檔（她放了、改了還沒說整理，D-525）：`name`、`path`（原檔）、`mtime`。問到的事跟它有關就讀那份原檔答（Word、Excel 用 `kb convert`），標「還沒整理，照原檔」。沒登記也沒卡提到時，這裡是全部製作中的檔（檔名有問的詞的在前），像的照樣讀。
 - `unsorted`：整個知識庫還有幾份沒整理成卡；回答用不到就不提，客戶問才講。
 - `mentions`：名稱沒登記時才有，見第六節。
 - `verify_max`：要逐份核對的份數上限，超過先問（`verify.md` 第二節）。

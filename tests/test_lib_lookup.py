@@ -132,10 +132,22 @@ class NotRegistered(Base):
         self.assertEqual((len(got["mentions"]), got["mentions_total"]), (1, 3))
 
     def test_nothing_human_line(self):
+        """放寬丙 3-4：不帶「還沒整理 N 份」；#37：有製作中的檔多一行列出來，沒有就只有那一句。"""
         out = self.kb("沒這個").splitlines()
-        self.assertEqual(out, [lookup.NOTHING])  # 放寬丙 3-4：人讀那行不再帶「還沒整理 N 份」，--json 的 unsorted 還在
+        n = len(cards.wip(self.V))
+        self.assertGreater(n, 0)
+        self.assertEqual(out[0], lookup.NOTHING)
+        self.assertEqual(len(out), 2, out)
+        self.assertTrue(out[1].startswith(f"還沒整理的 {n} 份可能有提到（"), out[1])
         got = json.loads(self.kb("沒這個", "--json"))
         self.assertEqual((got["entity"], got["cards"], got["mentions"], got["mentions_total"]), (None, [], [], 0))
+        self.assertEqual((len(got["in_progress"]), got["in_progress_total"]), (n, n))
+        from unittest import mock
+        from kb import lookup_cli
+        with mock.patch.object(cards, "wip", return_value=[]):
+            got = lookup.lookup(self.V, "沒這個")
+        self.assertEqual(lookup_cli._lines(got), [lookup.NOTHING])
+        self.assertEqual(lookup.lookup(self.V, "信義王報價")["in_progress"], [])  # 有卡提到就不附（只附在都沒有時）
 
 
 class Knowledge(Base):

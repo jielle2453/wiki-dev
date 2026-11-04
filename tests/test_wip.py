@@ -93,7 +93,14 @@ class Wip(unittest.TestCase):
         got = lookup.lookup(self.V, "信義王")
         self.assertEqual([r["name"] for r in got["in_progress"]], ["新報價.txt"])
         self.assertEqual(lookup.lookup(self.V, "王董")["in_progress"][0]["name"], "王董估價.txt")
-        self.assertEqual(lookup.lookup(self.V, "沒有這個")["in_progress"], [])
+        nothing = lookup.lookup(self.V, "雜項")  # #37：沒登記也沒卡提到，附全部製作中的，檔名有問的詞的在前
+        self.assertEqual(nothing["in_progress"][0]["name"], "雜項.txt")
+        self.assertEqual(nothing["in_progress_total"], len(cards.wip(self.V)))
+        (self.V / ".system" / "config.json").write_text(json.dumps({"lookup_mentions_max": 1}), encoding="utf-8")
+        lines = run_kb("lookup", "雜項", cwd=self.V).stdout.splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertRegex(lines[1], r"：雜項\.txt（\d{1,2}/\d{1,2} 改）……還有 \d+ 份$")
+        (self.V / ".system" / "config.json").unlink()
         r = run_kb("lookup", "信義王", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         (line,) = [ln for ln in r.stdout.splitlines() if ln.startswith("製作中：")]
