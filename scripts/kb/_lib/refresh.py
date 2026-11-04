@@ -79,7 +79,7 @@ def _run(vault, turn_id, out):
         out["conflicts"] = resolve_conflicts(vault, turn_id)
     head = git.head(vault)
     old = read_last_head(vault)
-    pulled = git.changed_since(vault, old, head) or []
+    pulled = git.changed_by_others(vault, old, head) or []  # 別人寫的 commit 動到的檔；自己（外掛）commit 的不算
     out["pulled"] = pulled
     out["rendered"] = _render_pages(vault, turn_id)
     _originals(vault, pulled, out)
@@ -334,3 +334,73 @@ def public(got):
     return json.loads(json.dumps(got, ensure_ascii=False))
 
 
+
+
+# ---------- 6. 退回時別人改過的卡與檔（D-296 (2)(3)） ----------
+
+AFTER = "after.jsonl"
+COPY_SUFFIX = "退回前的版本"
+
+
+def _file_sha(vault, rel):
+    f = Path(vault) / rel
+    try:
+        return hashlib.sha256(f.read_bytes()).hexdigest() if f.is_file() else None
+    except OSError:
+        return None
+
+
+def write_after(vault, turn_id):
+    """回合收尾（Stop）：這回合碰過的檔（manifest 裡知識庫內的路徑）現在的 sha 記進 versions/<turn>/after.jsonl，
+    一行 {"path","sha256"}。之後 undo 比現在的 sha：不同＝這回合之後有人（pull 進來的、雲端同步的）改過。"""
+    from kb._lib import turn
+    seen, rows = set(), []
+    for e in turn.entries(vault, turn_id):
+        rel = e.get("path")
+        if not rel or e.get("uri") or rel in seen or rel.startswith("_src/"):
+            continue
+        seen.add(rel)
+        rows.append({"path": rel, "sha256": _file_sha(vault, rel)})
+    if not rows:
+        return 0
+    d = Path(vault) / turn.VERSIONS_REL / turn_id
+    d.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(d / AFTER, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    return len(rows)
+
+
+def changed_after(vault, turn_id, rel):
+    """這個檔現在的 sha 跟那回合收尾時記的不同嗎（沒記就是沒有，回 False）。"""
+    from kb._lib import turn
+    p = Path(vault) / turn.VERSIONS_REL / turn_id / AFTER
+    try:
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            r = json.loads(ln) if ln.strip() else {}
+            if r.get("path") == rel:
+                return r.get("sha256") != _file_sha(vault, rel)
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def other_changed(vault, turn_id, rel, backup=None):
+    """退回一項（檔）之前：這回合之後被別人改過就先替她做好一半，回 conflict 的補充欄 dict；沒被動過回 None。
+    卡 → 不換回舊版，標重做，done: "redo"；產出、原檔 → 不換回，留的那份另存「<名稱>（退回前的版本）.<副檔名>」，copy: 路徑。
+    who：卡取 git log -1 的人名，雲端的檔寫「同事」；via：git 追蹤的是 pull，其他是 cloud。"""
+    if not changed_after(vault, turn_id, rel):
+        return None
+    tracked = git.is_repo(vault) and git.tracked(vault, rel)
+    who = (git.author_of(vault, "HEAD", rel) if tracked else None) or "同事"
+    out = {"side": "other", "who": who, "via": "pull" if tracked else "cloud", "done": None, "copy": None}
+    if _is_card(vault, rel):
+        _mark_redo(vault, rel, turn_id)
+        out["done"] = "redo"
+    elif backup and Path(backup).is_file():
+        stem, ext = os.path.splitext(rel)
+        dst = f"{stem}（{COPY_SUFFIX}）{ext}"
+        try:
+            (Path(vault) / dst).write_bytes(Path(backup).read_bytes())
+            out["copy"] = dst
+        except OSError:
+            pass
+    return out

@@ -68,6 +68,8 @@ def _ok(vault, *args, **kw):
 
 
 def is_repo(vault):
+    if not (Path(vault) / ".git").exists():  # 單人沒有 git 的知識庫：不叫子行程（每句開頭都問）
+        return False
     return available() and _ok(vault, "rev-parse", "--is-inside-work-tree") == "true"
 
 
@@ -88,6 +90,24 @@ def changed_since(vault, old, new):
     if got is None:
         return None
     return [x for x in got.split("\0") if x]
+
+
+def changed_by_others(vault, old, new):
+    """old..new 之間，不是這台的人（git config user.name）寫的 commit 動到的檔（pull 進來的）；自己 commit 的不算。
+    old 空或不認得回 None。"""
+    if not old or not new:
+        return None
+    mine = _ok(vault, "config", "user.name")
+    rc, out, _e = run(vault, "-c", "core.quotepath=false", "log", "--no-merges", "--format=\x01%an", "--name-only", f"{old}..{new}")
+    if rc != 0:
+        return None
+    got, author = [], None
+    for ln in out.splitlines():
+        if ln.startswith("\x01"):
+            author = ln[1:]
+        elif ln.strip() and author != mine and ln not in got:
+            got.append(ln)
+    return got
 
 
 def unmerged(vault):

@@ -149,5 +149,108 @@ class RefreshTest(RefreshBase):
         self.assertFalse(got["rebase"])
 
 
+class PulledEditsTest(RefreshBase):
+    """問 1 (a)：pull 進來的卡不被這台當成手改；自己改的照記。"""
+
+    def test_pulled_card_not_counted_as_hand_edit(self):
+        todo = cards.todo(self.A, sources_lib.load(self.A))["new"]
+        item = next(i for i in todo if i["id"] == _cards.entry_of(self.A, _cards.MEETING)["id"])
+        p = _cards.write_card(self.A, item, "大安陳會議一")
+        rel = p.relative_to(self.A).as_posix()
+        card_base.record(self.A, rel)
+        self.commit_push(self.A, "card", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        card_base.record(self.B, rel)
+        refresh.run(self.B, tid(self.B))  # 記下目前的 HEAD
+        p.write_text(p.read_text(encoding="utf-8").replace("第一次會議的紀錄", "第一次會議（小王改）"), encoding="utf-8", newline="\n")
+        self.commit_push(self.A, "wang", "小王")
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertEqual(len(card_base.edits(self.B, persist=False)["edits"]), 1)  # 還沒 refresh：對不上基準
+        got = refresh.run(self.B, tid(self.B))
+        self.assertIn(rel, got["pulled"])
+        self.assertEqual(card_base.edits(self.B)["edits"], [])
+        # 這台的人接著自己改 → 照記
+        q = self.B / rel
+        q.write_text(q.read_text(encoding="utf-8") + "\n我補一句\n", encoding="utf-8", newline="\n")
+        self.assertEqual(len(card_base.edits(self.B)["edits"]), 1)
+
+
+class AfterTest(RefreshBase):
+    """退回時別人改過的檔（驗收 7）：after.jsonl 與 other_changed。"""
+
+    def test_output_changed_later_gets_copy_and_who_is_coworker(self):
+        t = tid(self.A)
+        rel = "暫存區/產出.txt"
+        gf.write(self.A, rel, "舊\n")
+        turn.backup(self.A, rel, t)  # 回合備份：舊版
+        (self.A / rel).write_text("AI 寫的\n", encoding="utf-8")
+        self.assertEqual(refresh.write_after(self.A, t), 1)
+        self.assertFalse(refresh.changed_after(self.A, t, rel))
+        self.assertIsNone(refresh.other_changed(self.A, t, rel))
+        (self.A / rel).write_text("同事改的\n", encoding="utf-8")  # 雲端同步進來
+        backup = self.A / ".system" / "versions" / t / "files" / rel
+        got = refresh.other_changed(self.A, t, rel, backup)
+        self.assertEqual((got["side"], got["who"], got["via"], got["done"]), ("other", "同事", "cloud", None))
+        self.assertEqual(got["copy"], "暫存區/產出（退回前的版本）.txt")
+        self.assertEqual((self.A / got["copy"]).read_text(encoding="utf-8"), "舊\n")
+        self.assertEqual((self.A / rel).read_text(encoding="utf-8"), "同事改的\n")  # 原位不動
+
+    def test_card_pulled_later_marked_redo_with_git_author(self):
+        todo = cards.todo(self.A, sources_lib.load(self.A))["new"]
+        item = next(i for i in todo if i["id"] == _cards.entry_of(self.A, _cards.MEETING)["id"])
+        t = tid(self.A)
+        p = _cards.write_card(self.A, item, "大安陳會議一")
+        rel = p.relative_to(self.A).as_posix()
+        turn.backup(self.A, rel, t)
+        self.assertEqual(refresh.write_after(self.A, t), 1)
+        self.commit_push(self.A, "card", "甲")
+        (self.A / rel).write_text(p.read_text(encoding="utf-8").replace("第一次會議的紀錄", "第一次會議（小王改）"),
+                                  encoding="utf-8", newline="\n")
+        self.commit_push(self.A, "wang", "小王")
+        got = refresh.other_changed(self.A, t, rel)
+        self.assertEqual((got["who"], got["via"], got["done"], got["copy"]), ("小王", "pull", "redo", None))
+
+
+class TurnHookTest(RefreshBase):
+    """驗收 3、6：每句開頭 HEAD 變了才叫一次；開場不叫；rebase 到一半每句有那句。"""
+
+    def prompt(self, vault, text="好", sid="s1"):
+        payload = {"session_id": sid, "cwd": str(vault), "prompt": text, "hook_event_name": "UserPromptSubmit"}
+        r = subprocess.run([sys.executable, str(ROOT / "hooks" / "turn.py")], input=json.dumps(payload), capture_output=True,
+                           text=True, encoding="utf-8", cwd=str(ROOT), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        if not r.stdout.strip():
+            return ""
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def test_called_only_when_head_changed(self):
+        self.prompt(self.B)  # 第一次：記下 HEAD
+        self.assertEqual(refresh.read_last_head(self.B), git.head(self.B))
+        gf.write(self.A, "行事曆說明.txt", "新的\n")
+        self.commit_push(self.A, "a", "小王")
+        self.assertNotIn("同事", self.prompt(self.B, sid="s2"))  # 還沒 pull：HEAD 沒變
+        gf.must(self.B, "pull", "--no-rebase")
+        out = self.prompt(self.B, sid="s3")
+        self.assertIn("可能是同事動的", out)
+        self.assertNotIn("你跟", out)
+        self.assertNotIn("可能是同事動的", self.prompt(self.B, sid="s3"))  # 同一個 HEAD 不再叫
+
+    def test_rebase_line_every_turn_but_once_per_conversation(self):
+        self.prompt(self.B)
+        (Path(self.B) / ".git" / "rebase-merge").mkdir()
+        first = self.prompt(self.B, sid="s5")
+        self.assertIn("rebase 到一半", first)
+        self.assertNotIn("rebase 到一半", self.prompt(self.B, sid="s5"))
+
+    def test_session_hook_does_not_call_refresh(self):
+        self.assertNotIn("refresh", (ROOT / "hooks" / "session.py").read_text(encoding="utf-8"))
+
+
+class StopHookTest(RefreshBase):
+    def test_stop_hook_has_record_after(self):
+        text = (ROOT / "hooks" / "stop.py").read_text(encoding="utf-8")
+        self.assertIn("refresh.write_after", text)
+
+
 if __name__ == "__main__":
     unittest.main()

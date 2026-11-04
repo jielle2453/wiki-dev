@@ -540,6 +540,46 @@ def profile_mtime(vault):
                           os.path.join(str(vault), *profile.MD_POSIX.split("/"))])
 
 
+REBASE_LINE = "同步卡住了（rebase 到一半），請聯絡服務人員：跟客戶說一句，不要自己動 git。"
+PULLED_LINE = ("git 同步進來 {n} 個檔（{names}）：那是同事動的，跟客戶說「可能是同事動的」、不要說「你」，也不要從中推測客戶的意思。")
+CONFLICT_CARD_LINE = ("你跟 {other} 同時改了「{name}」的卡：我留了 {other} 那版、標成要重做，客戶改的那段在 kb cards edits，"
+                      "照手改流程補回去；跟客戶說一句收拾了什麼。")
+CONFLICT_FILE_LINE = "你跟 {other} 同時改了「{name}」：兩版都留著（另存「{copy}」），問客戶要用哪一版、不要自己挑。"
+BIG_LINE = ("「{name}」太大（{mb} MB）推不上 git，這台先不同步：{where}")
+BIG_CLOUD = "問客戶要不要搬到團隊雲端的「{cloud}」夾（說好跑 kb source-edit move <檔> --to <夾>）。"
+BIG_LOCAL = "建議放到團隊共用的雲端夾。"
+REFRESH_NAMES_SHOWN = 3
+
+
+def refresh_lines(vault):
+    """git HEAD 變了（或 rebase 做到一半）才叫 kb refresh 的本體；回 [(行, once)]。不是 git 或沒變什麼都不做。"""
+    from kb._lib import git, refresh
+
+    if not git.is_repo(vault):
+        return []
+    rebase = git.rebase_in_progress(vault)
+    if not rebase and not refresh.head_changed(vault):
+        return []
+    got = refresh.run(vault)
+    out = []
+    if got.get("rebase"):
+        out.append((REBASE_LINE, True))
+    for c in got.get("conflicts") or []:
+        name = os.path.basename(c["path"])
+        if c["kind"] == "card":
+            out.append((CONFLICT_CARD_LINE.format(other=c["other"], name=os.path.splitext(name)[0]), False))
+        else:
+            out.append((CONFLICT_FILE_LINE.format(other=c["other"], name=name, copy=os.path.basename(c["copy"] or "")), False))
+    for b in got.get("big") or []:
+        where = BIG_CLOUD.format(cloud=b["cloud"]) if b.get("cloud") else BIG_LOCAL
+        out.append((BIG_LINE.format(name=os.path.basename(b["path"]), mb=b["mb"], where=where), False))
+    pulled = got.get("pulled") or []
+    if pulled and not got.get("skipped"):
+        names = "、".join(os.path.basename(p) for p in pulled[:REFRESH_NAMES_SHOWN]) + ("…" if len(pulled) > REFRESH_NAMES_SHOWN else "")
+        out.append((PULLED_LINE.format(n=len(pulled), names=names), False))
+    return out
+
+
 def turn_lines(vault, session_id):
     """每句開頭要給 AI 的行（additionalContext），照順序、時間到就停。沒有 session_id（終端機）不做。"""
     if not session_id:
@@ -577,6 +617,9 @@ def turn_lines(vault, session_id):
     if daily_pending(vault):
         for line in guarded(daily_lines, vault) or []:
             tell(line)
+    # 0. git 對帳（多人共用 3，D-293）：HEAD 變了才叫，排在檔案比對之前；跑完才給比對（對帳不能停一半）
+    for line, once in guarded(refresh_lines, vault) or []:
+        tell(line, once=once)
     # 1. 檔案比對：搬動、不見、新增寫進這一句的 detected.jsonl（by outside）；變動行與整理提示在最後一步用它的結果
     got = None
     detected = list(checks.get("detected") or [])
