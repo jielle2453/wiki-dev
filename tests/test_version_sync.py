@@ -54,7 +54,7 @@ class CustomerSentence(unittest.TestCase):
                 self.assertRegex(version, r"^\d+\.\d+\.\d+$")
                 for sha in files.values():
                     self.assertRegex(sha, r"^[0-9a-f]{64}$")
-        self.assertEqual(set(data["0.20.0"]), names)
+        self.assertLessEqual(set(data["0.20.0"]), names)  # 之後新增的骨架檔（.gitignore、.gitattributes）舊版沒有
 
 
 if __name__ == "__main__":

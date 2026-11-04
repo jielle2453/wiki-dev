@@ -76,7 +76,8 @@ class Revert(unittest.TestCase):
         self.assertTrue(r.stdout.startswith("已退回 "), r.stdout)  # B-074：不唸回合代號，用「MM-DD HH:MM 那句「…」」
         self.assertNotIn(job, r.stdout)
         self.assertEqual(len(cards._scan_groups(self.V)[0]), 0)
-        self.assertEqual(ent.read_bytes() if ent.exists() else None, entities_before)
+        names = [e["name"] for e in json.loads(ent.read_text(encoding="utf-8"))["entities"] if e.get("status") == "active"] if ent.exists() else []
+        self.assertNotIn("新店吳宅", names)  # 流水檔不抹歷史：新增的那筆改回成收回（多人共用 1）
         now = (self.V / cards.INDEX_POSIX).read_text(encoding="utf-8") if (self.V / cards.INDEX_POSIX).exists() else None
         self.assertEqual(now, index_before)
         self.assertEqual(len(json.loads(run_kb("cards", "todo", "--json", cwd=self.V).stdout)["new"]), 20)

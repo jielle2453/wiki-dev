@@ -73,7 +73,7 @@ class PurgeJournal(Base):
         self.assertEqual(sum(1 for r in results if r == "（已排除）"), 2)
         self.assertEqual(grep(self.V, "信義王合約第一版"), [])
         self.assertEqual(grep(self.V, self.pid), [])
-        self.assertEqual([h for h in grep(self.V, "客戶案件/私人") if not h.endswith(".system/sources.json")], [])
+        self.assertEqual([h for h in grep(self.V, "客戶案件/私人") if not h.endswith(".system/sources.json") and not h.startswith((".system/streams/sources/", ".system/local/cache/sources"))], [])
 
 
 # ---------- 第 2 條：exclude 當下改有其他位置的卡的原檔 ----------

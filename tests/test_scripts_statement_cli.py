@@ -149,7 +149,7 @@ class Revert(Base):
         self.add()
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(statements.load(self.V)["statements"], [])
+        self.assertEqual([s for s in statements.load(self.V)["statements"] if s["status"] == "active"], [])  # 流水檔不抹歷史：改回成收回（多人共用 1）
 
     def test_revert_of_a_replace(self):
         old = self.add("王宅的聯絡人是王先生", "王宅")
@@ -158,7 +158,9 @@ class Revert(Base):
         self.add("王宅的聯絡人改成王太太", "王宅", "--replaces", old)
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((self.V / ".system" / "statements.json").read_bytes(), before)
+        got = {s["id"]: (s["status"], s["replaced_by"]) for s in statements.load(self.V)["statements"]}
+        self.assertEqual(got[old], ("active", None))  # 被取代的那條回來；新的那條改回成收回（多人共用 1）
+        self.assertEqual([i for i, v in got.items() if v[0] == "active"], [old])
 
 
 class WithdrawRestore(Base):

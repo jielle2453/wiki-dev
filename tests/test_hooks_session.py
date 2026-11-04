@@ -272,7 +272,8 @@ class OpeningInventory(unittest.TestCase):
 
     def test_never_scanned_vault_counts_everything_as_new(self):
         """審閱裁定 10：沒有清冊等於全部新增。"""
-        (self.V / ".system" / "inventory.json").unlink()
+        from tests._streams_util import forget_state
+        forget_state(self.V, "inventory")
         lines = self.change_lines(self.status())
         self.assertRegex(lines[0], r"^有 [1-9]\d* 份新放或改過（製作中）：")
         self.assertTrue(all(ln.startswith("有 ") and "不見" not in ln for ln in lines), lines)
@@ -322,7 +323,8 @@ class OpeningInventory(unittest.TestCase):
         self.assertEqual(len(next(iter(env_json["machines"].values()))["missing_sources_reported"]), 5)
 
     def test_broken_inventory_other_lines_still_printed_and_one_log_line(self):
-        (self.V / ".system" / "inventory.json").write_text("{bad", encoding="utf-8")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory")
         lines = self.status("compact")
         self.assertEqual(lines[0], KB_LINE)
         self.assertEqual(lines[-1], COMPACT_LINE)
@@ -343,7 +345,7 @@ class OpeningInventory(unittest.TestCase):
         self.status()
         after = stamps()
         changed = {k for k in after if before.get(k) != after[k]}  # 每句開頭的 hook 還會開回合（turns、journal、renders），檢查本身只讀
-        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))},
+        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/", ".system/streams/", ".system/local/"))},
                          {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
@@ -593,7 +595,7 @@ class OpeningEntityDrift(unittest.TestCase):
         self.assertIn(DRIFT.format(1), lines)
         self.assertFalse([ln for ln in lines if "照 ingest" in ln and ln != DRIFT.format(1)], lines)  # 實體夾那行本身指到 ingest
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
+        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/", ".system/streams/", ".system/local/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")

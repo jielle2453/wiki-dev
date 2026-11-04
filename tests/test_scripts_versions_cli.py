@@ -157,6 +157,9 @@ class Revert(Base):
         r = run_kb("inventory", "scan", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         good = (self.V / ".system" / "inventory.json").read_bytes()
+        from tests._streams_util import forget_state
+        forget_state(self.V, "inventory")  # 舊的整份 JSON 才有整份備份可退（流水檔是逐筆改回）
+        (self.V / ".system" / "inventory.json").write_bytes(good)
         t = turn.start(self.V, SID, "弄壞清冊")
         turn.backup(self.V, ".system/inventory.json", t["turn"])
         (self.V / ".system" / "inventory.json").write_text('{"schema_version": 3, "entries": []}', encoding="utf-8")

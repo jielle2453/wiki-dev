@@ -260,7 +260,8 @@ class Round2(Base):
         self.assertIn(".system/inventory.json", {e["path"] for e in turn.entries(self.V, t_b)})
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIsNone(inventory.entry_for(self.V, self.URL), "退回拿掉的是 B 的 link")
+        gone = inventory.entry_for(self.V, self.URL)
+        self.assertTrue(gone is None or gone["status"] == "deleted", "退回拿掉的是 B 的 link")  # 流水檔不抹歷史（多人共用 1）
         again = next(x for x in inventory.load(self.V)["entries"] if x["id"] == saved["id"])
         self.assertEqual(again["status"], "active", "A 的成品留著")
 

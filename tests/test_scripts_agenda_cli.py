@@ -396,7 +396,7 @@ class Revert(Base):
         self.add()
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.items(), [])
+        self.assertEqual([i for i in self.items() if i["status"] == "open"], [])  # 流水檔不抹歷史：新增的改回成取消（多人共用 1）
 
 
 if __name__ == "__main__":

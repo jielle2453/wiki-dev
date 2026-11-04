@@ -136,8 +136,8 @@ class Revert(Base):
         self.add_json("--kind", "不採用", "--card", self.cid, "--text", "別信")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertFalse((self.V / ".system" / "rulings.json").exists())
-        self.assertFalse((self.V / MD).exists())
+        self.assertEqual([r for r in json.loads((self.V / ".system" / "rulings.json").read_text(encoding="utf-8"))["rulings"] if r["status"] == "active"], [])  # 流水檔不抹歷史（多人共用 1）
+        self.assertNotIn("別信", (self.V / MD).read_text(encoding="utf-8") if (self.V / MD).exists() else "")
 
     def test_revert_remove_brings_it_back(self):
         rid = self.add_json("--kind", "不採用", "--card", self.cid, "--text", "別信")

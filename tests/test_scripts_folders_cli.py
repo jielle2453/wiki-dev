@@ -833,7 +833,7 @@ class FoldersInventory(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for d in self.versions_dirs():
             rows = [json.loads(x) for x in (d / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if x]
-            self.assertEqual({x["path"] for x in rows}, {".system/sources.json", ".system/inventory.json"}, d.name)
+            self.assertEqual({x["path"] for x in rows}, {".system/sources.json", ".system/inventory.json", ".system/local/inventory.json"}, d.name)
 
     def test_exclude_unused_marks_excluded_and_second_line(self):
         assert self.add("../raw/行政").returncode == 0
@@ -892,7 +892,8 @@ class FoldersInventory(Base):
     def test_exclude_nothing_registered_writes_no_inventory_and_journal_lists_sources_only(self):
         """folders add 之前沒掃過（舊知識庫）：沒有清冊，exclude 不建清冊，程式段只記 sources.json。"""
         assert self.add("../raw/行政").returncode == 0
-        (self.V / ".system" / "inventory.json").unlink()
+        from tests._streams_util import forget_state
+        forget_state(self.V, "inventory")
         assert self.folders("exclude", "../raw/行政/薪資", "--kind", "hidden").returncode == 0
         self.assertFalse((self.V / ".system" / "inventory.json").exists())
         from kb._lib import journal
@@ -902,7 +903,8 @@ class FoldersInventory(Base):
 
     def test_broken_inventory_exit_3_and_sources_untouched(self):
         assert self.add("../raw/客戶案件").returncode == 0
-        (self.V / ".system" / "inventory.json").write_text("{bad", encoding="utf-8")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory")
         before = (self.V / ".system" / "sources.json").read_bytes()
         for args in (("add", "../raw/行政"), ("exclude", "../raw/客戶案件/a.txt", "--kind", "unused"), ("remove", "客戶案件")):
             with self.subTest(args=args):
@@ -913,24 +915,28 @@ class FoldersInventory(Base):
 
     def test_inventory_step_failure_rolls_back_sources(self):
         """審閱裁定 36：清冊階段失敗把 sources.json 寫回原內容，再印「沒有寫入」，exit 3。
-        做法：清冊在回合裡的備份位置先放一個唯讀檔，turn.backup 複製時 PermissionError。"""
-        import stat
-        from kb._lib import turn
+        做法：流水檔不整份複製備份，改讓清冊那一步（reconcile）丟 OSError。"""
+        import contextlib
+        import io as std_io
+        from kb import cli
+        from kb._lib import inventory
         assert self.add("../raw/行政").returncode == 0
-        t = turn.start(self.V, None, "")
-        blocker = self.V / ".system" / "versions" / t["turn"] / "files" / ".system" / "inventory.json"
-        blocker.parent.mkdir(parents=True)
-        blocker.write_text("x", encoding="utf-8")
-        os.chmod(blocker, stat.S_IREAD)
-        self.addCleanup(os.chmod, blocker, stat.S_IWRITE | stat.S_IREAD)
         before_sources = (self.V / ".system" / "sources.json").read_bytes()
-        before_inventory = (self.V / ".system" / "inventory.json").read_bytes()
-        r = self.folders("exclude", "../raw/行政/薪資", "--kind", "unused")
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        self.assertTrue(r.stdout.startswith("沒有寫入："), r.stdout)
-        self.assertNotIn("Traceback", r.stderr)
+
+        def boom(*_a, **_k):
+            raise PermissionError(13, "in use")
+        saved = inventory.reconcile
+        inventory.reconcile = boom
+        try:
+            out = std_io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = cli.main(["folders", "exclude", str(self.raw / "行政" / "薪資"), "--kind", "unused",
+                                 "--vault", str(self.V)])
+        finally:
+            inventory.reconcile = saved
+        self.assertEqual(code, 3, out.getvalue())
+        self.assertTrue(out.getvalue().startswith("沒有寫入："), out.getvalue())
         self.assertEqual((self.V / ".system" / "sources.json").read_bytes(), before_sources)
-        self.assertEqual((self.V / ".system" / "inventory.json").read_bytes(), before_inventory)
 
     def test_rollback_failure_says_sources_changed_inventory_lagging(self):
         """審閱裁定 36：寫回也失敗才印「來源已改、清冊沒跟上：<原因>，請跑 kb inventory scan」，exit 3。"""
@@ -987,7 +993,7 @@ class FoldersInventory(Base):
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.sources()["sources"], [])
-        self.assertFalse((self.V / ".system" / "inventory.json").exists())
+        self.assertEqual([e for e in self.inventory()["entries"] if e.get("status") == "active"], [])  # 流水檔不抹歷史（多人共用 1）
 
     def test_revert_remove_restores_both(self):
         """驗收 11：versions revert 退掉 remove 那回合後 sources.json 與 inventory.json 都回來（條目 active）。"""

@@ -86,9 +86,8 @@ class Scan(Base):
         t2 = turn.start(self.V, None, "")  # 終端機連跑兩次會落在同一個回合；開新回合才看得到第二次的備份
         r = self.scan()
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((self.V / ".system" / "versions" / t2["turn"] / "files" / ".system" / "inventory.json").is_file())
-        backups = list((self.V / ".system" / "versions").glob("*/files/.system/inventory.json"))
-        self.assertEqual(len(backups), 1)
+        from kb._lib import turn as _turn
+        self.assertIn(".system/inventory.json", {r["path"] for r in _turn.entries(self.V, t2["turn"])})  # 流水檔不整份備份（多人共用 1）
         rows = self.program_rows()
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["command"], "inventory scan")
