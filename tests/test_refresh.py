@@ -13,7 +13,7 @@ from tests._guard_fixture import KB, ROOT
 from kb._lib import card_base, cards, git, refresh, turn  # noqa: E402
 from kb._lib import sources as sources_lib  # noqa: E402
 
-IGNORE = "系統/\n總目錄.md\n.system/renders.json\n.system/local/\n.system/versions/\n.system/turns/\n.system/temp/\n.system/hook-errors.log\n.system/*.lock\n*.lock\n"
+IGNORE = (ROOT / "skeleton" / ".gitignore").read_text(encoding="utf-8")  # 第 1 份出貨的 .gitignore
 
 
 def tid(v):
@@ -27,6 +27,8 @@ class RefreshBase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.bare = self.tmp / "origin.git"
         subprocess.run(["git", "init", "--bare", "-b", "main", str(self.bare)], check=True, capture_output=True, env=gf.ENV)
+        from kb._lib import migrate
+        migrate.migrate_streams(self.A)  # 第 1 份：舊的整份 JSON → 這台的流水檔，才有東西進 git
         gf.write(self.A, ".gitignore", IGNORE)
         gf.must(self.A, "init", "-b", "main")
         gf.must(self.A, "add", "-A")
@@ -36,6 +38,9 @@ class RefreshBase(unittest.TestCase):
         self.B = self.tmp / "B"
         subprocess.run(["git", "clone", str(self.bare), str(self.B)], check=True, capture_output=True, env=gf.ENV)
         gf.must(self.B, "config", "merge.conflictstyle", "merge")
+        from kb._lib import streams
+        for k in streams.KINDS:  # 新 clone：衍生的整份 JSON 副本（.gitignore 擋掉的）從流水檔重畫，find_vault 才認得
+            streams.load(self.B, k)
         self.B_env = mock.patch.dict(os.environ, gf.ENV)
         self.B_env.start()
         self.addCleanup(self.B_env.stop)

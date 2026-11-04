@@ -274,8 +274,8 @@ def resolve_conflicts(vault, turn_id):
             git.add(vault, [x for x in (rel, copy_rel) if (Path(vault) / x).exists()])
             got.append({"path": rel, "kind": "file", "other": other, "copy": copy_rel})
     if not git.unmerged(vault):
-        # 標重做與 pending 改到的狀態檔一起進這個合併 commit（追蹤中的才加）
-        git.add(vault, [x for x in (".system/card_base.json", ".system/inventory.json") if git.tracked(vault, x)])
+        # 標重做與 pending 改到的這台流水檔（.system/streams/<種類>/<代號>.jsonl）一起進這個合併 commit
+        git.add(vault, [rel for _st, rel in git.status_untracked_and_modified(vault) if rel.startswith(".system/") and not rel.startswith(".system/local/")])
         git.commit_merge(vault)
     return got
 

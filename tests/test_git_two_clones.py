@@ -25,8 +25,11 @@ class ClaimTest(RefreshBase):
         self.assertTrue(a["batches"])
         self.assertEqual(a["claimed_elsewhere"], [])
         b = self.disp(self.B, self.sb, "乙")
-        self.assertEqual(b["batches"], [])
+        mine_a = {c for x in batches.load(self.A)["batches"] for c in x["items"]}
+        mine_b = {c for x in batches.load(self.B)["batches"] for c in x["items"]}
+        self.assertFalse(mine_a & mine_b)  # 同一份只有一邊派到（A 一次派不完的剩下的，B 才拿得到）
         self.assertTrue(b["claimed_elsewhere"])
+        self.assertEqual({c["id"] for c in b["claimed_elsewhere"]}, mine_a)
         self.assertEqual({c["by"] for c in b["claimed_elsewhere"]}, {"甲"})
         self.assertFalse(b["offline"])
         with mock.patch.object(git, "multi", lambda v: True):
