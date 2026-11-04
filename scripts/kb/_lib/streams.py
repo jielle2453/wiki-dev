@@ -481,6 +481,8 @@ def doc_to_records(kind, doc):
     recs = {}
     if shape == "profile":
         recs[PROFILE_ID] = {k: v for k, v in doc.items() if k != "preferences"}
+        if "preferences" in doc:
+            recs[PROFILE_ID]["_has_prefs"] = True  # 原本有這一欄（空的也算），讀回來才一樣
         for p in doc.get("preferences") or []:
             recs[pref_id(p.get("text"), recs)] = dict(p)
         return recs
@@ -503,7 +505,10 @@ def records_to_doc(kind, recs):
     live = {k: {f: x for f, x in v.items() if f != "_del"} for k, v in recs.items() if not v.get("_del")}
     if shape == "profile":
         doc = dict(live.get(PROFILE_ID) or {})
-        doc["preferences"] = [v for k, v in live.items() if k != PROFILE_ID]
+        prefs = [v for k, v in live.items() if k != PROFILE_ID]
+        if prefs or doc.pop("_has_prefs", False):
+            doc["preferences"] = prefs
+        doc.pop("_has_prefs", None)
         return doc
     doc = dict(live.get(META_ID) or {})
     rest = [(k, v) for k, v in live.items() if k != META_ID]

@@ -18,7 +18,7 @@ TYPES = (("案子", "matter"), ("業主", "party"), ("工班", "party"), ("廠�
 MEMBERS = (("信義王", "案子"), ("王先生", "業主"), ("陳師傅", "工班"), ("大成磁磚", "廠商"))
 RAW = "知識庫/工班/陳師傅/報價.txt"
 # .system/renders.json：渲染指紋跟日誌一樣是記帳，退回不還原（lint 題，舊指紋留在 history，退回後不算手改）
-SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json/")
+SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json/", ".system/streams/", ".system/local/", ".system/legacy/")
 
 
 def tree(V, skip=SKIP):
