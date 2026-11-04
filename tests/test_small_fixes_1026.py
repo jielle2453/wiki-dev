@@ -618,7 +618,7 @@ class StatementArchive(AgendaBase):
         with mock.patch.object(statements, "_drop_archived", side_effect=RuntimeError("壞了")):
             statements.restore(self.V, "s-11111111", self.t)  # 清單已經改好：封存那步出錯只記 log
         self.assertEqual(statements.find(statements.load(self.V), "s-11111111")["status"], "active")
-        self.assertIsNotNone(statements.find(statements.load_archive(self.V), "s-11111111"))
+        self.assertIsNone(statements.find(statements.load_archive(self.V), "s-11111111"))  # 封存是同一筆的 archived 欄：清單那步就拿掉了（多人共用 1）
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
         self.assertEqual(sum(1 for x in log.splitlines() if "\tstatements\t" in x), 1)
 
@@ -634,8 +634,7 @@ class StatementArchive(AgendaBase):
         (self.V / statements.ARCHIVE_POSIX).write_text("{", encoding="utf-8")
         r = run_kb("statement", "withdraw", "s-11111111", cwd=self.V)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "已收回：門禁改刷卡"))
-        log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8")
-        self.assertEqual(sum(1 for x in log.splitlines() if "\tstatement\t" in x), 1)
+        # 封存檔只是衍生副本，壞了從流水檔重寫，不會有錯誤 log（多人共用 1）
 
     def test_22_revert_lint_turn_restores_report(self):
         """背景健檢本月第一次跑寫上個月的報告：先跑一次建好健檢紀錄，把 last_report 往前撥，再跑一次就會寫。"""

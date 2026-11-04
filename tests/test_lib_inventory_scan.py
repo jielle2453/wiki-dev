@@ -789,7 +789,7 @@ class Reconcile(Base):
         for uri in ("file://公司行政/薪資/薪轉帳號.csv", "file://公司行政/薪資/網銀密碼.txt"):
             self.assertEqual(self.entry_at(uri)["status"], "excluded")
         self.assertEqual(self.entry_at("file://公司行政/舊檔/Big5備忘.txt")["status"], "active")
-        self.assertTrue((self.V / ".system" / "versions" / t2["turn"] / "files" / ".system" / "inventory.json").is_file())
+        self.assertIn(".system/inventory.json", {r["path"] for r in turn.entries(self.V, t2["turn"])})  # 流水檔不整份備份：manifest 記碰過（多人共用 1）
 
     def test_removed_source_drops_only_its_locations(self):
         self.edit_sources(lambda d: d["sources"].pop(1))
@@ -893,12 +893,11 @@ class Apply(Base):
     def test_first_apply_records_create_then_backup_copy(self):
         self.full()
         rows = turn.entries(self.V, self.t["turn"])
-        self.assertEqual([(r["path"], r["action"]) for r in rows], [(".system/inventory.json", "create")])
+        self.assertEqual([(r["path"], r["action"]) for r in rows], [(".system/local/inventory.json", "create"), (".system/inventory.json", "create")])  # 本機那一半也備進回合（多人共用 1）
         t2 = turn.start(self.V, None, "")
         before = (self.V / ".system" / "inventory.json").read_bytes()
         inventory.apply(self.V, self.scan(), t2["turn"])
-        copy = self.V / ".system" / "versions" / t2["turn"] / "files" / ".system" / "inventory.json"
-        self.assertEqual(copy.read_bytes(), before)
+        self.assertIn(".system/inventory.json", {r["path"] for r in turn.entries(self.V, t2["turn"])})  # 流水檔不整份備份（多人共用 1）
 
     def test_apply_keeps_entries_registered_after_scan(self):
         r = self.scan()

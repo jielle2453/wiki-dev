@@ -584,11 +584,25 @@ def backup(vault, rel, turn_id, action=None, by=None):
     if by not in (None, "program"):
         raise ValueError(f"backup 的 by 只收 program：{by!r}")
     target = Path(vault) / rel
+    from kb._lib import streams
+    virtual = streams.virtual_kind(target)
+    if virtual is not None and target.is_file() and not streams.exists(*virtual):
+        virtual = None  # 還是舊的整份 JSON（沒轉成流水檔）：照舊整份備份，退回時副本被換回舊內容會被當成一次整份改動吸收
+    if virtual is not None:  # 流水檔：不整份備份；改動由 streams.write 記在回合的 streams.jsonl，manifest 只記「碰過」（stream: true，多人共用 1）
+        streams.note_turn(virtual[0], virtual[1], turn_id)
+        if virtual[1] in streams.SPLIT:  # 本機那一半不在流水檔裡，照舊整份備份（整個回合退回時一起換回）
+            backup(vault, f".system/local/{virtual[1]}.json", turn_id)
     vdir = turn_dir(vault, turn_id)
     manifest = vdir / "manifest.jsonl"
     with FileLock(manifest):
         if any(e.get("path") == rel for e in entries(vault, turn_id)):
             _note_write(vault, vdir, turn_id, rel)
+            return
+        if virtual is not None:
+            row = {"path": rel, "action": action or ("modify" if target.is_file() else "create"), "time": _now().strftime("%Y-%m-%dT%H:%M:%S"), "stream": True}
+            if by:
+                row["by"] = by
+            _append_line(manifest, row)
             return
         exists = target.is_file()
         action = action or ("modify" if exists else "create")

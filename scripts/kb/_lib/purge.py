@@ -102,6 +102,14 @@ def target(vault, alias, spec):
                     ids.add(e.get("id"))
                     names.add(uri.rpartition("/")[2])
     take(current)
+    try:  # 流水檔的歷史：曾經在那夾、後來拿掉的條目（舊版備份不再整份複製，多人共用 1）
+        from kb._lib import streams
+        if streams.exists(vault, "inventory"):
+            take(list(streams.load(vault, "inventory").records.values()))
+            take([{"id": r.get("id"), "locations": r["set"]["locations"]} for r in streams.all_lines(vault, "inventory")
+                  if isinstance(r.get("set"), dict) and isinstance(r["set"].get("locations"), list)])
+    except (OSError, ValueError):
+        pass
     for vdir in _version_dirs(vault):
         data = _read_json(vdir / "files" / inventory.INVENTORY_POSIX)
         if isinstance(data, dict):
@@ -819,6 +827,29 @@ def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
                     counts["left"]["backups"] += 1
         _scrub_moves(vdir, prefix, counts)
         _scrub_writes(vdir, prefix, shorts, counts)
+        _scrub_streams_rows(vdir, ids, counts)
+
+
+def _scrub_streams_rows(vdir, ids, counts):
+    """回合夾的 streams.jsonl（多人共用 1，只記 {kind, id, seq}）：筆的編號是那些卡的整行拿掉。"""
+    p = vdir / "streams.jsonl"
+    if not p.is_file():
+        return
+    try:
+        keep, dropped = [], False
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(ln)
+            except ValueError:
+                row = None
+            if isinstance(row, dict) and row.get("id") in ids:
+                dropped = True
+                continue
+            keep.append(ln)
+        if dropped:
+            write_text_atomic(p, "".join(ln + "\n" for ln in keep))
+    except OSError:
+        counts["left"]["backups"] += 1
 
 
 def _scrub_writes(vdir, prefix, shorts, counts):
@@ -938,7 +969,7 @@ def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, st
             row["action"], row["path"] = "purged", PURGED
             state["dirty"] = True
             continue
-        if rel.startswith(REPORT_PREFIX) or rel == LINT_STATE_POSIX:
+        if rel.startswith(REPORT_PREFIX) or rel == LINT_STATE_POSIX or rel.startswith(".system/local/"):
             # 健檢報告與健檢紀錄的舊版：程式產生、隨時能重寫，逐字遮會弄壞備份，整份刪掉（小修一批裁定 6）
             try:
                 if f.is_file():
@@ -1031,7 +1062,8 @@ def _scrub_one_md(vault, md, md_rel, json_rel, render, rows, mask, counts, datas
                 write_text_atomic(md, new)
                 counts["backups"] += 1
             return
-    if mask(text) != text:
+    streamed = any(isinstance(r, dict) and r.get("path") == json_rel and r.get("stream") for r in rows)
+    if streamed or mask(text) != text:  # 流水檔沒有整份舊版可重渲染（多人共用 1）：派生頁的舊版直接拿掉，退回後會重畫
         md.unlink()
         for row in rows:
             if isinstance(row, dict) and row.get("path") == md_rel:
@@ -1317,6 +1349,15 @@ def _active_inside(vault, alias, spec):
 
 
 def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
+    from kb._lib import streams
+    streams.hard_delete = True
+    try:
+        return _purge(vault, alias, spec, root, turn_id, keep_snapshots)
+    finally:
+        streams.hard_delete = False
+
+
+def _purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     """清那夾的殘留（呼叫端持 sources.json 的鎖、已確認是 pending 的 hidden 排除）。還有綜合卡引用就丟 Blocked。
     先把範圍記進那條排除，再清；回 {"cards","backups","temp","journal","findings","remaining"}，remaining 有東西就是沒清完
     （呼叫端不標完成）；清冊裡那夾還有 active 的條目也算沒清完（active）。keep_snapshots：刪快照時跳過的（還原前快照）。"""
@@ -1363,12 +1404,39 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     for rel in (ledger.LEDGER_REL, ledger.ERROR_LOG_REL):
         if not _scrub_text(vault, rel, mask):
             counts["left"]["logs"] += 1
+    _scrub_streams(vault, words, counts)
     counts["left"]["active"] += _active_inside(vault, alias, spec)
     snapshots = _snapshots(vault, counts, keep_snapshots)
     return {"cards": len(counts["card_ids"]), "backups": counts["backups"], "temp": counts["temp"],
             "journal": counts["journal"], "findings": counts["findings"], "undecodable": counts["undecodable"],
-            "obsidian": counts["obsidian"], "snapshots": snapshots,
+            "obsidian": counts["obsidian"], "snapshots": snapshots, "history": (Path(vault) / ".git").exists(),
             "remaining": {k: v for k, v in counts["left"].items() if v}}
+
+
+def _scrub_streams(vault, mask, counts):
+    """流水檔（多人共用 1）：這台自己的檔照字詞遮（別台的檔只有 git 改得動，不碰；git 歷史裡的舊版本這版不清）；
+    快取刪掉、衍生副本從遮過的流水檔重算；遷移留下的舊 JSON 也遮。"""
+    from kb._lib import streams
+    root = Path(vault)
+    quiet = {"undecodable": 0, "backups": 0}  # 流水檔遮字不算進「備份幾份」
+    try:
+        own = streams.machine_id(vault)
+        for kind in streams.KINDS:
+            streams.purge_tombstones(vault, kind)
+        for f in sorted((root / streams.STREAMS_REL).glob(f"*/{own}.jsonl")):
+            if f.parent.name in ("card_base", "entities", "agenda", "rulings", "findings", "set_aside"):
+                _mask_file(f, mask, quiet)  # 其他種類（清冊、待處理、口述、來源登記）各有自己的清法，不整檔遮
+        legacy = root / streams.LEGACY_REL
+        for f in sorted(legacy.rglob("*.json")) if legacy.is_dir() else []:
+            _mask_file(f, mask, quiet)
+        cache = root / streams.LOCAL_REL / "cache"
+        for f in sorted(cache.glob("*")) if cache.is_dir() else []:
+            f.unlink()
+        for kind in streams.KINDS:
+            if streams.exists(vault, kind):
+                streams.load(vault, kind)  # 從遮過的流水檔重算快取與衍生副本
+    except (OSError, ValueError):
+        counts["left"]["state"] += 1
 
 
 def mark_done(vault, alias, spec, turn_id):
@@ -1380,7 +1448,12 @@ def mark_done(vault, alias, spec, turn_id):
         ex.pop("purge_ids", None)
         ex.pop("purge_names", None)
         return True
-    done = _write_row(vault, alias, spec, turn_id, change)
+    from kb._lib import streams
+    streams.hard_delete = True  # 記的範圍（卡編號）拿掉，這台檔裡的舊行也不留
+    try:
+        done = _write_row(vault, alias, spec, turn_id, change)
+    finally:
+        streams.hard_delete = False
     clear_titles(vault, alias, spec, turn_id)
     # 收尾這兩步把改前的 sources.json（卡編號）與 purge-pending.json（標題）備進了這一回合：備份清理已經跑過，這裡再拿掉（第八輪）
     vdir = Path(vault) / turn.VERSIONS_REL / turn_id

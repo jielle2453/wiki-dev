@@ -16,7 +16,7 @@ from kb._lib import entities, profile, turn  # noqa: E402
 LI = "e-aaaa0001"
 ZHANG = "e-aaaa0002"
 LI_REL = "案子/內湖李/內湖李.md"
-SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json")
+SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json", ".system/streams/", ".system/local/", ".system/legacy/", ".system/inventory.json", ".system/pending.json")
 
 
 def tree(V):
@@ -26,6 +26,8 @@ def tree(V):
         if p.is_dir() or any(rel.startswith(s) for s in SKIP) or rel.endswith((".lock", "hook-errors.log", "ledger.tsv")):
             continue
         out[rel] = p.read_bytes()
+        if rel.startswith(".system/") and rel.endswith(".json") and rel.count("/") == 1:
+            out[rel] = json.loads(out[rel].decode("utf-8"))  # 流水檔改回後副本重寫，排版不比，內容逐欄比（多人共用 1）
     return out
 
 

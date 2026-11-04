@@ -280,7 +280,7 @@ class Conflict(Base):
                          ("conflict", ["f-3f9a1b2c", "f-5d0e2a77"], ["e-1a2b3c4d"], "open",
                           ["大安陳報價表", "大安陳室內裝修工程合約"]))
         self.assertIn("conflict", pending.KINDS)
-        self.assertEqual(self.manifest(), {".system/pending.json": "create", "系統/待處理.md": "modify"})
+        self.assertEqual(self.manifest(), {".system/pending.json": "create", ".system/local/pending.json": "create", "系統/待處理.md": "modify"})
         self.assertIn("## 兩份寫法不同的（1）\n- 報價表寫每坪 5800、合約寫 6000（「大安陳報價表」「大安陳室內裝修工程合約」，",
                       self.md())
 
@@ -356,7 +356,7 @@ class ConflictCli(unittest.TestCase):
         self.add(self.a, self.b)
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(pending.load(self.V)["items"], [])
+        self.assertEqual([i for i in pending.load(self.V)["items"] if i["status"] == "open"], [])  # 流水檔不抹歷史（多人共用 1）
         md = self.V / "系統" / "待處理.md"
         self.assertEqual(md.read_bytes() if md.exists() else None, before)
 

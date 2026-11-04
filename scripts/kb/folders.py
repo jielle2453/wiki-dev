@@ -358,6 +358,8 @@ def _purge_sentence(got):
             f"工作日誌 {got['journal']} 段；{PURGE_TAIL}")
     if got.get("undecodable"):  # 讀不懂編碼的備份跳過、不算沒清完（第六輪）
         line += f"\n有 {got['undecodable']} 份備份讀不懂編碼，沒動"
+    if got.get("history"):  # 知識庫是同步用的版本庫：已經同步出去的舊版本還在歷史裡（多人共用 1）
+        line += "\n已經同步出去的舊版本還留在同步的歷史裡，這一步清不掉"
     return line + "\n" + _obsidian_line(got.get("obsidian")) + "\n" + SNAPSHOT_LINE
 
 

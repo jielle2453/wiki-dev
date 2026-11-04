@@ -605,7 +605,7 @@ class SecondRound(Base):
         self.assertNotIn("裡有東西", r.stdout)
         self.assertFalse((self.V / "02 設計師").exists())
         self.assertNotIn("設計師", [t["name"] for t in profile.load(self.V)["types"]])
-        self.assertEqual([e["name"] for e in entities.load(self.V)["entities"] if e["name"] == "王設計師"], [])
+        self.assertEqual([e["name"] for e in entities.load(self.V)["entities"] if e.get("status") == "active" and e["name"] == "王設計師"], [])
         self.assertNotIn("第一層夾不在型別表", self.kb("check").stdout)
 
     def run_in_process(self, *argv, patches=()):

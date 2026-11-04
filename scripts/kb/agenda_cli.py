@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import agenda, config, inventory, paths, turn
+from kb._lib import agenda, config, inventory, paths, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -245,7 +245,7 @@ def _list(vault, args, as_json):
     items = sorted(items, key=lambda i: (i.get("start") or i.get("date", ""), i.get("date", ""), i.get("time") or "",
                                          i.get("id", "")))
     if as_json:
-        print(json.dumps({"items": items}, ensure_ascii=False))
+        print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "agenda")}, ensure_ascii=False))
         return 0
     if not items:
         print("日程是空的")
@@ -290,6 +290,8 @@ def _writable(folder):
 
 def _save_dir(vault, folder, turn_id):
     """把 agenda_export_dir 寫進 .system/config.json（空字串＝拿掉這個鍵）；鎖裡讀改寫、寫前備進回合。"""
+    from kb._lib import env
+    env.set_agenda_export_dir(vault, folder)  # 每台自己的路徑，存這台的 env.json（多人共用 1）
     p = Path(vault) / config.CLIENT_REL
     with kio.FileLock(p):
         try:

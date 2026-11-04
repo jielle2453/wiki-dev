@@ -103,8 +103,10 @@ def raw_owners(raw):
 
 def load_raw(vault):
     """原始 dict。壞 JSON 丟 ValueError；格式不對（沒有 sources 清單）也丟 ValueError。"""
-    with open(str(vault).rstrip("/\\") + "/" + SOURCES_REL, encoding="utf-8") as f:
-        data = json.load(f)
+    from kb._lib.io import read_json
+    data = read_json(str(vault).rstrip("/\\") + "/" + SOURCES_REL)
+    if data is None:
+        raise FileNotFoundError(SOURCES_REL)
     if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
         raise ValueError(f"{SOURCES_REL} 格式不對：要有 sources 清單")
     for i, s in enumerate(data["sources"], 1):

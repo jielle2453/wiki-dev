@@ -27,7 +27,7 @@ import json
 import os
 
 from kb import journal_cli
-from kb._lib import agenda, card_base, cards, config, entities, inventory, pending, profile, synthesis, turn
+from kb._lib import agenda, card_base, cards, config, entities, inventory, pending, profile, streams, synthesis, turn
 from kb._lib import io as kio
 from kb._lib.areas import HOLD_DIR
 from kb._lib import sources as sources_lib
@@ -556,7 +556,7 @@ def _show(vault, as_json):
     if as_json:
         titles = profile.card_titles(vault, data)
         print(json.dumps({"sections": profile.sections_schema(data, titles, profile.use_choices(vault), **lim),
-                          "pending_edit": _pending_edit(st)}, ensure_ascii=False))
+                          "pending_edit": _pending_edit(st), "conflicts": streams.conflicts_of(vault, "profile")}, ensure_ascii=False))
         return 0
     lines = []
     titles = profile.card_titles(vault, data)

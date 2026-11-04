@@ -331,13 +331,26 @@ def tag_changes(vault, turn_ids):
     import json
     from kb._lib import turn
     before = None
+    seen_ids = set()
     for tid in turn_ids:
         row = next((r for r in turn.entries(vault, tid) if r.get("path") == entities.ENTITIES_POSIX), None)
         if row is None:
             continue
         if row.get("by") == "program":
             return []
-        if row.get("action") == "create":
+        if row.get("stream"):  # 流水檔：現在的樣子，加上這一回合每一行改之前的樣子（多人共用 1）
+            from kb._lib import streams
+            before = {k: dict(v) for k, v in streams.load(vault, "entities").records.items() if not v.get("_del")}
+            own = streams.own_file(vault, "entities").stem
+            for r in streams.turn_items(vault, tid):
+                eff = streams.line_effects(vault, "entities", r.get("id"), r.get("seq"), own) if r.get("kind") == "entities" else None
+                if eff is not None and r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    if eff["old"] is None:
+                        before.pop(r["id"], None)
+                    else:
+                        before[r["id"]] = eff["old"]
+        elif row.get("action") == "create":
             before = {}
         else:
             try:

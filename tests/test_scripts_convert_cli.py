@@ -480,7 +480,8 @@ class AfterTest(Base):
         self.assertEqual(self.items(), [])
 
     def test_18_json_on_broken_state(self):
-        (self.V / ".system" / "inventory.json").write_text("{", encoding="utf-8")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory", "{")
         r = self.kb("convert", str(self.raw / _cards.MEETING), "--json")
         self.assertEqual(r.returncode, 3)
         self.assertIn("狀態檔壞了", json.loads(r.stdout)["unreadable"])
