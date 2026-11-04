@@ -16,7 +16,7 @@ from kb._lib import entities, profile, turn  # noqa: E402
 LI = "e-aaaa0001"
 ZHANG = "e-aaaa0002"
 LI_REL = "案子/內湖李/內湖李.md"
-SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json", ".system/streams/", ".system/local/", ".system/legacy/")
+SKIP = (".system/versions/", ".system/journal/", ".system/turns/", "系統/工作日誌/", ".system/renders.json", ".system/streams/", ".system/local/", ".system/legacy/", ".system/inventory.json", ".system/pending.json")
 
 
 def tree(V):

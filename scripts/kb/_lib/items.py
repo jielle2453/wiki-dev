@@ -24,6 +24,8 @@ RECORD_FILES = {  # .system/ 的 JSON → 條目清單的鍵（每筆有 id）
 }
 DERIVED = {  # 由別的東西重算的檔：不單獨改回（改完它的來源會重算），列出來也標 system
     ".system/inventory.json": None,
+    ".system/local/inventory.json": None,  # 流水檔的本機那一半（多人共用 1）
+    ".system/local/pending.json": None,
     "系統/日程.md": ".system/agenda.json",
     "系統/待處理.md": ".system/pending.json",
     "系統/裁示.md": ".system/rulings.json",
@@ -190,7 +192,9 @@ class Ledger:
             key = str(r["id"])
             if key == streams.META_ID:
                 continue
-            out.append({"src": "record", "op": "add" if eff["op"] == "create" else "set", "kind": "record", "file": e["path"],
+            derived = kind == "inventory"  # 掃描出來的帳：不單獨列、不單獨改回，整個回合退回時才一起改回
+            out.append({**({"undoable": False, "why": "derived"} if derived else {}),
+                        "src": "record", "op": "add" if eff["op"] == "create" else "set", "kind": "record", "file": e["path"],
                         "key": key, "from": e["path"], "to": None, "by": "kb", "copy": False, "keys": [fkey(e["path"])],
                         "rec": (fkey(e["path"]), key), "old": eff["old"], "new": eff["new"], "old_index": None, "row": e,
                         "system": True, "stream": {"kind": kind, "seq": r.get("seq"), "by": by, "fields": eff["fields"],

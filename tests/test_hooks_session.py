@@ -272,7 +272,8 @@ class OpeningInventory(unittest.TestCase):
 
     def test_never_scanned_vault_counts_everything_as_new(self):
         """審閱裁定 10：沒有清冊等於全部新增。"""
-        (self.V / ".system" / "inventory.json").unlink()
+        from tests._streams_util import forget_state
+        forget_state(self.V, "inventory")
         lines = self.change_lines(self.status())
         self.assertRegex(lines[0], r"^有 [1-9]\d* 份新放或改過（製作中）：")
         self.assertTrue(all(ln.startswith("有 ") and "不見" not in ln for ln in lines), lines)
@@ -322,7 +323,8 @@ class OpeningInventory(unittest.TestCase):
         self.assertEqual(len(next(iter(env_json["machines"].values()))["missing_sources_reported"]), 5)
 
     def test_broken_inventory_other_lines_still_printed_and_one_log_line(self):
-        (self.V / ".system" / "inventory.json").write_text("{bad", encoding="utf-8")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory")
         lines = self.status("compact")
         self.assertEqual(lines[0], KB_LINE)
         self.assertEqual(lines[-1], COMPACT_LINE)

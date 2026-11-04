@@ -47,7 +47,8 @@ class Recover(unittest.TestCase):
         _cards.write_card(self.V, item, "大安陳會議一")
         card_id = item["id"]
         shutil.rmtree(self.V / ".system" / "versions", ignore_errors=True)
-        self.write(".system/inventory.json", "{壞掉的")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory", "{壞掉的")  # 舊的整份 JSON 壞了才走備份與重建（流水檔的正本是合併結果，副本壞了會自己重寫）
         got = inventory.load(self.V)
         self.assertEqual([e["id"] for e in got["entries"]], [card_id])
         self.assertEqual(got["entries"][0]["locations"][0]["uri"], "file://" + _cards.MEETING)
@@ -64,7 +65,8 @@ class Recover(unittest.TestCase):
 
     def test_inventory_without_cards_is_not_rebuilt(self):
         shutil.rmtree(self.V / ".system" / "versions", ignore_errors=True)
-        self.write(".system/inventory.json", "{壞掉的")
+        from tests._streams_util import break_state
+        break_state(self.V, "inventory", "{壞掉的")
         with self.assertRaises(ValueError):
             inventory.load(self.V)
 

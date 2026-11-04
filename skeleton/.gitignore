@@ -39,6 +39,8 @@
 .system/profile.json
 .system/statements-archive.json
 .system/findings-archive.json
+.system/inventory.json
+.system/pending.json
 
 # 渲染頁、每台自己的東西
 系統/*

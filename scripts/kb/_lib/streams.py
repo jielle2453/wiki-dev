@@ -885,3 +885,38 @@ def conflicts_of(vault, kind):
         return conflicts_json(load(vault, kind))
     except (OSError, ValueError):
         return []
+
+
+def all_lines(vault, kind):
+    """這種類全部的行（照檔、照檔內順序）；purge 找「曾經在那夾」的筆用。"""
+    out = []
+    for f in _files(vault, base(kind)):
+        out += [r for _i, r in _read_file(vault, f)]
+    return out
+
+
+def purge_tombstones(vault, kind):
+    """purge：這台自己的檔收成每筆一行現在的樣子（舊行裡的原文不留，位置與順序不變）；已經刪掉的筆整筆拿掉。
+    別台的檔不動（只有同步改得動）。回收掉幾筆。"""
+    kind = base(kind)
+    path = own_file(vault, kind)
+    if not path.is_file():
+        return 0
+    with FileLock(path):
+        st = load(vault, kind)
+        by = path.stem
+        own_ids = {r.get("id") for _i, r in _read_file(vault, path) if r.get("op") != "mask"}
+        dead = {rid for rid in own_ids if st.records.get(rid, {}).get("_del")}
+        replace = {}
+        for rid in own_ids - dead:
+            rec = st.records.get(rid)
+            if rec is None:
+                continue
+            prev = st.meta.get(rid, {}).get("seq", 0)
+            alone = all(r.get("by") == by for r in _history(vault, kind, rid))
+            seq = 1 if alone else prev
+            replace[rid] = {"v": FORMAT_VERSION, "op": "create" if alone else "set", "id": rid, "seq": seq,
+                            "base": 0 if alone else max(prev - 1, 0), "by": by, "who": None, "at": _now(), "turn": None,
+                            "set": dict(rec), **({"app": _app()} if _app() else {})}
+        _rewrite_own(vault, path, replace, dead)
+        return len(own_ids)

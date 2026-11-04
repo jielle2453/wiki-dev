@@ -102,6 +102,14 @@ def target(vault, alias, spec):
                     ids.add(e.get("id"))
                     names.add(uri.rpartition("/")[2])
     take(current)
+    try:  # 流水檔的歷史：曾經在那夾、後來拿掉的條目（舊版備份不再整份複製，多人共用 1）
+        from kb._lib import streams
+        if streams.exists(vault, "inventory"):
+            take(list(streams.load(vault, "inventory").records.values()))
+            take([{"id": r.get("id"), "locations": r["set"]["locations"]} for r in streams.all_lines(vault, "inventory")
+                  if isinstance(r.get("set"), dict) and isinstance(r["set"].get("locations"), list)])
+    except (OSError, ValueError):
+        pass
     for vdir in _version_dirs(vault):
         data = _read_json(vdir / "files" / inventory.INVENTORY_POSIX)
         if isinstance(data, dict):
@@ -819,6 +827,29 @@ def _scrub_version_locked(vault, vdir, ids, prefix, mask, counts):
                     counts["left"]["backups"] += 1
         _scrub_moves(vdir, prefix, counts)
         _scrub_writes(vdir, prefix, shorts, counts)
+        _scrub_streams_rows(vdir, ids, counts)
+
+
+def _scrub_streams_rows(vdir, ids, counts):
+    """回合夾的 streams.jsonl（多人共用 1，只記 {kind, id, seq}）：筆的編號是那些卡的整行拿掉。"""
+    p = vdir / "streams.jsonl"
+    if not p.is_file():
+        return
+    try:
+        keep, dropped = [], False
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(ln)
+            except ValueError:
+                row = None
+            if isinstance(row, dict) and row.get("id") in ids:
+                dropped = True
+                continue
+            keep.append(ln)
+        if dropped:
+            write_text_atomic(p, "".join(ln + "\n" for ln in keep))
+    except OSError:
+        counts["left"]["backups"] += 1
 
 
 def _scrub_writes(vdir, prefix, shorts, counts):
@@ -1387,14 +1418,17 @@ def _scrub_streams(vault, mask, counts):
     快取刪掉、衍生副本從遮過的流水檔重算；遷移留下的舊 JSON 也遮。"""
     from kb._lib import streams
     root = Path(vault)
+    quiet = {"undecodable": 0, "backups": 0}  # 流水檔遮字不算進「備份幾份」
     try:
         own = streams.machine_id(vault)
+        for kind in streams.KINDS:
+            streams.purge_tombstones(vault, kind)
         for f in sorted((root / streams.STREAMS_REL).glob(f"*/{own}.jsonl")):
-            if f.parent.name not in ("sources", "statements"):  # 來源登記表照舊不遮（排除的夾名、範圍記在那裡）
-                _mask_file(f, mask, counts)
+            if f.parent.name in ("card_base", "entities", "agenda", "rulings", "findings", "set_aside"):
+                _mask_file(f, mask, quiet)  # 其他種類（清冊、待處理、口述、來源登記）各有自己的清法，不整檔遮
         legacy = root / streams.LEGACY_REL
         for f in sorted(legacy.rglob("*.json")) if legacy.is_dir() else []:
-            _mask_file(f, mask, counts)
+            _mask_file(f, mask, quiet)
         cache = root / streams.LOCAL_REL / "cache"
         for f in sorted(cache.glob("*")) if cache.is_dir() else []:
             f.unlink()
