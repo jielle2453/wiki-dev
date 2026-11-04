@@ -72,6 +72,8 @@ def add_arguments(sub):
     lc = subs.add_parser("locate", help="在這台電腦找搬走的來源夾（只讀）",
                          description="找搬走的來源夾：從家目錄與固定磁碟根往下找同名的夾，用抽樣比對排序，回候選。")
     lc.add_argument("alias", help="來源的別名")
+    lc.add_argument("path", nargs="?", help="給了路徑：記這台電腦這個來源的實際位置（共用的登記不動，多人共用）")
+    lc.add_argument("--clear", action="store_true", help="拿掉這台電腦記的位置，回到共用登記的")
     e = subs.add_parser("exclude", help="排除來源裡的一個夾或檔", description="排除來源裡的一個夾或檔；對象要真的存在。")
     e.add_argument("path", help="來源裡的夾或檔")
     e.add_argument("--kind", required=True, choices=("hidden", "unused"), help="hidden 不想讓 AI 看到；unused 用不到")
@@ -402,7 +404,8 @@ def _add(vault, args, as_json):
         else:
             entry_id = sources_lib.new_id(s.get("id") for s in raw["sources"])
             new_entry = {"id": entry_id, "alias": alias, "spec": spec, "excludes": []}
-            if getattr(args, "shared", False):
+            from kb._lib import people
+            if getattr(args, "shared", False) or people.multi(vault):  # 多人時雲端的夾預設共用（設計自定 3）
                 new_entry["shared"] = True
             raw["sources"].append(new_entry)
             turn_id, original = _backup_then_write(vault, raw)
@@ -920,12 +923,38 @@ def locate_candidates(vault, name, roots, depth, seconds, skip=()):
     return found, time.monotonic() - start
 
 
+LOCATE_SET = "記下了：這台電腦的「{alias}」在 {path}（共用的登記沒動）"
+LOCATE_CLEARED = "拿掉了這台電腦記的「{alias}」位置，回到共用登記的"
+
+
+def _locate_here(vault, entry, args, as_json):
+    """kb folders locate <別名> <路徑>／--clear：只寫 env.json 這台那一筆的 source_paths，不改 sources.json、不重寫卡（D-292、D-328）。"""
+    from kb._lib import env
+    alias, src_id = entry.get("alias", ""), entry.get("id", "")
+    if args.clear:
+        env.set_source_path(vault, src_id, None)
+        line = LOCATE_CLEARED.format(alias=alias)
+        payload = {"alias": alias, "cleared": True, "message": line}
+    else:
+        t = Path(args.path).expanduser()
+        if not t.is_dir():
+            return _reject(f"找不到資料夾 {t}")
+        path = normalize(str(t.resolve()), None)
+        env.set_source_path(vault, src_id, path)
+        line = LOCATE_SET.format(alias=alias, path=path)
+        payload = {"alias": alias, "path": path, "message": line}
+    print(json.dumps(payload, ensure_ascii=False) if as_json else line)
+    return 0
+
+
 def _locate(vault, args, as_json):
     wanted = _clean_alias(args.alias.strip())
     raw = sources_lib.load_raw(vault)
     entry = next((s for s in raw["sources"] if str(s.get("alias", "")).casefold() == wanted.casefold()), None)
     if entry is None:
         return _reject(f"沒有叫「{wanted}」的來源")
+    if getattr(args, "path", None) or getattr(args, "clear", False):
+        return _locate_here(vault, entry, args, as_json)
     alias = entry.get("alias", "")
     spec = entry.get("spec", "")
     name = Path(spec.replace("\\", "/").rstrip("/")).name

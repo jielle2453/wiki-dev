@@ -35,7 +35,7 @@ TRACKED = ("deadline", "promise")  # 過了還 open 才算逾期（D-129）
 PASSING = ("meeting", "reminder")  # 過了就算已過去
 STATUSES = ("open", "done", "cancelled")
 SOURCES = ("interview", "inferred", "confirmed", "corrected")
-EDITABLE = ("date", "start", "time", "text", "entities", "lead_days", "repeat")
+EDITABLE = ("date", "start", "time", "text", "entities", "lead_days", "repeat", "whose")
 REPEATS = {"每年": "year", "每月": "month", "每週": "week"}
 REPEAT_TEXT = {v: k for k, v in REPEATS.items()}
 NO_REPEAT = "不重複"
@@ -308,7 +308,8 @@ def _text(value):
     return text
 
 
-def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=None, source=None, lead_days=None, repeat=None):
+def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=None, source=None, lead_days=None, repeat=None,
+        whose=None):
     """回 (條目, 新建了嗎)。驗完才寫；card 有給 → 來源 inferred、origin 記那張卡與它現在的 fp，
     同一張卡已有同種類、同日期、同文字的 open 條目就不重複、回既有。"""
     kind = kind_of(kind)
@@ -324,6 +325,7 @@ def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=
     text = _text(text)
     lead = _lead(lead_days)
     every = _every(repeat) if repeat is not None else None
+    who = _whose(whose)
     source = source or "confirmed"
     if source not in SOURCES:
         raise AgendaRefused(f"來源要是 {'、'.join(SOURCES)} 之一")
@@ -345,6 +347,8 @@ def add(vault, kind, date, text, entities, turn_id, start=None, time=None, card=
               "created_turn": turn_id, "history": []}
         if every:
             it["repeat"] = {"every": every, "from": day}
+        if who and not card:  # 製卡抽的一律全隊（多人共用 2 第 5 點）
+            it["whose"] = who
         data["items"].append(it)
         return (it, True), True
     return _mutate(vault, turn_id, fn)
@@ -358,6 +362,24 @@ def show(value, key=None):
     if isinstance(value, list):
         return "、".join(value)
     return "" if value is None else str(value)
+
+
+def _whose(value):
+    """誰的：None／全隊 → None（不存，當 team）；名字清單 → 清單。"""
+    if value is None:
+        return None
+    from kb._lib import people
+    got = value if isinstance(value, list) else people.parse_whose(value)
+    return None if got == people.TEAM else got
+
+
+def visible(vault, items):
+    """這台這個人看得到的日程：單人、全隊、或自己在 whose 裡（D-289）。"""
+    from kb._lib import people
+    mine = people.me(vault)
+    if mine is None:
+        return list(items)
+    return [i for i in items if people.visible(i.get("whose"), mine)]
 
 
 def _edit_fn(vault, aid, turn_id, by, card, new):
@@ -375,6 +397,8 @@ def _edit_fn(vault, aid, turn_id, by, card, new):
         if begin and begin > day:
             raise AgendaRefused("開始不能晚於日期")
         want = dict(new)
+        if "whose" in want:
+            want["whose"] = None if (it.get("origin") or card) else _whose(want["whose"])  # 製卡抽的一律全隊
         if "repeat" in want:
             want["repeat"] = {"every": want["repeat"], "from": day} if want["repeat"] else None
         elif "date" in want and it.get("repeat"):
@@ -620,7 +644,7 @@ def counts(vault, data, today=None):
     upcoming 是今天之後 N 天內（N 是條目的 lead_days，沒有就 agenda_window_days）。會議與提醒過了不算逾期。"""
     now = dt.date.fromisoformat(today or _today())
     out = {"overdue": 0, "today": 0, "upcoming": 0}
-    for it in data["items"]:
+    for it in visible(vault, data["items"]):
         d = _day(it)
         if it.get("status") != "open" or it.get("kind") == "period" or d is None:
             continue
@@ -785,7 +809,7 @@ def _histories(vault):
 
 def render_text(vault, data, today=None):
     now = today or _today()
-    items = data["items"]
+    items = visible(vault, data["items"])
     if not items:
         return HEADER + f"\n{EMPTY_SENTENCE}\n"
     past_days = config.get(vault, "agenda_past_days")
@@ -821,7 +845,7 @@ def item_lines(vault, data, today=None):
     now = today or _today()
     cutoff = (dt.date.fromisoformat(now) - dt.timedelta(days=config.get(vault, "agenda_past_days"))).isoformat()
     out = []
-    for it in data["items"]:
+    for it in visible(vault, data["items"]):
         if it.get("status") == "open" and it.get("kind") != "period" and _day(it) is not None:
             out.append((_line(it), it.get("id")))
         row = _past_row(it, now, cutoff)
@@ -940,7 +964,7 @@ def export_payload(vault, data):
     """willy-agenda/1：全部條目（含完成、取消）只取 EXPORT_FIELDS 加 fp；實體只列 active、不是她自己的。"""
     from kb._lib import entities, paths
     items = []
-    for it in data["items"]:
+    for it in visible(vault, data["items"]):
         row = {k: it.get(k) for k in EXPORT_FIELDS}
         row["repeat"] = (it.get("repeat") or {}).get("every")  # D-501：只給週期，不進指紋
         row["fp"] = item_fp(it)

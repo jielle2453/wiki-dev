@@ -164,3 +164,38 @@ def daily_done(vault):
 
 def set_daily_done(vault, day):
     _set_text(vault, "daily_done", day)
+
+
+def person(vault):
+    """這台電腦的人名（多人共用，第 2 份）；沒記過回 None。只讀。"""
+    return _text_of(vault, "person")
+
+
+def set_person(vault, name):
+    _set_text(vault, "person", name)
+
+
+def source_paths(vault):
+    """這台電腦各來源的實際位置 {src id: 路徑}（D-292）；沒有回 {}。只讀。"""
+    machine = _machine(_load(vault))
+    value = machine.get("source_paths") if machine else None
+    if not isinstance(value, dict):
+        return {}
+    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str) and v}
+
+
+def set_source_path(vault, src_id, path):
+    """記這台電腦某來源的位置；path 是 None 就拿掉。"""
+    p = _path(vault)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        data = _load(vault)
+        machine = _machine(data, create=True)
+        paths = machine.get("source_paths")
+        if not isinstance(paths, dict):
+            paths = machine["source_paths"] = {}
+        if path is None:
+            paths.pop(src_id, None)
+        else:
+            paths[src_id] = str(path)
+        write_json_atomic(p, data)

@@ -36,7 +36,8 @@ COMMANDS = {
     "archive": ("kb.archive_cli", "封存：把過時的檔或實體收起來（還找得到，不再整理、不再問）；--undo 拿掉封存"),
     "pending": ("kb.pending_cli", "待處理：list 列等你決定的事，add 記一件兩份寫法不同的，resolve 記下怎麼處理，dismiss 記成不用管，"
                                   "set-aside 先放著，back 拿回來"),
-    "profile": ("kb.profile_cli", "客戶設定檔：check 看改了什麼，apply 套用並建型別夾"),
+    "profile": ("kb.profile_cli", "客戶設定檔：check 看改了什麼，apply 套用並建型別夾，set people 記幾個人用"),
+    "who": ("kb.who", "這台是誰：多人共用時看與記這台電腦的人名、幾個人用、團隊成員；set <名字> 記下"),
     "entity": ("kb.entity", "實體：add 登記，confirm 確認名稱，accept AI 判斷有把握直接登記，rename 改名，merge 合併，remove 移除，rebuild 重寫綜合卡，"
                             "clean 清放錯的綜合卡，list 列出，render 重寫綜合卡快取，progress 事類的進行中、結案、擱置，"
                             "suggest-close 記一條結案待問，alias 加或拿掉別名"),

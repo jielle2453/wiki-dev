@@ -28,9 +28,15 @@ class Sources:
         self.vault_excludes = []  # 知識庫裡使用者的夾設成不讀（放寬甲一.6）：sources.json 頂層 vault_excludes，spec 相對知識庫根
         if not isinstance(data, dict) or not isinstance(data.get("sources"), list):
             raise ValueError(f"{SOURCES_REL} 格式不對：要有 sources 清單")
+        try:  # 這台電腦自己記的位置（D-292）：有就蓋過共用的 spec；env 讀不到當沒有
+            from kb._lib import env
+            local_paths = env.source_paths(vault)
+        except Exception:  # noqa: BLE001
+            local_paths = {}
         for s in data["sources"]:
             alias, spec, src_id = s.get("alias", "?"), s.get("spec", ""), s.get("id", "")
-            root = resolve_spec(spec, self.vault) if spec else None
+            where = local_paths.get(src_id) or spec
+            root = resolve_spec(where, self.vault) if where else None
             if root is None:
                 self.unresolved.append({"alias": alias, "spec": spec, "id": src_id, "kind": "source"})
                 continue

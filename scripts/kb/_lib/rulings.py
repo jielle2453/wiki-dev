@@ -94,9 +94,18 @@ def card_ids(r):
     return [c.get("id") for c in r.get("cards") or [] if isinstance(c, dict)]
 
 
-def readable_ids(vault):
-    """有效「可以讀」裁示掛的清冊編號（D-183、D-184）：守門與 kb convert 在憑證命中時查。壞檔丟 ValueError（呼叫端照擋）。"""
+_ME = object()
+
+
+def readable_ids(vault, person=_ME):
+    """有效「可以讀」裁示掛的清冊編號（D-183、D-184）：守門與 kb convert 在憑證命中時查。壞檔丟 ValueError（呼叫端照擋）。
+    多人時（D-297）只算 person 是這台的人的，person 沒記（升級前、單人）的照舊全隊都算；person 沒給就用這台的人（people.me），
+    單人是 None＝全部都算。"""
+    if person is _ME:
+        from kb._lib import people
+        person = people.me(vault)
     return {fid for r in load(vault)["rulings"] if r.get("status") == "active" and r.get("kind") == "credential_read"
+            and (person is None or not r.get("person") or r.get("person") == person)
             for fid in r.get("files") or [] if isinstance(fid, str)}
 
 
@@ -290,9 +299,14 @@ def _add_readable(vault, files, entities, cards, text, label, turn_id):
     label = statements.check_text(label, "種類名稱", RulingRefused) if label not in (None, "") else None
     ids = list(dict.fromkeys(e["id"] for e in entries))
 
+    from kb._lib import people
+    who = people.me(vault)
+
     def fn(data):
         it = {"id": _new_id(data), "kind": "credential_read", "entities": [], "cards": [], "files": ids, "text": text,
               "date": _today(), "turn": turn_id, "status": "active", "revoked": None}
+        if who:
+            it["person"] = who  # 多人時是誰同意的（D-297），只對那人有效
         if label:
             it["label"] = label
         data["rulings"].append(it)

@@ -41,6 +41,8 @@ MOVED_LINE_TEXT = "知識庫換了位置：先跑 kb moved 補好再做別的。
 NEW_MACHINE_LINE = "這台電腦第一次開這個知識庫：先跑 kb moved 看要補什麼。"
 MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
 MISSING_SOURCES_SHOWN = 3
+MISSING_SOURCE_TEAM = "這台找不到來源「{alias}」（預設在 {spec}），請問她這台的「{alias}」在哪，答了跑 kb folders locate {alias} <路徑>。"  # 多人共用 2 第 3 點
+WHO_LINE = "這台第一次用，請先問她這台電腦是誰在用（預設 {name}），答了跑 kb who set <名字>。"  # D-286
 CARD_EDITS_LINE = "客戶在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # D-270
 CARD_EDITS_MAYBE = "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # 時限內一張都沒比到
 CARD_EDITS_MORE = "客戶在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"
@@ -353,6 +355,33 @@ def line_card_edits(vault, deadline=None):
     return (CARD_EDITS_MORE if got["more"] else CARD_EDITS_LINE).format(n=n), not got["more"]
 
 
+def line_who(vault):
+    """多人共用 2（D-286、設計自定 2）：多人而這台還沒記是誰就問一次；單人、已經記了不印。"""
+    from kb._lib import people
+
+    if not people.multi(vault) or people.me(vault):
+        return None
+    return WHO_LINE.format(name=people.default_name(vault) or "（沒有，請她說）")
+
+
+def _team_missing(vault, got_sources, report):
+    """多人：找不到的來源一個一句講預設在哪、問這台在哪（同一個對話只報一次由 env 記號管）。"""
+    from kb._lib import env, sources as sources_lib
+
+    specs = {s.get("id") or s.get("alias"): s.get("spec", "") for s in sources_lib.load_raw(vault)["sources"]}
+    lost = {(m["id"] or m["alias"]): m["alias"] for m in report["missing_sources"]}
+    env.clear_missing(vault, [s["id"] or s["alias"] for s in got_sources.entries if (s["id"] or s["alias"]) not in lost])
+    new = {k: a for k, a in lost.items() if not env.missing_reported(vault, k)}
+    if not new:
+        return None
+    env.mark_missing(vault, list(new))
+    first = next(iter(new))
+    line = MISSING_SOURCE_TEAM.format(alias=new[first], spec=specs.get(first, "?"))
+    if len(new) > 1:
+        line += f"（還有 {len(new) - 1} 個也找不到：{'、'.join(list(new.values())[1:MISSING_SOURCES_SHOWN])}）"
+    return line
+
+
 def line_missing_sources(vault):
     """清冊題：這台電腦找不到的來源，每台電腦只報一次（env.json 記號）；又找得到就清掉記號，之後再失蹤再報。"""
     if line_moved(vault):  # kb moved 會列這台找不到的來源；這裡報了就把「已報過」記號寫掉
@@ -360,9 +389,11 @@ def line_missing_sources(vault):
     got = file_compare(vault)
     if got is None:
         return None
-    from kb._lib import env
+    from kb._lib import env, people
 
     sources, report = got
+    if people.multi(vault):
+        return _team_missing(vault, sources, report)
     lost = {(m["id"] or m["alias"]): m["alias"] for m in report["missing_sources"]}
     env.clear_missing(vault, [s["id"] or s["alias"] for s in sources.entries if (s["id"] or s["alias"]) not in lost])
     new = {k: alias for k, alias in lost.items() if not env.missing_reported(vault, k)}
@@ -577,6 +608,7 @@ def turn_lines(vault, session_id):
     if daily_pending(vault):
         for line in guarded(daily_lines, vault) or []:
             tell(line)
+    tell(guarded(line_who, vault), once=True)  # 多人而這台沒記是誰：同一個對話只講一次（D-286）
     # 1. 檔案比對：搬動、不見、新增寫進這一句的 detected.jsonl（by outside）；變動行與整理提示在最後一步用它的結果
     got = None
     detected = list(checks.get("detected") or [])
