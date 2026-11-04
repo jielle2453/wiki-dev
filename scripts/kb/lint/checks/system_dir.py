@@ -8,6 +8,7 @@ from pathlib import Path
 from kb._lib import journal, turn
 from kb.lint import runner
 
+SCOPE = "local"
 NAME = "系統夾"
 STUCK_HOURS = 24
 

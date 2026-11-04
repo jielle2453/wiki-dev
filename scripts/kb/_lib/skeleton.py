@@ -104,6 +104,23 @@ def _backup(vault, rel, turn_id):
     turn.backup(vault, rel, turn_id)
 
 
+def claim_rewrite(vault, rel):
+    """共用檔改寫認領（多人共用 3 第 10 點，D-298 (3)）：多人而且是 git repo 時先推 willy/upgrade/<版本>/<路徑雜湊前 12 碼>，
+    別台推了（taken）這台就不改——別台改了、pull 下來就有；自己推的標籤也算過。單人、不是 git、連不上、標籤出錯都照改。"""
+    try:
+        from kb._lib import git, upgrade
+        if not git.sync_active(vault):
+            return True
+        name = f"willy/upgrade/{upgrade.plugin_version()}/{hashlib.sha256(rel.encode('utf-8')).hexdigest()[:12]}"
+        me = git.me(vault)
+        got = git.push_tag(vault, name, me)
+        if got == "taken":
+            return git.tag_message(vault, name) == me
+        return True
+    except Exception:  # noqa: BLE001  標籤機制出錯不擋升級
+        return True
+
+
 def reconcile(vault, turn_id, from_version=None):
     """每個骨架檔對一次帳。回 {"created": [...], "replaced": [...], "ask": [...]}（相對路徑）。
     created：知識庫裡沒有、補上；replaced：她沒改過、換成新版（舊的備進回合）；ask：她改過、新版也改了，不動、交給 AI 問。"""
@@ -117,6 +134,8 @@ def reconcile(vault, turn_id, from_version=None):
     for rel in files():
         new, target = now[rel], vault / rel
         if not target.is_file():
+            if not claim_rewrite(vault, rel):
+                continue
             _write_from_skeleton(vault, rel)
             created.append(rel)
             settled.append(rel)
@@ -134,6 +153,8 @@ def reconcile(vault, turn_id, from_version=None):
                 continue
             untouched = known(rel, cur)
         if untouched:
+            if not claim_rewrite(vault, rel):
+                continue
             _backup(vault, rel, turn_id)
             _write_from_skeleton(vault, rel)
             replaced.append(rel)

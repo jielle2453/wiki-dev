@@ -1404,6 +1404,26 @@ def _stream_conflict(it):
             "now": None, "fields": st["fields"]}
 
 
+def _other_changed(vault, it):
+    """檔的項目：回合收尾後被別人改過（after.jsonl 的 sha 對不上）→ 替她做好一半、回 conflict 一項（多人共用 3 第 6 點）。"""
+    from kb._lib import refresh
+    rel = (it.get("row") or {}).get("path") if it.get("src") == "manifest" else None
+    if not rel or not isinstance(rel, str):
+        return None
+    try:
+        backup = Path(vault) / turn.VERSIONS_REL / it["turn"] / "files" / rel if it.get("copy") else None
+        got = refresh.other_changed(vault, it["turn"], rel, backup)
+    except Exception as e:  # noqa: BLE001  比不出來就照原本的退
+        ledger.log_error(vault, f"退回前比別人改過失敗：{type(e).__name__}: {str(e)[:100]}", source="versions")
+        return None
+    if got is None:
+        return None
+    then = {"op": it["op"], "backup": f"{turn.VERSIONS_REL.as_posix()}/{it['turn']}/files/{rel}"}
+    return {"item": it["item"], "why": "later", "then": then,
+            "later": [{"side": "other", "who": got["who"], "via": got["via"], "said": f"{got['who']}改過"}], "now": rel,
+            "done": got["done"], "copy": got["copy"]}
+
+
 def _undo(vault, targets, as_json, conversation):
     lock = kio.FileLock(revert_lock_path(vault), timeout=REVERT_LOCK_TRY)
     try:
@@ -1471,6 +1491,10 @@ def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
             continue
         if it.get("stream") and _other_machine_lines(vault, it):  # 別台改過同一欄（多人共用 1）
             conflict.append(_conflict_entry(it, [], by_turn, vault))
+            continue
+        other = _other_changed(vault, it)  # 多人共用 3：這句之後被 pull 進來或雲端同步改過（沒有這台的回合紀錄，上面抓不到）
+        if other:
+            conflict.append(other)
             continue
         try:
             status, why, message = _do_item(ctx, led, it)

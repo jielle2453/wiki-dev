@@ -18,9 +18,9 @@ from kb._lib.io import FileLock, read_json, write_json_atomic
 LINT_POSIX = ".system/lint.json"
 SCHEMA_VERSION = 1
 KEYS = {"last_background": None, "last_spawn": None, "last_report": None, "synthesis_fix": [], "month_done": [],
-        "last_counts": None, "last_preference": None}
+        "last_counts": None, "last_preference": None, "last_shared": None}
 TYPES = {"last_background": str, "last_spawn": str, "last_report": str, "synthesis_fix": list, "month_done": list,
-         "last_counts": dict, "last_preference": str}
+         "last_counts": dict, "last_preference": str, "last_shared": str}
 
 
 def _path(vault):

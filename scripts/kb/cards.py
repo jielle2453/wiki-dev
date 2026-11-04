@@ -641,6 +641,12 @@ def _dispatch(vault, args, as_json):
     if got["stopped"]:
         print(STOPPED_HERE)
         return 0
+    if got.get("offline"):
+        print("連不到 git，等連上再整理")  # 多人共用 3：認領標籤推不出去，這次全部不派
+        return 0
+    if got.get("claimed_elsewhere") and not got["batches"]:
+        print("這幾份別台在整理，這台不做：" + "、".join(sorted({c["by"] for c in got["claimed_elsewhere"]})) + " 那台")
+        return 0
     if not got["batches"] and not got["running"] and not got["done"] and got["say"]:
         print(got["say"])  # 別的對話認領著（認領不分對話）
         return 0

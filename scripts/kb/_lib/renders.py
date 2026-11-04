@@ -207,6 +207,26 @@ def add_carried(vault, rel, new, drop_ids=()):
     return done["added"], done["dropped"]
 
 
+def unhanded(vault):
+    """還沒交給 AI 的「你加的」（多人共用 3 第 11 點，D-299）：[(頁, 條目)]，handed 欄是空的。"""
+    return [(rel, c) for rel, items in sorted(carried_all(vault).items()) for c in items if not c.get("handed")]
+
+
+def mark_handed(vault, ids):
+    """記這幾筆已經交給 AI（每筆只交一次）；回記了幾筆。"""
+    ids, n = set(ids), [0]
+
+    def change(data):
+        for items in data["carried"].values():
+            for c in items:
+                if c["id"] in ids and not c.get("handed"):
+                    c["handed"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+                    n[0] += 1
+        return n[0] > 0
+    _edit(vault, change)
+    return n[0]
+
+
 def drop_carried(vault, cid):
     """kb renders drop：回 (頁, 條目) 或 (None, None)。"""
     for rel, items in carried_all(vault).items():

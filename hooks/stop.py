@@ -51,6 +51,7 @@ def main():
         message = payload.get("last_assistant_message")
         data = turn._read_turn(turn._session_file(vault, sid))
         try:
+            _record_after(vault, data, payload)  # 多人共用 3：這回合碰過的檔的 sha 記進 after.jsonl，退回時比別人改過沒
             _after_answer(vault, sid, payload)  # 先寫 detected.jsonl，下面日誌的 actions 才抄得到
             if data and not data.get("done"):
                 _finish(vault, sid, data, message, payload)
@@ -60,6 +61,17 @@ def main():
         finally:
             _jobs(vault, sid, message, payload, data)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
+        _log(e, payload)
+
+
+def _record_after(vault, data, payload):
+    """versions/<turn>/after.jsonl（多人共用 3 第 6 點）；例外只寫 log。"""
+    try:
+        if data and data.get("turn"):
+            from kb._lib import refresh
+
+            refresh.write_after(vault, data["turn"])
+    except BaseException as e:  # noqa: BLE001
         _log(e, payload)
 
 

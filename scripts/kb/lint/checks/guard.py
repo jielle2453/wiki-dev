@@ -7,6 +7,7 @@ from pathlib import Path
 from kb._lib import journal, ledger
 from kb.lint import runner
 
+SCOPE = "local"
 NAME = "守門"
 STALE_DAYS = 2  # 對話那天跟守門最後跑的那天差幾天以上才算沒在跑（那天的對話可能沒用到工具）
 
