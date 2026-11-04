@@ -51,7 +51,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
   - `names`：照 carding.md 第十一節判斷每個新名字，有把握的跑 `entity accept`，有疑慮的不動（`asks` 會問）（D-202）。
   - `dispatch`：跑 `cards dispatch --json`，照「讀派工結果」做；先用現有資料回答這句、末尾說還在整理。
   - `cards`（線上文件、密碼檔）：照 carding.md 自己寫卡；打回後還是不行、或讀不到又沒記進待處理，只停那一份、告訴客戶。
-- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。
+- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。多人用 git 時：`offline` 是 true 就說「連不到 git，等連上再整理」，先用原檔答；`claimed_elsewhere` 有人名就說「小王那台在整理，我先照原檔答」，那幾份這台不做。
 - **客戶說停**（「先停」「今天先到這裡」）：跑 `cards stop --json`，`agents` 每個用 TaskStop 停掉，再跑 `cards status` 照它那句講（停下前在寫的卡會寫完）；這個對話之後不自動整理。客戶說「整理」「繼續整理」就直接跑 `cards dispatch --json`（即 `plan` 最前面的 `resume`，D-200）。
 - **回答**：`plan` 做完（有 `dispatch` 就等到 `done`），重跑 `cards todo --json`，完整回答派工那一句客戶問的，答案在前；問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）。做了的事合成一行（檔名最多 5 個；好幾件就說「另外整理了 N 件，說『剛剛做了什麼』看細節」），`failed` 裡 `tell` 沒帶到的照原因講；`tell` 的句子原樣貼；`asks` 有就問一件 `question`，結果的 `label` 列成選項，回答裡說的回覆方式要跟畫面上的一致；`n` 不給客戶看。
 - **客戶回了**：

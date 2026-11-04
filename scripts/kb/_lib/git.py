@@ -346,4 +346,3 @@ def me(vault):
 def sync_active(vault):
     """多人而且是 git repo（認領、健檢分工、共用檔改寫用）。"""
     return multi(vault) and is_repo(vault)
-
