@@ -5,6 +5,7 @@
 from kb._lib import profile
 from kb.lint import runner, state
 
+SCOPE = "local"
 NAME = "偏好月檢"
 NEAR = 0.8
 
