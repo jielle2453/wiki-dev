@@ -584,6 +584,12 @@ def backup(vault, rel, turn_id, action=None, by=None):
     if by not in (None, "program"):
         raise ValueError(f"backup 的 by 只收 program：{by!r}")
     target = Path(vault) / rel
+    from kb._lib import streams
+    virtual = streams.virtual_kind(target)
+    if virtual is not None:  # 流水檔：改動由 streams.write 記在回合的 streams.jsonl，不整份備份（多人共用 1）
+        streams.note_turn(virtual[0], virtual[1], turn_id)
+        turn_dir(vault, turn_id)
+        return
     vdir = turn_dir(vault, turn_id)
     manifest = vdir / "manifest.jsonl"
     with FileLock(manifest):
