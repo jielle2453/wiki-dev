@@ -38,8 +38,22 @@ class FindCli(unittest.TestCase):
         self.assertTrue(any(l.startswith("報價單（報價，2026-09-12）") for l in lines), r.stdout)
 
     def test_nothing_found(self):
-        r = run_kb("find", "完全不存在的東西", cwd=self.V)
-        self.assertEqual((r.returncode, r.stdout.splitlines()[-1]), (0, "沒有找到"))
+        """#37：0 筆時「沒有找到」後附製作中的檔一行（同 lookup），--json 多 in_progress、in_progress_total；檔名有字的在前；
+        沒有製作中的就只有「沒有找到」。"""
+        from unittest import mock
+        from kb._lib import cards, find
+        (self.raw / "客戶案件" / "獨特ZZ檔.txt").write_text("內容\n", encoding="utf-8")
+        _cards.scan_apply(self.V)
+        n = len(cards.wip(self.V))
+        r = run_kb("find", "完全不存在的東西 zz", cwd=self.V)
+        lines = r.stdout.splitlines()
+        self.assertEqual((r.returncode, lines[-2]), (0, "沒有找到"), r.stdout)
+        self.assertTrue(lines[-1].startswith(f"還沒整理的 {n} 份可能有提到（"), lines[-1])
+        out = json.loads(run_kb("find", "完全不存在的東西 zz", "--json", cwd=self.V).stdout)
+        self.assertEqual((out["files"], out["in_progress_total"], out["in_progress"][0]["name"]), ([], n, "獨特ZZ檔.txt"))
+        with mock.patch.object(cards, "wip", return_value=[]):
+            got = find.find(self.V, "完全不存在的東西")
+        self.assertEqual((got["in_progress"], got["in_progress_total"]), ([], 0))
 
     def test_dash_leading_query_needs_double_dash(self):
         r = run_kb("find", "--json", "--", "-abc", cwd=self.V)

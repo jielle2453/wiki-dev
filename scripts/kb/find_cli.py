@@ -5,6 +5,7 @@ import argparse
 import json
 
 from kb._lib import find
+from kb.lookup_cli import wip_lines
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 NOTHING = "沒有找到"
@@ -51,4 +52,6 @@ def run(args):
         print(NOTHING)
     elif out["more"]:
         print(f"還有 {out['total'] - len(out['files'])} 份沒列出來，加幾個字縮小範圍")
+    for line in wip_lines(out):  # 0 筆時附製作中的檔（#37）
+        print(line)
     return 0
