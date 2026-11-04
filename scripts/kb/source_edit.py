@@ -89,6 +89,15 @@ def _dest_folder_name(vault, dest, cwd):
         return None
 
 
+def _vault_rel(vault, sources, target, cwd):
+    """目標在知識庫底下就回相對路徑（posix），否則 None。"""
+    try:
+        path = se.resolve(vault, sources, target, cwd)[1]
+        return Path(os.path.realpath(str(path))).relative_to(os.path.realpath(str(vault))).as_posix()
+    except (se.Refused, ValueError, OSError, TypeError):
+        return None
+
+
 def _move_one(vault, args, op, cwd, target, turn_id, dest=None, to_name=None, replace=False):
     """搬一個東西：回 (結果 dict, 句子)；做不成丟 Refused（Conflict 帶 conflict 列）。--check 回 (含 lines 的 plan, None)。"""
     sources = sources_lib.load(vault)
@@ -98,7 +107,11 @@ def _move_one(vault, args, op, cwd, target, turn_id, dest=None, to_name=None, re
         plan = se.plan_move(vault, sources, target, cwd, dest=dest, to_name=to_name)
     if args.check:
         return dict(_public(plan), lines=se.check_lines(plan, op)), None
+    rel_before = _vault_rel(vault, sources, target, cwd)
     got = se.do_move(vault, plan, turn_id, op, replace=replace)
+    if rel_before:  # 多人共用 3 第 7 點：搬走的是之前因為太大被排除在 git 外的檔，exclude 那行拿掉（不在 repo 裡是空操作）
+        from kb._lib import git
+        git.exclude_remove(vault, rel_before)
     sentence = se.move_sentence(plan, got, op)
     res = dict(_public(plan), to_uri=got["to_uri"], cards_moved=got["cards_moved"], replaced=bool(got["replaced"]),
                sentence=sentence, _got=got)

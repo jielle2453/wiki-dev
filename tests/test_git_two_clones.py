@@ -100,5 +100,19 @@ class LintSplitTest(RefreshBase):
         self.assertEqual(git.list_remote_tags(self.A, "willy/claim/"), [new])
 
 
+@unittest.skipUnless(gf.have_git(), "沒有 git")
+class SkeletonClaimTest(RefreshBase):
+    def test_only_one_machine_rewrites_shared_file(self):
+        from kb._lib import skeleton
+        with mock.patch.object(git, "multi", lambda v: True):
+            with mock.patch.object(git, "me", lambda v: "甲"):
+                self.assertTrue(skeleton.claim_rewrite(self.A, "CLAUDE.md"))
+                self.assertTrue(skeleton.claim_rewrite(self.A, "CLAUDE.md"))  # 自己的標籤不擋自己
+            with mock.patch.object(git, "me", lambda v: "乙"):
+                self.assertFalse(skeleton.claim_rewrite(self.B, "CLAUDE.md"))
+                self.assertTrue(skeleton.claim_rewrite(self.B, "別的檔.md"))
+        self.assertTrue(skeleton.claim_rewrite(self.B, "CLAUDE.md"))  # 單人照改
+
+
 if __name__ == "__main__":
     unittest.main()

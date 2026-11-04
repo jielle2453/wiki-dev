@@ -551,6 +551,22 @@ BIG_LOCAL = "建議放到團隊共用的雲端夾。"
 REFRESH_NAMES_SHOWN = 3
 
 
+CARRIED_LINE = ("她在{page}寫了：『{text}』（id {cid}）。照意思記成資料（日程照 D-289 判斷誰的），回答裡說一句記成什麼；看不懂才問。"
+                "處理完跑 kb renders drop {cid}")
+
+
+def carried_lines(vault):
+    """renders.json 的 carried 還沒交給 AI 的，每筆一行、記 handed（只交一次）。"""
+    from kb._lib import hand, renders
+
+    rows = renders.unhanded(vault)
+    if not rows:
+        return []
+    out = [CARRIED_LINE.format(page=hand.PAGE_NAMES.get(rel, rel), text=renders.carried_line(c), cid=c["id"]) for rel, c in rows]
+    renders.mark_handed(vault, [c["id"] for _rel, c in rows])
+    return out
+
+
 def refresh_lines(vault):
     """git HEAD 變了（或 rebase 做到一半）才叫 kb refresh 的本體；回 [(行, once)]。不是 git 或沒變什麼都不做。"""
     from kb._lib import git, refresh
@@ -652,6 +668,8 @@ def turn_lines(vault, session_id):
         for line in lines:
             tell(line, once=line == CHANGES_INCOMPLETE)
         tell(guarded(line_drift, vault), once=True)
+    for line in guarded(carried_lines, vault) or []:  # 程式頁上沒照格式的字（D-299）：每行只交一次
+        tell(line)
     checks = {"stamps": stamps, "told": told[-TOLD_KEEP:], "told_files": told_files[-FILES_KEEP:], "detected": detected}
     try:
         turn.set_checks(vault, session_id, checks)

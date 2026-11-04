@@ -246,6 +246,29 @@ class TurnHookTest(RefreshBase):
         self.assertNotIn("refresh", (ROOT / "hooks" / "session.py").read_text(encoding="utf-8"))
 
 
+class CarriedHandedTest(RefreshBase):
+    """驗收 10：程式頁上沒照格式的字，下一句交給 AI 一次。"""
+    prompt = TurnHookTest.prompt
+
+    def test_carried_handed_once_then_dropped(self):
+        from kb._lib import renders
+        self.prompt(self.A, sid="c0")
+        added, _d = renders.add_carried(self.A, "系統/日程.md", [{"kind": "added", "text": "下週三跟廠商確認規格"}])
+        cid = added[0]["id"]
+        out = self.prompt(self.A, sid="c1")
+        self.assertIn("下週三跟廠商確認規格", out)
+        self.assertIn(cid, out)
+        self.assertNotIn(cid, self.prompt(self.A, sid="c1"))
+        self.assertNotIn(cid, self.prompt(self.A, sid="c2"))
+        self.assertTrue(renders.carried(self.A, "系統/日程.md"))  # 還沒處理完的「你加的」那段照留
+        self.assertEqual(renders.drop_carried(self.A, cid)[0], "系統/日程.md")
+        self.assertEqual(renders.carried(self.A, "系統/日程.md"), [])
+
+    def test_home_no_longer_asks_to_add_agenda(self):
+        from kb._lib import plan
+        self.assertFalse(hasattr(plan, "carried_asks"))
+
+
 class StopHookTest(RefreshBase):
     def test_stop_hook_has_record_after(self):
         text = (ROOT / "hooks" / "stop.py").read_text(encoding="utf-8")
