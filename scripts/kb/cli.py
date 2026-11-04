@@ -146,4 +146,26 @@ def main(argv=None):
             _touch(vault, args.agent)
     module_name, _doc = COMMANDS[args.command]
     module = importlib.import_module(module_name)
-    return module.run(args)
+    try:
+        return module.run(args)
+    except Exception as e:  # noqa: BLE001
+        line = newer_format_line(e)
+        if line is None:
+            raise
+        print(line)
+        return 3
+
+
+NEWER_FORMAT = "同事已經用 {app} 記過東西了，這台是 {mine}，要升級才能繼續記。要現在升嗎？升完要開一個新對話。"  # 多人共用 2 新定 5
+
+
+def newer_format_line(e):
+    """流水檔有比這版新的格式的行、寫入被擋（streams.NewerFormat，可能被包在 __cause__／__context__ 裡）：回給客戶的那句；不是回 None。"""
+    from kb._lib import paths, streams
+    seen = 0
+    while e is not None and seen < 5:
+        if isinstance(e, streams.NewerFormat):
+            mine = (paths.read_manifest() or {}).get("version") or "?"
+            return NEWER_FORMAT.format(app=e.app or "新版", mine=mine)
+        e, seen = e.__cause__ or e.__context__, seen + 1
+    return None

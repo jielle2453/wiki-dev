@@ -127,6 +127,26 @@ class TestBuildPeople(Base):
         self.assertIn("六個人", r.stdout)
 
 
+class TestNewerFormat(Base):
+    def put_newer(self):
+        d = Path(self.V) / ".system" / "streams" / "agenda"
+        d.mkdir(parents=True, exist_ok=True)
+        row = {"v": 99, "app": "0.99.0", "op": "create", "id": "a-99999999", "seq": 1, "base": 0, "by": "m-zzzzzzzz",
+               "who": None, "at": "2026-11-01T10:00:00", "turn": "t", "set": {"kind": "meeting", "date": "2099-01-02",
+               "text": "新版寫的", "status": "open", "新欄位": 1}}
+        (d / "m-zzzzzzzz.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+
+    def test_write_refused_read_ok(self):
+        self.put_newer()
+        r = self.kb("agenda", "add", "--kind", "提醒", "--date", "2099-01-03", "--text", "舊版想記")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("0.99.0", r.stdout)
+        self.assertIn("新的對話", r.stdout.replace("開一個新對話", "新的對話"))
+        r = self.kb("agenda", "list", "--all", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("新版寫的", r.stdout)
+
+
 class TestWho(Base):
     def test_single(self):
         r = self.kb("who", "--json")

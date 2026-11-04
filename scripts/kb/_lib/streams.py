@@ -68,10 +68,6 @@ stats = {"merges": 0}  # 快取沒命中、真的合併的次數（測試計次�
 _TURN = {}  # (vault, kind) → 最近一次 turn.backup 記的回合代號
 
 
-class NewerFormat(ValueError):
-    """流水檔的行是比這版新的格式。"""
-
-
 # ---------- 本機代號 ----------
 
 def machine_id(vault):
@@ -241,11 +237,35 @@ def _read_file(vault, path):
                 _log(vault, f"{Path(path).name} 最後一行不完整，略過")
                 continue
             raise ValueError(f"{path}（第 {i + 1} 行讀不懂：{e}）") from e
-        v = row.get("v", 1)
-        if not isinstance(v, int) or v > FORMAT_VERSION:
-            raise NewerFormat(f"{Path(path).name} 有比這版 plugin 新的格式（v{v}）")
-        out.append((i, row))
+        out.append((i, row))  # 比這版新的行照收（認得的欄照算、不認得的略過）；寫之前才擋（check_writable，多人共用 2 第 4 點）
     return out
+
+
+class NewerFormat(Exception):  # noqa: F811  不是 ValueError：各 CLI 的 except ValueError 不要吞掉，由 kb/cli.py 統一回那一句；  帶寫那一行的 willy 版本，給「同事已經用 X 記過東西了」那句用
+    def __init__(self, message, app=None, version=None):
+        super().__init__(message)
+        self.app, self.version = app, version
+
+
+def check_writable(vault, kind=None):
+    """寫之前檢查：有任何一個流水檔（kind 沒給就全部種類）有比這版新的格式的行 → 丟 NewerFormat（app 是那行記的 willy 版本）。"""
+    kinds = [base(kind)] if kind else list(KINDS)
+    for k in kinds:
+        for f in _files(vault, k):
+            try:
+                raw = Path(f).read_bytes().decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for text in raw.split("\n"):
+                if '"v"' not in text:
+                    continue
+                try:
+                    row = json.loads(text)
+                except ValueError:
+                    continue
+                v = row.get("v", 1) if isinstance(row, dict) else 1
+                if isinstance(v, int) and v > FORMAT_VERSION:
+                    raise NewerFormat(f"{Path(f).name} 有比這版 plugin 新的格式（v{v}）", row.get("app"), v)
 
 
 def _files(vault, kind):
@@ -455,6 +475,13 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
     path = own_file(vault, kind)
     path.parent.mkdir(parents=True, exist_ok=True)
     turn_id = turn_id or _TURN.get((str(vault), kind))
+    check_writable(vault, kind)
+    if who is None:  # 多人時填這台的人（多人共用 2）；單人、還沒記名字是 None
+        try:
+            from kb._lib import people
+            who = people.me(vault)
+        except Exception:  # noqa: BLE001  拿不到人名不能讓寫入失敗
+            who = None
     with FileLock(path):
         _scrub_own(vault, kind, path)
         state = load(vault, kind)
