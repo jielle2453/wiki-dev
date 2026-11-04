@@ -58,15 +58,20 @@ def _card_line(c):
     return f"- {c['date']} {c['title']}" + (f"（{detail}）" if detail else "") + _marks(c)
 
 
+def wip_lines(got):
+    """lookup、find 找不到時附的製作中檔一行（#37）；沒有回 []。"""
+    wip, total = got.get("in_progress") or [], got.get("in_progress_total", 0)
+    if not wip:
+        return []
+    more = f"（還有 {total - len(wip)} 份沒列）" if total > len(wip) else ""
+    return [f"還沒整理的 {total} 份可能有提到（像的讀原檔答，標「還沒整理，照原檔」）："
+            + "、".join(cards.wip_label(r) for r in wip) + more]
+
+
 def _lines(got):
     if got["entity"] is None:
         if not got["mentions"]:
-            wip, total = got["in_progress"], got.get("in_progress_total", 0)
-            if not wip:
-                return [lookup_lib.NOTHING]
-            more = f"（還有 {total - len(wip)} 份沒列）" if total > len(wip) else ""
-            return [lookup_lib.NOTHING, f"還沒整理的 {total} 份可能有提到（像的讀原檔答，標「還沒整理，照原檔」）："
-                    + "、".join(cards.wip_label(r) for r in wip) + more]
+            return [lookup_lib.NOTHING] + wip_lines(got)
         out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它"]
         out += [f"- {m['title']}（{m['where']}）" for m in got["mentions"]]
         if got["mentions_total"] > len(got["mentions"]):

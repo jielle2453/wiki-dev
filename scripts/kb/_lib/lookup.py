@@ -106,9 +106,7 @@ def lookup(vault, query):
         limit = config.get(vault, "lookup_mentions_max")
         out.update(mentions=found[:limit], mentions_total=len(found))
         if not found:  # 還沒整理的檔沒有卡，可能就在裡面（#37）
-            q = entities.key(query.strip())  # 跟 mentions 同一套比對
-            wip = sorted(cards.wip(vault, sorted_=sorted_), key=lambda r: q not in entities.key(r["name"]))
-            out.update(in_progress=wip[:limit], in_progress_total=len(wip))
+            out["in_progress"], out["in_progress_total"] = wip_hint(vault, [query], sorted_=sorted_)
         return out
     prof = entities._profile(vault)
     name = e["name"]
@@ -141,6 +139,16 @@ def lookup(vault, query):
     out["agenda"] = _agenda(vault, name)
     out["in_progress"] = [r for r in cards.wip(vault, sorted_=sorted_) if name in r["entities"]]  # 製作中（D-525）
     return out
+
+
+def wip_hint(vault, words, names=(), sorted_=None):
+    """lookup、find 找不到時附的製作中檔（#37）：全部 cards.wip，檔名含 words 任一個（同 mentions 的比對）或算在 names 底下的排前面；
+    回 (前 lookup_mentions_max 份, 全部份數)。"""
+    from kb._lib import cards
+    keys = [k for k in (entities.key(w.strip()) for w in words) if k]
+    rows = sorted(cards.wip(vault, sorted_=sorted_),
+                  key=lambda r: not (any(k in entities.key(r["name"]) for k in keys) or set(names) & set(r["entities"])))
+    return rows[:config.get(vault, "lookup_mentions_max")], len(rows)
 
 
 def ruling_row(r, titles):

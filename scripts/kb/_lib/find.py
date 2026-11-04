@@ -232,7 +232,8 @@ def _fallback_words(q, parsed, cond):
 
 
 def find(vault, q, today=None):
-    """回 {"q","parsed","entities","files","total","more"}（格式見 spec 第 2 節）；第二次才找到的另加 "fallback": true。"""
+    """回 {"q","parsed","entities","files","total","more"}（格式見 spec 第 2 節）；第二次才找到的另加 "fallback": true；
+    兩次都 0 筆另加 in_progress、in_progress_total（同 lookup.wip_hint，#37）。"""
     ent_data = entities.load(vault)
     prof = cards._profile_or_default(vault)[0]
     parsed, cond = parse(vault, q, today, ent_data, prof)
@@ -240,14 +241,17 @@ def find(vault, q, today=None):
     if out["files"]:
         return out
     again = _fallback_words(q, parsed, cond)
-    if again is None:
-        return out
-    second = _search(vault, q, again[0], again[1], ent_data)
-    second["fallback"] = True
-    # 第一次認到的實體（沒有卡也要看得到）接在第二次的前面
-    names = {e["name"] for e in second["entities"]}
-    second["entities"] = [e for e in out["entities"] if e["name"] not in names] + second["entities"]
-    return second
+    if again is not None:
+        second = _search(vault, q, again[0], again[1], ent_data)
+        second["fallback"] = True
+        # 第一次認到的實體（沒有卡也要看得到）接在第二次的前面
+        names = {e["name"] for e in second["entities"]}
+        second["entities"] = [e for e in out["entities"] if e["name"] not in names] + second["entities"]
+        out = second
+    if not out["files"]:  # 還沒整理的檔沒有卡，可能就在裡面（#37）
+        words = [p["text"] for p in parsed + (again[0] if again else []) if p["kind"] != "time"]
+        out["in_progress"], out["in_progress_total"] = lookup.wip_hint(vault, words, [e["name"] for e in out["entities"]])
+    return out
 
 
 def _search(vault, q, parsed, cond, ent_data):
