@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from tests import _lint as L
-from kb._lib import backup, clean  # noqa: E402
+from kb._lib import backup, clean, entities  # noqa: E402
 from kb.lint import runner  # noqa: E402
 from kb.lint.checks import sizes  # noqa: E402
 
@@ -42,20 +42,39 @@ class Sizes(unittest.TestCase):
                 self.clean_fix(sizes.run(L.ctx(self.V)))["apply"](L.ctx(self.V))
         run.assert_not_called()
 
-    def test_inbox_and_big_synthesis(self):
+    def test_inbox_count(self):
         inbox = self.V / "暫存區"
         inbox.mkdir(exist_ok=True)
         for old in inbox.iterdir():
             old.unlink()
         for n in range(31):
             (inbox / f"{n}.txt").write_text("x", encoding="utf-8")
-        L.write_synthesis(self.V, body="## 現況\n" + "- " + "字" * 13000 + "\n")
-        found = sizes.run(L.ctx(self.V))
-        (num,) = L.by_kind(found, "number")
+        (num,) = L.by_kind(sizes.run(L.ctx(self.V)), "number")
         self.assertEqual(num["data"]["inbox"], 31)
-        self.assertGreater(num["data"]["vault_bytes"], 13000)
-        (dec,) = L.by_kind(found, "decide")
-        self.assertEqual(dec["key"], f"synthesis_big:{L.XINYI_REL}")
+
+    def test_big_read_part_marks_fix_not_ask(self):
+        """D-527：read_ranges 超過門檻 → fix（標要更新，原因太長），不開 decide。"""
+        L.write_synthesis(self.V, body="## 現況\n- " + "字" * 4100 + "\n")
+        found = sizes.run(L.ctx(self.V))
+        self.assertEqual(L.by_kind(found, "decide"), [])
+        fix = next(f for f in found if f["key"] == "synthesis_big")
+        self.assertEqual(fix["kind"], "fix")
+        self.assertEqual(fix["data"]["reason"], "太長")
+        self.assertEqual(fix["data"]["cards"][0]["path"], L.XINYI_REL)
+
+    def test_archived_entity_not_marked(self):
+        L.write_synthesis(self.V, body="## 現況\n- " + "字" * 4100 + "\n")
+        data = entities.load(self.V)
+        e, _hit = entities.find(data, "信義王")
+        e["archived"] = True
+        with mock.patch.object(entities, "load", return_value=data):
+            self.assertFalse([f for f in sizes.run(L.ctx(self.V)) if f["key"] == "synthesis_big"])
+
+    def test_events_and_related_files_do_not_count(self):
+        """紀事、相關檔再長也不算；現況沒超過就沒有件。"""
+        body = "## 現況\n- 進行中\n\n## 紀事\n" + "".join(f"- 2026-01-{n % 28 + 1:02d} {'字' * 50}〔f-{n:08x}〕\n" for n in range(120))
+        L.write_synthesis(self.V, body=body)
+        self.assertFalse([f for f in sizes.run(L.ctx(self.V)) if f["key"] == "synthesis_big"])
 
 
 if __name__ == "__main__":
