@@ -27,7 +27,6 @@
   不對的照她說的改（日程照 note 的 `references/agenda.md`、名字 `kb entity confirm`、設定檔照 note 的 `references/preference.md`）。
 - `skeleton:<檔>:…`：她改過那份系統檔。要留她的跑結果裡的 `kb upgrade skeleton <檔> --keep`（之後升級才不再問），再 resolve；換回程式的照 `do` 跑
   `kb upgrade skeleton <檔> --replace`（她那份備進回合，說「退回」就回來），再 resolve。
-- `synthesis_big:<路徑>`：綜合卡太長。她說好就記下（resolve），下次整理改寫時精簡現況、紀事保留。
 - `redo_by_profile:<卡型>:<日期>`：設定檔那類改過之後，之前做的卡。她說好跑 `do`（`kb cards redo --ids …`），
   再照 ingest 整理（交製卡助手背景做），跟她說在背景做，她說停就停、做好的留著（D-200）。
 - `promote:<種類>:<卡型>`：同一種裁示說了很多次，提議升格。見第四節。

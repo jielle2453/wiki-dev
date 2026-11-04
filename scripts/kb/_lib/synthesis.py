@@ -1185,6 +1185,12 @@ def read_ranges(text):
     return [[a + 1, b - a] for a, b in parts if any(l.strip() for l in lines[a:b])]  # 只有空行的不算一段
 
 
+def read_chars(text):
+    """read_ranges 那幾段的字數（綜合卡太長的健檢只算 AI 會讀的，D-527）。"""
+    lines = _lines(text)
+    return sum(len("\n".join(lines[a - 1:a - 1 + n])) for a, n in read_ranges(text))
+
+
 # ---------- 紀事（entity log，D-521）----------
 
 _EVENT = re.compile(r"^(\S+)\s+(.*?\S)\s*((?:〔[^〔〕]*〕)+)$")
