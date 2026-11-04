@@ -1031,7 +1031,8 @@ def _scrub_one_md(vault, md, md_rel, json_rel, render, rows, mask, counts, datas
                 write_text_atomic(md, new)
                 counts["backups"] += 1
             return
-    if mask(text) != text:
+    streamed = any(isinstance(r, dict) and r.get("path") == json_rel and r.get("stream") for r in rows)
+    if streamed or mask(text) != text:  # 流水檔沒有整份舊版可重渲染（多人共用 1）：派生頁的舊版直接拿掉，退回後會重畫
         md.unlink()
         for row in rows:
             if isinstance(row, dict) and row.get("path") == md_rel:
@@ -1317,6 +1318,15 @@ def _active_inside(vault, alias, spec):
 
 
 def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
+    from kb._lib import streams
+    streams.hard_delete = True
+    try:
+        return _purge(vault, alias, spec, root, turn_id, keep_snapshots)
+    finally:
+        streams.hard_delete = False
+
+
+def _purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     """清那夾的殘留（呼叫端持 sources.json 的鎖、已確認是 pending 的 hidden 排除）。還有綜合卡引用就丟 Blocked。
     先把範圍記進那條排除，再清；回 {"cards","backups","temp","journal","findings","remaining"}，remaining 有東西就是沒清完
     （呼叫端不標完成）；清冊裡那夾還有 active 的條目也算沒清完（active）。keep_snapshots：刪快照時跳過的（還原前快照）。"""
@@ -1363,12 +1373,35 @@ def purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     for rel in (ledger.LEDGER_REL, ledger.ERROR_LOG_REL):
         if not _scrub_text(vault, rel, mask):
             counts["left"]["logs"] += 1
+    _scrub_streams(vault, words, counts)
     counts["left"]["active"] += _active_inside(vault, alias, spec)
     snapshots = _snapshots(vault, counts, keep_snapshots)
     return {"cards": len(counts["card_ids"]), "backups": counts["backups"], "temp": counts["temp"],
             "journal": counts["journal"], "findings": counts["findings"], "undecodable": counts["undecodable"],
             "obsidian": counts["obsidian"], "snapshots": snapshots,
             "remaining": {k: v for k, v in counts["left"].items() if v}}
+
+
+def _scrub_streams(vault, mask, counts):
+    """流水檔（多人共用 1）：這台自己的檔照字詞遮（別台的檔只有 git 改得動，不碰；git 歷史裡的舊版本這版不清）；
+    快取刪掉、衍生副本從遮過的流水檔重算；遷移留下的舊 JSON 也遮。"""
+    from kb._lib import streams
+    root = Path(vault)
+    try:
+        own = streams.machine_id(vault)
+        for f in sorted((root / streams.STREAMS_REL).glob(f"*/{own}.jsonl")):
+            _mask_file(f, mask, counts)
+        legacy = root / streams.LEGACY_REL
+        for f in sorted(legacy.rglob("*.json")) if legacy.is_dir() else []:
+            _mask_file(f, mask, counts)
+        cache = root / streams.LOCAL_REL / "cache"
+        for f in sorted(cache.glob("*")) if cache.is_dir() else []:
+            f.unlink()
+        for kind in streams.KINDS:
+            if streams.exists(vault, kind):
+                streams.load(vault, kind)  # 從遮過的流水檔重算快取與衍生副本
+    except (OSError, ValueError):
+        counts["left"]["state"] += 1
 
 
 def mark_done(vault, alias, spec, turn_id):

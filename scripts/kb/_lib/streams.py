@@ -38,6 +38,7 @@ KINDS = {
 RETRACT = {k: v[3] for k, v in KINDS.items()}
 LEGACY = {Path(v[0]).name: k for k, v in KINDS.items()}
 
+hard_delete = False  # purge 期間：刪掉的筆連這台檔裡的舊行一起拿掉（原文不留在自己的檔裡）
 stats = {"merges": 0}  # 快取沒命中、真的合併的次數（測試計次用）
 _TURN = {}  # (vault, kind) → 最近一次 turn.backup 記的回合代號
 
@@ -316,6 +317,10 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
         if not changes:
             return 0
         by = path.stem
+        if hard_delete:
+            gone = [rid for rid in before if rid not in after]
+            if gone:
+                _drop_own_ids(vault, path, gone)
         lines, noted = [], []
         for op, rid, s, un in changes:
             prev = state.meta.get(rid, {}).get("seq", 0)
@@ -335,6 +340,16 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
     if turn_id:
         _note_turn_lines(vault, turn_id, noted)
     return len(lines)
+
+
+def _drop_own_ids(vault, path, ids):
+    if not path.is_file():
+        return
+    ids = set(ids)
+    keep = [r for _i, r in _read_file(vault, path) if r.get("op") == "mask" or r.get("id") not in ids]
+    from kb._lib.io import write_text_atomic
+    write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "
+" for r in keep))
 
 
 def _append(path, lines):
