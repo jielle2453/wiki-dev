@@ -181,5 +181,53 @@ class TwoMachines(Base):
             self.assertEqual(len(agenda.visible(self.V, agenda.load(self.V)["items"])), 1)
 
 
+class UndoOthers(TwoMachines):
+    """第 11 點：老闆同一句記日程又記口述，小王改了那筆日期；老闆退回那一句。"""
+
+    def cli(self, *argv):
+        import contextlib
+        import io
+        from kb import cli
+        buf = io.StringIO()
+        cwd = os.getcwd()
+        os.chdir(self.V)
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = cli.main(list(argv))
+        finally:
+            os.chdir(cwd)
+        return code, buf.getvalue()
+
+    def test_undo_item_changed_by_other(self):
+        from tests import _entities as E
+        from kb._lib import entities
+        E.install(self.V)
+        name = next(e["name"] for e in entities.load(self.V)["entities"] if e.get("status") == "active")
+        with self.as_machine("boss-pc"):
+            tid = turn.start(self.V, "sid-boss", "記日程和口述")["turn"]
+            it, _ = agenda.add(self.V, "meeting", "2099-01-02", "跟廠商開會", [], tid)
+            statements.add(self.V, "交期是十二月", [name], tid)
+        with self.as_machine("wang-laptop"):
+            t2 = turn.start(self.V, "sid-wang", "改日期")["turn"]
+            agenda.edit(self.V, it["id"], t2, date="2099-01-09")
+        with self.as_machine("boss-pc"):
+            code, out = self.cli("--session", "sid-boss", "versions", "undo", tid, "--json")
+            got = json.loads(out)
+            self.assertEqual(len(got["conflict"]), 1, out)
+            c = got["conflict"][0]
+            self.assertEqual(c["later"][-1]["side"], "other")
+            self.assertEqual(c["later"][-1]["who"], "小王")
+            self.assertEqual(c["now"]["date"], "2099-01-09")
+            self.assertTrue(got["done"], out)  # 口述那項照改回
+            code, text = self.cli("--session", "sid-boss", "versions", "undo", tid)
+            self.assertIn("小王", text)
+            self.assertIn("2099-01-09", text)
+            code, out = self.cli("--session", "sid-boss", "versions", "undo", c["item"], "--yes", "--json")
+            self.assertEqual(json.loads(out)["done"], [c["item"]], out)
+            cur = agenda.get(self.V, it["id"])
+            self.assertEqual(cur["status"], "cancelled")  # 那筆收回
+            self.assertEqual(cur["date"], "2099-01-09")  # 小王改的日期那欄不動
+
+
 if __name__ == "__main__":
     unittest.main()

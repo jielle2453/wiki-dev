@@ -31,6 +31,11 @@ def add_arguments(sub):
     sc = subs.add_parser("scan", help="掃描來源與總資料夾，把變動套進清冊",
                          description="全掃來源與總資料夾，把新增、修改、搬動、不見套進清冊；寫前先備份。")
     sc.add_argument("--source", help="只掃這個來源（別名）")
+    lr = subs.add_parser("learn", help="新同事第一次：認這台的檔案（算指紋填本機那半）",
+                         description="共用清冊有東西、這台的本機清冊是空的（新 clone）：對每個位置算指紋對共用的，記大小與時間；雲端占位檔只記大小與時間、不讀內容。")
+    lr.add_argument("--background", action="store_true", help="背景跑（開場叫的）：不印東西")
+    lr.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
+    lr.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
     sc.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     sc.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -137,6 +142,17 @@ def run(args):
     except ValueError as e:
         print(f"清冊讀不到：{e}")
         return 3
+    if args.inventory_command == "learn":
+        got = inventory.learn(vault)
+        if getattr(args, "background", False):
+            return 0
+        print(json.dumps(got, ensure_ascii=False) if as_json else
+              f"認好了：{got['learned']} 個位置（雲端占位 {got['placeholder']}、這台找不到或跟共用的不一樣 {got['skipped']}）")
+        return 0
+    if inventory.learning(vault):  # 還在認檔案：本機沒有的不當新增或修改（D-300）
+        msg = "這台還在認檔案（kb inventory learn），認好之前不掃描、不報變動"
+        print(json.dumps({"learning": True, "message": msg}, ensure_ascii=False) if as_json else msg)
+        return 0
     try:
         return _scan(vault, args, as_json)
     except ValueError as e:  # sources.json 壞掉

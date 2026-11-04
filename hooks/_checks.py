@@ -42,6 +42,7 @@ NEW_MACHINE_LINE = "這台電腦第一次開這個知識庫：先跑 kb moved �
 MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
 MISSING_SOURCES_SHOWN = 3
 MISSING_SOURCE_TEAM = "這台找不到來源「{alias}」（預設在 {spec}），請問她這台的「{alias}」在哪，答了跑 kb folders locate {alias} <路徑>。"  # 多人共用 2 第 3 點
+LEARNING_LINE = "這台第一次用，還在認檔案，好了再報變動；先不整理、不跟客戶提變動。"  # D-300
 WHO_LINE = "這台第一次用，請先問她這台電腦是誰在用（預設 {name}），答了跑 kb who set <名字>。"  # D-286
 CARD_EDITS_LINE = "客戶在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # D-270
 CARD_EDITS_MAYBE = "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # 時限內一張都沒比到
@@ -355,6 +356,42 @@ def line_card_edits(vault, deadline=None):
     return (CARD_EDITS_MORE if got["more"] else CARD_EDITS_LINE).format(n=n), not got["more"]
 
 
+def line_learning(vault):
+    """新同事第一次（D-300）：共用清冊有東西、這台本機清冊是空的 → 背景開 kb inventory learn --background（十分鐘內不重開），回那一句；
+    不是這種情況回 None。測試環境變數 WIKI_WITH_WILLY_NO_BACKGROUND 有值時不開背景。"""
+    from kb._lib import inventory
+
+    if not inventory.learning(vault):
+        return None
+    marker = os.path.join(str(vault), ".system", "local", "learning-started")
+    fresh = False
+    try:
+        fresh = time.time() - os.path.getmtime(marker) < 600
+    except OSError:
+        pass
+    if not fresh and not os.environ.get("WIKI_WITH_WILLY_NO_BACKGROUND"):
+        try:
+            import subprocess
+
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(str(time.time()))
+            from kb._lib import paths
+
+            kw = {"cwd": str(vault), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                  "stderr": subprocess.DEVNULL, "close_fds": True}
+            if os.name == "nt":
+                kw["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                                       | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+            else:
+                kw["start_new_session"] = True
+            subprocess.Popen([sys.executable, str(paths.plugin_root() / "scripts" / "kb.py"), "inventory", "learn",
+                              "--background"], **kw)
+        except Exception as e:  # noqa: BLE001  起不來不影響這一句
+            log_vault(vault, e)
+    return LEARNING_LINE
+
+
 def line_who(vault):
     """多人共用 2（D-286、設計自定 2）：多人而這台還沒記是誰就問一次；單人、已經記了不印。"""
     from kb._lib import people
@@ -612,6 +649,16 @@ def turn_lines(vault, session_id):
     # 1. 檔案比對：搬動、不見、新增寫進這一句的 detected.jsonl（by outside）；變動行與整理提示在最後一步用它的結果
     got = None
     detected = list(checks.get("detected") or [])
+    learning = guarded(line_learning, vault)  # 新同事第一次：認完檔案之前不比對、不報變動（D-300）
+    tell(learning, once=True)
+    if learning:
+        checks_done = {"stamps": stamps, "told": told[-TOLD_KEEP:], "told_files": told_files[-FILES_KEEP:],
+                       "detected": detected}
+        try:
+            turn.set_checks(vault, session_id, checks_done)
+        except Exception as e:  # noqa: BLE001
+            log_vault(vault, e)
+        return out
     if not over_budget():
         got = guarded(file_compare, vault)
         detected = guarded(record_detected, vault, session_id, got, "outside", detected) or detected
