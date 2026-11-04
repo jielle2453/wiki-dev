@@ -150,6 +150,8 @@ class Guard(Base):
     def test_unreadable_rulings_file_means_no_ruling(self):
         self.add(_pw.WEB)
         (self.V / ".system" / "rulings.json").write_text("{bad", encoding="utf-8")
+        for f in (self.V / ".system" / "streams" / "rulings").glob("*.jsonl"):  # 正本是流水檔：中間壞一行才算讀不懂
+            f.write_text("{bad\n" + f.read_text(encoding="utf-8"), encoding="utf-8")
         self.assertEqual(self.decide("Read", self.raw / _pw.WEB), "deny")
 
 

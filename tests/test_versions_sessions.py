@@ -61,7 +61,7 @@ class Base(unittest.TestCase):
 
     def agenda_texts(self):
         p = self.V / ".system" / "agenda.json"
-        return [i.get("text") for i in json.loads(p.read_text(encoding="utf-8")).get("items", [])] if p.is_file() else []
+        return [i.get("text") for i in json.loads(p.read_text(encoding="utf-8")).get("items", []) if i.get("status") == "open"] if p.is_file() else []
 
     def snapshot(self):
         """知識庫每個檔的 sha256（不含鎖與錯誤 log）：拒絕時什麼都不動。"""
@@ -133,8 +133,8 @@ class Revert(Base):
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
         self.assertEqual(r.returncode, 0, r.stdout)  # 全部是 conflict 交 AI 判斷，不算失敗
-        self.assertIn("agenda.json：之後又被動過", r.stdout)
-        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
+        self.assertNotIn("之後又被動過", r.stdout)  # 流水檔看同一筆：B 記的是另一筆，不擋（多人共用 1）
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票"])
 
     def test_4b_other_turn_started_earlier_but_wrote_later_refused(self):
         """B 先開口、A 後開口；A 先寫、B 後寫：B 的回合代號比 A 早，但寫在後面，照樣算後來改過。"""
@@ -147,7 +147,7 @@ class Revert(Base):
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票"])  # 流水檔看同一筆：只改回 A 那筆（多人共用 1）
 
     def test_4c_other_conversation_same_second_counts(self):
         """時間只到秒：代號比較早的別的對話在同一秒寫同一份，也算後來改過（寧可多擋）。"""
@@ -164,7 +164,7 @@ class Revert(Base):
         self.prompt(A, "退回上一步")
         r = self.kb("versions", "revert", sid=A)
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票"])  # 流水檔看同一筆：只改回 A 那筆（多人共用 1）
 
     def test_4e_other_conversation_writes_again_after_us_refused(self):
         """裁定 4：B 先寫 X（manifest 記第一次）→ A 寫 X → B 再寫 X（只記 writes.jsonl）→ A 退回 exit 3、X 不變。"""
@@ -196,8 +196,8 @@ class Revert(Base):
         self.stop(B)
         r = self.kb("versions", "revert")  # 退代號最新的 A，B 那句後來也寫了日程
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("之後又被動過", r.stdout)
-        self.assertEqual(sorted(self.agenda_texts()), ["寄發票", "有個會"])
+        self.assertNotIn("之後又被動過", r.stdout)
+        self.assertEqual(sorted(self.agenda_texts()), ["寄發票"])
 
     def test_5_terminal_turn_is_in_range(self):
         self.prompt(A, "信義王改一下")

@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import agenda, cards, entities, inventory, pending, plan, synthesis, turn
+from kb._lib import agenda, cards, entities, inventory, pending, plan, streams, synthesis, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
@@ -495,6 +495,7 @@ def _list(vault, as_json, tag_args=None):
         rows.append(row)
     if as_json:
         payload = {"entities": rows} if got is None else {"entities": rows, "counts": got["counts"], "tag": got["tag"]}
+        payload["conflicts"] = streams.conflicts_of(vault, "entities")
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     if got is not None:

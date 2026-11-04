@@ -229,7 +229,7 @@ class Archive(Base):
     def test_nothing_to_move_writes_nothing(self):
         (only, _none) = self.add()
         self.assertEqual(findings.archive(self.V, [only["id"]], self.t), 0)
-        self.assertFalse((self.V / findings.ARCHIVE_POSIX).exists())
+        self.assertEqual(findings.load_archive(self.V)["findings"], [])  # 封存檔是衍生副本，沒有封存的筆（多人共用 1）
 
 
 if __name__ == "__main__":
