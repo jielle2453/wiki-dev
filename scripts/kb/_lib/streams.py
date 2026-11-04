@@ -172,9 +172,38 @@ def _mirror(vault, kind, st):
     try:
         from kb._lib.io import write_text_atomic
         legacy = Path(vault) / KINDS[kind][0]
-        write_text_atomic(legacy, json.dumps(records_to_doc(kind, st.records), ensure_ascii=False, indent=2) + "\n")
+        text = json.dumps(records_to_doc(kind, st.records), ensure_ascii=False, indent=2) + "\n"
+        write_text_atomic(legacy, text)
+        mp = _mirror_mark(vault, kind)
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        write_text_atomic(mp, _sha(legacy.read_bytes()))
     except OSError:
         pass
+
+
+def _sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _mirror_mark(vault, kind):
+    return Path(vault) / LOCAL_REL / "cache" / f"{kind}.mirror"
+
+
+def _mirror_edited(vault, kind):
+    """衍生副本被外部改過（手改、別的工具整份寫回）：回新內容的 dict；沒改過回 None；改壞了丟 ValueError。"""
+    legacy = Path(vault) / KINDS[kind][0]
+    try:
+        raw = legacy.read_bytes()
+        mark = _mirror_mark(vault, kind).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if _sha(raw) == mark:
+        return None
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except ValueError as e:
+        raise ValueError(f"{KINDS[kind][0]}（JSON 壞了：{e}）") from e
+    return doc if isinstance(doc, dict) else None
 
 
 def _merge(vault, files):
@@ -274,7 +303,7 @@ def diff(before, after, state=None):
     return out
 
 
-def write(vault, kind, before, after, turn_id=None, who=None):
+def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
     """比出新增、刪掉、改了哪幾欄，每筆一行 append 進這台的檔。回寫了幾行。"""
     vault = Path(vault)
     path = own_file(vault, kind)
@@ -294,6 +323,8 @@ def write(vault, kind, before, after, turn_id=None, who=None):
                    "at": _now(), "turn": turn_id, "set": s}
             if un:
                 row["unset"] = un
+            if reverts:
+                row["reverts"] = reverts
             app = _app()
             if app:
                 row["app"] = app
@@ -474,7 +505,12 @@ def read_doc(vault, kind):
     """流水檔合起來的整份文件；沒有流水檔回 None（呼叫端改讀舊檔）。"""
     if not exists(vault, kind):
         return None
-    return records_to_doc(kind, load(vault, kind).records)
+    st = load(vault, kind)
+    doc = _mirror_edited(vault, kind)
+    if doc is not None:  # 副本被外部整份改過：當成一次整份交回吸收進流水檔
+        write_doc(vault, kind, doc)
+        st = load(vault, kind)
+    return records_to_doc(kind, st.records)
 
 
 def write_doc(vault, kind, data):
@@ -526,3 +562,69 @@ def migrate_kind(vault, kind, keep_legacy_dir=None):
 
 def legacy_version_dir(version):
     return f"{LEGACY_REL}/{version}"
+
+
+# ---------- 退回用：一行的效果、之後的行 ----------
+
+def _history(vault, kind, rid):
+    rows = []
+    for f in _files(vault, kind):
+        for _i, row in _read_file(vault, f):
+            if row.get("op") != "mask" and row.get("id") == rid:
+                rows.append((row.get("seq", 0), str(row.get("by", "")), len(rows), row))
+    rows.sort(key=lambda r: r[:3])
+    return [r[3] for r in rows]
+
+
+def _apply(rec, row):
+    rec = {} if rec is None else rec
+    rec.update(row.get("set") or {})
+    for k in row.get("unset") or []:
+        rec.pop(k, None)
+    return rec
+
+
+def line_effects(vault, kind, rid, seq, by):
+    """一行改了什麼：{"op", "old"（改之前這筆的欄，沒有是 None）, "new", "fields", "row"}；找不到回 None。"""
+    rec = None
+    for row in _history(vault, kind, rid):
+        if row.get("seq") == seq and row.get("by") == by:
+            old = None if rec is None else dict(rec)
+            new = _apply(dict(rec) if rec is not None else None, row)
+            fields = list((row.get("set") or {}).keys()) + list(row.get("unset") or [])
+            return {"op": row.get("op"), "old": old, "new": new, "fields": fields, "row": row}
+        rec = _apply(rec, row)
+    return None
+
+
+def later_lines(vault, kind, rid, seq, fields, skip_turns=()):
+    """比 seq 大、設了 fields 其中一欄的行（skip_turns 的回合寫的不算）。"""
+    out = []
+    for row in _history(vault, kind, rid):
+        if row.get("seq", 0) > seq and row.get("turn") not in skip_turns and                 set(fields) & (set(row.get("set") or {}) | set(row.get("unset") or [])):
+            out.append(row)
+    return out
+
+
+def current(vault, kind, rid):
+    return load(vault, kind).records.get(rid)
+
+
+def revert_line(vault, kind, rid, effects, turn_id, who=None):
+    """改回一行：寫反向的一行，reverts 記被改回的 {kind, id, seq}。這行是新增就寫收回欄（沒有收回欄的種類寫 _del）。"""
+    cur = current(vault, kind, rid)
+    if cur is None:
+        return False
+    row = effects["row"]
+    ref = [{"kind": kind, "id": rid, "seq": row.get("seq"), "by": row.get("by")}]
+    new = dict(cur)
+    if effects["op"] == "create" or effects["old"] is None:
+        new.update(RETRACT.get(kind) or {"_del": True})
+    else:
+        for f in effects["fields"]:
+            if f in effects["old"]:
+                new[f] = effects["old"][f]
+            else:
+                new.pop(f, None)
+    write(vault, kind, {rid: cur}, {rid: new}, turn_id=turn_id, who=who, reverts=ref)
+    return True

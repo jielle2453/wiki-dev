@@ -124,6 +124,9 @@ class Ledger:
     def _build(self, tid):
         base, expanded = [], []
         for e in turn.entries(self.vault, tid):
+            if e.get("stream"):
+                expanded.extend(self._expand_stream(tid, e))
+                continue
             rec = self._expand(tid, e) if e.get("action") == "modify" and e.get("path") in RECORD_FILES else None
             if rec:
                 expanded.extend(rec)
@@ -171,6 +174,30 @@ class Ledger:
             it["undoable"], it["why"] = False, "derived"
         return it
 
+    def _expand_stream(self, tid, e):
+        """流水檔的項目（多人共用 1）：回合的 streams.jsonl 一行 {kind, id, seq} 一項，帶這一行設了什麼；
+        跟舊的條目一樣算 record 項目（rec 比同一筆），另帶 stream 資料讓 undo 只改這幾欄、衝突只看同一欄。"""
+        from kb._lib import streams
+        kind = streams.virtual_kind(self.vault / e["path"])[1]
+        by = streams.own_file(self.vault, kind).stem
+        out = []
+        for r in streams.turn_items(self.vault, tid):
+            if r.get("kind") != kind:
+                continue
+            eff = streams.line_effects(self.vault, kind, r.get("id"), r.get("seq"), by)
+            if eff is None:
+                continue
+            key = str(r["id"])
+            if key == streams.META_ID:
+                continue
+            out.append({"src": "record", "op": "add" if eff["op"] == "create" else "set", "kind": "record", "file": e["path"],
+                        "key": key, "from": e["path"], "to": None, "by": "kb", "copy": False, "keys": [fkey(e["path"])],
+                        "rec": (fkey(e["path"]), key), "old": eff["old"], "new": eff["new"], "old_index": None, "row": e,
+                        "system": True, "stream": {"kind": kind, "seq": r.get("seq"), "by": by, "fields": eff["fields"],
+                                                   "set": (eff["row"].get("set") or {})},
+                        "what_text": _record_name(eff["new"] or eff["old"], key)})
+        return out
+
     def _expand(self, tid, e):
         """modify 的 JSON 檔拆成條目；讀不懂或沒有條目編號回 None（改成一檔一項）。"""
         path = e["path"]
@@ -201,6 +228,13 @@ class Ledger:
         return out
 
 
+def _record_name(rec, key):
+    for f in ("text", "name", "question", "alias"):
+        if isinstance(rec, dict) and isinstance(rec.get(f), str) and rec[f]:
+            return rec[f][:30]
+    return key
+
+
 def _records(data, list_key):
     """JSON → {條目編號: (原來的位置, 條目)}；結構不對或有條目沒編號回 None。"""
     if not isinstance(data, dict) or not isinstance(data.get(list_key), list):
@@ -216,6 +250,8 @@ def _records(data, list_key):
 def _what(it):
     """項目的名字：檔或夾的名字，條目是「<檔名>:<條目編號>」。"""
     if it["kind"] == "record":
+        if it.get("what_text"):
+            return it["what_text"]
         return f"{Path(it['file']).stem}:{it['key']}"
     for field in ("from", "to"):
         v = it.get(field)
@@ -262,6 +298,8 @@ def conflicts_of(ledger, item, candidates=None):
             continue
         if item.get("rec") and other.get("rec"):
             hit = item["rec"] == other["rec"]
+            if hit and item.get("stream") and other.get("stream"):
+                hit = bool(set(item["stream"]["fields"]) & set(other["stream"]["fields"]))
         else:
             hit = any(overlaps(a, b) for a in item["keys"] for b in other["keys"])
         if hit:
