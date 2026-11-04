@@ -153,6 +153,8 @@
   "_why_trash_backup_margin_mb": "刪的東西進不了資源回收筒、先留一份進回合備份時，磁碟要多留的空間（MB）；放不下就問使用者才刪（放寬甲）",
   "relocate_search_depth": 4,
   "_why_relocate_search_depth": "kb folders locate 找搬走的來源夾時，從家目錄與各固定磁碟根往下找幾層（D-322 第 8 件）",
+  "git_file_max_mb": 95,
+  "_why_git_file_max_mb": "知識庫裡還沒追蹤的非文字檔超過幾 MB 就加進 .git/info/exclude、不推（多人共用 3 D-301：GitHub 單檔上限 100 MB）",
   "relocate_search_seconds": 20,
   "_why_relocate_search_seconds": "kb folders locate 最多花幾秒找，時間到就用已經找到的候選回答（D-322 第 8 件）"
 }
