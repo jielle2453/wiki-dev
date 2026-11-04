@@ -586,6 +586,8 @@ def backup(vault, rel, turn_id, action=None, by=None):
     target = Path(vault) / rel
     from kb._lib import streams
     virtual = streams.virtual_kind(target)
+    if virtual is not None and target.is_file() and not streams.exists(*virtual):
+        virtual = None  # 還是舊的整份 JSON（沒轉成流水檔）：照舊整份備份，退回時副本被換回舊內容會被當成一次整份改動吸收
     if virtual is not None:  # 流水檔：不整份備份；改動由 streams.write 記在回合的 streams.jsonl，manifest 只記「碰過」（stream: true，多人共用 1）
         streams.note_turn(virtual[0], virtual[1], turn_id)
     vdir = turn_dir(vault, turn_id)

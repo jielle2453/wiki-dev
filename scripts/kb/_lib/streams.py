@@ -202,8 +202,8 @@ def _mirror_edited(vault, kind):
         return None
     try:
         doc = json.loads(raw.decode("utf-8"))
-    except ValueError as e:
-        raise ValueError(f"{KINDS[kind][0]}（JSON 壞了：{e}）") from e
+    except ValueError:
+        return None  # 副本壞了不是正本壞了：呼叫端從流水檔重寫
     return doc if isinstance(doc, dict) else None
 
 
@@ -314,13 +314,12 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
         _scrub_own(vault, kind, path)
         state = load(vault, kind)
         changes = diff(before, after, state)
-        if not changes:
+        if not changes and not hard_delete:
             return 0
         by = path.stem
-        if hard_delete:
-            gone = [rid for rid in before if rid not in after]
-            if gone:
-                _drop_own_ids(vault, path, gone)
+        if hard_delete:  # purge：動到的筆，這台檔裡的舊行拿掉，現在的樣子整筆寫成一行
+            _drop_own_ids(vault, path, [c[1] for c in changes] + [r for r, v in state.records.items() if v.get("_del")])
+            changes = [(op, rid, dict(after[rid]), []) if rid in after else (op, rid, s, un) for op, rid, s, un in changes]
         lines, noted = [], []
         for op, rid, s, un in changes:
             prev = state.meta.get(rid, {}).get("seq", 0)
@@ -348,8 +347,7 @@ def _drop_own_ids(vault, path, ids):
     ids = set(ids)
     keep = [r for _i, r in _read_file(vault, path) if r.get("op") == "mask" or r.get("id") not in ids]
     from kb._lib.io import write_text_atomic
-    write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "
-" for r in keep))
+    write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep))
 
 
 def _append(path, lines):
@@ -522,6 +520,13 @@ def read_doc(vault, kind):
         return None
     st = load(vault, kind)
     doc = _mirror_edited(vault, kind)
+    if doc is None:
+        legacy = Path(vault) / KINDS[kind][0]
+        try:
+            if legacy.is_file() and _sha(legacy.read_bytes()) != _mirror_mark(vault, kind).read_text(encoding="utf-8").strip():
+                _mirror(vault, kind, st)  # 副本壞了或不是物件：從流水檔重寫
+        except OSError:
+            pass
     if doc is not None:  # 副本被外部整份改過：當成一次整份交回吸收進流水檔
         write_doc(vault, kind, doc)
         st = load(vault, kind)
