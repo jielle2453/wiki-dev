@@ -428,6 +428,7 @@ def _parse_about(rows, types, max_chars):
             why = "跟第 1 節的型別名一樣"
         if why:
             _err(5, m, f"的名稱「{name}」不能用（{why}）")
+        kind = "本人" if kind == MEMBER else kind  # 多人時顯示「成員」，讀回來就是本人
         if kind not in KINDS:
             _err(5, m, "的是什麼要是 公司 或 本人")
         source, when = _source_date(5, m, extra)
@@ -739,6 +740,8 @@ def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), r
     for i, num in enumerate(NUMERALS, 1):
         if i not in found and i <= have:
             raise ProfileError(i, None, f"少了第 {i} 節（## {num}、…）")
+    if 5 in found:
+        _check_people_line(found[5])
     types = _parse_types(_table_rows(1, found[1]), max_type_chars - DIR_PREFIX_CHARS)  # 夾名多編號三個字
     return {"types": types,
             "card_types": _parse_card_types(_table_rows(2, found[2])),
@@ -890,7 +893,11 @@ def merge(old, new, today=None, first=False):
     preferences = []
     for p in new.get("preferences") or []:
         source, when = _stamp(p, old_prefs.get(p["text"]), p["text"] in d["preferences"]["changed"], today, first)
-        preferences.append({"text": p["text"], "use": p.get("use") or USE_ALL, "source": source, "date": when})
+        row = {"text": p["text"], "use": p.get("use") or USE_ALL, "source": source, "date": when}
+        whose = p.get("whose") or (old_prefs.get(p["text"]) or {}).get("whose")  # md 不顯示誰的，照舊那條帶過去
+        if whose:
+            row["whose"] = whose
+        preferences.append(row)
     old_templates = _template_rows(old)
     templates = []
     for t in new.get("templates") or []:
@@ -1260,6 +1267,43 @@ def folder_check(vault, types, old_types=None):
 
 # ---------- 渲染 ----------
 
+TITLE_TEAM = "關於你們（公司與團隊成員）"
+PEOPLE_LABEL = "幾個人用："
+MEMBER = "成員"  # 多人時第五節「本人」顯示的字，存的還是 person
+_PEOPLE_LINE = re.compile(r"^幾個人用[：:]\s*(.*?)\s*$")
+
+
+def _people_n(data):
+    n = data.get("people", 1)
+    return n if isinstance(n, int) and not isinstance(n, bool) and n >= 1 else 1
+
+
+def _kind_label(data, kind):
+    if kind == "person" and _people_n(data) >= 2:
+        return MEMBER
+    return _KINDS_REVERSED.get(kind, "")
+
+
+def _check_people_line(lines):
+    """第五節「幾個人用：N」那行：有就要是正整數，不是照現有錯誤句格式指出第五節（沒有這行不算錯）。"""
+    for line in lines:
+        m = _PEOPLE_LINE.match(line.strip())
+        if m:
+            if not (m.group(1).isdigit() and int(m.group(1)) >= 1):
+                raise ProfileError(5, None, f"第 5 節的「幾個人用」要寫正整數（例：{PEOPLE_LABEL}3）")
+            return int(m.group(1))
+    return None
+
+
+def carry_whose(new_prefs, ref_prefs):
+    """md 讀回來的偏好沒有誰的（第六節不顯示這欄）：照文字從 ref_prefs 帶過去。"""
+    ref = {p["text"]: p.get("whose") for p in ref_prefs or [] if p.get("whose")}
+    for p in new_prefs or []:
+        if p["text"] in ref and not p.get("whose"):
+            p["whose"] = ref[p["text"]]
+    return new_prefs
+
+
 def _cell(value):
     return " ".join(str(value or "").replace("|", "｜").split())
 
@@ -1282,7 +1326,7 @@ def render_text(data, titles=None, limits=None):
          for e in data.get("exclusions") or []],
         [[s["type"], x["name"], "✓" if x.get("required") else "", x.get("hint"), srcs.get(s.get("source"), ""),
           s.get("date")] for s in data.get("synthesis_sections") or [] for x in s.get("sections") or []],
-        [[a["name"], _KINDS_REVERSED.get(a.get("kind"), ""), "、".join(a.get("aliases") or []),
+        [[a["name"], _kind_label(data, a.get("kind")), "、".join(a.get("aliases") or []),
           srcs.get(a.get("source"), ""), a.get("date")] for a in data.get("about") or []],
         [[p["text"], p.get("use") or USE_ALL, srcs.get(p.get("source"), ""), p.get("date")]
          for p in data.get("preferences") or []],
@@ -1294,6 +1338,10 @@ def render_text(data, titles=None, limits=None):
     parts = [HEADER]
     prompts = PROMPTS[:5] + (PROMPTS[5].format(**dict(_DEFAULT_LIMITS, **(limits or {}))),) + PROMPTS[6:]
     for num, title, prompt, head, rows in zip(NUMERALS, TITLES, prompts, TABLE_HEADS, tables):
+        if num == "五" and "people" in data:  # 幾個人用（多人共用 2 新定 1）：沒設過的舊庫照舊不印這行
+            if _people_n(data) >= 2:
+                title = TITLE_TEAM
+            prompt = f"{prompt}\n{PEOPLE_LABEL}{_people_n(data)}"
         lines = [f"## {num}、{title}", prompt, "", _row(head), "|" + "---|" * len(head)]
         lines += [_row(r) for r in rows]
         parts.append("\n" + "\n".join(lines) + "\n")
@@ -1482,7 +1530,7 @@ def edited(data, section, op, fields, today=None, uses=None, **limits):
     number, columns, key = _spec(section)
     allowed = (columns + (("序號",) if number in (1, 6) else ()) + (("夾名",) if number == 1 else ())) if op == "add" else key
     for k in fields:
-        if k not in allowed:
+        if k not in allowed and not (k == "誰的" and number == 6 and op == "add"):  # 誰的：內部欄（--whose），不列進錯誤句
             raise ProfileError(number, None, f"「{section}」這一節沒有「{k}」欄；欄是 {'、'.join(allowed)}")
     if number == 1 and op == "remove":
         raise ProfileError(1, None, "拿掉型別用 kb profile type remove")
@@ -1695,7 +1743,8 @@ def _edit_preferences(out, op, f, today, absent, lim):
     others = [p for p in rows if p is not old]
     if any(p["text"] == text for p in others):
         return f"偏好已經有了：{text}", False
-    if old is not None and (old["text"], old.get("use") or USE_ALL) == (text, use):
+    if old is not None and (old["text"], old.get("use") or USE_ALL, old.get("whose")) == (
+            text, use, f["誰的"] if "誰的" in f else old.get("whose")):
         return _same("偏好", str(n))
     group = _group(use)
     count, chars, label = _limits_of(group, lim)
@@ -1707,6 +1756,9 @@ def _edit_preferences(out, op, f, today, absent, lim):
     if total > chars:
         raise ProfileError(6, None, f"{label}合計最多 {chars} 字（加了會是 {total} 字{tail}），先合併或縮短")
     new = {"text": text, "use": use, "source": "corrected", "date": today}
+    whose = f["誰的"] if "誰的" in f else (old or {}).get("whose")  # 多人共用 2 第 6 點：team 或名字；單人不帶
+    if whose:
+        new["whose"] = whose
     if old is not None:
         rows[n - 1] = new
         return f"已改偏好 {n}，{_where(use)}：{text}", True

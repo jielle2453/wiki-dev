@@ -318,6 +318,17 @@ def _item(vault, rel, kind, hunk_list):
     return item
 
 
+def _pulled_same_fn(vault):
+    """回 f(rel)：這張卡現在的全文是不是 pull 進來的那一版（.system/local/pulled.json 記的 sha）。讀不到都是 False。"""
+    def f(rel):
+        try:
+            from kb._lib import refresh
+            return refresh.pulled_same(vault, rel, (Path(vault) / rel).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return False
+    return f
+
+
 def edits(vault, deadline=None, persist=True):
     """比每張卡現在的內文跟基準。回 {"edits": [...], "more": 時限內沒比完}。
     沒紀錄的卡（含搬了沒換鍵的）補基準、不報；persist=False 時不寫狀態檔。被刪的卡不列。"""
@@ -331,6 +342,7 @@ def edits(vault, deadline=None, persist=True):
         if rel not in live and not cut:
             orphans.setdefault(got["sha256"], rel)
     out, added, drop, more = [], {}, [], cut
+    pulled = _pulled_same_fn(vault)
     for rel, kind in found:
         if deadline is not None and time.monotonic() > deadline:
             more = True
@@ -350,14 +362,20 @@ def edits(vault, deadline=None, persist=True):
             pend = got.get("pending")
             hs = hunks(pend["before"], pend["after"]) if isinstance(pend, dict) else []
             if got["sha256"] != sha(body):
-                hs = hs + hunks(got["body"], body)
+                if pulled(rel):  # 多人共用 3 問 1：內容跟 pull 進來時一樣＝同事改的，改的那台會記；這台把基準對上、不報
+                    added[rel] = _entry(body, pending=pend)
+                else:
+                    hs = hs + hunks(got["body"], body)
             if hs:
                 out.append(_item(vault, rel, kind, hs))
     if persist and (added or drop):
         try:
             def fn(cur):
                 for rel, ent in added.items():
-                    cur.setdefault(rel, ent)
+                    if rel in recs:
+                        cur[rel] = ent  # pull 進來的卡：基準換成現在的內文
+                    else:
+                        cur.setdefault(rel, ent)
                 for rel in drop:
                     cur.pop(rel, None)
             _locked(vault, fn)

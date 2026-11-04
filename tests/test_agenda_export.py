@@ -180,6 +180,7 @@ class Failure(Base):
         """驗收 8：匯出夾被刪掉後 add 照常寫入 exit 0；hook-errors.log 多一行 agenda_export；agenda_export.json 有 last_error；
         開場不多任何一行。"""
         self.set_dir()
+        self.opening()  # 一次性的開場行（例如新作品）只講一次，先讀掉，免得基準比之後多一行
         quiet = self.opening()
         shutil.rmtree(self.out)
         log = self.V / ".system" / "hook-errors.log"

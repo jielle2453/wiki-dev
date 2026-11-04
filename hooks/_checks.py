@@ -29,6 +29,7 @@ SOURCE = "session"  # log 的 source；turn.py 改成 "turn"
 WIP_LINE = "有 {n} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
 MD_LINE = ("有 {n} 份 md 新放或改過（{names}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
            "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # D-525 第 8 點、裁定 3、15
+COLLEAGUE = "（可能是同事動的，不是這台使用者的意思，別從中推測他的偏好）"  # 多人共用 2 第 10 點（D-334(3)）
 MISSING_LINE = "有 {n} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
 NAMES_SHOWN = 3
 WIP_DAILY = "製作中 {n} 份：{names}；跟客戶說一句還有這幾份沒整理、要整理說一聲，不問、不追。"  # D-525 第 5 點
@@ -41,6 +42,9 @@ MOVED_LINE_TEXT = "知識庫換了位置：先跑 kb moved 補好再做別的。
 NEW_MACHINE_LINE = "這台電腦第一次開這個知識庫：先跑 kb moved 看要補什麼。"
 MISSING_SOURCES_LINE = "這台電腦找不到來源{names}：跑 kb folders locate <別名> 自己找，找到就 kb folders relocate 接上、說一聲；找不到才問使用者。"
 MISSING_SOURCES_SHOWN = 3
+MISSING_SOURCE_TEAM = "這台找不到來源「{alias}」（預設在 {spec}），請問她這台的「{alias}」在哪，答了跑 kb folders locate {alias} <路徑>。"  # 多人共用 2 第 3 點
+LEARNING_LINE = "這台第一次用，還在認檔案，好了再報變動；先不整理、不跟客戶提變動。"  # D-300
+WHO_LINE = "這台第一次用，請先問她這台電腦是誰在用（預設 {name}），答了跑 kb who set <名字>。"  # D-286
 CARD_EDITS_LINE = "客戶在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # D-270
 CARD_EDITS_MAYBE = "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # 時限內一張都沒比到
 CARD_EDITS_MORE = "客戶在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"
@@ -170,6 +174,20 @@ def _kb_keys(vault, turn_id):
     return keys
 
 
+def _colleague_uri(vault, sources, uri):
+    """多人時這個位置在共用的夾（來源登記 shared，多人時雲端來源都是）→ True；單人一律 False。"""
+    try:
+        from kb._lib import people
+
+        if not uri or not people.multi(vault):
+            return False
+        alias = str(uri)[len("file://"):].partition("/")[0].casefold() if str(uri).startswith("file://") else ""
+        return any(s.get("shared") and s["alias"].casefold() == alias for s in sources.entries)
+    except Exception as e:  # noqa: BLE001
+        log_vault(vault, e)
+        return False
+
+
 def record_detected(vault, session_id, got, by, seen):
     """把這次比對的結果寫進這一句的 detected.jsonl（只寫這個檔）。by：outside（兩句之間）｜turn（這一句 AI 用自己的方法）。
     沒比完不記 added（inventory.detected_rows）；seen（已記過的 op|from|to）有的不重記；by turn 時 kb 或守門已記的同路徑跳過。
@@ -183,6 +201,9 @@ def record_detected(vault, session_id, got, by, seen):
     from kb._lib import inventory, turn
 
     rows = inventory.detected_rows(got[0], got[1], by=by)
+    for r in rows:  # 多人時落在共用夾的變動不掛這台的人（可能是同事動的）
+        if by == "outside" and _colleague_uri(vault, got[0], r.get("from") or r.get("to")):
+            r["colleague"] = True
     skip = _kb_keys(vault, tid) if by == "turn" else set()
     fresh = []
     for r in rows:
@@ -297,8 +318,11 @@ def change_lines(vault, told_files=(), session_id=None):
     for kind, uris in groups:
         if not uris:
             continue
-        lines.append(WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
-                     else MD_LINE.format(n=len(uris), names=_names(uris)))
+        line = (WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
+                else MD_LINE.format(n=len(uris), names=_names(uris)))
+        if any(_colleague_uri(vault, sources, u) for u in uris):  # 多人時共用夾裡的變動：不說「你」、不掛這台的人
+            line += COLLEAGUE
+        lines.append(line)
         keys += [key(kind, u) for u in uris]
     old = {k.rsplit("|", 1)[0] for k in keys if not k.startswith("missing|")}  # 同一份的舊鍵（含沒帶指紋的舊格式）
     told = [k for k in told if k not in old and k.rsplit("|", 1)[0] not in old]
@@ -353,6 +377,69 @@ def line_card_edits(vault, deadline=None):
     return (CARD_EDITS_MORE if got["more"] else CARD_EDITS_LINE).format(n=n), not got["more"]
 
 
+def line_learning(vault):
+    """新同事第一次（D-300）：共用清冊有東西、這台本機清冊是空的 → 背景開 kb inventory learn --background（十分鐘內不重開），回那一句；
+    不是這種情況回 None。測試環境變數 WIKI_WITH_WILLY_NO_BACKGROUND 有值時不開背景。"""
+    from kb._lib import inventory
+
+    if not inventory.learning(vault):
+        return None
+    marker = os.path.join(str(vault), ".system", "local", "learning-started")
+    fresh = False
+    try:
+        fresh = time.time() - os.path.getmtime(marker) < 600
+    except OSError:
+        pass
+    if not fresh and not os.environ.get("WIKI_WITH_WILLY_NO_BACKGROUND"):
+        try:
+            import subprocess
+
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(str(time.time()))
+            from kb._lib import paths
+
+            kw = {"cwd": str(vault), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                  "stderr": subprocess.DEVNULL, "close_fds": True}
+            if os.name == "nt":
+                kw["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                                       | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+            else:
+                kw["start_new_session"] = True
+            subprocess.Popen([sys.executable, str(paths.plugin_root() / "scripts" / "kb.py"), "inventory", "learn",
+                              "--background"], **kw)
+        except Exception as e:  # noqa: BLE001  起不來不影響這一句
+            log_vault(vault, e)
+    return LEARNING_LINE
+
+
+def line_who(vault):
+    """多人共用 2（D-286、設計自定 2）：多人而這台還沒記是誰就問一次；單人、已經記了不印。"""
+    from kb._lib import people
+
+    if not people.multi(vault) or people.me(vault):
+        return None
+    return WHO_LINE.format(name=people.default_name(vault) or "（沒有，請她說）")
+
+
+def _team_missing(vault, got_sources, report):
+    """多人：找不到的來源一個一句講預設在哪、問這台在哪（同一個對話只報一次由 env 記號管）。"""
+    from kb._lib import env, sources as sources_lib
+
+    specs = {s.get("id") or s.get("alias"): s.get("spec", "") for s in sources_lib.load_raw(vault)["sources"]}
+    lost = {(m["id"] or m["alias"]): m["alias"] for m in report["missing_sources"]}
+    env.clear_missing(vault, [s["id"] or s["alias"] for s in got_sources.entries if (s["id"] or s["alias"]) not in lost])
+    new = {k: a for k, a in lost.items() if not env.missing_reported(vault, k)}
+    if not new:
+        return None
+    env.mark_missing(vault, list(new))
+    first = next(iter(new))
+    line = MISSING_SOURCE_TEAM.format(alias=new[first], spec=specs.get(first, "?"))
+    if len(new) > 1:
+        line += f"（還有 {len(new) - 1} 個也找不到：{'、'.join(list(new.values())[1:MISSING_SOURCES_SHOWN])}）"
+    return line
+
+
 def line_missing_sources(vault):
     """清冊題：這台電腦找不到的來源，每台電腦只報一次（env.json 記號）；又找得到就清掉記號，之後再失蹤再報。"""
     if line_moved(vault):  # kb moved 會列這台找不到的來源；這裡報了就把「已報過」記號寫掉
@@ -360,9 +447,11 @@ def line_missing_sources(vault):
     got = file_compare(vault)
     if got is None:
         return None
-    from kb._lib import env
+    from kb._lib import env, people
 
     sources, report = got
+    if people.multi(vault):
+        return _team_missing(vault, sources, report)
     lost = {(m["id"] or m["alias"]): m["alias"] for m in report["missing_sources"]}
     env.clear_missing(vault, [s["id"] or s["alias"] for s in sources.entries if (s["id"] or s["alias"]) not in lost])
     new = {k: alias for k, alias in lost.items() if not env.missing_reported(vault, k)}
@@ -540,6 +629,62 @@ def profile_mtime(vault):
                           os.path.join(str(vault), *profile.MD_POSIX.split("/"))])
 
 
+REBASE_LINE = "同步卡住了（rebase 到一半），請聯絡服務人員：跟客戶說一句，不要自己動 git。"
+PULLED_LINE = ("git 同步進來 {n} 個檔（{names}）：那是同事動的，跟客戶說「可能是同事動的」、不要說「你」，也不要從中推測客戶的意思。")
+CONFLICT_CARD_LINE = ("你跟 {other} 同時改了「{name}」的卡：我留了 {other} 那版、標成要重做，客戶改的那段在 kb cards edits，"
+                      "照手改流程補回去；跟客戶說一句收拾了什麼。")
+CONFLICT_FILE_LINE = "你跟 {other} 同時改了「{name}」：兩版都留著（另存「{copy}」），問客戶要用哪一版、不要自己挑。"
+BIG_LINE = ("「{name}」太大（{mb} MB）推不上 git，這台先不同步：{where}")
+BIG_CLOUD = "問客戶要不要搬到團隊雲端的「{cloud}」夾（說好跑 kb source-edit move <檔> --to <夾>）。"
+BIG_LOCAL = "建議放到團隊共用的雲端夾。"
+REFRESH_NAMES_SHOWN = 3
+
+
+CARRIED_LINE = ("她在{page}寫了：『{text}』（id {cid}）。照意思記成資料（日程照 D-289 判斷誰的），回答裡說一句記成什麼；看不懂才問。"
+                "處理完跑 kb renders drop {cid}")
+
+
+def carried_lines(vault):
+    """renders.json 的 carried 還沒交給 AI 的，每筆一行、記 handed（只交一次）。"""
+    from kb._lib import hand, renders
+
+    rows = renders.unhanded(vault)
+    if not rows:
+        return []
+    out = [CARRIED_LINE.format(page=hand.PAGE_NAMES.get(rel, rel), text=renders.carried_line(c), cid=c["id"]) for rel, c in rows]
+    renders.mark_handed(vault, [c["id"] for _rel, c in rows])
+    return out
+
+
+def refresh_lines(vault):
+    """git HEAD 變了（或 rebase 做到一半）才叫 kb refresh 的本體；回 [(行, once)]。不是 git 或沒變什麼都不做。"""
+    from kb._lib import git, refresh
+
+    if not git.is_repo(vault):
+        return []
+    rebase = git.rebase_in_progress(vault)
+    if not rebase and not refresh.head_changed(vault):
+        return []
+    got = refresh.run(vault)
+    out = []
+    if got.get("rebase"):
+        out.append((REBASE_LINE, True))
+    for c in got.get("conflicts") or []:
+        name = os.path.basename(c["path"])
+        if c["kind"] == "card":
+            out.append((CONFLICT_CARD_LINE.format(other=c["other"], name=os.path.splitext(name)[0]), False))
+        else:
+            out.append((CONFLICT_FILE_LINE.format(other=c["other"], name=name, copy=os.path.basename(c["copy"] or "")), False))
+    for b in got.get("big") or []:
+        where = BIG_CLOUD.format(cloud=b["cloud"]) if b.get("cloud") else BIG_LOCAL
+        out.append((BIG_LINE.format(name=os.path.basename(b["path"]), mb=b["mb"], where=where), False))
+    pulled = got.get("pulled") or []
+    if pulled and not got.get("skipped"):
+        names = "、".join(os.path.basename(p) for p in pulled[:REFRESH_NAMES_SHOWN]) + ("…" if len(pulled) > REFRESH_NAMES_SHOWN else "")
+        out.append((PULLED_LINE.format(n=len(pulled), names=names), False))
+    return out
+
+
 def turn_lines(vault, session_id):
     """每句開頭要給 AI 的行（additionalContext），照順序、時間到就停。沒有 session_id（終端機）不做。"""
     if not session_id:
@@ -577,9 +722,23 @@ def turn_lines(vault, session_id):
     if daily_pending(vault):
         for line in guarded(daily_lines, vault) or []:
             tell(line)
+    tell(guarded(line_who, vault), once=True)  # 多人而這台沒記是誰：同一個對話只講一次（D-286）
+    # 0. git 對帳（多人共用 3，D-293）：HEAD 變了才叫，排在檔案比對之前；跑完才給比對（對帳不能停一半）
+    for line, once in guarded(refresh_lines, vault) or []:
+        tell(line, once=once)
     # 1. 檔案比對：搬動、不見、新增寫進這一句的 detected.jsonl（by outside）；變動行與整理提示在最後一步用它的結果
     got = None
     detected = list(checks.get("detected") or [])
+    learning = guarded(line_learning, vault)  # 新同事第一次：認完檔案之前不比對、不報變動（D-300）
+    tell(learning, once=True)
+    if learning:
+        checks_done = {"stamps": stamps, "told": told[-TOLD_KEEP:], "told_files": told_files[-FILES_KEEP:],
+                       "detected": detected}
+        try:
+            turn.set_checks(vault, session_id, checks_done)
+        except Exception as e:  # noqa: BLE001
+            log_vault(vault, e)
+        return out
     if not over_budget():
         got = guarded(file_compare, vault)
         detected = guarded(record_detected, vault, session_id, got, "outside", detected) or detected
@@ -609,6 +768,8 @@ def turn_lines(vault, session_id):
         for line in lines:
             tell(line, once=line == CHANGES_INCOMPLETE)
         tell(guarded(line_drift, vault), once=True)
+    for line in guarded(carried_lines, vault) or []:  # 程式頁上沒照格式的字（D-299）：每行只交一次
+        tell(line)
     checks = {"stamps": stamps, "told": told[-TOLD_KEEP:], "told_files": told_files[-FILES_KEEP:], "detected": detected}
     try:
         turn.set_checks(vault, session_id, checks)

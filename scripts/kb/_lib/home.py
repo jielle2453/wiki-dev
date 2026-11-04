@@ -406,7 +406,7 @@ def _build(vault, opened, today, hour, lo=None, hi=None):
             ledger.log_error(vault, f"kb home {label}沒讀到：{type(e).__name__}: {e}", source="home")
             return default
 
-    items = safe("日程", lambda: agenda.load(vault)["items"], [])
+    items = safe("日程", lambda: agenda.visible(vault, agenda.load(vault)["items"]), [])
     ent_data = safe("實體清單", lambda: entities.load(vault), {"entities": []})
     sources = safe("來源清單", lambda: sources_lib.load(vault), None)  # 壞了只「最近」那區空白
     got = agenda.counts(vault, {"items": items}, today)

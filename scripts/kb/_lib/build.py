@@ -376,6 +376,27 @@ def redo(cwd, step):
     return _locked(cwd, change)
 
 
+_ZH_DIGITS = {"零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def people_number(text):
+    """她說「我們六個人」「3 個人」「十二人」→ 整數；抓不到（「大家一起用」）回 None。只認 1～99。"""
+    m = re.search(r"(\d{1,2})\s*(?:個|位)?人", text) or re.search(r"(\d{1,2})", text)
+    if m:
+        n = int(m.group(1))
+        return n if n >= 1 else None
+    m = re.search(r"([零一二兩三四五六七八九十]{1,3})\s*(?:個|位)?人", text)
+    if not m:
+        return None
+    zh = m.group(1)
+    if "十" in zh:
+        left, _, right = zh.partition("十")
+        n = (_ZH_DIGITS.get(left, 1) if left else 1) * 10 + (_ZH_DIGITS.get(right, 0) if right else 0)
+    else:
+        n = _ZH_DIGITS.get(zh, 0) if len(zh) == 1 else 0
+    return n if n >= 1 else None
+
+
 def set_value(cwd, key, value):
     """kb build set people|adopt "<值>"：people 記她的原話（一句、遮值）；adopt 要是舊 llm-wiki vault，記絕對路徑。"""
     def change(vault, data, tid):
@@ -386,6 +407,11 @@ def set_value(cwd, key, value):
             if len(text) > 200 or "\n" in text:
                 raise Refused(VALUE_LONG)
             data["people"] = credentials.mask_secrets(text, credentials.known_names(vault))
+            n = people_number(text)  # 話裡抓得到數字就同時設設定檔的 people（多人共用 2 第 2 點）；抓不到只存原話
+            if n is not None:
+                prof = profile.load(vault)
+                if prof is not None and prof.get("people") != n:
+                    profile.write(vault, dict(prof, people=n), tid)
             return SET_PEOPLE.format(value=data["people"])
         got = adopt_check(text)
         data["adopt"] = got["path"]

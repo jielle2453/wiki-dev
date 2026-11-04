@@ -24,6 +24,21 @@ const PLUGIN_ID = 'wiki-with-willy';
 const VIEW_TYPE = 'wiki-with-willy-home';
 const WATCH_FILES = ['agenda.json', 'pending.json', 'entities.json', 'inventory.json', 'profile.json'];
 const DEBOUNCE_MS = 300;
+// 多人共用 3（D-293）：git pull 會改 .git 底下這幾個檔；變了等 2 秒（去抖）叫 kb refresh。不靠 Obsidian 自己的通知。
+const GIT_WATCH_FILES = ['HEAD', 'ORIG_HEAD', 'FETCH_HEAD'];
+const GIT_DEBOUNCE_MS = 2000;
+const GIT_NOTICE_TEXT = '同步有衝突，開 Claude 說一句話就會收拾';
+
+/** kb refresh --json 的結果要不要在首頁頂端提示：有 conflicts 或 rebase 到一半。 */
+function gitRefreshNotice(j) {
+  if (!j || typeof j !== 'object') return null;
+  const conflicts = Array.isArray(j.conflicts) ? j.conflicts.length : 0;
+  return conflicts > 0 || j.rebase === true ? GIT_NOTICE_TEXT : null;
+}
+
+function isGitWatchFile(name) {
+  return GIT_WATCH_FILES.includes(String(name || ''));
+}
 const OPENED_MAX = 30;
 const KB_TIMEOUT_MS = 120000;
 const LANE_HEIGHT = 26;
@@ -1826,6 +1841,9 @@ class HomeView extends ItemView {
     if (p.homeError) {
       el.appendChild(h('div', { cls: 'wwh-banner wwh-banner-warn', text: `首頁的資料讀不到：${p.homeError}` }));
     }
+    if (p.gitNotice) {
+      el.appendChild(h('div', { cls: 'wwh-banner wwh-banner-warn', text: p.gitNotice }));
+    }
   }
 
   // ---- 日期與問候（只寫問候，kb 挑的；不放數字，裁定 32）----
@@ -3032,6 +3050,7 @@ class WikiWithWillyPlugin extends Plugin {
 
     ws.onLayoutReady(() => {
       this.startWatch();
+      this.startGitWatch();
       this.refresh();
       this.ensureHomeOpen();
     });
@@ -3046,6 +3065,14 @@ class WikiWithWillyPlugin extends Plugin {
       }
     }
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.gitTimer) clearTimeout(this.gitTimer);
+    if (this.gitWatcher) {
+      try {
+        this.gitWatcher.close();
+      } catch (e) {
+        // 關不掉也沒關係
+      }
+    }
     this.flushNote();
   }
 
@@ -3180,6 +3207,32 @@ class WikiWithWillyPlugin extends Plugin {
     } catch (e) {
       console.error('[wiki-with-willy] 沒辦法看 .system 的變動', e);
     }
+  }
+
+  // 看 .git 的 HEAD／ORIG_HEAD／FETCH_HEAD（多人共用 3，D-293）：變了等 2 秒叫 kb refresh，再刷新首頁。沒有 .git 就不看。
+  startGitWatch() {
+    const dir = path.join(this.vaultPath, '.git');
+    try {
+      if (!fs.existsSync(dir)) return;
+      this.gitWatcher = fs.watch(dir, { persistent: false }, (evt, name) => {
+        if (!isGitWatchFile(name)) return;
+        if (this.gitTimer) clearTimeout(this.gitTimer);
+        this.gitTimer = softTimeout(() => {
+          this.gitTimer = null;
+          this.gitRefresh();
+        }, GIT_DEBOUNCE_MS);
+      });
+      this.gitWatcher.on('error', (e) => console.error('[wiki-with-willy] 看 .git 出錯', e));
+    } catch (e) {
+      console.error('[wiki-with-willy] 沒辦法看 .git 的變動', e);
+    }
+  }
+
+  async gitRefresh() {
+    const res = await this.kb(['refresh', '--json']);
+    const c = classify(res);
+    this.gitNotice = c.kind === 'ok' ? gitRefreshNotice(parseJson(res.stdout)) : null;
+    this.scheduleRefresh();
   }
 
   checkSelfUpdate() {
@@ -3878,6 +3931,9 @@ module.exports.lib = {
   isGeneratedPage,
   createApplyTracker,
   shouldToastModified,
+  gitRefreshNotice,
+  isGitWatchFile,
+  GIT_DEBOUNCE_MS,
   summarizeApply,
   hasCarriedSection,
   splitCardRefs,

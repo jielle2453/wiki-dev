@@ -55,4 +55,5 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" build status --json
 
 - `references/steps.md`：每一步要問什麼、怎麼講、做完跑什麼。
 - `references/adopt.md`：舊 llm-wiki 的資料夾認哪些、撈什麼、怎麼列給她看。
+- `references/team.md`：多人共用時給服務人員的設定（git 放哪、每台怎麼裝、單人轉多人）。
 - `${CLAUDE_PLUGIN_ROOT}/templates/build-report.md`：交付報告六段。

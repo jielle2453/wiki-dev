@@ -32,6 +32,7 @@ from pathlib import Path
 from kb import guard, journal_cli
 from kb._lib import cards, config, credentials, env, inventory, plan, purge, turn
 from kb._lib import io as kio
+from kb._lib.areas import HOLD_DIR
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, write_json_atomic
 from kb._lib.paths import compress_spec, decode_uri, inside, is_abs_spec, normalize, resolve_spec
@@ -72,6 +73,8 @@ def add_arguments(sub):
     lc = subs.add_parser("locate", help="在這台電腦找搬走的來源夾（只讀）",
                          description="找搬走的來源夾：從家目錄與固定磁碟根往下找同名的夾，用抽樣比對排序，回候選。")
     lc.add_argument("alias", help="來源的別名")
+    lc.add_argument("path", nargs="?", help="給了路徑：記這台電腦這個來源的實際位置（共用的登記不動，多人共用）")
+    lc.add_argument("--clear", action="store_true", help="拿掉這台電腦記的位置，回到共用登記的")
     e = subs.add_parser("exclude", help="排除來源裡的一個夾或檔", description="排除來源裡的一個夾或檔；對象要真的存在。")
     e.add_argument("path", help="來源裡的夾或檔")
     e.add_argument("--kind", required=True, choices=("hidden", "unused"), help="hidden 不想讓 AI 看到；unused 用不到")
@@ -145,7 +148,7 @@ def _clean_alias(alias):
     return str(alias).rstrip(" .")
 
 
-def _alias_problem(alias, raw_sources):
+def _alias_problem(alias, raw_sources, allow_hold=False):
     """M2：空、.、..、Windows 不允許的字元或控制字元、保留字、跟既有別名重複（不分大小寫）。alias 已去掉結尾空白與點。"""
     if alias in ("", ".", ".."):
         return "別名不能是空的、「.」或「..」"
@@ -154,7 +157,7 @@ def _alias_problem(alias, raw_sources):
     if alias.split(".")[0].upper() in DEVICE_NAMES:
         return f"別名「{alias}」是 Windows 保留的裝置名，建不出這個夾；請用 --alias 換一個"
     low = alias.lower()
-    if low in {r.lower() for r in sources_lib.RESERVED_ALIASES}:
+    if low in {r.lower() for r in sources_lib.RESERVED_ALIASES} and not (allow_hold and alias == HOLD_DIR):
         return f"別名「{alias}」是保留字，檔案索引裡留給知識庫自己用；請用 --alias 換一個"
     if any(str(s.get("alias", "")).lower() == low for s in raw_sources):
         return f"別名「{alias}」已經有了（不分大小寫）；請用 --alias 換一個"
@@ -356,6 +359,8 @@ def _purge_sentence(got):
             f"工作日誌 {got['journal']} 段；{PURGE_TAIL}")
     if got.get("undecodable"):  # 讀不懂編碼的備份跳過、不算沒清完（第六輪）
         line += f"\n有 {got['undecodable']} 份備份讀不懂編碼，沒動"
+    if got.get("history"):  # 知識庫是同步用的版本庫：已經同步出去的舊版本還在歷史裡（多人共用 1）
+        line += "\n已經同步出去的舊版本還留在同步的歷史裡，這一步清不掉"
     return line + "\n" + _obsidian_line(got.get("obsidian")) + "\n" + SNAPSHOT_LINE
 
 
@@ -393,7 +398,9 @@ def _add(vault, args, as_json):
         for e in sources_lib.Sources(vault, raw).entries:
             if _overlap(tn, e["root"]):
                 return _reject(f"和既有來源「{e['alias']}」重疊，同一份檔會有兩張卡；要細分請在來源裡建子夾")
-        problem = _alias_problem(alias, raw["sources"])
+        from kb._lib import people
+        hold = alias == HOLD_DIR and people.multi(vault)  # 多人時暫存區可以登記成團隊雲端的夾（D-324，只有這個保留別名能）
+        problem = _alias_problem(alias, raw["sources"], allow_hold=hold)
         if problem:
             return _reject(problem)
         if args.check:
@@ -402,12 +409,14 @@ def _add(vault, args, as_json):
         else:
             entry_id = sources_lib.new_id(s.get("id") for s in raw["sources"])
             new_entry = {"id": entry_id, "alias": alias, "spec": spec, "excludes": []}
-            if getattr(args, "shared", False):
+            from kb._lib import people
+            if getattr(args, "shared", False) or people.multi(vault) or hold:  # 多人時雲端的夾預設共用（設計自定 3）；暫存區一律共用
                 new_entry["shared"] = True
             raw["sources"].append(new_entry)
             turn_id, original = _backup_then_write(vault, raw)
             report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, alias, turn_id)
 
+    left = _left_in_vault(vault) if alias == HOLD_DIR and not args.check else 0  # 知識庫裡原本的 暫存區/ 還有幾份（D-309 問要不要搬）
     files = report["total"]  # 第一行的份數與清冊入冊同一個數（審閱裁定 7、26）
     creds = _credential_rels(report, alias)
     warnings = _warnings(t, spec, files)
@@ -419,7 +428,8 @@ def _add(vault, args, as_json):
     if as_json:
         print(json.dumps({"id": entry_id, "alias": alias, "spec": spec, "path": str(t), "files": files,
                           "credential_files": creds, "warnings": warnings, "check": bool(args.check),
-                          "inventory": {"added": files, "restored": len(report["restored"]), "credential": len(creds)}},
+                          "inventory": {"added": files, "restored": len(report["restored"]), "credential": len(creds)},
+                          **({"left_in_vault": left} if alias == HOLD_DIR else {})},
                          ensure_ascii=False))
         return 0
     print(first)
@@ -430,7 +440,14 @@ def _add(vault, args, as_json):
         print(f"- 其中 {len(creds)} 份檔名像密碼或金鑰，不會讀：{shown}{more}；要讓我讀哪一份跟我說「X 可以讀」")
     for w in warnings:
         print(f"- 提醒：{w}")
+    if left:
+        print(f"- 知識庫裡原本的暫存區還有 {left} 份：問使用者要不要搬過去（kb source-edit move）")
     return 0
+
+
+def _left_in_vault(vault):
+    d = Path(vault) / HOLD_DIR
+    return sum(1 for p in d.rglob("*") if p.is_file() and not p.name.startswith(".")) if d.is_dir() else 0
 
 
 def _raw_entry(raw, best):
@@ -920,12 +937,38 @@ def locate_candidates(vault, name, roots, depth, seconds, skip=()):
     return found, time.monotonic() - start
 
 
+LOCATE_SET = "記下了：這台電腦的「{alias}」在 {path}（共用的登記沒動）"
+LOCATE_CLEARED = "拿掉了這台電腦記的「{alias}」位置，回到共用登記的"
+
+
+def _locate_here(vault, entry, args, as_json):
+    """kb folders locate <別名> <路徑>／--clear：只寫 env.json 這台那一筆的 source_paths，不改 sources.json、不重寫卡（D-292、D-328）。"""
+    from kb._lib import env
+    alias, src_id = entry.get("alias", ""), entry.get("id", "")
+    if args.clear:
+        env.set_source_path(vault, src_id, None)
+        line = LOCATE_CLEARED.format(alias=alias)
+        payload = {"alias": alias, "cleared": True, "message": line}
+    else:
+        t = Path(args.path).expanduser()
+        if not t.is_dir():
+            return _reject(f"找不到資料夾 {t}")
+        path = normalize(str(t.resolve()), None)
+        env.set_source_path(vault, src_id, path)
+        line = LOCATE_SET.format(alias=alias, path=path)
+        payload = {"alias": alias, "path": path, "message": line}
+    print(json.dumps(payload, ensure_ascii=False) if as_json else line)
+    return 0
+
+
 def _locate(vault, args, as_json):
     wanted = _clean_alias(args.alias.strip())
     raw = sources_lib.load_raw(vault)
     entry = next((s for s in raw["sources"] if str(s.get("alias", "")).casefold() == wanted.casefold()), None)
     if entry is None:
         return _reject(f"沒有叫「{wanted}」的來源")
+    if getattr(args, "path", None) or getattr(args, "clear", False):
+        return _locate_here(vault, entry, args, as_json)
     alias = entry.get("alias", "")
     spec = entry.get("spec", "")
     name = Path(spec.replace("\\", "/").rstrip("/")).name

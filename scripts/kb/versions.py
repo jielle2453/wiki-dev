@@ -96,6 +96,7 @@ def add_arguments(sub):
     it.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
     un = subs.add_parser("undo", help="改回指定的項目或整個回合", description="照項目反著做；給回合代號等於那一句的全部項目。之後被動過的那一項不做、列 conflict。")
     un.add_argument("targets", nargs="+", help="項目編號（<回合代號>#<序>）或回合代號")
+    un.add_argument("--yes", action="store_true", help="別台的人後來改過同一欄、她同意之後：照退（被別人改過的那幾欄不動）；只對那種項目有作用")
     un.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
     do = subs.add_parser("delete-outputs", help="刪已退回回合裡留著的成品（客戶明說才做）",
                          description="刪「已退回的回合」裡 status 還是 turn_reverted 的成品；先備份再刪，再退一次救得回。")
@@ -188,7 +189,9 @@ def _uri_rel(uri):
 
 def _touches(t):
     """回合碰過的路徑：[(路徑, 時間)]，manifest、writes.jsonl（同路徑第二次以後的寫入）、folders.jsonl、moves.jsonl 都算。"""
-    got = [(e.get("path"), e.get("time")) for e in t["entries"] + t.get("writes", [])]
+    from kb._lib import streams
+    got = [(e.get("path"), e.get("time")) for e in t["entries"] + t.get("writes", [])
+           if not (e.get("path") and streams.virtual_kind(Path(".") / e["path"]))]  # 流水檔的碰過看逐項（多人共用 1）
     got += [(f.get(k), f.get("time")) for f in t["folders"] for k in ("from", "to")]
     got += [(_uri_rel(m.get(k)), m.get("time")) for m in t["moves"] for k in ("from", "to")]
     return [(str(p).replace("\\", "/"), str(w or "")) for p, w in got if p]
@@ -953,6 +956,9 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         print(f"只能從最近一次開始退：{_describe(target)}")
         return 3
     hits = _overlap(all_turns, target)
+    stream_items = [it for it in items.Ledger(vault).items(target["turn"]) if it.get("stream")]         if any(e.get("stream") for e in target["entries"]) else []
+    if stream_items and _stream_conflicted(vault, stream_items):  # 流水檔同一欄之後被動過（多人共用 1）：逐項，被動過的列 conflict
+        return _undo_locked(vault, [target["turn"]], as_json, conversation, all_turns)
     if hits:  # 放寬丙（D-321(4)）：後來別處也改過同一份，改成逐項：沒被動過的照退，被動過的那一項列 conflict 交 AI 判斷
         return _undo_locked(vault, [target["turn"]], as_json, conversation, all_turns)
     bad = _bad_path(vault, target["folders"])
@@ -1020,8 +1026,17 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
 
     restored, removed, lost, touched_z3, kept_msgs, kept_ids = [], [], [], [], [], []
     purged = False
+    sctx = {"vault": vault, "rt": rt["turn"], "restored": [], "render": set()}
+    for it in sorted(stream_items, key=lambda i: i["seq"], reverse=True):  # 流水檔：每一項寫一行反向的（多人共用 1）
+        status, _why, _msg = _undo_stream_item(sctx, it)
+        if status == "done" and it["file"] not in restored:
+            restored.append(it["file"])
+    for path in sorted(sctx["render"]):
+        _render_record_md(vault, path, rt["turn"])
     for e in reversed(target["entries"]):
         recorded, action = e.get("path"), e.get("action")
+        if e.get("stream"):
+            continue
         if action == "purged":  # 不讀的夾清掉了：那一版沒有了（D-174）
             purged = True
             continue
@@ -1295,6 +1310,9 @@ def _public_item(it, t, undone_by):
            "from": it["from"], "to": it["to"], "by": it["by"], "copy": bool(it["copy"]), "undoable": it["undoable"]}
     if it["src"] == "record":
         out.update(file=it["file"], key=it["key"])
+        if it.get("stream"):
+            st = it["stream"]
+            out.update(kind=st["kind"], id=it["key"], seq=st["seq"], set=st["set"])
     if it["item"] in undone_by:
         out["undoable"], out["why"] = False, "undone"
     elif not it["undoable"]:
@@ -1340,7 +1358,7 @@ def _items(vault, turn_code, n, as_json):
     return 0
 
 
-def _conflict_entry(it, hits, by_turn):
+def _conflict_entry(it, hits, by_turn, vault=None):
     """conflict 一項：then（那一句做了什麼）、later（之後誰在哪一句改成什麼）、now（現在的值或位置）。"""
     then = {"op": it["op"], "from": it["what"], "to": _uri_name(it["to"]) if it["to"] else None}
     if it["src"] == "manifest" and it["copy"]:
@@ -1348,6 +1366,17 @@ def _conflict_entry(it, hits, by_turn):
     elif it["src"] == "record":
         then = {"op": it["op"], "key": it["key"], "old": it["old"], "new": it["new"]}
     later = []
+    if it.get("stream") and not hits:
+        lines = _other_machine_lines(vault, it) if vault is not None else []
+        out = _stream_conflict(it, lines)
+        if vault is not None:
+            out["now"] = _stream_now(vault, it)
+            touched = set()
+            for r in lines:
+                touched |= set(r.get("set") or {}) | set(r.get("unset") or [])
+            if touched:  # now 只列別人動過的那幾欄（例：新日期），不是整筆
+                out["now"] = {f: v for f, v in out["now"].items() if f in touched}
+        return out
     for h in hits:
         t = by_turn.get(h["turn"])
         obs = bool(t and _obsidian(t))  # Obsidian 的回合不是「對話外」，是她在 Obsidian 按的（裁定 13）
@@ -1360,7 +1389,48 @@ def _conflict_entry(it, hits, by_turn):
         now = it["row"].get("path") or now
     elif it["src"] == "record":
         now = it["file"]
-    return {"item": it["item"], "why": "later", "then": then, "later": later, "now": now}
+    out = {"item": it["item"], "why": "later", "then": then, "later": later, "now": now}
+    if it.get("stream"):
+        out["fields"] = it["stream"]["fields"]
+        if vault is not None:
+            out["now"] = _stream_now(vault, it)
+    return out
+
+
+def _stream_now(vault, it):
+    from kb._lib import streams
+    st = it["stream"]
+    cur = streams.current(vault, st["kind"], it["key"]) or {}
+    return {f: cur.get(f) for f in st["fields"]}
+
+
+def _stream_conflict(it, lines=()):
+    st = it["stream"]
+    later = [{"item": None, "side": "other", "who": r.get("who") or "同事", "said": r.get("who") or "別台電腦", "op": "set",
+              "to": r.get("set")} for r in lines] or [{"item": None, "side": "other", "who": "同事", "said": "別台電腦",
+                                                       "op": "set", "to": None}]
+    return {"item": it["item"], "why": "later", "then": {"op": it["op"], "key": it["key"], "old": it["old"], "new": it["new"]},
+            "later": later, "now": None, "fields": st["fields"]}
+
+
+def _other_changed(vault, it):
+    """檔的項目：回合收尾後被別人改過（after.jsonl 的 sha 對不上）→ 替她做好一半、回 conflict 一項（多人共用 3 第 6 點）。"""
+    from kb._lib import refresh
+    rel = (it.get("row") or {}).get("path") if it.get("src") == "manifest" else None
+    if not rel or not isinstance(rel, str):
+        return None
+    try:
+        backup = Path(vault) / turn.VERSIONS_REL / it["turn"] / "files" / rel if it.get("copy") else None
+        got = refresh.other_changed(vault, it["turn"], rel, backup)
+    except Exception as e:  # noqa: BLE001  比不出來就照原本的退
+        ledger.log_error(vault, f"退回前比別人改過失敗：{type(e).__name__}: {str(e)[:100]}", source="versions")
+        return None
+    if got is None:
+        return None
+    then = {"op": it["op"], "backup": f"{turn.VERSIONS_REL.as_posix()}/{it['turn']}/files/{rel}"}
+    return {"item": it["item"], "why": "later", "then": then,
+            "later": [{"side": "other", "who": got["who"], "via": got["via"], "said": f"{got['who']}改過"}], "now": rel,
+            "done": got["done"], "copy": got["copy"]}
 
 
 def _undo(vault, targets, as_json, conversation):
@@ -1396,6 +1466,9 @@ def _resolve(led, targets):
     return sorted(got.values(), key=lambda it: (it["turn"], it["seq"]), reverse=True), unknown
 
 
+_YES = False  # kb versions undo --yes：別台改過同一欄、她說要退的項目照退（多人共用 2 第 11 點）
+
+
 def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
     led = items.Ledger(vault)
     all_turns = all_turns or turns(vault)
@@ -1426,7 +1499,14 @@ def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
             continue
         hits = [h for h in items.conflicts_of(led, it) if h["item"] not in done_ids and h["turn"] != ctx["rt"]]
         if hits:
-            conflict.append(_conflict_entry(it, hits, by_turn))
+            conflict.append(_conflict_entry(it, hits, by_turn, vault))
+            continue
+        if it.get("stream") and _other_machine_lines(vault, it) and not (_YES and it["item"] in targets):  # 別台改過同一欄
+            conflict.append(_conflict_entry(it, [], by_turn, vault))
+            continue
+        other = _other_changed(vault, it)  # 多人共用 3：這句之後被 pull 進來或雲端同步改過（沒有這台的回合紀錄，上面抓不到）
+        if other:
+            conflict.append(other)
             continue
         try:
             status, why, message = _do_item(ctx, led, it)
@@ -1525,6 +1605,12 @@ def _undo_print(done, conflict, skipped, kept, led, unknown):
     for c in conflict:
         it = lookup[c["item"]]
         last = c["later"][-1]
+        if it.get("stream"):  # 別人改過同一欄：講是誰、現在是什麼，要退得她同意再 --yes（D-296）
+            now = "、".join(f"{v}" for k, v in (c["now"] or {}).items() if isinstance(v, (str, int)) and k != "history")
+            who = last.get("who") or last["said"]
+            side = "之後又改過" if last.get("side") == "self" else "後來改過"
+            print(f"{it['what']}：{who}{side}（現在是「{now}」），退掉這一項會蓋過去，這項沒改回；她說要退就加 --yes")
+            continue
         now = _uri_name(str(c["now"])) if c["now"] else ""
         print(f"{it['what']}：之後又被動過（{last['said']}），現在是「{now}」，這項沒改回")
     for s in skipped:
@@ -1663,9 +1749,53 @@ def _undo_file_item(ctx, led, it):
     return "skipped", "gone", ""
 
 
+def _stream_conflicted(vault, stream_items):
+    led = items.Ledger(vault)
+    return any(items.conflicts_of(led, it) or _other_machine_lines(vault, it) for it in stream_items)
+
+
+def _other_machine_lines(vault, it):
+    from kb._lib import streams
+    st = it["stream"]
+    return [r for r in streams.later_lines(vault, st["kind"], it["key"], st["seq"], st["fields"]) if r.get("by") != st["by"]]
+
+
+def _undo_stream_item(ctx, it):
+    """流水檔的項目改回：只改這一行改的那幾欄，寫一行反向的（原本那行留著）；新增的寫收回欄。"""
+    from kb._lib import streams
+    vault, rt = ctx["vault"], ctx["rt"]
+    st = it["stream"]
+    eff = streams.line_effects(vault, st["kind"], it["key"], st["seq"], st["by"])
+    if eff is None or streams.current(vault, st["kind"], it["key"]) is None:
+        return "skipped", "gone", f"{it['what']} 現在已經不在"
+    if _YES and eff["op"] != "create":  # --yes：別人後來改過的那幾欄不動，其他欄照改回
+        others = set()
+        for r in _other_machine_lines(vault, it):
+            others |= set(r.get("set") or {}) | set(r.get("unset") or [])
+        eff = dict(eff, fields=[f for f in eff["fields"] if f not in others])
+        if not eff["fields"]:
+            return "skipped", "gone", f"{it['what']} 的欄位都被別人改過了，沒有可改回的"
+    turn.backup(vault, it["file"], rt)
+    streams.revert_line(vault, st["kind"], it["key"], eff, rt)
+    done_meta = ctx.setdefault("meta_done", set())
+    if (it["turn"], st["kind"]) not in done_meta:  # 同回合同種類的「版本、其他頂層欄」那一筆跟著改回（不列成項目）
+        done_meta.add((it["turn"], st["kind"]))
+        own = streams.own_file(vault, st["kind"]).stem
+        for r in streams.turn_items(vault, it["turn"]):
+            if r.get("kind") == st["kind"] and r.get("id") == streams.META_ID:
+                meff = streams.line_effects(vault, st["kind"], streams.META_ID, r.get("seq"), own)
+                if meff is not None:
+                    streams.revert_line(vault, st["kind"], streams.META_ID, meff, rt)
+    ctx["restored"].append(it["file"])
+    ctx["render"].add(it["file"])
+    return "done", None, None
+
+
 def _undo_record_item(ctx, it):
     """JSON 條目換回舊值：新增的拿掉、拿掉的加回、改的換回。整檔在 FileLock 裡讀改寫，寫前備進動作回合。"""
     import copy
+    if it.get("stream"):
+        return _undo_stream_item(ctx, it)
     vault, rt = ctx["vault"], ctx["rt"]
     path, key = it["file"], it["key"]
     target = Path(vault) / path
@@ -1712,6 +1842,8 @@ def run(args):
     if args.versions_command == "clean":
         return _clean(vault, args.check, as_json, conversation)
     if args.versions_command == "undo":
+        global _YES
+        _YES = bool(getattr(args, "yes", False))
         return _undo(vault, args.targets, as_json, conversation)
     if args.versions_command == "delete-outputs":
         return _delete_outputs(vault, args.code, as_json, conversation)

@@ -472,3 +472,46 @@ test('開原檔連結（D-328）：onload 登記 wiki-with-willy-open 協定', (
   assert.ok(plugin.protocols['wiki-with-willy-open']);
   assert.strictEqual(lib.OPEN_ACTION, 'wiki-with-willy-open');
 });
+
+// ---- 多人共用 3：看 .git 的 HEAD 變動，2 秒去抖後叫 kb refresh ----
+
+test('gitRefreshNotice：有衝突或 rebase 到一半才提示', () => {
+  assert.strictEqual(lib.gitRefreshNotice({ conflicts: [], rebase: false }), null);
+  assert.strictEqual(lib.gitRefreshNotice(null), null);
+  assert.match(lib.gitRefreshNotice({ conflicts: [{ path: 'a' }], rebase: false }), /同步有衝突/);
+  assert.match(lib.gitRefreshNotice({ conflicts: [], rebase: true }), /同步有衝突/);
+  assert.strictEqual(lib.isGitWatchFile('HEAD'), true);
+  assert.strictEqual(lib.isGitWatchFile('FETCH_HEAD'), true);
+  assert.strictEqual(lib.isGitWatchFile('index'), false);
+  assert.strictEqual(lib.GIT_DEBOUNCE_MS, 2000);
+});
+
+test('.git/HEAD 改了（模擬）：2 秒內叫一次 kb refresh、再刷新首頁；回 conflicts 時首頁有提示', async () => {
+  const os = require('node:os');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wwh-git-'));
+  fs.mkdirSync(path.join(root, '.git'));
+  try {
+    const plugin = new env.Plugin({ vault: { adapter: { getBasePath: () => root } }, metadataCache: {} }, { id: 'wiki-with-willy', version: '0.28.0' });
+    plugin.vaultPath = root;
+    const calls = [];
+    let refreshed = 0;
+    plugin.kb = async (args) => {
+      calls.push(args.join(' '));
+      return { code: 0, stdout: JSON.stringify({ conflicts: [{ path: '卡.md', kind: 'card' }], rebase: false }), stderr: '' };
+    };
+    plugin.scheduleRefresh = () => {
+      refreshed += 1;
+    };
+    plugin.startGitWatch();
+    fs.writeFileSync(path.join(root, '.git', 'index'), 'x'); // 不是看的檔，不算
+    fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'a');
+    fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'b');
+    await new Promise((r) => setTimeout(r, 2600));
+    assert.deepStrictEqual(calls, ['refresh --json']);
+    assert.strictEqual(refreshed, 1);
+    assert.match(plugin.gitNotice, /同步有衝突/);
+    plugin.gitWatcher.close();
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

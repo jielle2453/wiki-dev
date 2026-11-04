@@ -29,6 +29,11 @@ def get(vault, key):
     if key not in base or key.startswith("_why_"):
         raise KeyError(key)
     default = base[key]
+    if key == "agenda_export_dir":  # 每台的路徑不同，存這台的 env.json（多人共用 1）；舊的 config.json 值遷移前照舊讀
+        from kb._lib import env
+        here = env.agenda_export_dir(vault)
+        if here is not None:
+            return here
     try:
         client = read_json(Path(vault) / CLIENT_REL, default={})
     except ValueError as e:
@@ -46,3 +51,18 @@ def get(vault, key):
         ledger.log_error(vault, f"config.json 的 {key} 型別不對（{type(value).__name__}），用預設 {default!r}")
         return default
     return value
+
+
+def move_export_dir_to_env(vault):
+    """遷移：config.json 的 agenda_export_dir 搬到這台的 env.json 並從 config.json 拿掉。回有沒有搬。"""
+    from kb._lib import env
+    from kb._lib.io import write_json_atomic
+    p = Path(vault) / CLIENT_REL
+    cur = read_json(p, default={})
+    if not isinstance(cur, dict) or not isinstance(cur.get("agenda_export_dir"), str):
+        return False
+    value = cur.pop("agenda_export_dir")
+    if value and env.agenda_export_dir(vault) is None:
+        env.set_agenda_export_dir(vault, value)
+    write_json_atomic(p, cur)
+    return True

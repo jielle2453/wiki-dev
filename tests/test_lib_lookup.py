@@ -253,8 +253,9 @@ class Round2(Base):
         self.assertEqual(json.loads(self.kb("沒這個", "--json"))["verify_max"], 20)
 
     def test_other_errors_exit_3_without_paths(self):
+        from tests._streams_util import forget_state
+        forget_state(self.V, "inventory")
         p = self.V / ".system" / "inventory.json"
-        p.unlink()
         p.mkdir()
         out = self.kb("信義王", code=3)
         self.assertNotIn("Traceback", out)

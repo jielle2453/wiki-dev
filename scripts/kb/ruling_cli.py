@@ -11,7 +11,7 @@ import argparse
 import json
 
 from kb import journal_cli
-from kb._lib import agenda, rulings, turn
+from kb._lib import agenda, rulings, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -101,7 +101,7 @@ def _decline(vault, args, as_json, conversation, turn_id):
 def _list(vault, as_json):
     items = [r for r in rulings.load(vault)["rulings"] if rulings.is_active(r)]
     if as_json:
-        print(json.dumps({"rulings": items}, ensure_ascii=False))
+        print(json.dumps({"rulings": items, "conflicts": streams.conflicts_of(vault, "rulings")}, ensure_ascii=False))
         return 0
     titles, names = agenda.card_titles(vault), rulings.file_names(vault)
     for r in items:

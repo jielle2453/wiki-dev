@@ -22,6 +22,12 @@ def read_text(path, encoding="utf-8"):
 def read_json(path, default=None):
     """讀 JSON；沒有檔回 default。.system/*.json 讀不懂（ValueError）時先試 recover_json（放寬丙 6-3，D-311(2)）：
     換回一份讀得懂的就用它，換不回來才照舊丟 ValueError。"""
+    from kb._lib import streams
+    v = streams.virtual_kind(path)
+    if v is not None:
+        doc = streams.read_doc(*v)
+        if doc is not None:
+            return doc
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -205,6 +211,11 @@ def write_text_atomic(path, text):
 
 
 def write_json_atomic(path, data):
+    from kb._lib import streams
+    v = streams.virtual_kind(path)
+    if v is not None and isinstance(data, dict):
+        streams.write_doc(*v, data)
+        return
     write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 

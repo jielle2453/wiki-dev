@@ -169,7 +169,7 @@ class Purge(unittest.TestCase):
         def prompt_place(h):
             return (h.startswith((".system/journal/", "系統/工作日誌/", ".system/turns/"))
                     or (h.startswith(".system/versions/") and h.endswith("/turn.json")))
-        folder = [h for h in hits(V, "私人") if not h.endswith(".system/sources.json") and not prompt_place(h)]
+        folder = [h for h in hits(V, "私人") if not h.endswith(".system/sources.json") and not h.startswith((".system/streams/sources/", ".system/local/cache/sources")) and not prompt_place(h)]
         self.assertEqual(folder, [])
         self.assertEqual(hits(V, "王家心情"), [])
         prompts = [r.get("prompt") for r in journal.read_lines(V, journal.month_of(turn.current(V)["turn"]))]
@@ -314,7 +314,8 @@ class LintFiles(unittest.TestCase):
         self.assertEqual([f["ids"] for f in st_data["synthesis_fix"]], [["f-00000000"]])
         self.assertEqual(hits(V, "王家心情"), [])
         def allowed(h):
-            return (h.endswith(".system/sources.json") or h.startswith((".system/journal/", "系統/工作日誌/", ".system/turns/"))
+            return (h.endswith(".system/sources.json") or h.startswith((".system/streams/sources/", ".system/local/cache/sources"))
+                    or h.startswith((".system/journal/", "系統/工作日誌/", ".system/turns/"))
                     or (h.startswith(".system/versions/") and h.endswith("/turn.json")))
         self.assertEqual([h for h in hits(V, "私人") if not allowed(h)], [])
         self.assertTrue((Path(V) / saved).is_file())

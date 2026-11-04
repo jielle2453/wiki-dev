@@ -17,14 +17,15 @@ import tempfile
 from pathlib import Path
 
 from kb import journal_cli
-from kb._lib import agenda, config, inventory, paths, turn
+from kb._lib import agenda, config, inventory, paths, streams, turn
 from kb._lib import io as kio
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
 CLI_LOCK_TIMEOUT = 30
 LOCK_BUSY = "等不到鎖，沒有寫入"
 CHANGED = [{"path": agenda.AGENDA_POSIX, "action": "modify"}, {"path": agenda.MD_POSIX, "action": "modify"}]
-FIELD_LABEL = (("start", "開始"), ("text", "說明"), ("time", "時間"), ("entities", "掛的實體"), ("lead_days", "提前天數"), ("repeat", "重複"))
+FIELD_LABEL = (("start", "開始"), ("text", "說明"), ("time", "時間"), ("entities", "掛的實體"), ("lead_days", "提前天數"), ("repeat", "重複"),
+               ("whose", "誰的"))
 
 
 def add_arguments(sub):
@@ -39,6 +40,7 @@ def add_arguments(sub):
     ad.add_argument("--card", help="出處的檔案卡編號（f-…），製卡抽出的才有，會標成推測")
     ad.add_argument("--lead-days", type=int, help="提前幾天提醒；沒給用 agenda_window_days")
     ad.add_argument("--repeat", help="每年、每月、每週（D-501）")
+    ad.add_argument("--whose", help="全隊或名字（可用逗號分開幾個人）；沒給是全隊；製卡抽的一律全隊")
     ed = subs.add_parser("edit", help="改一條日程", description="改日期、開始、時間、說明、掛的實體、提前天數。")
     ed.add_argument("id", help="日程編號（a-…）")
     ed.add_argument("--date", help="新日期 YYYY-MM-DD")
@@ -48,6 +50,7 @@ def add_arguments(sub):
     ed.add_argument("--entity", action="append", help="換成這些實體，可以重複")
     ed.add_argument("--lead-days", type=int, help="提前幾天提醒")
     ed.add_argument("--repeat", help="每年、每月、每週；不重複 是拿掉")
+    ed.add_argument("--whose", help="改成全隊或名字（逗號分開幾個人）；製卡抽的一律全隊")
     ed.add_argument("--card", help="照這張卡的新版重對（只能是出處那張）：來源維持推測、記下新版的指紋")
     helps = {"done": "記成完成", "cancel": "取消", "reopen": "重開"}
     status_parsers = [subs.add_parser(name, help=text, description=f"把一條日程{text}。") for name, text in helps.items()]
@@ -62,7 +65,7 @@ def add_arguments(sub):
                          description="製卡者對這張卡抽完日期（沒抽到任何日期也要跑）：清冊記這張卡現在的指紋，卡重做前不再列待抽。")
     sc.add_argument("id", help="檔案卡編號（f-…）")
     ls = subs.add_parser("list", help="列出日程", description="預設列 open 的，照日期排；--all 含過去、完成、取消。")
-    ls.add_argument("--all", action="store_true", help="全部列出")
+    ls.add_argument("--all", action="store_true", help="全部列出（含過去、完成、取消，多人時也含別人的）")
     ls.add_argument("--from", dest="date_from", help="只列這天（YYYY-MM-DD）以後的")
     ls.add_argument("--to", dest="date_to", help="只列這天（YYYY-MM-DD）以前的")
     ls.add_argument("--entity", action="append", default=[], help="只列掛著這個實體的，可以重複")
@@ -111,7 +114,8 @@ def _origin(vault, it):
 
 def _add(vault, args, as_json, conversation, turn_id):
     it, created = agenda.add(vault, args.kind.strip(), args.date, args.text, args.entity or [], turn_id, start=args.start,
-                             time=args.time, card=args.card, lead_days=args.lead_days, repeat=args.repeat)
+                             time=args.time, card=args.card, lead_days=args.lead_days, repeat=args.repeat,
+                             whose=args.whose)
     line = f"{_describe(it)}{_origin(vault, it)}"
     if not created:
         _out(as_json, [f"日程裡已經有這條：{line}"], {"item": it, "created": False})
@@ -136,7 +140,7 @@ def _changes(before, after):
 
 def _edit(vault, args, as_json, conversation, turn_id):
     fields = {"date": args.date, "start": args.start, "time": args.time, "text": args.text, "entities": args.entity,
-              "lead_days": args.lead_days, "repeat": args.repeat}
+              "lead_days": args.lead_days, "repeat": args.repeat, "whose": args.whose}
     before = copy.deepcopy(agenda.get(vault, args.id))
     if all(v is None for v in fields.values()) and not args.card and before.get("source") != "inferred":
         print("沒有給要改的欄位")  # 推測的那條不帶欄位是「記成確認」（lint 桌面版確認後）
@@ -234,14 +238,14 @@ def _list(vault, args, as_json):
     keys = _keys(vault, args.entity) if args.entity else None
     items = agenda.load(vault)["items"]
     if not args.all:
-        items = [i for i in items if i.get("status") == "open"]
+        items = agenda.visible(vault, [i for i in items if i.get("status") == "open"])
     items = [i for i in items if _in_range(i, start, end)]
     if keys is not None:
         items = [i for i in items if any(entities.key(n) in keys for n in i.get("entities") or [])]
     items = sorted(items, key=lambda i: (i.get("start") or i.get("date", ""), i.get("date", ""), i.get("time") or "",
                                          i.get("id", "")))
     if as_json:
-        print(json.dumps({"items": items}, ensure_ascii=False))
+        print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "agenda")}, ensure_ascii=False))
         return 0
     if not items:
         print("日程是空的")
@@ -286,6 +290,8 @@ def _writable(folder):
 
 def _save_dir(vault, folder, turn_id):
     """把 agenda_export_dir 寫進 .system/config.json（空字串＝拿掉這個鍵）；鎖裡讀改寫、寫前備進回合。"""
+    from kb._lib import env
+    env.set_agenda_export_dir(vault, folder)  # 每台自己的路徑，存這台的 env.json（多人共用 1）
     p = Path(vault) / config.CLIENT_REL
     with kio.FileLock(p):
         try:

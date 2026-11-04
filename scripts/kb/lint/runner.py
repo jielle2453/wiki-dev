@@ -65,6 +65,7 @@ class Context:
         self.today = today or date.today().isoformat()
         self.turn_id = turn_id
         self.background = background
+        self.shared = True  # 這次有沒有跑共用的檢查（多人共用 3，D-304）；單人一律 True
         self._cache = {}
 
     def _get(self, name, fn):
@@ -193,12 +194,17 @@ def _run(vault, background, today):
     ctx = Context(vault, today=today, turn_id=turn_id, background=background)
     done, notes, failed, numbers, ingest, decided = [], [], [], {}, {}, []
     ran, keys = set(), set()
-    early = [m for m in checks.CHECKS if not getattr(m, "AFTER_UPKEEP", False)]
-    late = [m for m in checks.CHECKS if getattr(m, "AFTER_UPKEEP", False)]  # 件數在關件之後算（測試 T-24）
+    shared = claim_shared(vault, ctx.today)  # 多人共用 3（D-304）：共用的檢查每週只一台跑；沒搶到的只跑本機的
+    ctx.shared = shared
+    mods = [m for m in checks.CHECKS if shared or getattr(m, "SCOPE", "shared") == "local"]
+    early = [m for m in mods if not getattr(m, "AFTER_UPKEEP", False)]
+    late = [m for m in mods if getattr(m, "AFTER_UPKEEP", False)]  # 件數在關件之後算（測試 T-24）
     for mod in early:
         _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys)
-    closed = _close_gone(ctx, ran, keys)
-    _upkeep(ctx, done, failed, closed)
+    if shared:
+        closed = _close_gone(ctx, ran, keys)
+        _upkeep(ctx, done, failed, closed)
+        clean_old_claims(vault, ctx.today)
     ctx.forget("collect")
     for mod in late:
         _run_check(ctx, mod, done, notes, failed, numbers, ingest, decided, ran, keys)
@@ -229,11 +235,54 @@ def _run(vault, background, today):
     if not background:
         rel = report.write(ctx, month, this_month, got, numbers, ingest, notes, failed, _counts(st.get("last_counts")))
     st["last_background"] = ctx.today
+    if ctx.shared:
+        st["last_shared"] = ctx.today  # 「健檢有 N 件要決定」只在跑了共用檢查的那台說
     state.save(vault, st, turn_id)
     _journal(vault, background, done)
     return {"month": month, "report": rel, "summary": summary, "done": done, "decide": got["decide"],
             "most_urgent": got["most_urgent"], "set_aside": got["set_aside"], "ingest": ingest, "failed_checks": failed,
             "numbers": numbers, "notes": notes}
+
+
+def claim_shared(vault, today):
+    """多人而且是 git repo：推 willy/lint/<年>-W<週> 標籤，ok 這台跑共用的檢查；別台搶到（taken）或連不上只跑本機的。
+    標籤是自己這台推的（訊息是這台的人名）也算 ok——同一週每天第一句再跑不會被自己擋住。單人或不是 git 一律 True。"""
+    from kb._lib import git
+    try:
+        if not git.sync_active(vault):
+            return True
+        y, w, _d = date.fromisoformat(today).isocalendar()
+        name, me = f"willy/lint/{y}-W{w:02d}", git.me(vault)
+        got = git.push_tag(vault, name, me)
+        if got == "taken":
+            return git.tag_message(vault, name) == me
+        return got in ("ok", "error")
+    except Exception as e:  # noqa: BLE001  標籤機制出錯不擋健檢
+        ledger.log_error(vault, f"健檢分工標籤出錯：{type(e).__name__}: {str(e)[:100]}", source="lint")
+        return True
+
+
+CLAIM_KEEP_DAYS = 7
+
+
+def clean_old_claims(vault, today):
+    """健檢多一項：清 willy/claim/* 超過 7 天的標籤（名字尾巴是日期）。只在多人 git 時做；失敗只記 log。"""
+    from kb._lib import git
+    try:
+        if not git.sync_active(vault):
+            return 0
+        n = 0
+        for name in git.list_remote_tags(vault, "willy/claim/") or []:
+            try:
+                d = datetime.strptime(name.rsplit("-", 1)[1], "%Y%m%d").date()
+            except (ValueError, IndexError):
+                continue
+            if (date.fromisoformat(today) - d).days > CLAIM_KEEP_DAYS and git.delete_remote_tag(vault, name):
+                n += 1
+        return n
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"清舊認領標籤出錯：{type(e).__name__}: {str(e)[:100]}", source="lint")
+        return 0
 
 
 def _counts(last):

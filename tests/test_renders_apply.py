@@ -91,9 +91,7 @@ class AgendaApply(Base):
         self.assertTrue(text.rstrip().endswith("- 測試"))
         self.assertEqual([c["text"] for c in renders.carried(self.V, AGENDA_MD)], ["測試"])
         asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
-        (ask,) = [a for a in asks if a["kind"] == "carried"]
-        self.assertIn("測試", ask["question"])
-        self.assertEqual(ask["key"], renders.carried(self.V, AGENDA_MD)[0]["id"])
+        self.assertEqual([a for a in asks if a["kind"] == "carried"], [])  # 多人共用 3（D-299）：改由每句開頭交給 AI，首頁不問
 
     def test_8_history_is_hand_and_no_handedit_opened(self):
         self.hand_the_four_edits()
@@ -380,36 +378,14 @@ class Drop(Base):
         self.assertEqual(self.md(AGENDA_MD), mine)
         self.assertEqual([c["id"] for c in renders.carried(self.V, AGENDA_MD)], [self.cid])
 
-    def test_ask_results_for_agenda_page(self):
-        asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
-        (ask,) = [a for a in asks if a["kind"] == "carried"]
-        labels = [r["label"] for r in ask["results"]]
-        self.assertEqual(labels, ["加成日程", "不用了"])
-        add, drop = ask["results"]
-        self.assertTrue(add["do"][0].startswith("kb agenda add --kind {種類} --date {日期} --text"))
-        self.assertEqual(add["do"][1], f"kb renders drop {self.cid}")
-        self.assertEqual([f["name"] for f in add["fill"]], ["種類", "日期"])
-        self.assertEqual(drop["argv"], ["renders", "drop", self.cid])
-        self.assertEqual(add["argv"], ["agenda", "add", "--text", "測試"])
-        self.assertEqual(add["after"], ["renders", "drop", self.cid])
-
-    def test_ask_results_for_pending_and_rulings_pages(self):
-        pending.add(self.V, "unreadable", ["f-11111111"], "「甲.pdf」讀不到", "檔案壞了", self.t)
-        self.write(PENDING_MD, self.md(PENDING_MD) + "\n- 隨手寫的\n")
-        self.report(PENDING_MD)
-        asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
-        mine = [a for a in asks if a["kind"] == "carried" and "待處理.md" in a["question"]]
-        self.assertEqual([r["label"] for r in mine[0]["results"]], ["不用了", "跟 Claude 說"])
-        self.assertIsNone(mine[0]["results"][1]["argv"])
-
-    def test_home_puts_carried_on_the_claude_side(self):
-        """裁定 39（D-268）：carried 不在「要你確認的」那張表裡（種類與日期要問、要 Claude 接手），整題算進最下面那行。"""
+    def test_carried_has_no_home_ask_any_more(self):
+        """多人共用 3（D-299）：沒照格式的字不再做成首頁「要你確認的」，每句開頭帶 id 交給 AI、處理完 renders drop。"""
         from kb._lib import home
+        asks = json.loads(run_kb("asks", "--all", "--json", cwd=self.V).stdout)["asks"]
+        self.assertEqual([a for a in asks if a["kind"] == "carried"], [])
         out = home.build(self.V)
-        self.assertEqual([a for a in out["confirm"] if a["kind"] == "carried"], [])
-        (ask,) = [a for a in out["claude"] if a["kind"] == "carried"]
-        self.assertIn("測試", ask["text"])
-        self.assertEqual(set(ask), {"key", "kind", "text"})
+        self.assertEqual([a for a in out["claude"] if a["kind"] == "carried"], [])
+        self.assertEqual([c["text"] for c in renders.carried(self.V, AGENDA_MD)], ["測試"])  # 「你加的」那段照留
 
 
 class Misc(Base):

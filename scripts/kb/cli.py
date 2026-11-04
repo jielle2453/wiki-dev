@@ -36,7 +36,8 @@ COMMANDS = {
     "archive": ("kb.archive_cli", "封存：把過時的檔或實體收起來（還找得到，不再整理、不再問）；--undo 拿掉封存"),
     "pending": ("kb.pending_cli", "待處理：list 列等你決定的事，add 記一件兩份寫法不同的，resolve 記下怎麼處理，dismiss 記成不用管，"
                                   "set-aside 先放著，back 拿回來"),
-    "profile": ("kb.profile_cli", "客戶設定檔：check 看改了什麼，apply 套用並建型別夾"),
+    "profile": ("kb.profile_cli", "客戶設定檔：check 看改了什麼，apply 套用並建型別夾，set people 記幾個人用"),
+    "who": ("kb.who", "這台是誰：多人共用時看與記這台電腦的人名、幾個人用、團隊成員；set <名字> 記下"),
     "entity": ("kb.entity", "實體：add 登記，confirm 確認名稱，accept AI 判斷有把握直接登記，rename 改名，merge 合併，remove 移除，rebuild 重寫綜合卡，"
                             "clean 清放錯的綜合卡，list 列出，render 重寫綜合卡快取，progress 事類的進行中、結案、擱置，"
                             "suggest-close 記一條結案待問，alias 加或拿掉別名"),
@@ -65,6 +66,7 @@ COMMANDS = {
     "lint": ("kb.lint_cli", "健檢：查整個知識庫、能修的修掉、要你決定的放進待處理、寫這個月的報告；--background 開場背景跑，"
                             "handedit 列你手改程式產生的檔的差異"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
+    "refresh": ("kb.refresh", "git 同步之後對帳：重畫日程與待處理等頁、比 pull 進來的原檔、收拾合併衝突、記太大的檔；不是 git 知識庫什麼都不做"),
     "home": ("kb.home_cli", "Obsidian 首頁：--json 一次給齊首頁要的（時間軸、待辦、要你確認的、最近），只讀，給外掛用"),
     "renders": ("kb.renders_cli", "程式產生的頁（日程、待處理、裁示）：apply 照你在頁面上直接改的做，drop 把「你加的」裡的一筆拿掉"),
     "obsidian": ("kb.obsidian_cli", "Obsidian：status 裝了沒、登記了沒、外掛放了沒，open 替她把知識庫加進 Obsidian 並打開"),
@@ -145,4 +147,26 @@ def main(argv=None):
             _touch(vault, args.agent)
     module_name, _doc = COMMANDS[args.command]
     module = importlib.import_module(module_name)
-    return module.run(args)
+    try:
+        return module.run(args)
+    except Exception as e:  # noqa: BLE001
+        line = newer_format_line(e)
+        if line is None:
+            raise
+        print(line)
+        return 3
+
+
+NEWER_FORMAT = "同事已經用 {app} 記過東西了，這台是 {mine}，要升級才能繼續記。要現在升嗎？升完要開一個新對話。"  # 多人共用 2 新定 5
+
+
+def newer_format_line(e):
+    """流水檔有比這版新的格式的行、寫入被擋（streams.NewerFormat，可能被包在 __cause__／__context__ 裡）：回給客戶的那句；不是回 None。"""
+    from kb._lib import paths, streams
+    seen = 0
+    while e is not None and seen < 5:
+        if isinstance(e, streams.NewerFormat):
+            mine = (paths.read_manifest() or {}).get("version") or "?"
+            return NEWER_FORMAT.format(app=e.app or "新版", mine=mine)
+        e, seen = e.__cause__ or e.__context__, seen + 1
+    return None

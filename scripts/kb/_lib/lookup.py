@@ -124,7 +124,7 @@ def lookup(vault, query):
         out["tags"] = _tags(e, prof)
     out["cards"] = cards.newest_first([cards.card_brief(vault, by_id[m["id"]], groups[m["id"]][0], ruled_out)
                                        for m in ms if m["id"] in by_id and m["id"] in groups])
-    out["statements"] = [synthesis.statement_brief(s) for s in statements.active_for(statements.load(vault), name)]
+    out["statements"] = [synthesis.statement_brief(s, vault) for s in statements.active_for(statements.load(vault), name)]
     titles = agenda.card_titles(vault)
     ruls = sorted(rulings.for_entity(rul, name, mounts), key=lambda r: r.get("kind") != "spoken_wins")
     out["rulings"] = [ruling_row(r, titles) for r in ruls]

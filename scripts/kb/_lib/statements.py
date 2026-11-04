@@ -154,11 +154,15 @@ def add(vault, text, entities, turn_id, replaces=None):
     names = names_of(vault, list(entities or []))
     if not names:
         raise StatementRefused(NO_ENTITY.format(""))
+    from kb._lib import people
+    who = people.me(vault)
 
     def fn(data):
         old = _need_active(data, replaces) if replaces else None
         it = {"id": _new_id(data), "text": text, "entities": names, "date": _today(), "turn": turn_id,
               "status": "active", "replaced_by": None}
+        if who:
+            it["who"] = who  # 多人共用 2：誰說的（單人不寫，升級前的也沒有）
         data["statements"].append(it)
         if old is not None:
             old["status"] = "superseded"
@@ -167,6 +171,14 @@ def add(vault, text, entities, turn_id, replaces=None):
     got = _mutate(vault, turn_id, fn)
     wake_entities(vault, names, turn_id)
     return got
+
+
+def said_by(s, multi):
+    """出處文字（多人共用 2 新定 4）：單人「你 11/01 說的」；多人「小王 11/01 說的」，升級前沒有名字的只寫日期「11/01 說的」。"""
+    day = str(s.get("date") or "")
+    md = f"{day[5:7]}/{day[8:10]}" if len(day) >= 10 else day
+    who = s.get("who") if multi else "你"
+    return f"{who} {md} 說的" if who else f"{md} 說的"
 
 
 def wake_entities(vault, names, turn_id):

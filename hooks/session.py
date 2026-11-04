@@ -78,6 +78,13 @@ def status_lines(vault, source, session_id=None):
     out = [line_kb(vault)]
     if _checks.daily_pending(vault):
         out += _checks.daily_lines(vault)
+    try:
+        who = _checks.line_who(vault)  # 多人而這台沒記是誰（D-286）；每句開頭也會叫，同一個對話只講一次
+    except Exception as e:  # noqa: BLE001
+        _log_vault(vault, e)
+        who = None
+    if who:
+        out.append(who)
     for fn in (line_hold_left, lambda v: line_compact(v, source)):
         try:
             line = fn(vault)
@@ -99,6 +106,26 @@ def read_core():
 PREFERENCES_HEAD = "客戶偏好（跟上面的核心規則衝突時照客戶的，只有刪掉、蓋掉之前先留一份不讓）："
 
 
+def _team_preferences(vault, prefs):
+    """多人（多人共用 2 第 6 點）：只帶全隊的＋這台的人的；開場那組（整理成卡以外）兩邊合算超過 preference_max／preference_max_chars
+    時先砍全隊最舊的（自己的優先留），被砍的寫 log。單人原樣回。"""
+    from kb._lib import config, people
+
+    if not people.multi(vault):
+        return prefs
+    mine = people.me(vault)
+    kept = [p for p in prefs if not p.get("whose") or p.get("whose") == "team" or p.get("whose") == mine]
+    top = [p for p in kept if (p.get("use") or "全部") != "整理成卡"]
+    count, chars = config.get(vault, "preference_max"), config.get(vault, "preference_max_chars")
+    teams = sorted((p for p in top if not p.get("whose") or p.get("whose") == "team"), key=lambda p: p.get("date") or "")
+    while teams and (len(top) > count or sum(len(p.get("text", "")) for p in top) > chars):
+        gone = teams.pop(0)
+        top.remove(gone)
+        kept.remove(gone)
+        _log_vault(vault, ValueError(f"偏好太多，開場先不帶全隊的這條：{gone.get('text', '')[:40]}"))
+    return kept
+
+
 def preferences_block(vault):
     """note 改規則第 4 點（D-137、D-504）：設定檔第六節整理成卡以外的條目回「客戶偏好：」加一條一行，接在 core.md 之後；
     做文件、客製 skill 各自一組加小標（做文件時：、<skill 名>：）；沒有回 None。
@@ -107,6 +134,7 @@ def preferences_block(vault):
         from kb._lib import profile
 
         prefs = (profile.load(vault) or {}).get("preferences") or []
+        prefs = _team_preferences(vault, prefs)
     except Exception as e:  # noqa: BLE001
         _log_vault(vault, e)
         return None

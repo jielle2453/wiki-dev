@@ -413,4 +413,28 @@ def apply(vault, turn_id):
         except Exception:  # noqa: BLE001
             pass
     count = _migrate_cards(vault, turn_id, skipped) + _migrate_synthesis(vault, turn_id, skipped)  # 綜合卡版面併進卡數
-    return {"migrated": migrated, "skipped": skipped, "cards": count, "notes": notes, "left_in_output": left}
+    return {"migrated": migrated, "skipped": skipped, "cards": count, "notes": notes, "left_in_output": left,
+            "streams": migrate_streams(vault)}
+
+
+def migrate_streams(vault):
+    """舊的整份 JSON 轉成這台的流水檔（多人共用 1）：每種一個檔、每筆一行 create；舊檔搬到 .system/legacy/<版本>/（不進同步，留一個版本）。
+    config.json 的 agenda_export_dir 搬到 env.json 這台。回轉了的種類。"""
+    from kb._lib import config as config_lib, streams
+    from kb._lib.paths import read_manifest
+    try:
+        version = read_manifest()["version"]
+    except Exception:  # noqa: BLE001
+        version = "current"
+    done = []
+    for kind in streams.KINDS:
+        try:
+            if streams.migrate_kind(vault, kind, streams.legacy_version_dir(version)):
+                done.append(kind)
+        except (OSError, ValueError):
+            continue
+    try:
+        config_lib.move_export_dir_to_env(vault)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return done
