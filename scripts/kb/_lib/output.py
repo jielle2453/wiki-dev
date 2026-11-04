@@ -67,6 +67,11 @@ def output_rel(vault, raw, cwd):
     first = text.split("/", 1)[0]
     base = vault if first.casefold() == OUTPUT.casefold() else cwd
     target = _abs(raw, base)
+    from kb._lib import sources as sources_lib
+    hold = sources_lib.hold_root(vault)
+    if hold and _inside(target, Path(hold)) and _real(target) != _real(Path(hold)):  # 登記成團隊雲端的暫存區：清冊的 uri 就是 file://暫存區/…
+        rest = os.path.relpath(os.path.realpath(str(target)), os.path.realpath(str(hold))).replace("\\", "/")
+        return f"{OUTPUT}/{rest}"
     root = Path(vault) / OUTPUT
     if not _inside(target, root) or _real(target) == _real(root):
         raise Refused(ONLY_OUTPUT)
@@ -254,8 +259,8 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
     --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
     from kb._lib import sources as sources_lib
     sources = sources_lib.load(vault)
-    if not to:  # 沒給 --to：落暫存區，檔名照原檔（D-324）
-        parent_text, name = str(Path(vault) / OUTPUT), Path(str(src)).name
+    if not to:  # 沒給 --to：落暫存區（登記成團隊雲端的夾就落那裡，多人共用 2），檔名照原檔（D-324）
+        parent_text, name = str(sources_lib.hold_root(vault) or Path(vault) / OUTPUT), Path(str(src)).name
     else:
         text = str(to).replace("\\", "/")
         parent_text, _sep, name = text.rpartition("/")

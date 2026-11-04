@@ -32,6 +32,7 @@ from pathlib import Path
 from kb import guard, journal_cli
 from kb._lib import cards, config, credentials, env, inventory, plan, purge, turn
 from kb._lib import io as kio
+from kb._lib.areas import HOLD_DIR
 from kb._lib import sources as sources_lib
 from kb._lib.io import FileLock, write_json_atomic
 from kb._lib.paths import compress_spec, decode_uri, inside, is_abs_spec, normalize, resolve_spec
@@ -147,7 +148,7 @@ def _clean_alias(alias):
     return str(alias).rstrip(" .")
 
 
-def _alias_problem(alias, raw_sources):
+def _alias_problem(alias, raw_sources, allow_hold=False):
     """M2：空、.、..、Windows 不允許的字元或控制字元、保留字、跟既有別名重複（不分大小寫）。alias 已去掉結尾空白與點。"""
     if alias in ("", ".", ".."):
         return "別名不能是空的、「.」或「..」"
@@ -156,7 +157,7 @@ def _alias_problem(alias, raw_sources):
     if alias.split(".")[0].upper() in DEVICE_NAMES:
         return f"別名「{alias}」是 Windows 保留的裝置名，建不出這個夾；請用 --alias 換一個"
     low = alias.lower()
-    if low in {r.lower() for r in sources_lib.RESERVED_ALIASES}:
+    if low in {r.lower() for r in sources_lib.RESERVED_ALIASES} and not (allow_hold and alias == HOLD_DIR):
         return f"別名「{alias}」是保留字，檔案索引裡留給知識庫自己用；請用 --alias 換一個"
     if any(str(s.get("alias", "")).lower() == low for s in raw_sources):
         return f"別名「{alias}」已經有了（不分大小寫）；請用 --alias 換一個"
@@ -397,7 +398,9 @@ def _add(vault, args, as_json):
         for e in sources_lib.Sources(vault, raw).entries:
             if _overlap(tn, e["root"]):
                 return _reject(f"和既有來源「{e['alias']}」重疊，同一份檔會有兩張卡；要細分請在來源裡建子夾")
-        problem = _alias_problem(alias, raw["sources"])
+        from kb._lib import people
+        hold = alias == HOLD_DIR and people.multi(vault)  # 多人時暫存區可以登記成團隊雲端的夾（D-324，只有這個保留別名能）
+        problem = _alias_problem(alias, raw["sources"], allow_hold=hold)
         if problem:
             return _reject(problem)
         if args.check:
@@ -407,12 +410,13 @@ def _add(vault, args, as_json):
             entry_id = sources_lib.new_id(s.get("id") for s in raw["sources"])
             new_entry = {"id": entry_id, "alias": alias, "spec": spec, "excludes": []}
             from kb._lib import people
-            if getattr(args, "shared", False) or people.multi(vault):  # 多人時雲端的夾預設共用（設計自定 3）
+            if getattr(args, "shared", False) or people.multi(vault) or hold:  # 多人時雲端的夾預設共用（設計自定 3）；暫存區一律共用
                 new_entry["shared"] = True
             raw["sources"].append(new_entry)
             turn_id, original = _backup_then_write(vault, raw)
             report, inv_changed = _inventory_step(vault, original, _scan_source, vault, raw, alias, turn_id)
 
+    left = _left_in_vault(vault) if alias == HOLD_DIR and not args.check else 0  # 知識庫裡原本的 暫存區/ 還有幾份（D-309 問要不要搬）
     files = report["total"]  # 第一行的份數與清冊入冊同一個數（審閱裁定 7、26）
     creds = _credential_rels(report, alias)
     warnings = _warnings(t, spec, files)
@@ -424,7 +428,8 @@ def _add(vault, args, as_json):
     if as_json:
         print(json.dumps({"id": entry_id, "alias": alias, "spec": spec, "path": str(t), "files": files,
                           "credential_files": creds, "warnings": warnings, "check": bool(args.check),
-                          "inventory": {"added": files, "restored": len(report["restored"]), "credential": len(creds)}},
+                          "inventory": {"added": files, "restored": len(report["restored"]), "credential": len(creds)},
+                          **({"left_in_vault": left} if alias == HOLD_DIR else {})},
                          ensure_ascii=False))
         return 0
     print(first)
@@ -435,7 +440,14 @@ def _add(vault, args, as_json):
         print(f"- 其中 {len(creds)} 份檔名像密碼或金鑰，不會讀：{shown}{more}；要讓我讀哪一份跟我說「X 可以讀」")
     for w in warnings:
         print(f"- 提醒：{w}")
+    if left:
+        print(f"- 知識庫裡原本的暫存區還有 {left} 份：問使用者要不要搬過去（kb source-edit move）")
     return 0
+
+
+def _left_in_vault(vault):
+    d = Path(vault) / HOLD_DIR
+    return sum(1 for p in d.rglob("*") if p.is_file() and not p.name.startswith(".")) if d.is_dir() else 0
 
 
 def _raw_entry(raw, best):

@@ -29,6 +29,7 @@ SOURCE = "session"  # log 的 source；turn.py 改成 "turn"
 WIP_LINE = "有 {n} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
 MD_LINE = ("有 {n} 份 md 新放或改過（{names}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
            "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # D-525 第 8 點、裁定 3、15
+COLLEAGUE = "（可能是同事動的，不是這台使用者的意思，別從中推測他的偏好）"  # 多人共用 2 第 10 點（D-334(3)）
 MISSING_LINE = "有 {n} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
 NAMES_SHOWN = 3
 WIP_DAILY = "製作中 {n} 份：{names}；跟客戶說一句還有這幾份沒整理、要整理說一聲，不問、不追。"  # D-525 第 5 點
@@ -173,6 +174,20 @@ def _kb_keys(vault, turn_id):
     return keys
 
 
+def _colleague_uri(vault, sources, uri):
+    """多人時這個位置在共用的夾（來源登記 shared，多人時雲端來源都是）→ True；單人一律 False。"""
+    try:
+        from kb._lib import people
+
+        if not uri or not people.multi(vault):
+            return False
+        alias = str(uri)[len("file://"):].partition("/")[0].casefold() if str(uri).startswith("file://") else ""
+        return any(s.get("shared") and s["alias"].casefold() == alias for s in sources.entries)
+    except Exception as e:  # noqa: BLE001
+        log_vault(vault, e)
+        return False
+
+
 def record_detected(vault, session_id, got, by, seen):
     """把這次比對的結果寫進這一句的 detected.jsonl（只寫這個檔）。by：outside（兩句之間）｜turn（這一句 AI 用自己的方法）。
     沒比完不記 added（inventory.detected_rows）；seen（已記過的 op|from|to）有的不重記；by turn 時 kb 或守門已記的同路徑跳過。
@@ -186,6 +201,9 @@ def record_detected(vault, session_id, got, by, seen):
     from kb._lib import inventory, turn
 
     rows = inventory.detected_rows(got[0], got[1], by=by)
+    for r in rows:  # 多人時落在共用夾的變動不掛這台的人（可能是同事動的）
+        if by == "outside" and _colleague_uri(vault, got[0], r.get("from") or r.get("to")):
+            r["colleague"] = True
     skip = _kb_keys(vault, tid) if by == "turn" else set()
     fresh = []
     for r in rows:
@@ -300,8 +318,11 @@ def change_lines(vault, told_files=(), session_id=None):
     for kind, uris in groups:
         if not uris:
             continue
-        lines.append(WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
-                     else MD_LINE.format(n=len(uris), names=_names(uris)))
+        line = (WIP_LINE.format(n=len(uris)) if kind == "wip" else MISSING_LINE.format(n=len(uris)) if kind == "missing"
+                else MD_LINE.format(n=len(uris), names=_names(uris)))
+        if any(_colleague_uri(vault, sources, u) for u in uris):  # 多人時共用夾裡的變動：不說「你」、不掛這台的人
+            line += COLLEAGUE
+        lines.append(line)
         keys += [key(kind, u) for u in uris]
     old = {k.rsplit("|", 1)[0] for k in keys if not k.startswith("missing|")}  # 同一份的舊鍵（含沒帶指紋的舊格式）
     told = [k for k in told if k not in old and k.rsplit("|", 1)[0] not in old]

@@ -229,5 +229,48 @@ class UndoOthers(TwoMachines):
             self.assertEqual(cur["date"], "2099-01-09")  # 小王改的日期那欄不動
 
 
+class Colleague(TwoMachines):
+    """第 10 點：多人時共用夾裡兩句話之間被刪的檔，說「可能是同事動的」，不說「你」、不掛人名。"""
+
+    def setup_shared(self):
+        other = Path(self.tmp) / "共用夾"
+        other.mkdir()
+        (other / "a.txt").write_text("x", encoding="utf-8")
+        (other / "b.txt").write_text("y", encoding="utf-8")
+        r = self.kb("folders", "add", str(other), "--alias", "共用")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.kb("inventory", "scan")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return other
+
+    def test_shared_missing_line_says_colleague(self):
+        other = self.setup_shared()
+        (other / "a.txt").unlink()
+        _checks.START = __import__("time").monotonic()  # 每句開頭的時限從這裡算
+        with self.as_machine("wang-laptop"):
+            lines, _told = _checks.change_lines(self.V, [], None)
+        text = "\n".join(lines)
+        self.assertIn("可能是同事動的", text)
+        self.assertNotIn("你", text)
+        self.assertNotIn("小王", text)
+
+    def test_single_unshared_no_colleague(self):
+        self.kb("profile", "set", "people", "1")
+        other = self.setup_shared()
+        (other / "a.txt").unlink()
+        _checks.START = __import__("time").monotonic()
+        with self.as_machine("boss-pc"):
+            lines, _told = _checks.change_lines(self.V, [], None)
+        self.assertTrue(lines)
+        self.assertNotIn("可能是同事動的", "\n".join(lines))
+
+    def test_journal_action_line(self):
+        from kb._lib import journal
+        a = {"item": "t#1", "op": "missing", "kind": "file", "from": "file://共用/a.txt", "to": None, "by": "outside",
+             "colleague": True}
+        self.assertIn("可能是同事動的", journal._action_line(a))
+        self.assertNotIn("可能是同事動的", journal._action_line(dict(a, colleague=False)))
+
+
 if __name__ == "__main__":
     unittest.main()

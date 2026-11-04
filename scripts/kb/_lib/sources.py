@@ -94,6 +94,18 @@ def load(vault):
     return Sources(vault, load_raw(vault))
 
 
+def hold_root(vault):
+    """多人共用 2（D-324、設計自定 1）：暫存區登記成保留別名「暫存區」的來源（團隊雲端的夾）時，這台那個夾的位置；沒登記回 None
+    （照舊是知識庫裡的 暫存區/）。讀不到登記表回 None。"""
+    try:
+        for s in Sources(vault, load_raw(vault)).entries:
+            if s["alias"] == HOLD_DIR:
+                return s["root"]
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def raw_owners(raw):
     """sources.json 原始內容裡有排除的「來源」列：登記的來源加上知識庫的假列（excludes 就是頂層 vault_excludes 那個清單，
     改了會跟著寫回；沒有那個清單時是空的、不會寫出新鍵）。"""
