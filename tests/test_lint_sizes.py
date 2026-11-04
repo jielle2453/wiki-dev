@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from tests import _lint as L
-from kb._lib import backup, clean  # noqa: E402
+from kb._lib import backup, clean, entities  # noqa: E402
 from kb.lint import runner  # noqa: E402
 from kb.lint.checks import sizes  # noqa: E402
 
@@ -61,6 +61,14 @@ class Sizes(unittest.TestCase):
         self.assertEqual(fix["kind"], "fix")
         self.assertEqual(fix["data"]["reason"], "太長")
         self.assertEqual(fix["data"]["cards"][0]["path"], L.XINYI_REL)
+
+    def test_archived_entity_not_marked(self):
+        L.write_synthesis(self.V, body="## 現況\n- " + "字" * 4100 + "\n")
+        data = entities.load(self.V)
+        e, _hit = entities.find(data, "信義王")
+        e["archived"] = True
+        with mock.patch.object(entities, "load", return_value=data):
+            self.assertFalse([f for f in sizes.run(L.ctx(self.V)) if f["key"] == "synthesis_big"])
 
     def test_events_and_related_files_do_not_count(self):
         """紀事、相關檔再長也不算；現況沒超過就沒有件。"""

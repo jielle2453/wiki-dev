@@ -56,7 +56,7 @@ def run(ctx):
     limit = ctx.config("lint_synthesis_max_chars")
     big = []
     for e, rel, text in ctx.synthesis():
-        if synthesis.read_chars(text) > limit:
+        if not e.get("archived") and synthesis.read_chars(text) > limit:  # 封存的實體整理時跳過，標了也不會改寫（D-332）
             big.append({"path": rel, "name": e["name"]})
     if big:
         out.append(_synthesis.fix_finding("sizes", "synthesis_big", REASON, big))
