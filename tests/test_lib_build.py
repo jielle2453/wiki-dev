@@ -277,6 +277,24 @@ class Lock(Base):
             self.assertTrue(self.refused(fn, self.D, *a).startswith("另一個對話正在建置（訪談，最後動作 "), fn)
         self.assertEqual(self.data(), before)
 
+    def test_terminal_refusal_says_why_and_takeover_not_silent(self):
+        """#36：沒帶 --session（指令後面串了別的指令，守門不插）被當終端機：訊息講對、帶「單獨一行」；
+        status --takeover 也要擋、不能無聲，鎖不換。"""
+        self.started("sid-a")
+        build.status(self.D)
+        before = self.data()
+        turn.SESSION = None
+        for call in (lambda: build.set_value(self.D, "people", "x"), lambda: build.status(self.D, takeover=True)):
+            try:
+                call()
+            except build.Refused as e:
+                self.assertTrue(str(e).startswith("另一個對話正在建置（訪談，最後動作 "))
+                self.assertIn("單獨一行", str(e))
+            else:
+                self.fail("終端機動了別的對話的鎖")
+        self.assertEqual(self.data(), before)
+        self.assertNotIn("takeovers", self.data())
+
     def test_terminal_never_claims(self):
         """第二輪修 R3：鎖空著或過期時終端機照做，但不把鎖記成終端機；之後對話照常認領。"""
         build.start(self.D)

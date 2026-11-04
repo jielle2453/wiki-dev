@@ -47,7 +47,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" build status --json
 
 ## 共通
 
-- 一次一個指令；路徑加引號，不 cd，不用 && 串接。
+- 一次一個指令；路徑加引號，不 cd，不用 && 串接，kb 後面也不接 ; | > 別的指令（串了守門認不出是哪個對話，會被自己的鎖擋）。
 - 不自己讀寫 `.system/`、`系統/`；都經 kb 指令。暫存檔可以 Read；交付報告用 Write 寫在 `build status` 給的工作區路徑。
 - 終端機不印檔案內容。
 
