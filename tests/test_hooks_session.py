@@ -343,7 +343,7 @@ class OpeningInventory(unittest.TestCase):
         self.status()
         after = stamps()
         changed = {k for k in after if before.get(k) != after[k]}  # 每句開頭的 hook 還會開回合（turns、journal、renders），檢查本身只讀
-        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))},
+        self.assertEqual({k for k in changed if not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/", ".system/streams/", ".system/local/"))},
                          {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"})
 
 
@@ -593,7 +593,7 @@ class OpeningEntityDrift(unittest.TestCase):
         self.assertIn(DRIFT.format(1), lines)
         self.assertFalse([ln for ln in lines if "照 ingest" in ln and ln != DRIFT.format(1)], lines)  # 實體夾那行本身指到 ingest
         after = self.stamps()
-        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
+        self.assertLessEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/", ".system/streams/", ".system/local/"))}, {".system/env.json", ".system/vault.json", ".system/upgrade-history.json", ".system/card_base.json"})  # card_base：第一次開補卡的基準（D-270）
 
     def test_drift_appended_to_counts(self):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")

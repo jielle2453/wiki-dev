@@ -528,8 +528,17 @@ def read_doc(vault, kind):
         except OSError:
             pass
     if doc is not None:  # 副本被外部整份改過：當成一次整份交回吸收進流水檔
+        legacy = Path(vault) / KINDS[kind][0]
+        raw = legacy.read_bytes()
         write_doc(vault, kind, doc)
         st = load(vault, kind)
+        if records_to_doc(kind, st.records) == doc:  # 吸收後內容一樣：副本留原樣的位元組（退回換回舊版的檔不被重排）
+            try:
+                from kb._lib.io import write_text_atomic
+                legacy.write_bytes(raw)
+                write_text_atomic(_mirror_mark(vault, kind), _sha(raw))
+            except OSError:
+                pass
     return records_to_doc(kind, st.records)
 
 
@@ -552,10 +561,13 @@ def migrate_kind(vault, kind, keep_legacy_dir=None):
         return 0
     try:
         doc = json.loads(legacy.read_text(encoding="utf-8"))
-    except ValueError as e:
-        raise ValueError(f"{KINDS[kind][0]}（JSON 壞了：{e}）") from e
-    if not isinstance(doc, dict):
-        raise ValueError(f"{KINDS[kind][0]}（不是物件）")
+        if not isinstance(doc, dict):
+            raise ValueError("不是物件")
+    except ValueError:  # 舊檔壞了：整份寫回的人（模組）本來就是要覆蓋它；壞的那份留在 legacy/，從空的開始
+        dest = vault / LEGACY_REL / (legacy.name + ".broken")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(legacy, dest)
+        return 0
     recs = doc_to_records(kind, doc)
     path = own_file(vault, kind)
     path.parent.mkdir(parents=True, exist_ok=True)

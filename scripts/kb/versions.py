@@ -1728,6 +1728,15 @@ def _undo_stream_item(ctx, it):
         return "skipped", "gone", f"{it['what']} 現在已經不在"
     turn.backup(vault, it["file"], rt)
     streams.revert_line(vault, st["kind"], it["key"], eff, rt)
+    done_meta = ctx.setdefault("meta_done", set())
+    if (it["turn"], st["kind"]) not in done_meta:  # 同回合同種類的「版本、其他頂層欄」那一筆跟著改回（不列成項目）
+        done_meta.add((it["turn"], st["kind"]))
+        own = streams.own_file(vault, st["kind"]).stem
+        for r in streams.turn_items(vault, it["turn"]):
+            if r.get("kind") == st["kind"] and r.get("id") == streams.META_ID:
+                meff = streams.line_effects(vault, st["kind"], streams.META_ID, r.get("seq"), own)
+                if meff is not None:
+                    streams.revert_line(vault, st["kind"], streams.META_ID, meff, rt)
     ctx["restored"].append(it["file"])
     ctx["render"].add(it["file"])
     return "done", None, None

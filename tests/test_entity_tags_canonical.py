@@ -79,7 +79,8 @@ class Upgrade(Base):
         self.assertEqual(plan._tagged_tell(self.V), [], "升級是程式抄的，回答末尾不講")
         r = self.kb("versions", "revert")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual((self.V / entities.ENTITIES_POSIX).read_bytes(), before)
+        import json  # 流水檔改回後副本由流水檔重寫，排版不同；內容比逐欄（多人共用 1）
+        self.assertEqual(json.loads((self.V / entities.ENTITIES_POSIX).read_text(encoding="utf-8")), json.loads(before.decode("utf-8")))
 
 
 class TagCommand(Base):
