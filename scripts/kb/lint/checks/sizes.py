@@ -9,6 +9,7 @@ from kb.lint import runner
 from kb.lint.checks import _synthesis
 from kb.lint.checks.system_dir import _is_link
 
+SCOPE = "local"  # 多人共用 3（D-304）：每台各自做；沒標 SCOPE 的是 shared，多人時只一台跑
 NAME = "清理與大小"
 REASON = "太長"
 BUSY_TEXT = "清理這次沒做：另一個備份、還原或退回正在跑，下週再清"
@@ -51,8 +52,12 @@ def run(ctx):
     out = [runner.finding("sizes", "fix", "clean", "", apply=_clean)]
     inbox, _bytes = _walk(Path(ctx.vault) / inventory.HOLD)
     _n, total = _walk(ctx.vault, skip_hidden=False)
-    out.append(runner.finding("sizes", "number", "sizes", "", data={"inbox": inbox, "vault_bytes": total,
-                                                                     "inbox_over": inbox > ctx.config("lint_inbox_max")}))
+    data = {"inbox": inbox, "vault_bytes": total, "inbox_over": inbox > ctx.config("lint_inbox_max")}
+    from kb._lib import git
+    if git.is_repo(ctx.vault) and git.multi(ctx.vault):  # 多人共用 3：repo 大小與追蹤中最大的 5 份
+        data["repo_size"] = git.repo_size(ctx.vault)
+        data["repo_largest"] = [{"path": p, "bytes": b} for p, b in git.largest_tracked(ctx.vault, 5)]
+    out.append(runner.finding("sizes", "number", "sizes", "", data=data))
     limit = ctx.config("lint_synthesis_max_chars")
     big = []
     for e, rel, text in ctx.synthesis():

@@ -66,6 +66,7 @@ COMMANDS = {
     "lint": ("kb.lint_cli", "健檢：查整個知識庫、能修的修掉、要你決定的放進待處理、寫這個月的報告；--background 開場背景跑，"
                             "handedit 列你手改程式產生的檔的差異"),
     "moved": ("kb.moved_cli", "換了位置或換了電腦：補來源位置與卡的開原檔連結，列要補的；--check 只看不改"),
+    "refresh": ("kb.refresh", "git 同步之後對帳：重畫日程與待處理等頁、比 pull 進來的原檔、收拾合併衝突、記太大的檔；不是 git 知識庫什麼都不做"),
     "home": ("kb.home_cli", "Obsidian 首頁：--json 一次給齊首頁要的（時間軸、待辦、要你確認的、最近），只讀，給外掛用"),
     "renders": ("kb.renders_cli", "程式產生的頁（日程、待處理、裁示）：apply 照你在頁面上直接改的做，drop 把「你加的」裡的一筆拿掉"),
     "obsidian": ("kb.obsidian_cli", "Obsidian：status 裝了沒、登記了沒、外掛放了沒，open 替她把知識庫加進 Obsidian 並打開"),

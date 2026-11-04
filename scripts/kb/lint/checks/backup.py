@@ -8,6 +8,7 @@ from kb._lib import backup as backup_lib
 from kb._lib import turn
 from kb.lint import runner
 
+SCOPE = "local"
 NAME = "備份"
 OLD_DAYS = 30
 NEVER = "還沒備份過，說「幫我備份」就好"

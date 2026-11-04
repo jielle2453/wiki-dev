@@ -902,40 +902,6 @@ def _pending_results(item):
     return [resolve, drop]
 
 
-CARRIED_AGENDA_PAGE = "系統/日程.md"
-
-
-def carried_asks(vault):
-    """她在程式產生的頁上寫、程式認不出的字（renders.json 的 carried，Obsidian 首頁 #22，D-263）：每筆一題，題號 carried:<c- 編號>、kind carried。
-    日程那頁可以「加成日程」（fill 兩格，AI 在對話裡 agenda add 後跑 renders drop；外掛開新增表單、原文填進「要做什麼」，存了再 drop，所以
-    argv 是不帶日期的 agenda add、after 是 renders drop）、「不用了」；待處理與裁示那頁是「不用了」加「跟 Claude 說」（只在對話裡）。"""
-    from kb._lib import hand, renders
-    out = []
-    try:
-        everything = renders.carried_all(vault)
-    except (ValueError, OSError):
-        return out
-    for rel in sorted(everything):
-        for c in everything[rel]:
-            cid = c["id"]
-            name = hand.PAGE_NAMES.get(rel, rel)
-            what = renders.carried_line(c)
-            drop = _result("不用了", [cmd("renders", "drop", cid)], argv=["renders", "drop", cid])
-            if rel == CARRIED_AGENDA_PAGE:
-                add = _result("加成日程", [cmd("agenda", "add", "--kind", Slot("種類"), "--date", Slot("日期"), "--text", c["text"]),
-                                        cmd("renders", "drop", cid)],
-                              fill=[_fill("種類", "到期、會議、承諾、提醒、期間 之一"), _fill("日期", DATE_RULE)],
-                              argv=["agenda", "add", "--text", c["text"]], after=["renders", "drop", cid],
-                              note="日期與種類要問她；加好才跑 renders drop")
-                results = [add, drop]
-            else:
-                say = _result("跟 Claude 說", note=f"她在 {name} 寫了這段字，用白話問她要做什麼，照 note skill 記下來，記完跑 kb renders drop {cid}",
-                              argv=None)
-                results = [drop, say]
-            out.append(_ask(f"carried:{cid}", "carried", f"你在{name}寫了「{what}」，我看不懂：要怎麼處理？", results))
-    return out
-
-
 def pending_asks(vault, items=None, config_mod=None):
     """pending.json 裡沒有整理題的那幾種（PENDING_ONLY）做成題：題號 pending:<編號>、kind pending_<種類>、問句是 待處理.md 那一行。
     補好 key、about、urgent，先放著的不列。回 (題, 藏了幾題)。"""
@@ -948,7 +914,6 @@ def pending_asks(vault, items=None, config_mod=None):
     rows = sorted((i for i in items if i.get("status") == "open" and i.get("kind") in PENDING_ONLY),
                   key=lambda i: (rank[i["kind"]], str(i.get("created") or "")))
     asks = [_ask(f"pending:{i['id']}", f"pending_{i['kind']}", pending.line_of(i), _pending_results(i)) for i in rows]
-    asks += carried_asks(vault)
     return visible(vault, annotate(vault, asks, config_mod))
 
 

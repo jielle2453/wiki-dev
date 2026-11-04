@@ -841,6 +841,11 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
                 data["batches"].append(made[-1])
                 slots -= 1
             break
+        claimed_elsewhere, offline = claim_remote(vault, made, data, now)  # 多人共用 3：每份先推認領標籤，被拒的不做
+        if offline:  # 連不上 git：這次全部不派，等連上再整理
+            for b in made:
+                data["batches"].remove(b)
+            made = []
         counts = {k: len(v) for k, v in left.items()}
         others = sum(1 for k in KINDS for x in parts[k] if (k, x[1]) in claimed and x[1] not in failed
                      and not any(x[1] in (b.get("items") or []) and b["kind"] == k for b in run))
@@ -871,7 +876,7 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
             "approval": approval, "done": done,
             "note_cmd": f'kb turn note --turn {jt} "{{做了什麼}}"' if done and not fresh else None, "stopped": False,
             "failed": [{"id": k, "kind": v["kind"], "reason": v["reason"]} for k, v in failed.items()],
-            "say": say}
+            "say": say, "offline": offline, "claimed_elsewhere": claimed_elsewhere}
 
 
 def _say(first, done, approval, made, run, done_n, failed_n):
@@ -1294,6 +1299,13 @@ def agent_stop(vault, session_id, agent_id, message=None):
         if not claimed:
             _release_orphans(data, agent.get("session_id"), now, _minutes(vault))
         save(vault, data, agent["turn"])
+        finished = [k for b in data["batches"] if b.get("agent_id") == agent_id and b.get("kind") == "cards"
+                    for k in b.get("items") or [] if k not in (b.get("failed") or {})]
+    try:
+        release_claims(vault, finished)  # 多人共用 3：做完的卡刪認領標籤；收不掉的留給健檢清
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
     return agent["turn"]
 
 
@@ -1367,3 +1379,106 @@ def opening_counts(vault, sources, deadline=None):
     except ValueError:  # 日程讀不到：日程待抽先不算（todo 也是給空的）
         out["agenda_unscanned"] = []
     return waiting(vault, out), len(out["moved"])
+
+
+
+# ---------- 多人共用 3：認領（D-294、D-297） ----------
+
+CLAIM_PREFIX = "willy/claim/"
+CLAIM_DAYS = 1  # 超過 1 天沒做完的標籤算作廢
+CLAIMS_LOCAL = ".system/local/claims.json"
+
+
+def _claim_prefix(fid, fp):
+    return f"{CLAIM_PREFIX}{fid}-{fp[:12]}-"
+
+
+def _fresh_claim(names, today):
+    """標籤名字尾巴是 YYYYMMDD：1 天內的才算有人在做。回那個名字或 None。"""
+    for n in names:
+        try:
+            d = datetime.strptime(n.rsplit("-", 1)[1], "%Y%m%d")
+        except (ValueError, IndexError):
+            continue
+        if (today - d).days <= CLAIM_DAYS:
+            return n
+    return None
+
+
+def claim_remote(vault, made, data, now=None):
+    """多人而且是 git repo 時，made 的做卡項目逐份推認領標籤：推成功的做，被拒的拿掉（記 claimed_elsewhere），連不上全部不派。
+    回 (claimed_elsewhere 清單, offline)。單人或不是 git 什麼都不做。標籤名字帶指紋前 12 碼，同一份改版是新的標籤。"""
+    from kb._lib import git
+    if not made or not git.sync_active(vault):
+        return [], False
+    now = now or _now()
+    today = datetime(now.year, now.month, now.day)
+    stamp = today.strftime("%Y%m%d")
+    me = git.me(vault)
+    entries = {e.get("id"): e for e in inventory.load(vault)["entries"]}
+    elsewhere_rows, pushed = [], []
+    for b in made:
+        if b["kind"] != "cards":
+            continue
+        keep = []
+        for fid in b["items"]:
+            fps = (entries.get(fid) or {}).get("fingerprints") or []
+            fp = (fps[-1].get("sha256") if fps else "") or fid
+            names = git.list_remote_tags(vault, _claim_prefix(fid, fp))
+            if names is None:
+                _undo_claims(vault, pushed)
+                return elsewhere_rows, True
+            other = _fresh_claim(names, today)
+            if other is None:
+                name = f"{_claim_prefix(fid, fp)}{stamp}"
+                got = git.push_tag(vault, name, me)
+                if got == "ok":
+                    pushed.append(name)
+                    keep.append(fid)
+                    continue
+                if got == "offline":
+                    _undo_claims(vault, pushed)
+                    return elsewhere_rows, True
+                if got == "error":
+                    keep.append(fid)  # 標籤機制出錯：不擋整理，照單機做
+                    continue
+                other = name
+            elsewhere_rows.append({"id": fid, "by": git.tag_message(vault, other) or "同事"})
+        b["items"] = keep
+    for b in [x for x in made if not x["items"]]:
+        made.remove(b)
+        data["batches"].remove(b)
+    _remember_claims(vault, elsewhere_rows)
+    return elsewhere_rows, False
+
+
+def _undo_claims(vault, names):
+    from kb._lib import git
+    for n in names:
+        git.delete_remote_tag(vault, n)
+
+
+def _remember_claims(vault, rows):
+    p = Path(vault) / CLAIMS_LOCAL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(p, {"elsewhere": rows, "time": _now().strftime("%Y-%m-%dT%H:%M:%S")})
+
+
+def elsewhere(vault):
+    """被別台認領中的份數與人名（開場變動行用；opening_counts 回傳的形狀不動，另開這支）：{"count", "by": [...]}。"""
+    got = read_json(Path(vault) / CLAIMS_LOCAL, {}) or {}
+    rows = got.get("elsewhere") or []
+    return {"count": len(rows), "by": sorted({r.get("by") for r in rows if r.get("by")})}
+
+
+def release_claims(vault, fids):
+    """卡做完：刪掉這台推過的認領標籤（用前綴列出、訊息是這台的人名的才刪）。收不掉的留給健檢清。"""
+    from kb._lib import git
+    if not git.sync_active(vault):
+        return 0
+    n = 0
+    for fid in fids:
+        for name in git.list_remote_tags(vault, f"{CLAIM_PREFIX}{fid}-") or []:
+            if git.tag_message(vault, name) == git.me(vault) and git.delete_remote_tag(vault, name):
+                n += 1
+    return n
