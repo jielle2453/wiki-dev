@@ -200,7 +200,9 @@ def _place(vault, sources, to, cwd, from_, fname):
     try:
         if to:
             return output.place_at(vault, sources, output.resolve_dest(vault, sources, to, cwd), fname)
-        base = Path(vault) / HOLD / from_ if from_ else Path(vault) / HOLD
+        from kb._lib import sources as sources_lib
+        root = Path(sources_lib.hold_root(vault) or Path(vault) / HOLD)  # 暫存區登記成團隊雲端的夾就落那裡（多人共用 2）
+        base = root / from_ if from_ else root
         return output.place_at(vault, sources, base, fname)
     except output.Refused as e:
         raise Refused(str(e)) from None

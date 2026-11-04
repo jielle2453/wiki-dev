@@ -92,10 +92,16 @@ class StreamsTest(unittest.TestCase):
         self.assertEqual(st.records["a-1"], {"t": 1})
         self.assertIn("不完整", (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8"))
 
-    def test_newer_format_raises(self):
-        self.put("m-a", "agenda", {"v": 99, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": "m-a", "set": {}})
+    def test_newer_format_reads_but_write_refused(self):
+        """多人共用 2 第 4 點：讀容忍（認得的欄照算），寫之前 check_writable 才丟 NewerFormat（帶 app）。"""
+        self.put("m-a", "agenda", {"v": 99, "app": "0.99.0", "op": "create", "id": "a-1", "seq": 1, "base": 0,
+                                   "by": "m-a", "set": {"t": 1, "新欄": 2}})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 1)
+        with self.assertRaises(streams.NewerFormat) as cm:
+            streams.check_writable(self.V, "agenda")
+        self.assertEqual(cm.exception.app, "0.99.0")
         with self.assertRaises(streams.NewerFormat):
-            streams.load(self.V, "agenda")
+            streams.write(self.V, "agenda", {}, {"a-2": {"t": 1}})
 
     def test_cache_not_recomputed(self):
         streams.write(self.V, "agenda", {}, {"a-1": {"t": 1}})

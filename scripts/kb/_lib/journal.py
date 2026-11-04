@@ -594,8 +594,9 @@ def _action_line(a):
     where = lambda u: inventory.split_uri(u)[1].rpartition("/")[0].rpartition("/")[2] or inventory.split_uri(u)[0]  # noqa: E731
     text = ACTION_WORDS.get(a.get("op"), "{name}")
     show = lambda v: "（太長沒記）" if v is None else str(v)  # noqa: E731
-    return text.format(name=name, a=where(a["from"]) if a.get("from") else "", b=where(a["to"]) if a.get("to") else "",
+    line = text.format(name=name, a=where(a["from"]) if a.get("from") else "", b=where(a["to"]) if a.get("to") else "",
                        field=a.get("field"), old=show(a.get("old")), new=show(a.get("new")))
+    return line + "（可能是同事動的）" if a.get("colleague") else line
 
 
 def _action_lines(row, detail_max):

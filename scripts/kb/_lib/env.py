@@ -211,3 +211,29 @@ def source_paths(vault):
     machine = _machine(_load(vault))
     value = machine.get("source_paths") if machine else None
     return dict(value) if isinstance(value, dict) else {}
+
+
+def person(vault):
+    """這台電腦的人名（多人共用 2）；沒記過回 None。只讀。"""
+    return _text_of(vault, "person")
+
+
+def set_person(vault, name):
+    _set_text(vault, "person", name)
+
+
+def set_source_path(vault, src_id, path):
+    """記這台電腦某來源的位置；path 是 None 就拿掉（kb folders locate，D-292）。"""
+    p = _path(vault)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        data = _load(vault)
+        machine = _machine(data, create=True)
+        paths = machine.get("source_paths")
+        if not isinstance(paths, dict):
+            paths = machine["source_paths"] = {}
+        if path is None:
+            paths.pop(src_id, None)
+        else:
+            paths[src_id] = str(path)
+        write_json_atomic(p, data)

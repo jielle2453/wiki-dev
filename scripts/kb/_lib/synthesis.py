@@ -126,8 +126,13 @@ def finding_brief(vault, know, c, mounts):
     return findings.brief(vault, c, _titles(vault, know), _finding_ctx(vault, know, mounts))
 
 
-def statement_brief(s):
-    return {"id": s["id"], "text": s.get("text"), "date": s.get("date")}
+def statement_brief(s, vault=None):
+    out = {"id": s["id"], "text": s.get("text"), "date": s.get("date")}
+    if vault is not None:
+        from kb._lib import people, statements
+        if people.multi(vault):  # 多人才帶出處文字（多人共用 2 第 10 點）；單人照舊
+            out["said"] = statements.said_by(s, True)
+    return out
 
 
 def ruling_brief(vault, know, r):
@@ -1112,7 +1117,7 @@ def buckets(vault, data, mounts, prof):
             continue
         item = {"entity_id": e["id"], "name": e["name"], "type": e["type"], "category": category_text(prof, e["type"]),
                 "confirmed": e.get("source") != "inferred", "path": rel, "cards": [_brief(m) for m in ms],
-                "statements": [statement_brief(s) for s in stmts],
+                "statements": [statement_brief(s, vault) for s in stmts],
                 "rulings": [ruling_brief(vault, know, r) for r in ruls],
                 "findings": [finding_brief(vault, know, c, mounts) for c in finds],
                 "sections": sections_for(prof, e["type"]), "tags_said": list(e.get("tags_said") or []),
@@ -1460,7 +1465,7 @@ def _stale_item(vault, e, rel, text, ms, data, mounts, prof, today, know):
                             "source": "card"})
     return {"entity_id": e["id"], "name": e["name"], "path": rel, "read_ranges": read_ranges(text),
             "same_card_events": same_card_events(text, {x.get("id") for x in added + changed}),
-            "statements": [statement_brief(s) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
+            "statements": [statement_brief(s, vault) for s in stmts], "rulings": [ruling_brief(vault, know, r) for r in ruls],
             "findings": [finding_brief(vault, know, c, mounts) for c in finds],
             "added": added, "changed": changed, "removed": removed, "tags_said": list(e.get("tags_said") or [])}
 

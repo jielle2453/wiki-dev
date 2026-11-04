@@ -59,6 +59,10 @@ def add_arguments(sub):
     ad = subs.add_parser("add", help="加或改一列", description="加一列；主鍵已有就改那一列。寫前先備份。")
     ad.add_argument("--check", action="store_true",
                     help="只有偏好：不寫檔，回跟同組＋全部每一條的比對、相似的、加了會不會超過上限")
+    ad.add_argument("--whose", help="只有偏好：全隊或名字（多人時預設是這台的人，單人不帶）")
+    stp = subs.add_parser("set", help="改設定檔的單一值", description="kb profile set people <N>：幾個人用（2 人以上算多人）。")
+    stp.add_argument("key", choices=("people",), help="people＝幾個人用")
+    stp.add_argument("value", help="值")
     rm = subs.add_parser("remove", help="拿掉一列", description="照主鍵拿掉一列。寫前先備份。")
     for p in (ad, rm):
         p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
@@ -86,7 +90,7 @@ def add_arguments(sub):
         p.add_argument("field", help="欄名")
         p.add_argument("word", nargs=None if p is gm else "?", help="詞")
         p.add_argument("--check", action="store_true", help="只算影響、不動手")
-    for p in (ck, ap, sh, ad, rm, tr, tm, td, gr, gm, gd):
+    for p in (ck, ap, sh, ad, rm, stp, tr, tm, td, gr, gm, gd):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -639,6 +643,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
                                resolve=profile.template_resolver(vault, merged), uses=profile.known_uses(vault, old))
     except profile.ProfileError as e:
         raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
+    profile.carry_whose(new["preferences"], sections["preferences"])
     turn_id = turn.current(vault)["turn"]
     for t in sections["types"]:  # 夾名= 的夾名，render／parse 帶不過來，這裡接回去
         if t.get("dir_given"):
@@ -1798,6 +1803,43 @@ def _refuse_payload(as_json, e, check=False, extra=None):
     return 3
 
 
+PEOPLE_BAD = "幾個人用要寫正整數（例：kb profile set people 3）"
+
+
+def _set_people_locked(vault, n, as_json, conversation):
+    data = profile.load(vault)
+    if data is None:
+        raise Refused("還沒有設定檔，先建置")
+    if data.get("people") == n:
+        _out(as_json, [f"幾個人用已經是 {n}"], {"applied": False, "people": n})
+        return 0
+    turn_id = turn.current(vault)["turn"]
+    profile.write_locked(vault, dict(data, people=n), turn_id)
+    message = f"幾個人用記成 {n}（{'多人' if n >= 2 else '單人'}）"
+    journal_cli.record_program_or_warn(vault, message, CHANGED, "profile set people", conversation)
+    _out(as_json, [message], {"applied": True, "people": n, "message": message})
+    return 0
+
+
+def _with_whose(vault, args):
+    """偏好的 --whose：給了照給（全隊→team）；多人沒給是這台的人（還沒設名字就全隊）；單人不帶。"""
+    from kb._lib import people
+
+    if args.section.strip() != "偏好" or any(f.partition("=")[0].strip() == "誰的" for f in args.fields):
+        return
+    given = getattr(args, "whose", None)
+    if given is not None:
+        value = people.parse_whose(given)
+        value = value if value == people.TEAM else value[0]
+    elif people.multi(vault):
+        value = people.me(vault) or people.TEAM
+    else:
+        return
+    if any(f.partition("=")[0].strip() == "序號" for f in args.fields) and given is None:
+        return  # 改舊的一條：誰的照舊
+    args.fields = list(args.fields) + [f"誰的={value}"]
+
+
 def _locked(vault, fn, *a):
     with profile.lock(vault):
         return fn(vault, *a)
@@ -1817,7 +1859,14 @@ def run(args):
         if command == "show":
             return _show(vault, as_json)
         conversation = journal_cli.in_conversation(vault)
+        if command == "set":
+            if not (args.value.isdigit() and int(args.value) >= 1):
+                print(PEOPLE_BAD)
+                return 3
+            return _locked(vault, _set_people_locked, int(args.value), as_json, conversation)
         if command in ("add", "remove"):
+            if command == "add" and not args.check:
+                _with_whose(vault, args)
             try:
                 if command == "add" and args.check and args.section.strip() == "型別" and \
                         any(f.partition("=")[0].strip() == "序號" for f in args.fields):

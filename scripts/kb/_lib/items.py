@@ -322,6 +322,8 @@ def actions_of_turn(vault, tid, value_max=200, ledger=None):
             base["to"] = inventory.make_uri(inventory.KNOWLEDGE, it["to"]) if it["to"] else None
             out.append(base)
         elif it["src"] in ("moves", "detected"):
+            if (it.get("row") or {}).get("colleague"):
+                base["colleague"] = True  # 多人時共用夾裡程式比出來的變動，日誌寫「可能是同事動的」
             out.append(base)
         elif it["src"] == "record" and it["op"] == "set":
             for field in sorted(set(it["old"]) | set(it["new"])):

@@ -1454,3 +1454,78 @@ def path_of(vault, sources, uri):
         if src["alias"].casefold() == a:
             return Path(src["root"]).joinpath(*parts)
     return None
+
+
+# ---------- 新同事第一次：認檔案（多人共用 2，D-300） ----------
+
+LEARNED_REL = Path(".system") / "local" / "learned.json"
+
+
+def _local_items(vault):
+    from kb._lib import streams
+    return streams._read_local(vault, "inventory")
+
+
+def learning(vault):
+    """這台是不是還在認檔案：本機清冊（.system/local/inventory.json）是空的、共用清冊有東西、又還沒學過（learned.json）。只讀。"""
+    try:
+        from kb._lib import streams
+        if not streams.exists(vault, "inventory"):  # 還沒轉成流水檔的舊庫（升級前）不是新 clone
+            return False
+        if (Path(vault) / LEARNED_REL).is_file() or _local_items(vault):
+            return False
+        return any(e.get("status") in LIVE and e.get("locations") for e in load(vault)["entries"])
+    except (OSError, ValueError):
+        return False
+
+
+def learn(vault):
+    """對共用清冊每筆位置：這台找得到的，算 sha 對上共用的指紋就把大小、修改時間記進本機那半；雲端占位檔只記大小與時間、不讀內容
+    （不然新同事第一次開就把整個雲端硬碟下載下來，丙 1-2b）；對不上的不記（之後掃描會當修改，是真的跟同事不一樣）。
+    算完寫 .system/local/learned.json。回 {"learned", "placeholder", "skipped"}。"""
+    from kb._lib import streams
+    sources = sources_lib.load(vault)
+    roots_ = {s["alias"].casefold(): s["root"] for s in sources.entries}
+    local = dict(_local_items(vault))
+    size_cap = config.get(vault, "fingerprint_max_bytes")
+    out = {"learned": 0, "placeholder": 0, "skipped": 0}
+    for e in load(vault)["entries"]:
+        if e.get("status") not in LIVE:
+            continue
+        for loc in e.get("locations") or []:
+            uri = str(loc.get("uri", ""))
+            alias, rel = "", ""
+            if uri.startswith("file://"):
+                alias, _, rel = uri[len("file://"):].partition("/")
+            root = str(vault) if alias.casefold() == KNOWLEDGE.casefold() else roots_.get(alias.casefold())
+            if not root or not rel:
+                out["skipped"] += 1
+                continue
+            path = f"{root}/{rel}"
+            try:
+                st = os.stat(long_path(path))
+            except OSError:
+                out["skipped"] += 1
+                continue
+            kind, _err = read_kind(rel.split("/"), st, size_cap, credential=False)
+            entry = local.setdefault(str(e.get("id")), {})
+            if kind == "placeholder":
+                entry["read"] = "placeholder"
+                out["placeholder"] += 1
+            else:
+                fps = e.get("fingerprints") or []
+                try:
+                    digest = sha256_of(path)
+                except OSError:
+                    out["skipped"] += 1
+                    continue
+                if fps and fps[-1].get("sha256") != digest:
+                    out["skipped"] += 1
+                    continue
+            entry.setdefault("locs", {})[loc.get("uri")] = {"size": st.st_size, "mtime": mtime_str(st.st_mtime)}
+            out["learned"] += 1
+    streams._write_local(vault, "inventory", {k: v for k, v in local.items() if v})
+    p = Path(vault) / LEARNED_REL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(p, {"schema_version": 1, "date": _now(), **out})
+    return out

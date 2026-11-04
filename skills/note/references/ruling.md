@@ -36,6 +36,7 @@
 
 - `kb ruling add --kind 可以讀` 這幾個動作會跳出允許詢問，請客戶按允許（D-212，跟 `kb unlock get`、`authorize`、`convert --saved … --explicit` 一樣）；她沒按就照沒做講。`kb ruling decline` 不問。
 - 找那份：還沒做卡，總目錄沒有它；用 `ls` 或 Glob 列那個夾的檔名（只列檔名守門放行，D-185），把路徑給 `--file`；找不到才問她在哪個夾、叫什麼。
+- 多人用時「可以讀」只對同意的那個人有效；別人問到被擋，問她要不要讀，說可以就記她自己的一條（升級前就有的算全隊）。
 - 可以讀跟著那份檔走：搬到別的登記夾、改名、內容改了都照樣讀得到；搬進她說不讀的夾就不讀（不讀最優先，D-184）。
 - 記了以後照 ingest 整理那份（卡上只寫這份是什麼、列了哪些項目的名字，任何值都不抄，ingest 的 `references/carding.md` 第十節）。
 - 她問裡面的某一組（「建材商訂貨網的密碼是什麼」）：answer 照 `kb lookup` 找到那張卡，`kb convert` 讀原檔，只回她問的那一行（answer 的 `references/find.md`）。

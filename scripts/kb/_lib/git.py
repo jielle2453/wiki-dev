@@ -320,23 +320,17 @@ def largest_tracked(vault, n=5):
 # ---------- 多人 ----------
 
 def multi(vault):
-    """多人用嗎（第 2 份 people.multi）；沒有那支或出錯當單人。"""
-    try:
-        from kb._lib import people
-        return bool(people.multi(vault))
-    except Exception:  # noqa: BLE001
-        return False
+    """多人用嗎（people.multi，多人共用 2）。"""
+    from kb._lib import people
+    return people.multi(vault)
 
 
 def me(vault):
-    """這台的人名（第 2 份 people.me）；沒有就登入名。"""
-    try:
-        from kb._lib import people
-        got = people.me(vault)
-        if got:
-            return got
-    except Exception:  # noqa: BLE001
-        pass
+    """這台的人名（people.me，多人共用 2）；還沒記就用登入名。"""
+    from kb._lib import people
+    got = people.me(vault)
+    if got:
+        return got
     try:
         return getpass.getuser()
     except Exception:  # noqa: BLE001
