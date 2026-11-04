@@ -1414,7 +1414,12 @@ def mark_done(vault, alias, spec, turn_id):
         ex.pop("purge_ids", None)
         ex.pop("purge_names", None)
         return True
-    done = _write_row(vault, alias, spec, turn_id, change)
+    from kb._lib import streams
+    streams.hard_delete = True  # 記的範圍（卡編號）拿掉，這台檔裡的舊行也不留
+    try:
+        done = _write_row(vault, alias, spec, turn_id, change)
+    finally:
+        streams.hard_delete = False
     clear_titles(vault, alias, spec, turn_id)
     # 收尾這兩步把改前的 sources.json（卡編號）與 purge-pending.json（標題）備進了這一回合：備份清理已經跑過，這裡再拿掉（第八輪）
     vdir = Path(vault) / turn.VERSIONS_REL / turn_id

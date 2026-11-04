@@ -317,9 +317,24 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
         if not changes and not hard_delete:
             return 0
         by = path.stem
-        if hard_delete:  # purge：動到的筆，這台檔裡的舊行拿掉，現在的樣子整筆寫成一行
-            _drop_own_ids(vault, path, [c[1] for c in changes] + [r for r, v in state.records.items() if v.get("_del")])
-            changes = [(op, rid, dict(after[rid]), []) if rid in after else (op, rid, s, un) for op, rid, s, un in changes]
+        extra = []
+        if hard_delete:  # purge：動到的筆，這台檔裡的舊行拿掉，現在的樣子整筆換成一行（留在原來的位置，順序不變）
+            replace = {}
+            for op, rid, s, un in changes:
+                if rid not in after:
+                    continue
+                prev = state.meta.get(rid, {}).get("seq", 0)
+                alone = all(r.get("by") == by for r in _history(vault, kind, rid))
+                seq = 1 if alone else prev + 1
+                replace[rid] = {"v": FORMAT_VERSION, "op": "create" if seq == 1 else "set", "id": rid, "seq": seq,
+                                "base": 0 if seq == 1 else prev, "by": by, "who": who, "at": _now(), "turn": turn_id,
+                                "set": dict(after[rid]), **({"app": _app()} if _app() else {})}
+            drop = {c[1] for c in changes if c[1] not in after} | {r for r, v in state.records.items() if v.get("_del")}
+            extra = _rewrite_own(vault, path, replace, drop)
+            changes = [c for c in changes if c[1] not in replace]
+            noted_extra = [{"kind": kind, "id": r["id"], "seq": r["seq"]} for r in replace.values()]
+        else:
+            noted_extra = []
         lines, noted = [], []
         for op, rid, s, un in changes:
             prev = state.meta.get(rid, {}).get("seq", 0)
@@ -334,6 +349,7 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
                 row["app"] = app
             lines.append(json.dumps(row, ensure_ascii=False) + "\n")
             noted.append({"kind": kind, "id": rid, "seq": prev + 1})
+        noted += noted_extra
         _append(path, lines)
     load(vault, kind)  # 順便更新衍生副本
     if turn_id:
@@ -341,13 +357,23 @@ def write(vault, kind, before, after, turn_id=None, who=None, reverts=None):
     return len(lines)
 
 
-def _drop_own_ids(vault, path, ids):
-    if not path.is_file():
-        return
-    ids = set(ids)
-    keep = [r for _i, r in _read_file(vault, path) if r.get("op") == "mask" or r.get("id") not in ids]
+def _rewrite_own(vault, path, replace, drop):
+    """這台的檔：drop 的筆整筆拿掉；replace 的筆舊行拿掉、第一行的位置換成新的一行（檔裡沒有就回傳要附加的）。"""
     from kb._lib.io import write_text_atomic
-    write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep))
+    rows = [r for _i, r in _read_file(vault, path)] if path.is_file() else []
+    out, placed = [], set()
+    for r in rows:
+        rid = r.get("id")
+        if r.get("op") == "mask" or (rid not in drop and rid not in replace):
+            out.append(r)
+        elif rid in replace and rid not in placed:
+            out.append(replace[rid])
+            placed.add(rid)
+    for rid, r in replace.items():
+        if rid not in placed:
+            out.append(r)
+    write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out))
+    return []
 
 
 def _append(path, lines):
