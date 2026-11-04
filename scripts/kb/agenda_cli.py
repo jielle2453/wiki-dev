@@ -286,6 +286,8 @@ def _writable(folder):
 
 def _save_dir(vault, folder, turn_id):
     """把 agenda_export_dir 寫進 .system/config.json（空字串＝拿掉這個鍵）；鎖裡讀改寫、寫前備進回合。"""
+    from kb._lib import env
+    env.set_agenda_export_dir(vault, folder)  # 每台自己的路徑，存這台的 env.json（多人共用 1）
     p = Path(vault) / config.CLIENT_REL
     with kio.FileLock(p):
         try:

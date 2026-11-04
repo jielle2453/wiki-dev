@@ -14,9 +14,9 @@ from tests._guard_fixture import KB, ROOT, make_vault
 
 SKELETON = ROOT / "skeleton"
 EXPECTED_DIRS = ["暫存區", "_個人", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
-EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".system/sources.json", ".system/profile.json",
+EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", ".system/sources.json", ".system/profile.json",
                   "系統/客戶設定檔.md", "系統/日程.md"]
-SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", "暫存區/.gitkeep", "檔案索引/.gitkeep",
+SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep",
                     "_個人/.gitkeep"}
 
@@ -576,7 +576,9 @@ class UpgradeRecords(unittest.TestCase):
         self.assertEqual(data["schema_version"], 1)
         self.assertEqual(data["version"], manifest["version"])
         self.assertEqual(data["files"], {"CLAUDE.md": self.sha(SKELETON / "CLAUDE.md"),
-                                         ".claude/settings.json": self.sha(SKELETON / ".claude" / "settings.json")})
+                                         ".claude/settings.json": self.sha(SKELETON / ".claude" / "settings.json"),
+                                         ".gitignore": self.sha(SKELETON / ".gitignore"),
+                                         ".gitattributes": self.sha(SKELETON / ".gitattributes")})
         hist = json.loads((self.V / ".system" / "upgrade-history.json").read_text(encoding="utf-8"))
         self.assertEqual((hist["schema_version"], hist["current"], hist["pending"], hist["history"]),
                          (1, manifest["version"], None, []))

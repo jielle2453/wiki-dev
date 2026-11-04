@@ -573,7 +573,10 @@ def migrate_kind(vault, kind, keep_legacy_dir=None):
         dest.parent.mkdir(parents=True, exist_ok=True)
         os.replace(legacy, dest)
         return 0
-    recs = doc_to_records(kind, doc)
+    try:
+        recs = doc_to_records(kind, doc)
+    except (AttributeError, TypeError):  # 形狀不對的舊檔不動，留給各模組照舊報錯
+        return 0
     path = own_file(vault, kind)
     path.parent.mkdir(parents=True, exist_ok=True)
     by = path.stem

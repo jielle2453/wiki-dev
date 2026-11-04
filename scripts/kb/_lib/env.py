@@ -185,3 +185,29 @@ def machine_id(vault):
 
 def set_machine_id(vault, value):
     _set_text(vault, "machine_id", value)
+
+
+def agenda_export_dir(vault):
+    """這台的日程匯出夾（每台路徑不同，多人共用 1）；沒設回 None。"""
+    return _text_of(vault, "agenda_export_dir")
+
+
+def set_agenda_export_dir(vault, path):
+    """空字串＝拿掉。"""
+    p = _path(vault)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        data = _load(vault)
+        machine = _machine(data, create=True)
+        if path:
+            machine["agenda_export_dir"] = str(path)
+        else:
+            machine.pop("agenda_export_dir", None)
+        write_json_atomic(p, data)
+
+
+def source_paths(vault):
+    """這台各來源的實際位置 {來源 id: 路徑}（第 2 份才寫，這份只讀）。"""
+    machine = _machine(_load(vault))
+    value = machine.get("source_paths") if machine else None
+    return dict(value) if isinstance(value, dict) else {}
