@@ -1469,6 +1469,9 @@ def _local_items(vault):
 def learning(vault):
     """這台是不是還在認檔案：本機清冊（.system/local/inventory.json）是空的、共用清冊有東西、又還沒學過（learned.json）。只讀。"""
     try:
+        from kb._lib import streams
+        if not streams.exists(vault, "inventory"):  # 還沒轉成流水檔的舊庫（升級前）不是新 clone
+            return False
         if (Path(vault) / LEARNED_REL).is_file() or _local_items(vault):
             return False
         return any(e.get("status") in LIVE and e.get("locations") for e in load(vault)["entries"])

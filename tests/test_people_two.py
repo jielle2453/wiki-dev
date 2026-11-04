@@ -188,6 +188,9 @@ class UndoOthers(TwoMachines):
         import contextlib
         import io
         from kb import cli
+        saved = (turn.SESSION, turn.OVERRIDE, turn.VIA)  # cli.main 會設這幾個全域：測完還回去，不汙染同一個行程後面的測試
+        self.addCleanup(lambda: (setattr(turn, "SESSION", saved[0]), setattr(turn, "OVERRIDE", saved[1]),
+                                 setattr(turn, "VIA", saved[2])))
         buf = io.StringIO()
         cwd = os.getcwd()
         os.chdir(self.V)
