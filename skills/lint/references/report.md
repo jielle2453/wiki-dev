@@ -25,7 +25,7 @@
 - `system_link`：系統夾裡有捷徑。先自己看是什麼（`kb selftest`），講給她聽；是什麼說不準再問她。
 - `inferred:agenda`、`inferred:entity`、`inferred:profile`：我猜的放太久沒確認。照結果的 `note` 一條一條唸給她聽，對的確認（日程是 `kb agenda edit <編號>` 不帶欄位，印「記成確認了：…」）、
   不對的照她說的改（日程照 note 的 `references/agenda.md`、名字 `kb entity confirm`、設定檔照 note 的 `references/preference.md`）。
-- `skeleton:<檔>:…`：她改過那份系統檔。要留她的跑結果裡的 `kb upgrade skeleton <檔> --keep`（之後升級才不再問），再 resolve；換回程式的照 `do` 跑
+- `skeleton:<檔>:…`：她改過那份系統檔。要留她的跑結果裡的 `kb upgrade skeleton <檔> --keep`（新版這個檔又改了才會再問），再 resolve；換回程式的照 `do` 跑
   `kb upgrade skeleton <檔> --replace`（她那份備進回合，說「退回」就回來），再 resolve。
 - `redo_by_profile:<卡型>:<日期>`：設定檔那類改過之後，之前做的卡。她說好跑 `do`（`kb cards redo --ids …`），
   再照 ingest 整理（交製卡助手背景做），跟她說在背景做，她說停就停、做好的留著（D-200）。

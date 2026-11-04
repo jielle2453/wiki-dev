@@ -1,5 +1,5 @@
-"""清單 6（原 2、3，D-054）：版本與骨架。她改過的骨架檔（CLAUDE.md 這類）→ 待處理一件（要留她的還是換回程式的；
-鍵帶她那份的指紋，答過不再開，她又改了才再問）；沒有骨架紀錄的舊知識庫不判。存的 schema 比現在舊的狀態檔幾個、
+"""清單 6（原 2、3，D-054）：版本與骨架。她改過、新版這個檔也改了還沒處理完的骨架檔（CLAUDE.md 這類）→ 待處理一件
+（要留她的還是換回程式的；新版沒改這個檔她自己改的、或已經 --keep 的不問，D-528）；沒有骨架紀錄的舊知識庫不判。存的 schema 比現在舊的狀態檔幾個、
 舊範本的卡幾張是數字（遷移由升級做）。"""
 import hashlib
 from pathlib import Path
@@ -12,6 +12,7 @@ NAME = "版本與骨架"
 
 def run(ctx):
     out = []
+    now = skeleton.hashes()
     rec = skeleton.recorded(ctx.vault)
     if rec is None and (Path(ctx.vault) / skeleton.SKELETON_JSON).exists():  # 壞了：判不出她改了沒，算沒查成（T-28）
         raise ValueError(f"{skeleton.SKELETON_JSON} 讀不到")
@@ -22,7 +23,7 @@ def run(ctx):
         if not want or not p.is_file():
             continue
         sha = hashlib.sha256(p.read_bytes()).hexdigest()
-        if sha == want or skeleton.known(rel, sha):
+        if sha == want or want == now.get(rel) or skeleton.known(rel, sha):  # want == now：新版沒改這個檔，留她的不問（同 reconcile，D-528）
             continue
         out.append(runner.finding(
             "versions", "decide", f"skeleton:{rel}:{sha[:12]}",
