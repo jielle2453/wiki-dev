@@ -280,7 +280,7 @@ class Conflict(Base):
                          ("conflict", ["f-3f9a1b2c", "f-5d0e2a77"], ["e-1a2b3c4d"], "open",
                           ["大安陳報價表", "大安陳室內裝修工程合約"]))
         self.assertIn("conflict", pending.KINDS)
-        self.assertEqual(self.manifest(), {".system/pending.json": "create", "系統/待處理.md": "modify"})
+        self.assertEqual(self.manifest(), {".system/pending.json": "create", ".system/local/pending.json": "create", "系統/待處理.md": "modify"})
         self.assertIn("## 兩份寫法不同的（1）\n- 報價表寫每坪 5800、合約寫 6000（「大安陳報價表」「大安陳室內裝修工程合約」，",
                       self.md())
 

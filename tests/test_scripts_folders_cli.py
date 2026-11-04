@@ -833,7 +833,7 @@ class FoldersInventory(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for d in self.versions_dirs():
             rows = [json.loads(x) for x in (d / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if x]
-            self.assertEqual({x["path"] for x in rows}, {".system/sources.json", ".system/inventory.json"}, d.name)
+            self.assertEqual({x["path"] for x in rows}, {".system/sources.json", ".system/inventory.json", ".system/local/inventory.json"}, d.name)
 
     def test_exclude_unused_marks_excluded_and_second_line(self):
         assert self.add("../raw/行政").returncode == 0

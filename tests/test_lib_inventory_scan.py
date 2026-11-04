@@ -893,7 +893,7 @@ class Apply(Base):
     def test_first_apply_records_create_then_backup_copy(self):
         self.full()
         rows = turn.entries(self.V, self.t["turn"])
-        self.assertEqual([(r["path"], r["action"]) for r in rows], [(".system/inventory.json", "create")])
+        self.assertEqual([(r["path"], r["action"]) for r in rows], [(".system/local/inventory.json", "create"), (".system/inventory.json", "create")])  # 本機那一半也備進回合（多人共用 1）
         t2 = turn.start(self.V, None, "")
         before = (self.V / ".system" / "inventory.json").read_bytes()
         inventory.apply(self.V, self.scan(), t2["turn"])

@@ -969,7 +969,7 @@ def _scrub_rows(vault, files, rows, ids, prefix, mask, counts, shorts, datas, st
             row["action"], row["path"] = "purged", PURGED
             state["dirty"] = True
             continue
-        if rel.startswith(REPORT_PREFIX) or rel == LINT_STATE_POSIX:
+        if rel.startswith(REPORT_PREFIX) or rel == LINT_STATE_POSIX or rel.startswith(".system/local/"):
             # 健檢報告與健檢紀錄的舊版：程式產生、隨時能重寫，逐字遮會弄壞備份，整份刪掉（小修一批裁定 6）
             try:
                 if f.is_file():
