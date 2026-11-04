@@ -58,6 +58,7 @@ TIME = "%Y-%m-%dT%H:%M:%S"
 
 ALREADY = "這裡已經是建好的知識庫，要加資料夾、整理檔案直接跟我說"
 BUSY = "另一個對話正在建置（{step}，最後動作 {time}）；那個對話還開著就回那邊繼續，已經關掉了就說『接手建置』"
+TERMINAL_HINT = "。這一句被當成終端機（kb 後面串了 ; | > 之類別的指令，守門就認不出是哪個對話）：你就是那個對話的話，kb 指令單獨一行再跑一次，接手也是"
 NOT_STARTED = "還沒開始建置，先跑 kb build start"
 DONE_LINE = "建置：{step} 做完了，下一步 {next}"
 FINISHED_LINE = "建置：{step} 做完了，建置完成"
@@ -193,13 +194,13 @@ def _last_action(data):
 
 def _claim(data, session, takeover=False, readonly=False):
     """同時兩個建置（D-194）：記著的 session 不是這一個、lock_until 還沒到就擋（takeover 例外：換成這一個、記一行接手）；
-    否則記成這一個、最後動作記現在、lock_until 往後推。終端機（R3）不認領：有對話拿著時只准 readonly（status），其他回 BUSY。"""
+    否則記成這一個、最後動作記現在、lock_until 往後推。終端機（R3）不認領：有對話拿著時只准 readonly（status），其他（含 --takeover）回 BUSY 加 TERMINAL_HINT（#36）。"""
     now = _now()
     owner, until = data.get("session_id"), _parse(data.get("lock_until"))
     busy = owner and session and owner != session and until is not None and until > now
     if session == TERMINAL:
-        if busy and not readonly:
-            raise Refused(BUSY.format(step=STEP_TEXT[data["step"]], time=_last_action(data)))
+        if busy and (not readonly or takeover):  # 終端機不搶鎖；status --takeover 也要說擋了，不能無聲（#36）
+            raise Refused(BUSY.format(step=STEP_TEXT[data["step"]], time=_last_action(data)) + TERMINAL_HINT)
         return None
     if busy and not takeover:
         raise Refused(BUSY.format(step=STEP_TEXT[data["step"]], time=_last_action(data)))
