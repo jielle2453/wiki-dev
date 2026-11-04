@@ -99,8 +99,11 @@ class Wip(unittest.TestCase):
         (self.V / ".system" / "config.json").write_text(json.dumps({"lookup_mentions_max": 1}), encoding="utf-8")
         lines = run_kb("lookup", "雜項", cwd=self.V).stdout.splitlines()
         self.assertEqual(len(lines), 2, lines)
-        self.assertRegex(lines[1], r"：雜項\.txt（\d{1,2}/\d{1,2} 改）……還有 \d+ 份$")
+        self.assertRegex(lines[1], r"：雜項\.txt（\d{1,2}/\d{1,2} 改）（還有 \d+ 份沒列）$")
         (self.V / ".system" / "config.json").unlink()
+        (self.raw / "客戶案件" / "ABC報價.txt").write_text("報價\n", encoding="utf-8")
+        _cards.scan_apply(self.V)
+        self.assertEqual(lookup.lookup(self.V, " abc ")["in_progress"][0]["name"], "ABC報價.txt")  # 跟 mentions 同一套比對
         r = run_kb("lookup", "信義王", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         (line,) = [ln for ln in r.stdout.splitlines() if ln.startswith("製作中：")]

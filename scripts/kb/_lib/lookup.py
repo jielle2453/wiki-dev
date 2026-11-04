@@ -106,7 +106,8 @@ def lookup(vault, query):
         limit = config.get(vault, "lookup_mentions_max")
         out.update(mentions=found[:limit], mentions_total=len(found))
         if not found:  # 還沒整理的檔沒有卡，可能就在裡面（#37）
-            wip = sorted(cards.wip(vault, sorted_=sorted_), key=lambda r: query not in r["name"])
+            q = entities.key(query.strip())  # 跟 mentions 同一套比對
+            wip = sorted(cards.wip(vault, sorted_=sorted_), key=lambda r: q not in entities.key(r["name"]))
             out.update(in_progress=wip[:limit], in_progress_total=len(wip))
         return out
     prof = entities._profile(vault)

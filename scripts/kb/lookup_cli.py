@@ -64,7 +64,7 @@ def _lines(got):
             wip, total = got["in_progress"], got.get("in_progress_total", 0)
             if not wip:
                 return [lookup_lib.NOTHING]
-            more = f"……還有 {total - len(wip)} 份" if total > len(wip) else ""
+            more = f"（還有 {total - len(wip)} 份沒列）" if total > len(wip) else ""
             return [lookup_lib.NOTHING, f"還沒整理的 {total} 份可能有提到（像的讀原檔答，標「還沒整理，照原檔」）："
                     + "、".join(cards.wip_label(r) for r in wip) + more]
         out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它"]
