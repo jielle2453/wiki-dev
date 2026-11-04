@@ -238,18 +238,14 @@ class OverlapWithObsidian(ViaBase):
         self.prompt(A, "退回上一步")
 
     def test_conflict_names_obsidian_not_other_conversation(self):
-        """放寬丙：對話退回撞到後來 Obsidian 的回合，那一項列 conflict、side 是 obsidian、說「你在 Obsidian 按的」，其他不動。"""
+        """流水檔看同一筆（多人共用 1）：Obsidian 後來加的是另一筆，不擋；只改回對話裡加的那筆。"""
         r = self.kb("versions", "revert", sid=A)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertRegex(r.stdout, r"之後又被動過（\d\d-\d\d \d\d:\d\d 你在 Obsidian 按的）")
-        self.assertNotIn("對話外", r.stdout)
-        self.assertIsNone(TURN_CODE.search(r.stdout), r.stdout)
-        got = json.loads(self.kb("versions", "revert", "--json", sid=A).stdout)
-        sides = {x["side"] for c in got["conflict"] for x in c["later"]}
-        self.assertEqual(sides, {"obsidian"})
+        self.assertNotIn("之後又被動過", r.stdout)
+        self.assertEqual(self.agenda_texts(), ["Obsidian 後來加的"])
 
     def test_23_other_conversation_and_obsidian_both_in_later(self):
-        """同時撞到別的對話與 Obsidian：later 兩邊都列（other、obsidian）。"""
+        """別的對話與 Obsidian 後來加的都是另一筆：都不擋，也都留著。"""
         self.stop(A)
         self.prompt(B, "我也加一條")
         self.agenda(B, "B 加的", date="2026-11-28")
@@ -258,8 +254,8 @@ class OverlapWithObsidian(ViaBase):
         r = self.kb("versions", "revert", "--json", sid=A)
         self.assertEqual(r.returncode, 0, r.stdout)
         got = json.loads(r.stdout)
-        sides = {x["side"] for c in got["conflict"] for x in c["later"]}
-        self.assertEqual(sides, {"other", "obsidian"})
+        self.assertEqual(got.get("conflict", []), [])
+        self.assertEqual(sorted(self.agenda_texts()), ["B 加的", "Obsidian 後來加的"])
 
 
 if __name__ == "__main__":
