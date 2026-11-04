@@ -1,7 +1,7 @@
 """kb lookup <名稱或別名>（answer 第 1 點，D-153）：一次給齊一個實體的材料，只讀、不開回合、不記日誌。
 
 人讀第一行是摘要（實體、型別與狀態、各類份數、還沒整理幾份），之後每類一段；不印內部編號（日程確認後裁定 6），
-要編號取 --json。名稱沒登記：列提到它的卡，都沒有就一句「沒有登記這個名稱，也沒有卡提到它」。
+要編號取 --json。名稱沒登記：列提到它的卡，都沒有就一句「沒有登記這個名稱，也沒有卡提到它」，有製作中的檔再一行列出來（#37）。
 """
 import argparse
 import json
@@ -61,7 +61,12 @@ def _card_line(c):
 def _lines(got):
     if got["entity"] is None:
         if not got["mentions"]:
-            return [lookup_lib.NOTHING]
+            wip, total = got["in_progress"], got.get("in_progress_total", 0)
+            if not wip:
+                return [lookup_lib.NOTHING]
+            more = f"（還有 {total - len(wip)} 份沒列）" if total > len(wip) else ""
+            return [lookup_lib.NOTHING, f"還沒整理的 {total} 份可能有提到（像的讀原檔答，標「還沒整理，照原檔」）："
+                    + "、".join(cards.wip_label(r) for r in wip) + more]
         out = [f"沒有登記「{got['query']}」；有 {got['mentions_total']} 張卡提到它"]
         out += [f"- {m['title']}（{m['where']}）" for m in got["mentions"]]
         if got["mentions_total"] > len(got["mentions"]):
