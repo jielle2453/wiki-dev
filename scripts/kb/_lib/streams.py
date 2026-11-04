@@ -34,7 +34,12 @@ KINDS = {
     "set_aside": (".system/set_aside.json", "map", "keys", {"deleted": True}),
     "card_base": (".system/card_base.json", "map", "cards", {"deleted": True}),
     "profile": (".system/profile.json", "profile", None, {}),
+    "inventory": (".system/inventory.json", "list", "entries", {"status": "deleted"}),
+    "pending": (".system/pending.json", "list", "items", {"status": "done"}),
 }
+# 掃描看到的、只在這台算的那一半放 .system/local/<種類>.json（新定 3）；共用那一半走流水檔
+SPLIT = ("inventory", "pending")
+LOCAL_PENDING_KINDS = ("missing_file", "unreadable")  # 原檔不見、讀不到：看這台的掃描，只開在本機
 RETRACT = {k: v[3] for k, v in KINDS.items()}
 # 封存檔不再是獨立的檔：同一筆多一欄 archived（新定 4）。這兩個是同一份流水檔的「封存那一邊」的整份文件視角
 VIEWS = {
@@ -93,6 +98,110 @@ def virtual_kind(path):
 
 def note_turn(vault, kind, turn_id):
     _TURN[(str(vault), base(kind))] = turn_id
+
+
+# ---------- 本機那一半（清冊的掃描所見、待處理的原檔不見／讀不到） ----------
+
+def local_path(vault, kind):
+    return Path(vault) / LOCAL_REL / f"{kind}.json"
+
+
+def _read_local(vault, kind):
+    try:
+        data = json.loads(local_path(vault, kind).read_text(encoding="utf-8"))
+        items = data.get("items") if isinstance(data, dict) else None
+        return items if isinstance(items, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_local(vault, kind, items):
+    from kb._lib.io import write_json_atomic as _w
+    p = local_path(vault, kind)
+    if _read_local(vault, kind) == items and (p.is_file() or not items):
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(p):
+        _w(p, {"schema_version": 1, "items": items})
+
+
+def _split(kind, doc):
+    """整份文件 → (共用那份, 本機那一半 {id: {…}})。"""
+    key = KINDS[kind][2]
+    shared = {k: v for k, v in doc.items() if k != key}
+    local, out = {}, []
+    for e in doc.get(key) or []:
+        if not isinstance(e, dict):
+            raise TypeError("條目不是物件")
+        e = dict(e)
+        if kind == "pending":
+            if e.get("kind") in LOCAL_PENDING_KINDS:
+                local[str(e.get("id"))] = e
+            else:
+                out.append(e)
+            continue
+        loc = {}
+        if e.get("read") not in (None, "ok"):
+            loc["read"] = e["read"]
+        if e.get("error"):
+            loc["error"] = e["error"]
+        if e.get("missing_since"):
+            loc["missing_since"] = e["missing_since"]
+        for k in ("read", "error", "missing_since"):
+            e.pop(k, None)
+        if e.get("status") == "missing":
+            loc["status_seen"] = "missing"
+            e["status"] = "active"
+        locs, plain = {}, []
+        for L in e.get("locations") or []:
+            if isinstance(L, dict):
+                if "size" in L or "mtime" in L:
+                    locs[L.get("uri")] = {k: L[k] for k in ("size", "mtime") if k in L}
+                plain.append({k: v for k, v in L.items() if k not in ("size", "mtime")})
+            else:
+                plain.append(L)
+        if "locations" in e:
+            e["locations"] = plain
+        if locs:
+            loc["locs"] = locs
+        if loc:
+            local[str(e.get("id"))] = loc
+        out.append(e)
+    shared[key] = out
+    return shared, local
+
+
+def _join(vault, kind, doc):
+    """共用那份 + 本機那一半 → 呼叫端看到的整份文件。"""
+    key = KINDS[kind][2]
+    local = _read_local(vault, kind)
+    doc = dict(doc)
+    rows = [dict(e) for e in doc.get(key) or []]
+    if kind == "pending":
+        ids = {e.get("id") for e in rows}
+        rows += [dict(v) for k, v in local.items() if k not in ids]
+        doc[key] = rows
+        return doc
+    for e in rows:
+        loc = local.get(str(e.get("id")), {})
+        e["read"] = loc.get("read", "ok")
+        e["missing_since"] = loc.get("missing_since")
+        if loc.get("error"):
+            e["error"] = loc["error"]
+        if loc.get("status_seen") == "missing":
+            e["status"] = "missing"
+        if "locations" in e:
+            locs = loc.get("locs") or {}
+            e["locations"] = [{"uri": L.get("uri"), **locs.get(L.get("uri"), {}), **{k: v for k, v in L.items() if k != "uri"}}
+                              if isinstance(L, dict) else L for L in e["locations"]]
+    doc[key] = rows
+    return doc
+
+
+def joined_doc(vault, kind, recs):
+    """流水檔合起來的紀錄 → 呼叫端看到的整份文件（有本機那一半的種類會接上）。"""
+    doc = records_to_doc(kind, recs)
+    return _join(vault, kind, doc) if kind in SPLIT else doc
 
 
 # ---------- 讀 ----------
@@ -195,7 +304,7 @@ def _mirror(vault, kind, st):
         from kb._lib.io import write_text_atomic
         for k in [kind] + [v for v, (b, _r) in VIEWS.items() if b == kind]:
             legacy = Path(vault) / legacy_rel(k)
-            text = json.dumps(records_to_doc(k, st.records), ensure_ascii=False, indent=2) + "\n"
+            text = json.dumps(joined_doc(vault, k, st.records), ensure_ascii=False, indent=2) + "\n"
             write_text_atomic(legacy, text)
             mp = _mirror_mark(vault, k)
             mp.parent.mkdir(parents=True, exist_ok=True)
@@ -596,7 +705,7 @@ def read_doc(vault, kind):
     if not exists(vault, kind):
         return None
     st = load(vault, kind)
-    doc = _mirror_edited(vault, kind, records_to_doc(kind, st.records))
+    doc = _mirror_edited(vault, kind, joined_doc(vault, kind, st.records))
     if doc is None:
         legacy = Path(vault) / legacy_rel(kind)
         try:
@@ -609,14 +718,14 @@ def read_doc(vault, kind):
         raw = legacy.read_bytes()
         write_doc(vault, kind, doc)
         st = load(vault, kind)
-        if records_to_doc(kind, st.records) == doc:  # 吸收後內容一樣：副本留原樣的位元組（退回換回舊版的檔不被重排）
+        if joined_doc(vault, kind, st.records) == doc:  # 吸收後內容一樣：副本留原樣的位元組（退回換回舊版的檔不被重排）
             try:
                 from kb._lib.io import write_text_atomic
                 legacy.write_bytes(raw)
                 write_text_atomic(_mirror_mark(vault, kind), _sha(raw))
             except OSError:
                 pass
-    return records_to_doc(kind, st.records)
+    return joined_doc(vault, kind, st.records)
 
 
 def write_doc(vault, kind, data):
@@ -624,6 +733,9 @@ def write_doc(vault, kind, data):
     vault = Path(vault)
     if not exists(vault, kind):
         migrate_kind(vault, kind)
+    if kind in SPLIT:
+        data, local = _split(kind, data)
+        _write_local(vault, kind, local)
     st = load(vault, kind)
     live = {k: dict(v) for k, v in st.records.items() if not v.get("_del")}
     if kind in VIEWS:
@@ -633,7 +745,10 @@ def write_doc(vault, kind, data):
     else:
         before = live
     after = doc_to_records(kind, data)
-    write(vault, base(kind), before, after)
+    changed = write(vault, base(kind), before, after)
+    if kind in SPLIT and not changed:
+        st = load(vault, kind)
+        _mirror(vault, kind, st)  # 只有本機那一半變了：副本也要跟著換
 
 
 def migrate_kind(vault, kind, keep_legacy_dir=None):
@@ -658,6 +773,9 @@ def migrate_kind(vault, kind, keep_legacy_dir=None):
             os.replace(path, dest)
             continue
         try:
+            if k in SPLIT:
+                doc, local = _split(k, doc)
+                _write_local(vault, k, local)
             for rid, rec in doc_to_records(k, doc).items():
                 recs.setdefault(rid, rec)
         except (AttributeError, TypeError):  # 形狀不對的舊檔不動，留給各模組照舊報錯

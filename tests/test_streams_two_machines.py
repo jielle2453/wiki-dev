@@ -92,6 +92,76 @@ class TwoMachines(unittest.TestCase):
         self.assertEqual([p["text"] for p in doc["preferences"]], ["簡短"])
 
 
+class InventoryPendingSplit(unittest.TestCase):
+    """驗收 6、15：清冊與待處理拆成共用與本機兩半。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.V = self.tmp / "v"
+        (self.V / ".system").mkdir(parents=True)
+        self._orig = env.machine_name
+
+    def tearDown(self):
+        env.machine_name = self._orig
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def entry(self, **kw):
+        e = {"id": "f-1", "origin": "client_file", "locations": [{"uri": "file://雲端/a.pdf", "size": 10, "mtime": 5}],
+             "fingerprints": [{"sha256": "x"}], "status": "active", "read": "ok", "missing_since": None, "first_seen": "2026-11-01"}
+        e.update(kw)
+        return e
+
+    def test_missing_source_only_marks_this_machine(self):
+        inv = self.V / ".system" / "inventory.json"
+        as_machine(self.V, "aaaa")
+        write_json_atomic(inv, {"schema_version": 2, "entries": [self.entry()]})
+        # A 台的來源根不存在：掃描把它標成 missing、讀不到
+        doc = read_json(inv)
+        doc["entries"][0].update(status="missing", missing_since="2026-11-04", read="error", error="找不到")
+        write_json_atomic(inv, doc)
+        self.assertEqual(read_json(inv)["entries"][0]["status"], "missing")
+        shared = "".join(p.read_text(encoding="utf-8") for p in (self.V / ".system" / "streams" / "inventory").glob("*.jsonl"))
+        self.assertNotIn("missing", shared)
+        self.assertNotIn("找不到", shared)
+        self.assertTrue((self.V / ".system" / "local" / "inventory.json").is_file())
+        # B 台（同一份共用流水檔，沒有 A 的本機半）照常
+        (self.V / ".system" / "local" / "inventory.json").rename(self.V / ".system" / "local" / "inventory.A")
+        as_machine(self.V, "bbbb")
+        e = read_json(inv)["entries"][0]
+        self.assertEqual((e["status"], e["read"], e["missing_since"]), ("active", "ok", None))
+
+    def test_pending_missing_file_stays_local_others_shared(self):
+        pen = self.V / ".system" / "pending.json"
+        as_machine(self.V, "aaaa")
+        items = [{"id": "p-1", "kind": "missing_file", "status": "open", "text": "原檔不見"},
+                 {"id": "p-2", "kind": "close", "status": "open", "text": "結案嗎"},
+                 {"id": "p-3", "kind": "unreadable", "status": "open", "text": "讀不到"}]
+        write_json_atomic(pen, {"schema_version": 2, "items": items})
+        self.assertEqual({i["id"] for i in read_json(pen)["items"]}, {"p-1", "p-2", "p-3"})
+        shared = "".join(p.read_text(encoding="utf-8") for p in (self.V / ".system" / "streams" / "pending").glob("*.jsonl"))
+        self.assertIn("p-2", shared)
+        self.assertNotIn("p-1", shared)
+        self.assertNotIn("p-3", shared)
+        local = json.loads((self.V / ".system" / "local" / "pending.json").read_text(encoding="utf-8"))["items"]
+        self.assertEqual(set(local), {"p-1", "p-3"})
+
+    def test_shared_inventory_fields_cross_machines(self):
+        inv = self.V / ".system" / "inventory.json"
+        as_machine(self.V, "aaaa")
+        write_json_atomic(inv, {"schema_version": 2, "entries": [self.entry()]})
+        doc = read_json(inv)
+        doc["entries"][0].update(card_mode="pointer", intake={"from": "官網", "name": "價目表"})
+        write_json_atomic(inv, doc)
+        as_machine(self.V, "bbbb")
+        doc = read_json(inv)
+        doc["entries"][0]["archived"] = {"date": "2026-11-04", "reason": "過時", "turn": "t"}
+        write_json_atomic(inv, doc)
+        e = read_json(inv)["entries"][0]
+        self.assertEqual((e["card_mode"], e["intake"]["name"], e["archived"]["reason"]), ("pointer", "價目表", "過時"))
+        as_machine(self.V, "aaaa")
+        self.assertEqual(read_json(inv)["entries"][0]["archived"]["reason"], "過時")
+
+
 @unittest.skipUnless(GIT, "沒有 git")
 class RealGit(unittest.TestCase):
     def git(self, cwd, *args):

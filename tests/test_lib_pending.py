@@ -356,7 +356,7 @@ class ConflictCli(unittest.TestCase):
         self.add(self.a, self.b)
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(pending.load(self.V)["items"], [])
+        self.assertEqual([i for i in pending.load(self.V)["items"] if i["status"] == "open"], [])  # 流水檔不抹歷史（多人共用 1）
         md = self.V / "系統" / "待處理.md"
         self.assertEqual(md.read_bytes() if md.exists() else None, before)
 

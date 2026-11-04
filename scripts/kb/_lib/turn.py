@@ -597,7 +597,7 @@ def backup(vault, rel, turn_id, action=None, by=None):
             _note_write(vault, vdir, turn_id, rel)
             return
         if virtual is not None:
-            row = {"path": rel, "action": action or "modify", "time": _now().strftime("%Y-%m-%dT%H:%M:%S"), "stream": True}
+            row = {"path": rel, "action": action or ("modify" if target.is_file() else "create"), "time": _now().strftime("%Y-%m-%dT%H:%M:%S"), "stream": True}
             if by:
                 row["by"] = by
             _append_line(manifest, row)
