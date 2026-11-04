@@ -500,7 +500,7 @@ def doc_to_records(kind, doc):
 
 def records_to_doc(kind, recs):
     _rel, shape, key, _r = KINDS[kind]
-    live = {k: v for k, v in recs.items() if not v.get("_del")}
+    live = {k: {f: x for f, x in v.items() if f != "_del"} for k, v in recs.items() if not v.get("_del")}
     if shape == "profile":
         doc = dict(live.get(PROFILE_ID) or {})
         doc["preferences"] = [v for k, v in live.items() if k != PROFILE_ID]

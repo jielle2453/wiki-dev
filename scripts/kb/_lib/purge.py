@@ -1390,7 +1390,8 @@ def _scrub_streams(vault, mask, counts):
     try:
         own = streams.machine_id(vault)
         for f in sorted((root / streams.STREAMS_REL).glob(f"*/{own}.jsonl")):
-            _mask_file(f, mask, counts)
+            if f.parent.name != "sources":  # 來源登記表照舊不遮（排除的夾名、範圍記在那裡）
+                _mask_file(f, mask, counts)
         legacy = root / streams.LEGACY_REL
         for f in sorted(legacy.rglob("*.json")) if legacy.is_dir() else []:
             _mask_file(f, mask, counts)

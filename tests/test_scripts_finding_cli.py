@@ -136,7 +136,7 @@ class Revert(Base):
         self.add()
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(findings.load(self.V)["findings"], [])
+        self.assertEqual([f for f in findings.load(self.V)["findings"] if f["status"] == "active"], [])  # 流水檔不抹歷史（多人共用 1）
 
     def test_revert_replace(self):
         old = self.add()
@@ -145,7 +145,7 @@ class Revert(Base):
         self.add("--replaces", old, text="信義王報價合計 180 萬")
         r = run_kb("versions", "revert", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual((self.V / findings.FINDINGS_POSIX).read_bytes(), before)
+        self.assertEqual([f["id"] for f in findings.load(self.V)["findings"] if f["status"] == "active"], [old])
 
 
 

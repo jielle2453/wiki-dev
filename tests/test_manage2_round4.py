@@ -193,7 +193,7 @@ class PurgeLeftovers(Base):
         self.assertEqual([(r["action"], r["path"]) for r in rows], [("purged", "（已排除）")])
         moves = (Path(self.V) / ".system/versions" / self.t_moves / "moves.jsonl").read_text(encoding="utf-8")
         self.assertNotIn("私人", moves)
-        allowed = lambda h: h.endswith(".system/sources.json")  # noqa: E731  只剩登記表那條排除的夾名
+        allowed = lambda h: h.endswith(".system/sources.json") or h.startswith((".system/streams/sources/", ".system/local/cache/sources"))  # noqa: E731  只剩登記表那條排除的夾名
         self.assertEqual([h for h in self.grep("私人") if not allowed(h)], [])
         self.assertEqual(self.grep("王家心情"), [])
 
