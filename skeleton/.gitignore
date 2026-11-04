@@ -37,9 +37,12 @@
 .system/set_aside.json
 .system/card_base.json
 .system/profile.json
+.system/statements-archive.json
+.system/findings-archive.json
 
 # 渲染頁、每台自己的東西
-系統/
+系統/*
+!系統/客戶設定檔.md
 /總目錄.md
 暫存區/
 _個人/

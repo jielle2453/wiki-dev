@@ -36,7 +36,26 @@ KINDS = {
     "profile": (".system/profile.json", "profile", None, {}),
 }
 RETRACT = {k: v[3] for k, v in KINDS.items()}
+# 封存檔不再是獨立的檔：同一筆多一欄 archived（新定 4）。這兩個是同一份流水檔的「封存那一邊」的整份文件視角
+VIEWS = {
+    "statements_archive": ("statements", ".system/statements-archive.json"),
+    "findings_archive": ("findings", ".system/findings-archive.json"),
+}
+HIDE_ARCHIVED = ("statements", "findings")  # 這兩種的主文件不列 archived 有值的筆
 LEGACY = {Path(v[0]).name: k for k, v in KINDS.items()}
+LEGACY.update({Path(v[1]).name: k for k, v in VIEWS.items()})
+
+
+def base(kind):
+    return VIEWS[kind][0] if kind in VIEWS else kind
+
+
+def legacy_rel(kind):
+    return VIEWS[kind][1] if kind in VIEWS else KINDS[kind][0]
+
+
+def _is_archived(rec):
+    return bool(rec.get("archived"))
 
 hard_delete = False  # purge 期間：刪掉的筆連這台檔裡的舊行一起拿掉（原文不留在自己的檔裡）
 stats = {"merges": 0}  # 快取沒命中、真的合併的次數（測試計次用）
@@ -55,7 +74,7 @@ def machine_id(vault):
 
 
 def stream_dir(vault, kind):
-    return Path(vault) / STREAMS_REL / kind
+    return Path(vault) / STREAMS_REL / base(kind)
 
 
 def own_file(vault, kind):
@@ -72,7 +91,7 @@ def virtual_kind(path):
 
 
 def note_turn(vault, kind, turn_id):
-    _TURN[(str(vault), kind)] = turn_id
+    _TURN[(str(vault), base(kind))] = turn_id
 
 
 # ---------- 讀 ----------
@@ -141,6 +160,7 @@ def _cache_path(vault, kind):
 
 
 def load(vault, kind):
+    kind = base(kind)
     files = _files(vault, kind)
     sig = _sig(files)
     cp = _cache_path(vault, kind)
@@ -172,12 +192,13 @@ def _mirror(vault, kind, st):
     正本是流水檔；副本被改、被刪都不影響（讀的一律走 streams）。"""
     try:
         from kb._lib.io import write_text_atomic
-        legacy = Path(vault) / KINDS[kind][0]
-        text = json.dumps(records_to_doc(kind, st.records), ensure_ascii=False, indent=2) + "\n"
-        write_text_atomic(legacy, text)
-        mp = _mirror_mark(vault, kind)
-        mp.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(mp, _sha(legacy.read_bytes()))
+        for k in [kind] + [v for v, (b, _r) in VIEWS.items() if b == kind]:
+            legacy = Path(vault) / legacy_rel(k)
+            text = json.dumps(records_to_doc(k, st.records), ensure_ascii=False, indent=2) + "\n"
+            write_text_atomic(legacy, text)
+            mp = _mirror_mark(vault, k)
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            write_text_atomic(mp, _sha(legacy.read_bytes()))
     except OSError:
         pass
 
@@ -190,14 +211,21 @@ def _mirror_mark(vault, kind):
     return Path(vault) / LOCAL_REL / "cache" / f"{kind}.mirror"
 
 
-def _mirror_edited(vault, kind):
+def _mirror_edited(vault, kind, derived=None):
     """衍生副本被外部改過（手改、別的工具整份寫回）：回新內容的 dict；沒改過回 None；改壞了丟 ValueError。"""
-    legacy = Path(vault) / KINDS[kind][0]
+    legacy = Path(vault) / legacy_rel(kind)
     try:
         raw = legacy.read_bytes()
-        mark = _mirror_mark(vault, kind).read_text(encoding="utf-8").strip()
     except OSError:
         return None
+    try:
+        mark = _mirror_mark(vault, kind).read_text(encoding="utf-8").strip()
+    except OSError:  # 還沒有記號（例如封存檔副本後來才有人寫）：內容跟合併結果不同才算外部改過
+        try:
+            doc = json.loads(raw.decode("utf-8"))
+        except ValueError:
+            return None
+        return doc if isinstance(doc, dict) and derived is not None and doc != derived else None
     if _sha(raw) == mark:
         return None
     try:
@@ -288,8 +316,15 @@ def diff(before, after, state=None):
     out = []
     for rid, rec in after.items():
         if rid not in before:
+            cur = state.records.get(rid) if state is not None else None
+            if cur and not cur.get("_del"):  # 這筆其實已經有了（例如封存那一邊的筆搬到主文件）：只寫差的欄
+                s = {k: v for k, v in rec.items() if k not in cur or cur[k] != v}
+                un = [k for k in cur if k not in rec and k != "_del"]
+                if s or un:
+                    out.append(("set", rid, s, un))
+                continue
             s = dict(rec)
-            if state is not None and state.records.get(rid, {}).get("_del"):
+            if cur and cur.get("_del"):
                 s["_del"] = False
             out.append(("create", rid, s, []))
             continue
@@ -503,7 +538,8 @@ def pref_id(text, taken):
 
 
 def doc_to_records(kind, doc):
-    _rel, shape, key, _r = KINDS[kind]
+    view = kind in VIEWS
+    _rel, shape, key, _r = KINDS[base(kind)]
     recs = {}
     if shape == "profile":
         recs[PROFILE_ID] = {k: v for k, v in doc.items() if k != "preferences"}
@@ -513,7 +549,7 @@ def doc_to_records(kind, doc):
             recs[pref_id(p.get("text"), recs)] = dict(p)
         return recs
     meta = {k: v for k, v in doc.items() if k != key}
-    if meta:
+    if meta and not view:
         recs[META_ID] = meta
     body = doc.get(key)
     if shape == "list":
@@ -527,8 +563,14 @@ def doc_to_records(kind, doc):
 
 
 def records_to_doc(kind, recs):
-    _rel, shape, key, _r = KINDS[kind]
+    view = kind in VIEWS
+    _rel, shape, key, _r = KINDS[base(kind)]
     live = {k: {f: x for f, x in v.items() if f != "_del"} for k, v in recs.items() if not v.get("_del")}
+    if view:
+        live = {k: v for k, v in live.items() if _is_archived(v)}
+        return {"schema_version": 1, key: [{**v, **({"id": k} if "id" not in v else {})} for k, v in live.items()]}
+    if kind in HIDE_ARCHIVED:
+        live = {k: v for k, v in live.items() if not _is_archived(v)}
     if shape == "profile":
         doc = dict(live.get(PROFILE_ID) or {})
         prefs = [v for k, v in live.items() if k != PROFILE_ID]
@@ -550,16 +592,16 @@ def read_doc(vault, kind):
     if not exists(vault, kind):
         return None
     st = load(vault, kind)
-    doc = _mirror_edited(vault, kind)
+    doc = _mirror_edited(vault, kind, records_to_doc(kind, st.records))
     if doc is None:
-        legacy = Path(vault) / KINDS[kind][0]
+        legacy = Path(vault) / legacy_rel(kind)
         try:
             if legacy.is_file() and _sha(legacy.read_bytes()) != _mirror_mark(vault, kind).read_text(encoding="utf-8").strip():
                 _mirror(vault, kind, st)  # 副本壞了或不是物件：從流水檔重寫
         except OSError:
             pass
     if doc is not None:  # 副本被外部整份改過：當成一次整份交回吸收進流水檔
-        legacy = Path(vault) / KINDS[kind][0]
+        legacy = Path(vault) / legacy_rel(kind)
         raw = legacy.read_bytes()
         write_doc(vault, kind, doc)
         st = load(vault, kind)
@@ -579,29 +621,45 @@ def write_doc(vault, kind, data):
     if not exists(vault, kind):
         migrate_kind(vault, kind)
     st = load(vault, kind)
-    before = {k: dict(v) for k, v in st.records.items() if not v.get("_del")}
+    live = {k: dict(v) for k, v in st.records.items() if not v.get("_del")}
+    if kind in VIEWS:
+        before = {k: v for k, v in live.items() if _is_archived(v)}
+    elif kind in HIDE_ARCHIVED:
+        before = {k: v for k, v in live.items() if not _is_archived(v)}
+    else:
+        before = live
     after = doc_to_records(kind, data)
-    write(vault, kind, before, after)
+    write(vault, base(kind), before, after)
 
 
 def migrate_kind(vault, kind, keep_legacy_dir=None):
     """舊的整份 JSON → 這台的流水檔（每筆一行 create、seq 1、base 0）；舊檔搬到 .system/legacy/。回轉了幾筆（沒舊檔回 0）。"""
     vault = Path(vault)
+    kind = base(kind)
     legacy = vault / KINDS[kind][0]
-    if not legacy.is_file() or exists(vault, kind):
+    arch = [(v, vault / legacy_rel(v)) for v, (b, _r) in VIEWS.items() if b == kind]
+    if exists(vault, kind) or not (legacy.is_file() or any(p.is_file() for _v, p in arch)):
         return 0
-    try:
-        doc = json.loads(legacy.read_text(encoding="utf-8"))
-        if not isinstance(doc, dict):
-            raise ValueError("不是物件")
-    except ValueError:  # 舊檔壞了：整份寫回的人（模組）本來就是要覆蓋它；壞的那份留在 legacy/，從空的開始
-        dest = vault / LEGACY_REL / (legacy.name + ".broken")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(legacy, dest)
-        return 0
-    try:
-        recs = doc_to_records(kind, doc)
-    except (AttributeError, TypeError):  # 形狀不對的舊檔不動，留給各模組照舊報錯
+    recs, moved = {}, []
+    for k, path in [(kind, legacy)] + arch:
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(doc, dict):
+                raise ValueError("不是物件")
+        except ValueError:  # 舊檔壞了：整份寫回的人（模組）本來就是要覆蓋它；壞的那份留在 legacy/，從空的開始
+            dest = vault / LEGACY_REL / (path.name + ".broken")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, dest)
+            continue
+        try:
+            for rid, rec in doc_to_records(k, doc).items():
+                recs.setdefault(rid, rec)
+        except (AttributeError, TypeError):  # 形狀不對的舊檔不動，留給各模組照舊報錯
+            return 0
+        moved.append(path)
+    if not moved:
         return 0
     path = own_file(vault, kind)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -616,12 +674,13 @@ def migrate_kind(vault, kind, keep_legacy_dir=None):
         lines.append(json.dumps(row, ensure_ascii=False) + "\n")
     with FileLock(path):
         _append(path, lines)
-    dest = vault / (keep_legacy_dir or LEGACY_REL) / legacy.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.replace(legacy, dest)
-    except OSError:
-        legacy.unlink()
+    for path in moved:
+        dest = vault / (keep_legacy_dir or LEGACY_REL) / path.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(path, dest)
+        except OSError:
+            path.unlink()
     load(vault, kind)  # 順便把衍生副本寫回舊路徑
     return len(recs)
 

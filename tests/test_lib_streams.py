@@ -163,5 +163,33 @@ class StreamsTest(unittest.TestCase):
         self.assertEqual(len(json.loads(p.read_text(encoding="utf-8"))["items"]), 2)  # 衍生副本
 
 
+class ArchiveField(StreamsTest):
+    """驗收 7：封存不再搬檔，同一筆多一欄 archived；主清單不列、封存那一邊列。"""
+
+    def test_archive_sets_field_and_restore_brings_back(self):
+        from kb._lib import statements
+        streams.write_doc(self.V, "statements", {"schema_version": 1, "statements": [
+            {"id": "s-1", "text": "舊", "entities": ["X"], "status": "withdrawn", "replaced_by": None},
+            {"id": "s-2", "text": "新", "entities": ["X"], "status": "active", "replaced_by": None}]})
+        self.assertEqual(statements.archive(self.V, ["s-1"], "t-1"), 1)
+        self.assertEqual([s["id"] for s in statements.load(self.V)["statements"]], ["s-2"])
+        self.assertEqual([s["id"] for s in statements.load_archive(self.V)["statements"]], ["s-1"])
+        self.assertTrue(streams.load(self.V, "statements").records["s-1"]["archived"])
+        # 沒有另外一份封存流水檔，封存檔也沒被當正本寫
+        self.assertEqual(sorted(p.name for p in (self.V / ".system" / "streams").iterdir()), ["statements"])
+
+    def test_archive_view_edit_in_place_keeps_main(self):
+        from kb._lib.io import read_json, write_json_atomic
+        streams.write_doc(self.V, "findings", {"schema_version": 1, "findings": [
+            {"id": "c-1", "text": "甲", "status": "withdrawn"}, {"id": "c-2", "text": "乙", "status": "active"}]})
+        from kb._lib import findings
+        findings.archive(self.V, ["c-1"], "t-1")
+        arch = read_json(self.V / ".system" / "findings-archive.json")
+        arch["findings"][0]["text"] = "甲改"
+        write_json_atomic(self.V / ".system" / "findings-archive.json", arch)
+        self.assertEqual([c["text"] for c in findings.load(self.V)["findings"]], ["乙"])
+        self.assertEqual([c["text"] for c in findings.load_archive(self.V)["findings"]], ["甲改"])
+
+
 if __name__ == "__main__":
     unittest.main()

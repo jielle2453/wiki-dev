@@ -1378,7 +1378,7 @@ def _purge(vault, alias, spec, root, turn_id, keep_snapshots=()):
     snapshots = _snapshots(vault, counts, keep_snapshots)
     return {"cards": len(counts["card_ids"]), "backups": counts["backups"], "temp": counts["temp"],
             "journal": counts["journal"], "findings": counts["findings"], "undecodable": counts["undecodable"],
-            "obsidian": counts["obsidian"], "snapshots": snapshots,
+            "obsidian": counts["obsidian"], "snapshots": snapshots, "history": (Path(vault) / ".git").exists(),
             "remaining": {k: v for k, v in counts["left"].items() if v}}
 
 
@@ -1390,7 +1390,7 @@ def _scrub_streams(vault, mask, counts):
     try:
         own = streams.machine_id(vault)
         for f in sorted((root / streams.STREAMS_REL).glob(f"*/{own}.jsonl")):
-            if f.parent.name != "sources":  # 來源登記表照舊不遮（排除的夾名、範圍記在那裡）
+            if f.parent.name not in ("sources", "statements"):  # 來源登記表照舊不遮（排除的夾名、範圍記在那裡）
                 _mask_file(f, mask, counts)
         legacy = root / streams.LEGACY_REL
         for f in sorted(legacy.rglob("*.json")) if legacy.is_dir() else []:
