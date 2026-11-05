@@ -37,6 +37,7 @@ ORIGINAL = "客戶原檔先用 kb office copy 拿副本"
 COLON = "檔名不能有冒號"
 LINKED_BEFORE = "這個網址已經登記過了：{title}"
 TITLE_CHARS = "標題不能有 $ 或 ` 這兩種字元"
+NOT_EDIT_FOLDER = "這個夾不是 kb office copy --unpack 解開的，不知道原檔是哪份；用 copy --unpack 重拿一次"
 _URL = re.compile(r"^https://claude\.ai/[^\s\"'`$\\]+$")
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f$`]')
 
@@ -259,6 +260,10 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
     --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
     from kb._lib import sources as sources_lib
     sources = sources_lib.load(vault)
+    checked = None
+    if _abs(src, cwd).is_dir():  # copy --unpack 解開的夾：程式照副本打包、驗了才蓋回原檔（簡化一 C，D-529）
+        src, to, from_, checked = _pack_folder(vault, _abs(src, cwd), to, from_)
+        replace = replace or checked["overwrite"]
     if not to:  # 沒給 --to：落暫存區（登記成團隊雲端的夾就落那裡，多人共用 2），檔名照原檔（D-324）
         parent_text, name = str(sources_lib.hold_root(vault) or Path(vault) / OUTPUT), Path(str(src)).name
     else:
@@ -292,7 +297,20 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
                        rename="改 --to 的檔名")
     backup_before(vault, sources, place, turn_id, "modify" if existing else "create")
     target.parent.mkdir(parents=True, exist_ok=True)
-    if mode == "move":
+    if existing:  # 蓋過去：先寫同夾的暫存檔再整份換上，開著或沒權限時原檔不動、不留半份（D-529）
+        tmp = target.with_name(f".~kb-{target.name}")
+        try:
+            shutil.copy2(str(src), str(tmp))
+            os.replace(str(tmp), str(target))
+        except OSError:
+            try:
+                os.unlink(str(tmp))
+            except OSError:
+                pass
+            raise
+        if mode == "move":
+            os.unlink(str(src))
+    elif mode == "move":
         shutil.move(str(src), str(target))
     else:
         shutil.copy2(str(src), str(target))
@@ -308,7 +326,28 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
         _drop(vault, draft_rel, turn_id)
     return {"path": shown_path(place), "id": entry["id"] if entry else None, "mode": mode,
             "from": source["id"] if source else None, "from_label": label_of(vault, source) if source else None,
-            "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault"}
+            "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault", "checked": checked}
+
+
+def _pack_folder(vault, folder, to, from_):
+    """解開的夾 → (打包好的檔, --to, --from, 驗的結果)。沒給 --to 放原檔旁「<主檔名>（AI 修改）」；--from 預設原檔。"""
+    from kb._lib import office
+    meta = office.edit_meta(vault, folder)
+    if meta is None:
+        raise Refused(NOT_EDIT_FOLDER)
+    try:
+        packed, info = office.pack_checked(vault, folder, meta)
+    except (office.Refused, office.Unavailable) as e:
+        raise Refused(str(e)) from None
+    overwrite = not to
+    if overwrite:  # 蓋回原檔（D-529）：位置照清冊、檔名不變；原檔先備進回合，不記 derived_from（改的就是它自己）
+        entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == meta.get("from")), None)
+        if not entry or not entry.get("locations"):
+            raise Refused(NO_SOURCE.format(target=meta["name"]))
+        to, from_ = entry["locations"][0]["uri"], None
+    else:
+        from_ = from_ or meta.get("from")
+    return str(packed), to, from_, dict(info, file=packed.name, overwrite=overwrite)
 
 
 def link(vault, url, title, turn_id, type_=None, names=(), basis=()):

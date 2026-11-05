@@ -80,6 +80,18 @@ def _lines(report):
     return out
 
 
+def scan_and_apply(vault, sources, only=None, via="inventory scan"):
+    """掃（only：別名清單）、寫進清冊、記工作日誌程式段；回 report。office copy 補記清冊也走這裡（簡化一 A）。"""
+    conversation = journal_cli.in_conversation(vault)
+    report = inventory.scan(vault, sources, only_roots=only)
+    touched = inventory.apply(vault, report, turn.current(vault)["turn"])
+    env.clear_missing(vault, found_source_ids(sources, report, only))
+    note = (f"清冊掃描：新增 {len(report['added'])}、修改 {len(report['modified'])}、不見 {len(report['missing'])}"
+            f"（總計 {report['total']} 份）")
+    journal_cli.record_program_or_warn(vault, note, changed_of(touched), via, conversation)
+    return report
+
+
 def _scan(vault, args, as_json):
     sources = sources_lib.load(vault)
     only = None
@@ -91,13 +103,7 @@ def _scan(vault, args, as_json):
             print(f"沒有叫「{wanted}」的來源")
             return 3
         only = [wanted]
-    conversation = journal_cli.in_conversation(vault)
-    report = inventory.scan(vault, sources, only_roots=only)
-    touched = inventory.apply(vault, report, turn.current(vault)["turn"])
-    env.clear_missing(vault, found_source_ids(sources, report, only))
-    note = (f"清冊掃描：新增 {len(report['added'])}、修改 {len(report['modified'])}、不見 {len(report['missing'])}"
-            f"（總計 {report['total']} 份）")
-    journal_cli.record_program_or_warn(vault, note, changed_of(touched), "inventory scan", conversation)
+    report = scan_and_apply(vault, sources, only)
     if as_json:
         print(json.dumps(inventory.public(report), ensure_ascii=False))
         return 0

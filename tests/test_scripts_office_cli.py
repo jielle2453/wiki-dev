@@ -6,9 +6,10 @@ import json
 import re
 import shutil
 import unittest
+import zipfile
 from pathlib import Path
 
-from tests import _cards, _produce
+from tests import _cards, _ooxml, _produce
 from tests.test_scripts_inventory_cli import run_kb
 from kb._lib import office, turn  # noqa: E402
 
@@ -89,9 +90,6 @@ class Copy(Base):
         other = self.tmp / "外面.docx"
         other.write_bytes(b"x")
         self.assertEqual(self.refused("copy", str(other)), "拿不到副本：不在登記的資料夾裡")
-        fresh = self.raw / "客戶案件" / "大安陳" / "剛放的.docx"
-        fresh.write_bytes(b"x")
-        self.assertEqual(self.refused("copy", str(fresh)), "拿不到副本：清冊沒有這份檔；先跑 kb inventory scan")
         self.assertEqual(self.refused("copy", "f-00000000"), "拿不到副本：清冊沒有 f-00000000")
         self.assertFalse(self.ws.exists() and any(self.ws.iterdir()), "拒絕時不留副本")
 
@@ -179,6 +177,112 @@ class Places(Base):
         raw_file = self.raw / _cards.MEETING
         self.assertEqual(self.refused("pdf", str(raw_file)), f"只收工作區或暫存區裡的檔：{raw_file}")
         self.assertTrue(self.refused("recalc", str(raw_file)).startswith("只收工作區裡的檔"))
+
+
+class EditFolder(Base):
+    """簡化一（jacky 2026-11-05 准）：copy 自己補記清冊、copy --unpack、output save <夾> 驗了蓋回原檔（D-529）。"""
+
+    def unpack(self, target):
+        lines = self.ok("copy", str(target), "--unpack")
+        self.assertTrue(lines[1].startswith("解開到："), lines)
+        return Path(lines[1][len("解開到："):].split("（")[0])
+
+    def save(self, folder):
+        return run_kb("output", "save", str(folder), cwd=self.V)
+
+    def test_unlisted_file_copied_and_registered(self):
+        fresh = self.raw / "客戶案件" / "大安陳" / "剛放的.docx"
+        _ooxml.docx(fresh, [("p", "剛放")])
+        lines = self.ok("copy", str(fresh))
+        self.assertEqual(Path(lines[0][len("副本："):]).name, "剛放的.docx")
+        self.assertIsNotNone(_cards.entry_of(self.V, "客戶案件/大安陳/剛放的.docx"))
+
+    def test_edit_and_save_overwrites_original_and_revert_restores(self):
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        fid = _cards.entry_of(self.V, "客戶案件/" + _cards.MEETING.split("/", 1)[1])["id"]
+        folder = self.unpack(src)
+        self.assertTrue(Path(str(folder) + ".json").is_file())
+        doc = folder / "word" / "document.xml"
+        doc.write_text(doc.read_text(encoding="utf-8").replace("討論廚房動線", "討論浴室動線"), encoding="utf-8")
+        r = self.save(folder)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(r.stdout.startswith("已改好 "), r.stdout)
+        self.assertIn("驗過：改了 1 個部件", r.stdout)
+        self.assertNotIn("AI 修改", r.stdout)
+        with zipfile.ZipFile(src) as z:
+            self.assertIn("浴室", z.read("word/document.xml").decode("utf-8"))
+        self.assertEqual(sorted(p.name for p in src.parent.glob("會議紀錄_1*")), ["會議紀錄_1.docx"], "同一個夾只有一份")
+        entry = _cards.entry_of(self.V, "客戶案件/" + _cards.MEETING.split("/", 1)[1])
+        self.assertEqual(entry["id"], fid)
+        self.assertNotIn("derived_from", entry)
+        self.assertGreaterEqual(len(entry["fingerprints"]), 2)
+        self.assertEqual(list(src.parent.glob(".~kb-*")), [])
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), before, "退回換回原本那份")
+
+    def edit_once(self, src, old, new):
+        folder = self.unpack(src)
+        doc = folder / "word" / "document.xml"
+        doc.write_text(doc.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        r = self.save(folder)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_refusals_leave_original(self):
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        folder = self.unpack(src)
+        r = self.save(folder)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "夾裡沒有改到任何東西，沒放"))
+        doc = folder / "word" / "document.xml"
+        doc.write_text(doc.read_text(encoding="utf-8").replace("</w:body>", "<w:p>"), encoding="utf-8")
+        r = self.save(folder)
+        self.assertEqual(r.returncode, 3)
+        self.assertTrue(r.stdout.startswith("改過的 word/document.xml 格式壞了"), r.stdout)
+        self.assertEqual(src.read_bytes(), before)
+        plain = self.ws / "隨便的夾"
+        plain.mkdir()
+        r = self.save(plain)
+        self.assertEqual(r.returncode, 3)
+        self.assertTrue(r.stdout.startswith("這個夾不是 kb office copy --unpack 解開的"), r.stdout)
+        self.assertEqual([p.name for p in self.ws.glob("*.docx") if "unpacked" in p.name], [], "沒過的不留打包檔")
+
+    def test_open_file_fails_cleanly(self):
+        """原檔開在 Word：換上時被擋 → 明講、原檔不動、不留暫存檔（mock os.replace）。"""
+        import os
+        from unittest import mock
+        from kb._lib import output
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        folder = self.unpack(src)
+        doc = folder / "word" / "document.xml"
+        doc.write_text(doc.read_text(encoding="utf-8").replace("討論廚房動線", "討論浴室動線"), encoding="utf-8")
+        with mock.patch.object(os, "replace", side_effect=PermissionError(13, "開著", str(src))):
+            with self.assertRaises(PermissionError):
+                output.save(self.V, str(folder), None, self.t, str(self.V))
+        self.assertEqual(src.read_bytes(), before)
+        self.assertEqual(list(src.parent.glob(".~kb-*")), [])
+
+    def test_password_protected_refused(self):
+        locked = self.raw / "客戶案件" / "大安陳" / "加密.docx"
+        _ooxml.cfb(locked)
+        out = self.refused("copy", str(locked), "--unpack")
+        self.assertEqual(out, "拿不到副本：" + office.PROTECTED)
+
+    def test_macro_part_kept(self):
+        docm = self.raw / "客戶案件" / "大安陳" / "有巨集.docm"
+        with zipfile.ZipFile(self.raw / _cards.MEETING) as z, zipfile.ZipFile(docm, "w") as w:
+            for i in z.infolist():
+                w.writestr(i, z.read(i.filename))
+            w.writestr("word/vbaProject.bin", bytes(range(256)) * 4)
+        folder = self.unpack(docm)
+        doc = folder / "word" / "document.xml"
+        doc.write_text(doc.read_text(encoding="utf-8").replace("討論廚房動線", "討論浴室動線"), encoding="utf-8")
+        r = self.save(folder)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with zipfile.ZipFile(docm) as z:
+            self.assertEqual(z.read("word/vbaProject.bin"), bytes(range(256)) * 4)
 
 
 if __name__ == "__main__":
