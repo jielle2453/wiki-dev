@@ -412,7 +412,7 @@ class SmallLines(unittest.TestCase):
     def test_pulled_line_skips_streams(self):
         sys.path.insert(0, str(ROOT / "hooks"))
         import _checks
-        got = {"pulled": [".system/streams/profile/m-1.jsonl", "報價單.docx"], "conflicts": [], "big": []}
+        got = {"pulled": [".system/streams/profile/m-1.jsonl", ".gitignore", "報價單.docx"], "conflicts": [], "big": []}
         with mock.patch.object(git, "is_repo", lambda v: True), mock.patch.object(git, "rebase_in_progress", lambda v: False), \
                 mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
             lines = [x for x, _once in _checks.refresh_lines("V")]
