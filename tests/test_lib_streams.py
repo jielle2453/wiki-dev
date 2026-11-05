@@ -218,5 +218,23 @@ class ArchiveField(StreamsTest):
         self.assertEqual([c["text"] for c in findings.load_archive(self.V)["findings"]], ["甲改"])
 
 
+
+class ProfileLocalSha(StreamsTest):
+    """#42：設定檔 md 不進 git，md_sha256 每台自己記（.system/local/profile.json）；共用那份照舊帶著，讀時換成這台的。"""
+
+    def test_local_sha_wins_and_falls_back(self):
+        doc = {"schema_version": 1, "types": [], "md_sha256": "aaa"}
+        streams.write_doc(self.V, "profile", doc)
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "aaa")
+        machine(self.V, "m-bbbb0002")  # 別台畫出另一個指紋，寫進共用的
+        streams.write_doc(self.V, "profile", dict(doc, md_sha256="bbb"))
+        shared = [r.get("md_sha256") for r in streams.load(self.V, "profile").records.values()]
+        self.assertIn("bbb", shared)
+        streams._write_local(self.V, "profile", {"md_sha256": "aaa"})  # 這台記的是自己畫的
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "aaa")
+        streams._write_local(self.V, "profile", {"md_sha256": None})  # 這台沒記過：用共用的
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "bbb")
+
+
 if __name__ == "__main__":
     unittest.main()

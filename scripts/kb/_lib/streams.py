@@ -174,7 +174,7 @@ def _join(vault, kind, doc):
     """共用那份 + 本機那一半 → 呼叫端看到的整份文件。"""
     local = _read_local(vault, kind)
     if kind == "profile":  # 這台沒記過（升級前、新 clone）就先用共用的
-        return dict(doc, **{k: local[k] for k in LOCAL_PROFILE if k in local})
+        return dict(doc, **{k: local[k] for k in LOCAL_PROFILE if local.get(k)})
     key = KINDS[kind][2]
     doc = dict(doc)
     rows = [dict(e) for e in doc.get(key) or []]

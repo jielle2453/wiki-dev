@@ -127,6 +127,36 @@ class RefreshTest(RefreshBase):
         self.assertTrue((self.B / md).is_file())
         self.assertEqual(gf.must(self.B, "ls-files", md).strip(), "")
 
+    def test_profile_md_conflict_other_direction(self):
+        """#42 review：這邊已不再追蹤、還沒升級的那台改了 md 先推 → 這邊收拾後 md 是這台畫的（不是對方的）、不追蹤、不當手改。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        (self.B / md).write_text((self.B / md).read_text(encoding="utf-8") + chr(10) + "乙加的" + chr(10), encoding="utf-8")
+        self.commit_push(self.B, "b", "乙")
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        gf.must(self.A, "add", "-A")
+        gf.must(self.A, "commit", "-m", "untrack", who="甲")
+        gf.git(self.A, "pull", "--no-rebase", "--no-edit")
+        refresh.run(self.A, tid(self.A))
+        self.assertFalse(git.merge_in_progress(self.A))
+        self.assertNotIn("乙加的", (self.A / md).read_text(encoding="utf-8"))
+        self.assertEqual(gf.must(self.A, "ls-files", md).strip(), "")
+        self.assertEqual(profile.status(self.A)["state"], "ok")
+
+    def test_profile_md_user_allowed_stays_tracked(self):
+        """#42 review：她自己在 .gitignore 放行設定檔 md（行尾空白、開頭斜線也算）→ 不取消追蹤。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE + "!/系統/客戶設定檔.md  " + chr(10))
+        self.commit_push(self.A, "allow", "甲")
+        self.assertEqual(gf.must(self.A, "-c", "core.quotepath=false", "ls-files", md).strip(), md)
+        skeleton._untrack_rendered(self.A)
+        self.assertEqual(gf.must(self.A, "-c", "core.quotepath=false", "ls-files", md).strip(), md)
+
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"
         plain.mkdir()

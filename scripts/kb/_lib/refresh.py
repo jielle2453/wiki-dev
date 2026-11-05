@@ -244,6 +244,8 @@ def resolve_conflicts(vault, turn_id):
             mine = git.show_stage_bytes(vault, rel, 2)
             if mine is not None:
                 target.write_bytes(mine)
+            elif target.exists():  # 這邊已不追蹤、對方改了：工作區被換成對方畫的，刪掉讓 _render_pages 畫這台的
+                target.unlink()
             git.untrack(vault, [rel])
             continue
         if rel.startswith(".system/streams/"):

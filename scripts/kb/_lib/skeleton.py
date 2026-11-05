@@ -178,7 +178,8 @@ def _untrack_rendered(vault):
         if not git.is_repo(vault):
             return
         ignore = (Path(vault) / ".gitignore").read_text(encoding="utf-8") if (Path(vault) / ".gitignore").is_file() else ""
-        rels = [r for r in UNTRACKED if f"!{r}" not in ignore.splitlines()]
+        allowed = {ln.strip().lstrip("!").lstrip("/") for ln in ignore.splitlines() if ln.strip().startswith("!")}
+        rels = [r for r in UNTRACKED if r not in allowed]
         if rels and not git.untrack(vault, rels):
             raise OSError("git rm --cached 失敗")
     except Exception as e:  # noqa: BLE001
