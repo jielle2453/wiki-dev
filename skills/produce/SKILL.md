@@ -31,7 +31,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - **內容簡單、資料齊的直接做成檔，說「不對我再改」；筆記、討論紀錄這類 md 本身就是成品的，直接存成定稿、不標草稿；要做成 Word、Excel、簡報的複雜內容，先用檔案工具（Write）把 md 草稿寫進暫存區給她看，她說可以才做成檔；剛回答過的算草稿。她說「這份先不要整理」才標草稿。** 簡單的多一輪草稿是白等；複雜的檔做完再改很費工；標了草稿就不做卡、之後問不到（D-163、D-322、D-519）。
 - **做成什麼看用途：要 Excel 的做 Excel；說了寄出、印出、套範本的做本機檔；其餘（給業主、同事看都算）一律推薦線上文件。這個知識庫第一次做線上文件，建之前講一次三件事：存在她的 claude.ai 帳號、預設只有她看得到、要檔怎麼拿；講過記成偏好「線上文件三件事講過了」，之後客戶問才講。** 不講清楚她以為檔在電腦裡（D-165、D-166）。
 - **成品用 `kb output save --to` 放到相關的檔旁邊（案子的夾、客戶的夾）；不屬於任何案子的與草稿才進暫存區。** 程式放的才有備份與登記，說退回可以退這一步（成品先留著、要刪再說）、下次問才找得到（D-170、D-317、B-081）。
-- **工作區用檔案工具寫：腳本、解開的 XML 都寫在 `kb office` 印的工作區（`.system/temp/office/` 底下），做檔叫 `kb office run`；腳本只讀副本、只寫 OUT_DIR（工作區），不碰原檔與其他位置。** office run 跑的腳本守門管不到，寫到別處程式擋不住也沒有備份；成品留在工作區，再經 output save 放進來（實作回報裁定 1、B-401）。
+- **工作區用檔案工具寫：腳本、解開的 XML 都寫在 `kb office` 印的工作區，做檔叫 `kb office run`；腳本只讀副本、只寫 OUT_DIR（工作區），不碰原檔與其他位置。** office run 跑的腳本守門管不到，寫到別處程式擋不住也沒有備份；成品留在工作區，再經 output save 放進來（實作回報裁定 1、B-401）。
 - **草稿裡的數字逐份回原檔核對，合計交 `kb tally`；Excel 有公式的做完 `kb office recalc` 再讀回來比；重算不了就不報公式算出來的數。** 抄錯與心算錯只有核對與程式擋得住，沒重算的公式格是空的（D-159）。
 - **成品不附出處與連結，出處在回答裡講用了哪幾份。** 成品是要給業主、廠商看的，內部的卡與檔名不該出現在上面（D-169）。
 - **草稿帶句尾短標，給她看依據；照片辨識的要標明，看不清的寫看不清。** 她核對草稿時要知道哪句從哪來（D-160）。
@@ -42,9 +42,9 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 ## 骨架
 
-- 分辨是哪一種。`kb office check` 看工具並印工作區；缺工具照它的「要先做」問她，說好才 `kb office setup`。
+- 分辨是哪一種。`kb office check` 看工具並印工作區；缺工具照「要先做」問她，說好才 `kb office setup`。
 - **新做**：收資料（實體用 `kb lookup`、按卡型或年列卡用 `kb cards list`、日程用 `kb agenda list`）→ 簡單的直接照用途做成（`references/make.md`），筆記直接存成定稿（draft.md「md 本身就是成品的」），複雜的先寫草稿放暫存區（`references/draft.md`）、她說可以再做：本機檔在工作區做好後 `kb output save … [--draft <草稿>]`，線上文件建好後 `kb output link`；剛回答過的直接做成。
-- **改既有、轉格式**：`kb office copy` → 在工作區改（`kb office unpack`／`pack`、或腳本經 `kb office run`）→ 驗（Word 修訂數、Excel `kb office recalc`、簡報 `kb office render`）→ `kb output save … --from <原檔>`。
+- **改既有、轉格式**：`kb office copy` → 載入文件技能（`anthropic-skills:docx`／`xlsx`／`pptx`）照它改，unzip／zip 換成 `kb office unpack`／`pack` → 驗（Word 修訂數、Excel `kb office recalc`、簡報 `kb office render`）→ `kb output save … --from <原檔>`。
 - **回答**：說放在哪（哪個夾，或線上文件存在她帳號）、說「退回」可以退這一步（這份檔先留著，要刪再跟我說）、用了哪幾份資料；做了的事合成一行。
 - 末尾跑 `kb asks --about 實體 --json`：`asks` 有就問一件，`later` 等一段事說完帶一句，`tell` 照貼。
 - 這句話有寫入才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。
