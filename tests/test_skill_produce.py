@@ -170,6 +170,15 @@ class Round2(unittest.TestCase):
                 self.assertNotIn("退回才拿得掉", text)
                 self.assertIn("先留著", text)
 
+    def test_edit_existing_goes_to_document_skill(self):
+        """#40：改既有交文件技能，骨架與 make.md 講同一套：載入文件技能、unzip／zip 換成 kb office unpack／pack。"""
+        part = self.body[self.body.index("**改既有、轉格式**"):self.body.index("**回答**")]
+        edit = self.make[self.make.index("## 改她原本的檔"):self.make.index("## 沒有工具時怎麼說")]
+        for name, text in (("骨架", part), ("make.md", edit)):
+            with self.subTest(where=name):
+                for want in ("anthropic-skills:docx", "xlsx", "pptx", "unzip", "kb office unpack", "pack"):
+                    self.assertIn(want, text)
+
     def test_answer_says_excel_file(self):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("做成文件、Excel 檔、簡報", answer)
