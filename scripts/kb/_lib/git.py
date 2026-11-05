@@ -72,7 +72,8 @@ def _plain_git_dir(vault):
     每句開頭都會問，讀檔不叫子行程（#44：多人每句先付 0.4 秒 git）。"""
     d = Path(vault) / ".git"
     try:
-        return d.resolve() if (d / "HEAD").is_file() else None
+        ok = (d / "HEAD").is_file() and (d / "objects").is_dir() and (d / "refs").is_dir()  # 只有 HEAD 的壞夾交給 git 判斷
+        return d.resolve() if ok else None
     except OSError:
         return None
 

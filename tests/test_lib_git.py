@@ -144,6 +144,20 @@ class GitTest(unittest.TestCase):
         self.assertEqual(git.head(wt), gf.must(self.a, "rev-parse", "HEAD").strip())
         self.assertFalse(git.rebase_in_progress(wt))
 
+    def test_unborn_and_broken_dot_git(self):
+        """還沒有 commit 的分支 head 是 None；.git 只有 HEAD 的壞夾不當成 repo（交給 git 判斷）。"""
+        fresh = Path(self._tmp.name) / "fresh"
+        fresh.mkdir()
+        gf.must(fresh, "init", "-q", "-b", "main")
+        self.assertTrue(git.is_repo(fresh))
+        self.assertIsNone(git.head(fresh))
+        broken = Path(self._tmp.name) / "broken"
+        (broken / ".git").mkdir(parents=True)
+        (broken / ".git" / "HEAD").write_text("ref: refs/heads/main" + chr(10), encoding="utf-8")
+        self.assertIsNone(git._plain_git_dir(broken))
+        self.assertFalse(git.is_repo(broken))
+        self.assertIsNone(git.head(broken))
+
 
 if __name__ == "__main__":
     unittest.main()
