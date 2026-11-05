@@ -619,12 +619,11 @@ def _move_root(vault, sources, alias):
         return Path(os.path.realpath(os.path.expanduser("~")))
     if a == inventory.KNOWLEDGE.casefold():
         return Path(os.path.realpath(str(vault)))
-    for area in (inventory.HOLD,):
-        if a == area.casefold():
-            return Path(os.path.realpath(str(vault))) / area
-    for src in sources.entries:
+    for src in sources.entries:  # 暫存區登記在團隊雲端（D-324）也先照登記的位置（#41）
         if src["alias"].casefold() == a:
             return Path(os.path.realpath(src["root"]))
+    if a == inventory.HOLD.casefold():
+        return Path(os.path.realpath(str(vault))) / inventory.HOLD
     return None
 
 

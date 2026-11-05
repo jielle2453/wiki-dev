@@ -1,5 +1,6 @@
 """多人共用 2 第 9 點：暫存區當成保留別名「暫存區」的來源（團隊雲端的夾）。兩台＝換 platform.node，各自 locate 自己的路徑。"""
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -38,7 +39,11 @@ class Hold(Base):
         self.assertEqual(r.returncode, 3, r.stdout)
 
     def test_left_in_vault(self):
+        from kb import versions
         hold = self.V / "暫存區"
+        srcs = sources_lib.load(self.V)  # #41：沒登記照舊是知識庫裡的暫存區
+        self.assertEqual(inventory.path_of(self.V, srcs, "file://暫存區/a.txt"), self.V / "暫存區" / "a.txt")
+        self.assertEqual(versions._move_root(self.V, srcs, "暫存區"), Path(os.path.realpath(self.V)) / "暫存區")
         hold.mkdir(exist_ok=True)
         n = sum(1 for x in hold.rglob("*") if x.is_file())
         (hold / "a.txt").write_text("1", encoding="utf-8")
@@ -59,6 +64,14 @@ class Hold(Base):
         self.assertEqual(before, after)  # 知識庫裡的暫存區沒有新檔
         uris = [loc["uri"] for e in inventory.load(self.V)["entries"] for loc in e.get("locations") or []]
         self.assertIn("file://暫存區/外面來的.txt", uris)
+        got = inventory.path_of(self.V, sources_lib.load(self.V), "file://暫存區/外面來的.txt")  # #41：照登記的位置解
+        self.assertTrue(got.is_file() and got.samefile(self.cloud_b / "外面來的.txt"), got)
+        from kb import versions
+        self.assertTrue(versions._move_root(self.V, sources_lib.load(self.V), "暫存區").samefile(self.cloud_b))
+        fid = json.loads(r.stdout)["items"][0]["id"]
+        c = self.kb("convert", fid, "--json")
+        self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
+        self.assertTrue(Path(json.loads(c.stdout)["path"]).samefile(self.cloud_b / "外面來的.txt"), c.stdout)
         work = Path(self.tmp) / "成品.docx"
         work.write_bytes(b"docx")
         r = self.kb("output", "save", str(work), "--json")

@@ -1446,8 +1446,9 @@ def path_of(vault, sources, uri):
         return Path(os.path.expanduser("~")).joinpath(*parts)
     if a == KNOWLEDGE.casefold():
         return Path(vault).joinpath(*parts)
-    if a == HOLD.casefold():
-        return Path(vault).joinpath(HOLD, *parts)
+    if a == HOLD.casefold():  # 多人把暫存區登記在雲端（D-324）：照登記的位置（#41）
+        root = next((s["root"] for s in sources.entries if s["alias"].casefold() == a), None)
+        return Path(root).joinpath(*parts) if root else Path(vault).joinpath(HOLD, *parts)
     if a in (OLD_INBOX.casefold(), OLD_OUTPUT.casefold()):  # 舊資料（升級遷移還沒跑）的舊別名：照舊夾名找
         return Path(vault).joinpath(OLD_INBOX if a == OLD_INBOX.casefold() else OLD_OUTPUT, *parts)
     for src in sources.entries:
