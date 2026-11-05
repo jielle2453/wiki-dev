@@ -104,8 +104,11 @@ def _list(vault, args, as_json):
     if not items:
         print("口述清單是空的")
         return 0
+    from kb._lib import people
+    multi = people.multi(vault)  # 多人帶誰說的（#43）；單人照舊
     for s in items:
-        print(f"- {s.get('date')} {s.get('text')}（{'、'.join(s.get('entities') or [])}）{STATUS_SUFFIX.get(s.get('status'), '')}")
+        who = f"，{statements.said_by(s, True)}" if multi else ""
+        print(f"- {s.get('date')} {s.get('text')}（{'、'.join(s.get('entities') or [])}{who}）{STATUS_SUFFIX.get(s.get('status'), '')}")
     return 0
 
 

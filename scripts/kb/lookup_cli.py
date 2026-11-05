@@ -90,7 +90,8 @@ def _lines(got):
     if got["cards"]:
         out += ["檔案卡："] + [_card_line(c) for c in got["cards"]]
     if got["statements"]:
-        out += ["口述："] + [f"- {s['date']} {s['text']}" for s in got["statements"]]
+        out += ["口述："] + [f"- {s['date']} {s['text']}" + (f"（{s['said']}）" if s.get("said") else "")  # 多人帶誰說的（#43）
+                           for s in got["statements"]]
     if got["rulings"]:
         out.append("裁示：")
         for r in got["rulings"]:

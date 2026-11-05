@@ -120,6 +120,18 @@ class TwoMachines(Base):
         old = {"date": "2026-11-01", "text": "舊的"}
         self.assertEqual(statements.said_by(old, True), "11/01 說的")  # 升級前的只寫日期
         self.assertEqual(statements.said_by(old, False), "你 11/01 說的")
+        from kb import lookup_cli  # #43：文字輸出也帶誰說的（AI 跑的是不帶 --json 的）
+        from kb._lib import lookup
+        line = next(x for x in lookup_cli._lines(lookup.lookup(self.V, name)) if "交期是十二月" in x)
+        self.assertTrue(line.endswith(f"（{statements.said_by(it, True)}）"), line)
+        from kb._lib import people
+        with mock.patch.object(people, "multi", lambda v: False):  # 單人照舊不帶
+            line = next(x for x in lookup_cli._lines(lookup.lookup(self.V, name)) if "交期是十二月" in x)
+        self.assertNotIn("說的", line)
+        from tests.test_scripts_inventory_cli import run_kb
+        with self.as_machine("wang-laptop"):
+            out = run_kb("statement", "list", cwd=self.V).stdout
+        self.assertIn(f"，{statements.said_by(it, True)}）", out)
 
     def test_readable_ids_per_person(self):
         old = rulings.load(self.V)
