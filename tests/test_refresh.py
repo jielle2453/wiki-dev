@@ -73,6 +73,28 @@ class RefreshTest(RefreshBase):
         empty.mkdir(parents=True)
         self.assertIsNone(guard.find_vault(str(empty)))
 
+    def test_profile_md_untracked_and_rerendered(self):
+        """#42（jacky 2026-11-05 定）：設定檔 md 不進 git。舊庫追蹤著它，A 升級換 .gitignore 時不再追蹤；
+        B pull 後檔被刪，refresh 重畫回來；兩台的 git 都不再有它。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        self.assertTrue((self.A / md).is_file())
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))  # 舊版放行
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertIn(md, gf.must(self.B, "-c", "core.quotepath=false", "ls-files", md))
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        self.commit_push(self.A, "untrack", "甲")
+        self.assertTrue((self.A / md).is_file())  # 這台的檔留著
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertFalse((self.B / md).exists())  # pull 把別台不再追蹤的刪掉
+        refresh.run(self.B, tid(self.B))
+        self.assertTrue((self.B / md).is_file())
+        for v in (self.A, self.B):
+            self.assertEqual(gf.must(v, "ls-files", md).strip(), "")
+            self.assertNotIn("客戶設定檔", gf.must(v, "-c", "core.quotepath=false", "status", "--porcelain"))
+
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"
         plain.mkdir()

@@ -145,6 +145,14 @@ def checkout_theirs(vault, path):
     return rc == 0
 
 
+def untrack(vault, paths):
+    """不再追蹤（git rm --cached，工作區的檔留著）；沒追蹤的跳過。回有沒有成功。"""
+    if not paths:
+        return True
+    rc, _o, _e = run(vault, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", *paths)
+    return rc == 0
+
+
 def add(vault, paths):
     if not paths:
         return True

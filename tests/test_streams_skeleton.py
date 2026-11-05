@@ -32,7 +32,7 @@ class Content(unittest.TestCase):
         self.assertIn(areas.FREE_DIR + "/", IGNORE)
 
     def test_local_and_derived_aligned(self):
-        for line in (".system/local/", ".system/legacy/", "系統/*", "!系統/客戶設定檔.md", "/總目錄.md", ".system/asks_seen.json",
+        for line in (".system/local/", ".system/legacy/", "系統/*", "/總目錄.md", ".system/asks_seen.json",
                      ".obsidian/plugins/wiki-with-willy/data.json"):
             self.assertIn(line, IGNORE)
         for spec in streams.KINDS.values():  # 衍生副本不進同步

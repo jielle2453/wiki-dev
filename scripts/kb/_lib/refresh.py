@@ -120,14 +120,13 @@ def _render_pages(vault, turn_id):
             raise LookupError("設定檔被她手改過，不蓋掉")  # 照現在先問
         with profile.lock(vault):
             profile.write_locked(vault, profile.load(vault), turn_id)
-    if (Path(vault) / profile.MD_POSIX).exists():
-        try:
-            prof()
-            done.append(profile.MD_POSIX)
-        except LookupError:
-            pass
-        except Exception as e:  # noqa: BLE001
-            _log(vault, f"重畫設定檔失敗：{type(e).__name__}: {str(e)[:100]}")
+    try:  # 設定檔 md 不進 git（#42）：別台不再追蹤時 pull 會刪掉這台的，沒有也要畫
+        prof()
+        done.append(profile.MD_POSIX)
+    except LookupError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        _log(vault, f"重畫設定檔失敗：{type(e).__name__}: {str(e)[:100]}")
     try:
         cards.render_index(vault, turn_id)
         done.append(cards.INDEX_POSIX)

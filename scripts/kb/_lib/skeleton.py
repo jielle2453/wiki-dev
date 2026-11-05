@@ -161,9 +161,25 @@ def reconcile(vault, turn_id, from_version=None):
             settled.append(rel)
         else:
             ask.append(rel)
+    if ".gitignore" in created + replaced:
+        _untrack_rendered(vault)
     if settled:
         record(vault, settled)
     return {"created": created, "replaced": replaced, "ask": ask}
+
+
+UNTRACKED = ("系統/客戶設定檔.md",)  # 以前放行進 git、現在擋掉的渲染頁（jacky 2026-11-05 定，#42）
+
+
+def _untrack_rendered(vault):
+    """新的 .gitignore 擋掉的渲染頁，已經在 git 裡的不再追蹤（只有改了 .gitignore 的那台做，多人時就是拿到認領的那台）；
+    檔留在這台，別台 pull 後被刪的由 refresh 重畫。不是 git、出錯都不擋升級。"""
+    try:
+        from kb._lib import git
+        if git.is_repo(vault):
+            git.untrack(vault, list(UNTRACKED))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _check_rel(rel):
