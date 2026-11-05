@@ -308,10 +308,6 @@ class StopHookTest(RefreshBase):
         self.assertIn("refresh.write_after", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SmallLines(unittest.TestCase):
     """#45（問題 06）：同步進來的流水檔不列給 AI；設定檔 conflicts 不列機器算的 md_sha256。"""
 
@@ -329,6 +325,18 @@ class SmallLines(unittest.TestCase):
                 mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
             self.assertEqual(_checks.refresh_lines("V"), [])
 
+    def test_unknown_machine_pending_still_shown(self):
+        """#45 review：pending 記的那台找不到流水檔（代號換了）→ 照報，免得永遠沒人處理；沒記 machine 的舊資料照報。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(card_base._others_pending(d, {"machine": "m-00000000"}, "m-11111111"))
+            self.assertFalse(card_base._others_pending(d, {}, "m-11111111"))
+            sd = Path(d) / ".system" / "streams" / "card_base"
+            sd.mkdir(parents=True)
+            (sd / "m-00000000.jsonl").write_text("", encoding="utf-8")
+            self.assertTrue(card_base._others_pending(d, {"machine": "m-00000000"}, "m-11111111"))
+            self.assertFalse(card_base._others_pending(d, {"machine": "m-11111111"}, "m-11111111"))
+
     def test_profile_conflicts_skip_md_sha(self):
         import io
         from contextlib import redirect_stdout
@@ -344,3 +352,7 @@ class SmallLines(unittest.TestCase):
                 mock.patch.object(streams, "conflicts_of", lambda v, k: rows), redirect_stdout(buf):
             profile_cli._show("V", True)
         self.assertEqual([c["field"] for c in json.loads(buf.getvalue())["conflicts"]], ["types"])
+
+
+if __name__ == "__main__":
+    unittest.main()

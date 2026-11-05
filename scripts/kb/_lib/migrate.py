@@ -25,6 +25,7 @@ _extras 改名 _個人（放寬丙 4，D-314）：再一列，rel 是 FREE_DIR�
 rewrite 把夾改名（升級前照 D-215 拍快照）。兩個都有就不動，apply 記一行 log、notes 說一聲沒有合併。
 apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
 """
+import json
 import os
 from collections import namedtuple
 from pathlib import Path
@@ -414,12 +415,32 @@ def apply(vault, turn_id):
             pass
     count = _migrate_cards(vault, turn_id, skipped) + _migrate_synthesis(vault, turn_id, skipped)  # 綜合卡版面併進卡數
     return {"migrated": migrated, "skipped": skipped, "cards": count, "notes": notes, "left_in_output": left,
-            "streams": migrate_streams(vault)}
+            "streams": migrate_streams(vault, turn_id)}
 
 
-def migrate_streams(vault):
+CONVERTED_REL = ".system/legacy/converted.jsonl"  # 哪一句做了格式轉換（這台的，不進同步）
+
+
+def converted_turn(vault, token):
+    """token（回合代號或「回合#序」）是做了格式轉換的那一句 → True。"""
+    turn_code = str(token).split("#", 1)[0]
+    try:
+        lines = (Path(vault) / CONVERTED_REL).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for ln in lines:
+        try:
+            if json.loads(ln).get("turn") == turn_code:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def migrate_streams(vault, turn_id=None):
     """舊的整份 JSON 轉成這台的流水檔（多人共用 1）：每種一個檔、每筆一行 create；舊檔搬到 .system/legacy/<版本>/（不進同步，留一個版本）。
-    config.json 的 agenda_export_dir 搬到 env.json 這台。回轉了的種類。"""
+    config.json 的 agenda_export_dir 搬到 env.json 這台。回轉了的種類。
+    格式轉換不可退（jacky 2026-11-05 定，#45）：記下是哪一句，kb versions undo 碰到那一句講一句退不回。"""
     from kb._lib import config as config_lib, streams
     from kb._lib.paths import read_manifest
     try:
@@ -437,4 +458,12 @@ def migrate_streams(vault):
         config_lib.move_export_dir_to_env(vault)
     except (OSError, ValueError, AttributeError):
         pass
+    if done and turn_id:
+        try:
+            p = Path(vault) / CONVERTED_REL
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "a", encoding="utf-8", newline="\n") as f:
+                f.write(json.dumps({"turn": turn_id, "version": version, "kinds": done}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
     return done

@@ -528,10 +528,6 @@ class WakeOnKnowledge(unittest.TestCase):
         self.assertEqual(pending.due_back(self.V, pending.load(self.V)["items"], today="2026-10-20"), set())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MissingShared(Base):
     def test_shared_folder_missing_says_colleague(self):
         """#45（問題 09，D-334）：多人時共用夾裡不見的檔不問「是你刪的嗎」；單人、不共用的夾照舊。"""
@@ -550,3 +546,7 @@ class MissingShared(Base):
         with mock.patch.object(people, "multi", lambda v: False), mock.patch.object(sources_lib, "load", lambda v: S()):
             pending.sync_missing(self.V, [c], self.t)
         self.assertEqual(pending.ask_of(pending.open_for(self.V, "f-3", "missing_file")), MISSING_Q)
+
+
+if __name__ == "__main__":
+    unittest.main()

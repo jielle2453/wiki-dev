@@ -347,6 +347,8 @@ def sync_missing(vault, entries, turn_id):
     if not missing and not _path(vault).exists():
         return False
 
+    shared = _shared_aliases(vault) if missing else set()
+
     def change(items):
         changed = False
         for e in missing:
@@ -354,7 +356,7 @@ def sync_missing(vault, entries, turn_id):
                 uri = e["locations"][0].get("uri", "")
                 text = f"{file_label(uri)}不見了"
                 items.append(_new_item(items, "missing_file", [e["id"]], text, None, turn_id))
-                if _shared_uri(vault, uri):
+                if _alias_of(uri) in shared:  # 多人共用夾：可能是同事動的（D-334，#45）
                     items[-1]["colleague"] = True
                 changed = True
         for item in items:
@@ -366,16 +368,19 @@ def sync_missing(vault, entries, turn_id):
     return _edit(vault, turn_id, change)
 
 
-def _shared_uri(vault, uri):
-    """多人而且這個位置在共用的夾（來源登記 shared）→ True（同 hooks/_checks._colleague_uri）。"""
+def _shared_aliases(vault):
+    """多人時登記成共用（shared）的來源別名（casefold）；單人或讀不到回空集合（同 hooks/_checks._colleague_uri）。"""
     try:
         from kb._lib import people, sources as sources_lib
-        if not str(uri).startswith("file://") or not people.multi(vault):
-            return False
-        alias = str(uri)[len("file://"):].partition("/")[0].casefold()
-        return any(s.get("shared") and s["alias"].casefold() == alias for s in sources_lib.load(vault).entries)
-    except (OSError, ValueError):
-        return False
+        if not people.multi(vault):
+            return set()
+        return {s["alias"].casefold() for s in sources_lib.load(vault).entries if s.get("shared")}
+    except Exception:  # noqa: BLE001  問法而已，出錯照舊問
+        return set()
+
+
+def _alias_of(uri):
+    return str(uri)[len("file://"):].partition("/")[0].casefold() if str(uri).startswith("file://") else ""
 
 
 def ask_of(item):
