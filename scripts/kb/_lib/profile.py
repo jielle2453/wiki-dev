@@ -1405,6 +1405,26 @@ def lock(vault):
     return FileLock(_path(vault))
 
 
+def render_if_missing(vault):
+    """設定檔在、md 還沒畫（#42 之後 md 不進 git，新 clone 第一句 hook 畫之前）：畫出來、記這台的 md_sha256，回 True。
+    md 本來就不在，沒東西要備份，不開回合；沒有設定檔（真的還沒 init）或 md 已在什麼都不做。
+    畫不出來（設定檔壞、鎖忙）回 False 不丟，呼叫端照原本那條路報。"""
+    md = Path(vault) / MD_POSIX
+    try:
+        if md.is_file() or read_json(_path(vault)) is None:
+            return False
+        with lock(vault):
+            data = load(vault)
+            if data is None or md.is_file():
+                return False
+            data = copy.deepcopy(data)
+            data["md_sha256"] = sha256_text(render(vault, data))
+            write_json_atomic(_path(vault), data)
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
 # ---------- note 改設定檔（D-144） ----------
 
 # (節名, 欄, 主鍵)；欄名同 md 表頭，偏好的主鍵是序號（第幾條，從 1 數）

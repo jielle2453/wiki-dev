@@ -444,6 +444,7 @@ def _check(vault, data, step):
         if batches.ids_running(vault, session_of(vault)):
             raise Refused(SAMPLE_RUNNING)
     elif step == "setup":
+        profile.render_if_missing(vault)  # md 還沒畫先畫（#42 問題 12）
         st = profile.status(vault)
         if st["state"] == "missing":
             raise Refused(PROFILE_MISSING)
