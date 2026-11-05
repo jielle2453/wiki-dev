@@ -29,6 +29,9 @@ class RefreshBase(unittest.TestCase):
         subprocess.run(["git", "init", "--bare", "-b", "main", str(self.bare)], check=True, capture_output=True, env=gf.ENV)
         from kb._lib import migrate
         migrate.migrate_streams(self.A)  # 第 1 份：舊的整份 JSON → 這台的流水檔，才有東西進 git
+        from kb._lib import profile
+        with profile.lock(self.A):  # 設定檔升到這版（真的庫升級時就轉了），B 重畫才不會順手升級、多寫一行
+            profile.write_locked(self.A, profile.load(self.A), tid(self.A))
         gf.write(self.A, ".gitignore", IGNORE)
         gf.must(self.A, "init", "-b", "main")
         gf.must(self.A, "add", "-A")
@@ -72,6 +75,90 @@ class RefreshTest(RefreshBase):
         empty = self.tmp / "空" / ".system" / "streams" / "sources"  # 空的流水檔夾不算知識庫
         empty.mkdir(parents=True)
         self.assertIsNone(guard.find_vault(str(empty)))
+
+    def test_profile_md_untracked_and_rerendered(self):
+        """#42（jacky 2026-11-05 定）：設定檔 md 不進 git。舊庫追蹤著它，A 升級換 .gitignore 時不再追蹤；
+        B pull 後檔被刪，refresh 重畫回來；兩台的 git 都不再有它。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        self.assertTrue((self.A / md).is_file())
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))  # 舊版放行
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertIn(md, gf.must(self.B, "-c", "core.quotepath=false", "ls-files", md))
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        self.commit_push(self.A, "untrack", "甲")
+        self.assertTrue((self.A / md).is_file())  # 這台的檔留著
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertFalse((self.B / md).exists())  # pull 把別台不再追蹤的刪掉
+        refresh.run(self.B, tid(self.B))
+        self.assertTrue((self.B / md).is_file())
+        for v in (self.A, self.B):
+            self.assertEqual(gf.must(v, "ls-files", md).strip(), "")
+            self.assertNotIn("客戶設定檔", gf.must(v, "-c", "core.quotepath=false", "status", "--porcelain"))
+        # review：A 改設定 → 流水檔同步到 B，B 的 md 還在但是舊的；指紋各台自己記，B 不當成手改、refresh 畫成新的
+        r = subprocess.run([sys.executable, str(KB), "profile", "set", "people", "4"], capture_output=True, text=True,
+                           encoding="utf-8", cwd=str(self.A), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT), PYTHONIOENCODING="utf-8"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.commit_push(self.A, "people", "甲")
+        old_b = (self.B / md).read_text(encoding="utf-8")
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertEqual((self.B / md).read_text(encoding="utf-8"), old_b)  # md 不進 git，pull 不動它
+        self.assertEqual(profile.status(self.B)["state"], "ok")  # 不當成她手改
+        refresh.run(self.B, tid(self.B))
+        self.assertEqual((self.B / md).read_text(encoding="utf-8"), (self.A / md).read_text(encoding="utf-8"))
+
+    def test_profile_md_modify_delete_conflict(self):
+        """#42 review：還沒升級的那台改了設定檔 md、這邊已不再追蹤 → 收拾成不追蹤、留這台的檔、合併做完。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        self.commit_push(self.A, "untrack", "甲")
+        (self.B / md).write_text((self.B / md).read_text(encoding="utf-8") + chr(10) + "乙加的" + chr(10), encoding="utf-8")
+        gf.must(self.B, "add", "-A")
+        gf.must(self.B, "commit", "-m", "b", who="乙")
+        gf.git(self.B, "pull", "--no-rebase", "--no-edit")
+        self.assertTrue(git.merge_in_progress(self.B))
+        got = refresh.run(self.B, tid(self.B))
+        self.assertEqual(got["conflicts"], [])
+        self.assertFalse(git.merge_in_progress(self.B))
+        self.assertTrue((self.B / md).is_file())
+        self.assertEqual(gf.must(self.B, "ls-files", md).strip(), "")
+
+    def test_profile_md_conflict_other_direction(self):
+        """#42 review：這邊已不再追蹤、還沒升級的那台改了 md 先推 → 這邊收拾後 md 是這台畫的（不是對方的）、不追蹤、不當手改。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        (self.B / md).write_text((self.B / md).read_text(encoding="utf-8") + chr(10) + "乙加的" + chr(10), encoding="utf-8")
+        self.commit_push(self.B, "b", "乙")
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        gf.must(self.A, "add", "-A")
+        gf.must(self.A, "commit", "-m", "untrack", who="甲")
+        gf.git(self.A, "pull", "--no-rebase", "--no-edit")
+        refresh.run(self.A, tid(self.A))
+        self.assertFalse(git.merge_in_progress(self.A))
+        self.assertNotIn("乙加的", (self.A / md).read_text(encoding="utf-8"))
+        self.assertEqual(gf.must(self.A, "ls-files", md).strip(), "")
+        self.assertEqual(profile.status(self.A)["state"], "ok")
+
+    def test_profile_md_user_allowed_stays_tracked(self):
+        """#42 review：她自己在 .gitignore 放行設定檔 md（行尾空白、開頭斜線也算）→ 不取消追蹤。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE + "!/系統/客戶設定檔.md  " + chr(10))
+        self.commit_push(self.A, "allow", "甲")
+        self.assertEqual(gf.must(self.A, "-c", "core.quotepath=false", "ls-files", md).strip(), md)
+        skeleton._untrack_rendered(self.A)
+        self.assertEqual(gf.must(self.A, "-c", "core.quotepath=false", "ls-files", md).strip(), md)
 
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"

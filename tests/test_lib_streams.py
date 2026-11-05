@@ -218,5 +218,28 @@ class ArchiveField(StreamsTest):
         self.assertEqual([c["text"] for c in findings.load_archive(self.V)["findings"]], ["甲改"])
 
 
+
+class ProfileLocalSha(StreamsTest):
+    """#42：設定檔 md 不進 git，md_sha256 每台自己記（.system/local/profile.json）；共用那份第一次建時帶著、之後不跟著改，讀時換成這台的。"""
+
+    def test_local_sha_wins_and_shared_stays(self):
+        doc = {"schema_version": 1, "types": [], "md_sha256": "aaa"}
+        streams.write_doc(self.V, "profile", doc)
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "aaa")
+        machine(self.V, "m-bbbb0002")  # 別台畫出另一個指紋：只記在它自己那一半，不寫共用流水檔
+        streams.write_doc(self.V, "profile", dict(doc, md_sha256="bbb"))
+        self.assertFalse((streams.stream_dir(self.V, "profile") / "m-bbbb0002.jsonl").exists())
+        shared = [r.get("md_sha256") for r in streams.load(self.V, "profile").records.values()]
+        self.assertEqual(shared, ["aaa"])
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "bbb")
+        streams.write_doc(self.V, "profile", dict(doc, md_sha256="bbb", types=[{"name": "案子"}]))  # 別的欄照常進共用
+        self.assertTrue((streams.stream_dir(self.V, "profile") / "m-bbbb0002.jsonl").exists())
+        self.assertEqual([r.get("md_sha256") for r in streams.load(self.V, "profile").records.values()], ["aaa"])
+        streams._write_local(self.V, "profile", {"md_sha256": None})  # 這台沒記過：用共用的
+        self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "aaa")
+        streams.write_doc(self.V, "profile", dict(doc, md_sha256=None))  # 清成 None（設定檔重建、沒有 md）：讀回 None
+        self.assertIsNone(streams.read_doc(self.V, "profile")["md_sha256"])
+
+
 if __name__ == "__main__":
     unittest.main()

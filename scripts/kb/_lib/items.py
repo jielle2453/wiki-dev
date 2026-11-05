@@ -26,6 +26,7 @@ DERIVED = {  # 由別的東西重算的檔：不單獨改回（改完它的來�
     ".system/inventory.json": None,
     ".system/local/inventory.json": None,  # 流水檔的本機那一半（多人共用 1）
     ".system/local/pending.json": None,
+    ".system/local/profile.json": None,  # 設定檔 md 這台的指紋（#42），跟著設定檔走
     "系統/日程.md": ".system/agenda.json",
     "系統/待處理.md": ".system/pending.json",
     "系統/裁示.md": ".system/rulings.json",

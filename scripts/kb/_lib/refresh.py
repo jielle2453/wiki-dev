@@ -120,14 +120,13 @@ def _render_pages(vault, turn_id):
             raise LookupError("設定檔被她手改過，不蓋掉")  # 照現在先問
         with profile.lock(vault):
             profile.write_locked(vault, profile.load(vault), turn_id)
-    if (Path(vault) / profile.MD_POSIX).exists():
-        try:
-            prof()
-            done.append(profile.MD_POSIX)
-        except LookupError:
-            pass
-        except Exception as e:  # noqa: BLE001
-            _log(vault, f"重畫設定檔失敗：{type(e).__name__}: {str(e)[:100]}")
+    try:  # 設定檔 md 不進 git（#42）：別台不再追蹤時 pull 會刪掉這台的，沒有也要畫
+        prof()
+        done.append(profile.MD_POSIX)
+    except LookupError:
+        pass
+    except Exception as e:  # noqa: BLE001
+        _log(vault, f"重畫設定檔失敗：{type(e).__name__}: {str(e)[:100]}")
     try:
         cards.render_index(vault, turn_id)
         done.append(cards.INDEX_POSIX)
@@ -241,6 +240,15 @@ def resolve_conflicts(vault, turn_id):
     for rel in git.unmerged(vault):
         other = git.author_of(vault, "MERGE_HEAD", rel) or "同事"
         target = Path(vault) / rel
+        from kb._lib.skeleton import UNTRACKED
+        if rel in UNTRACKED:  # 設定檔 md 不進 git（#42）：還沒升級的那台改了、這邊不再追蹤 → 一律不追蹤，留這台的、之後重畫
+            mine = git.show_stage_bytes(vault, rel, 2)
+            if mine is not None:
+                target.write_bytes(mine)
+            elif target.exists():  # 這邊已不追蹤、對方改了：工作區被換成對方畫的，刪掉讓 _render_pages 畫這台的
+                target.unlink()
+            git.untrack(vault, [rel])
+            continue
         if rel.startswith(".system/streams/"):
             _merge_streams(vault, rel)
             git.add(vault, [rel])

@@ -32,9 +32,10 @@ class Content(unittest.TestCase):
         self.assertIn(areas.FREE_DIR + "/", IGNORE)
 
     def test_local_and_derived_aligned(self):
-        for line in (".system/local/", ".system/legacy/", "系統/*", "!系統/客戶設定檔.md", "/總目錄.md", ".system/asks_seen.json",
+        for line in (".system/local/", ".system/legacy/", "系統/*", "/總目錄.md", ".system/asks_seen.json",
                      ".obsidian/plugins/wiki-with-willy/data.json"):
             self.assertIn(line, IGNORE)
+        self.assertNotIn("!系統/客戶設定檔.md", IGNORE)  # 設定檔 md 不進 git（#42，jacky 2026-11-05 定）
         for spec in streams.KINDS.values():  # 衍生副本不進同步
             self.assertIn(spec[0], IGNORE)
         for _base, rel in streams.VIEWS.values():
