@@ -29,6 +29,9 @@ class RefreshBase(unittest.TestCase):
         subprocess.run(["git", "init", "--bare", "-b", "main", str(self.bare)], check=True, capture_output=True, env=gf.ENV)
         from kb._lib import migrate
         migrate.migrate_streams(self.A)  # 第 1 份：舊的整份 JSON → 這台的流水檔，才有東西進 git
+        from kb._lib import profile
+        with profile.lock(self.A):  # 設定檔升到這版（真的庫升級時就轉了），B 重畫才不會順手升級、多寫一行
+            profile.write_locked(self.A, profile.load(self.A), tid(self.A))
         gf.write(self.A, ".gitignore", IGNORE)
         gf.must(self.A, "init", "-b", "main")
         gf.must(self.A, "add", "-A")

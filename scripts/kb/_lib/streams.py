@@ -124,7 +124,7 @@ def _write_local(vault, kind, items):
 
 def _split(kind, doc):
     """整份文件 → (共用那份, 本機那一半 {id: {…}})。"""
-    if kind == "profile":  # 共用那份照舊帶著（舊版的別台還讀它），讀的時候換成這台的
+    if kind == "profile":  # 共用那份第一次建時帶著（舊版的別台還讀它），之後 write_doc 不跟著改；讀的時候換成這台的
         return doc, {k: doc.get(k) for k in LOCAL_PROFILE if k in doc}
     key = KINDS[kind][2]
     shared = {k: v for k, v in doc.items() if k != key}
@@ -776,6 +776,12 @@ def write_doc(vault, kind, data):
         before = {k: v for k, v in live.items() if not _is_archived(v)}
     else:
         before = live
+    if kind == "profile" and "profile" in before:  # md 指紋只記在這台那一半（#42）：共用那份照舊，單純重畫不寫共用流水檔
+        data = dict(data)
+        if "md_sha256" in before["profile"]:
+            data["md_sha256"] = before["profile"]["md_sha256"]
+        else:
+            data.pop("md_sha256", None)
     after = doc_to_records(kind, data)
     changed = write(vault, base(kind), before, after)
     if kind in SPLIT and not changed:
