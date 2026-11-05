@@ -145,6 +145,10 @@ class RefreshTest(RefreshBase):
         self.assertFalse(git.merge_in_progress(self.B))
         self.assertEqual(gf.must(self.B, "status", "--porcelain").strip(), "")
         gf.must(self.B, "push")
+        self.assertEqual([e["path"] for e in card_base.edits(self.B, persist=False)["edits"]], [rel])
+        gf.must(self.A, "pull", "--no-rebase")  # #45：pending 跟著共用流水檔到 A，A 不當成自己的手改
+        self.assertIsNotNone(card_base.load(self.A)[rel].get("pending"))
+        self.assertEqual(card_base.edits(self.A, persist=False)["edits"], [])
 
     def test_rebase_in_progress_untouched(self):
         (Path(self.B) / ".git" / "rebase-merge").mkdir()
@@ -161,6 +165,9 @@ class RefreshTest(RefreshBase):
         with mock.patch.object(config, "get", lambda v, k: 0.01 if k == "git_file_max_mb" else real(v, k)):
             got = refresh.run(self.B, tid(self.B))
         self.assertEqual([b["path"] for b in got["big"]], ["客戶案件/影片.mp4"])
+        outside = [s["alias"] for s in sources_lib.load(self.B).entries if s["alias"] not in ("暫存區", "知識庫")]
+        self.assertTrue(outside)
+        self.assertEqual(got["big"][0]["cloud"], outside[0])  # #45：知識庫外登記的來源（以前讀錯鍵，永遠 None）
         self.assertIn("/客戶案件/影片.mp4", (self.B / ".git" / "info" / "exclude").read_text(encoding="utf-8"))
         self.assertNotIn("影片", gf.must(self.B, "status", "--porcelain"))
         # 搬走後 exclude 拿掉（source-edit 叫的）
