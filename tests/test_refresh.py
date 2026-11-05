@@ -395,6 +395,17 @@ class StopHookTest(RefreshBase):
         self.assertIn("refresh.write_after", text)
 
 
+class QuietTurn(RefreshBase):
+    """#44：HEAD 沒變的那句，每句開頭的 git 對帳一個子行程都不叫（多人原本每句先付 0.4 秒）。"""
+
+    def test_unchanged_head_calls_no_git(self):
+        sys.path.insert(0, str(ROOT / "hooks"))
+        import _checks
+        refresh.run(self.B, tid(self.B))
+        with mock.patch.object(git, "_once", side_effect=AssertionError("不該叫 git")):
+            self.assertEqual(_checks.refresh_lines(self.B), [])
+
+
 class SmallLines(unittest.TestCase):
     """#45（問題 06）：同步進來的流水檔不列給 AI；設定檔 conflicts 不列機器算的 md_sha256。"""
 
