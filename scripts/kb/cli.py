@@ -26,7 +26,7 @@ COMMANDS = {
                            "find 找夾，relocate 資料夾搬家，purge 清不想讓 AI 看到的夾的殘留"),
     "source-edit": ("kb.source_edit", "原檔：move 搬一份檔或一個夾，rename 改名，trash 丟資源回收筒，where 這個實體的檔放在哪，open 開檔案總管"),
     "config": ("kb.config_cli", "門檻與頻率：show 列可以調的、set 改一個、reset 改回預設"),
-    "journal": ("kb.journal_cli", "工作日誌：recent 印最近幾段，render 重寫月檔"),
+    "journal": ("kb.journal_cli", "工作日誌：recent 印最近幾段"),
     "inventory": ("kb.inventory_cli", "清冊：scan 掃描來源與總資料夾，把變動套進清冊"),
     "changes": ("kb.changes", "變動：跟清冊上次掃描比，列新增、修改、搬動、不見；只看不改"),
     "convert": ("kb.convert", "抽字：把一份原檔轉成純文字暫存檔給製卡者讀；PDF、圖片指給 Read"),
