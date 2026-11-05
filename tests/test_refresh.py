@@ -229,6 +229,10 @@ class RefreshTest(RefreshBase):
         self.assertFalse(git.merge_in_progress(self.B))
         self.assertEqual(gf.must(self.B, "status", "--porcelain").strip(), "")
         gf.must(self.B, "push")
+        self.assertEqual([e["path"] for e in card_base.edits(self.B, persist=False)["edits"]], [rel])
+        gf.must(self.A, "pull", "--no-rebase")  # #45：pending 跟著共用流水檔到 A，A 不當成自己的手改
+        self.assertIsNotNone(card_base.load(self.A)[rel].get("pending"))
+        self.assertEqual(card_base.edits(self.A, persist=False)["edits"], [])
 
     def test_rebase_in_progress_untouched(self):
         (Path(self.B) / ".git" / "rebase-merge").mkdir()
@@ -245,6 +249,9 @@ class RefreshTest(RefreshBase):
         with mock.patch.object(config, "get", lambda v, k: 0.01 if k == "git_file_max_mb" else real(v, k)):
             got = refresh.run(self.B, tid(self.B))
         self.assertEqual([b["path"] for b in got["big"]], ["客戶案件/影片.mp4"])
+        outside = [s["alias"] for s in sources_lib.load(self.B).entries if s["alias"] not in ("暫存區", "知識庫")]
+        self.assertTrue(outside)
+        self.assertEqual(got["big"][0]["cloud"], outside[0])  # #45：知識庫外登記的來源（以前讀錯鍵，永遠 None）
         self.assertIn("/客戶案件/影片.mp4", (self.B / ".git" / "info" / "exclude").read_text(encoding="utf-8"))
         self.assertNotIn("影片", gf.must(self.B, "status", "--porcelain"))
         # 搬走後 exclude 拿掉（source-edit 叫的）
@@ -383,6 +390,52 @@ class StopHookTest(RefreshBase):
     def test_stop_hook_has_record_after(self):
         text = (ROOT / "hooks" / "stop.py").read_text(encoding="utf-8")
         self.assertIn("refresh.write_after", text)
+
+
+class SmallLines(unittest.TestCase):
+    """#45（問題 06）：同步進來的流水檔不列給 AI；設定檔 conflicts 不列機器算的 md_sha256。"""
+
+    def test_pulled_line_skips_streams(self):
+        sys.path.insert(0, str(ROOT / "hooks"))
+        import _checks
+        got = {"pulled": [".system/streams/profile/m-1.jsonl", "報價單.docx"], "conflicts": [], "big": []}
+        with mock.patch.object(git, "is_repo", lambda v: True), mock.patch.object(git, "rebase_in_progress", lambda v: False), \
+                mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
+            lines = [x for x, _once in _checks.refresh_lines("V")]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("1 個檔（報價單.docx）", lines[0])
+        got["pulled"] = [".system/streams/profile/m-1.jsonl"]
+        with mock.patch.object(git, "is_repo", lambda v: True), mock.patch.object(git, "rebase_in_progress", lambda v: False), \
+                mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
+            self.assertEqual(_checks.refresh_lines("V"), [])
+
+    def test_unknown_machine_pending_still_shown(self):
+        """#45 review：pending 記的那台找不到流水檔（代號換了）→ 照報，免得永遠沒人處理；沒記 machine 的舊資料照報。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(card_base._others_pending(d, {"machine": "m-00000000"}, "m-11111111"))
+            self.assertFalse(card_base._others_pending(d, {}, "m-11111111"))
+            sd = Path(d) / ".system" / "streams" / "card_base"
+            sd.mkdir(parents=True)
+            (sd / "m-00000000.jsonl").write_text("", encoding="utf-8")
+            self.assertTrue(card_base._others_pending(d, {"machine": "m-00000000"}, "m-11111111"))
+            self.assertFalse(card_base._others_pending(d, {"machine": "m-11111111"}, "m-11111111"))
+
+    def test_profile_conflicts_skip_md_sha(self):
+        import io
+        from contextlib import redirect_stdout
+        from kb import profile_cli
+        from kb._lib import profile, streams
+        rows = [{"id": "p", "field": "md_sha256", "values": []}, {"id": "p", "field": "types", "values": []}]
+        buf = io.StringIO()
+        with mock.patch.object(profile, "status", lambda v: {"state": "ok", "data": {}}), \
+                mock.patch.object(profile_cli, "_limits", lambda v: {}), \
+                mock.patch.object(profile, "sections_schema", lambda *a, **k: []), \
+                mock.patch.object(profile, "card_titles", lambda v, d: {}), mock.patch.object(profile, "use_choices", lambda v: []), \
+                mock.patch.object(profile_cli, "_pending_edit", lambda st: None), \
+                mock.patch.object(streams, "conflicts_of", lambda v, k: rows), redirect_stdout(buf):
+            profile_cli._show("V", True)
+        self.assertEqual([c["field"] for c in json.loads(buf.getvalue())["conflicts"]], ["types"])
 
 
 if __name__ == "__main__":

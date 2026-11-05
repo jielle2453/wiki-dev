@@ -48,6 +48,7 @@ HEADER = ("# 待處理\n"
           "由程式產生；在這裡打勾或刪掉一行，我下次會照著做。\n")  # D-223：照她打勾、刪行做
 NOTHING = "目前沒有等你決定的事。"
 MISSING_ASK = "是你刪的嗎？是的話我把它的卡一起拿掉；不是的話可以從資源回收筒或雲端找回來。"
+MISSING_ASK_SHARED = "在共用的夾裡，可能是同事移走或刪的；確定不要了我把它的卡一起拿掉，不是的話可以從資源回收筒或雲端找回來。"  # 多人（D-334，#45）
 # 讀不到的問法，依 reason 開頭挑；都不是就用最後一句
 UNREADABLE_ASKS = (("還沒裝 PDF 元件", "請服務人員在這台電腦跑 pip install pypdfium2。"),  # 裁定 36
                    ("有密碼", "PDF 給我密碼就能打開（要我記住也可以）；Word、Excel 請另存一份沒密碼的，或跟我說先跳過。"),
@@ -346,12 +347,17 @@ def sync_missing(vault, entries, turn_id):
     if not missing and not _path(vault).exists():
         return False
 
+    shared = _shared_aliases(vault) if missing else set()
+
     def change(items):
         changed = False
         for e in missing:
             if not answered(items, e):
-                text = f"{file_label(e['locations'][0].get('uri', ''))}不見了"
+                uri = e["locations"][0].get("uri", "")
+                text = f"{file_label(uri)}不見了"
                 items.append(_new_item(items, "missing_file", [e["id"]], text, None, turn_id))
+                if _alias_of(uri) in shared:  # 多人共用夾：可能是同事動的（D-334，#45）
+                    items[-1]["colleague"] = True
                 changed = True
         for item in items:
             if (item.get("status") == "open" and item.get("kind") == "missing_file"
@@ -362,9 +368,24 @@ def sync_missing(vault, entries, turn_id):
     return _edit(vault, turn_id, change)
 
 
+def _shared_aliases(vault):
+    """多人時登記成共用（shared）的來源別名（casefold）；單人或讀不到回空集合（同 hooks/_checks._colleague_uri）。"""
+    try:
+        from kb._lib import people, sources as sources_lib
+        if not people.multi(vault):
+            return set()
+        return {s["alias"].casefold() for s in sources_lib.load(vault).entries if s.get("shared")}
+    except Exception:  # noqa: BLE001  問法而已，出錯照舊問
+        return set()
+
+
+def _alias_of(uri):
+    return str(uri)[len("file://"):].partition("/")[0].casefold() if str(uri).startswith("file://") else ""
+
+
 def ask_of(item):
     if item.get("kind") == "missing_file":
-        return MISSING_ASK
+        return MISSING_ASK_SHARED if item.get("colleague") else MISSING_ASK
     if item.get("kind") in ("close", "conflict", "lint", "report", "handedit", "tag_edit"):
         return ""
     if item.get("kind") == "script_touched":

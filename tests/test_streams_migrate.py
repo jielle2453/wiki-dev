@@ -1,5 +1,5 @@
 """多人共用 1 驗收 8：舊格式的庫跑遷移，每種都轉成這台的流水檔、讀回跟遷移前一樣；舊檔在 .system/legacy/<版本>/；
-config.json 的 agenda_export_dir 搬到 env；退回（kb versions revert）退得回去。"""
+config.json 的 agenda_export_dir 搬到 env；退回（kb versions revert）退回設定檔，格式轉換本身不可退、講一句（#45-07）。"""
 import json
 import shutil
 import tempfile
@@ -68,6 +68,30 @@ class MigrateStreams(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(read_json(self.V / ".system" / "profile.json"), old)
         self.assertEqual(read_json(self.V / ".system" / "agenda.json"), LEGACY["agenda.json"])  # 其他種類沒被動
+        self.assertIn("這一步退不回去", r.stdout)  # 格式轉換不可退，講一句（jacky 2026-11-05 定，#45-07）
+
+    def test_conversion_turn_is_recorded_and_undo_says_it_cannot(self):
+        migrate.apply(self.V, self.turn)
+        self.assertTrue(migrate.converted_turn(self.V, self.turn))
+        self.assertTrue(migrate.converted_turn(self.V, f"{self.turn}#1"))
+        self.assertFalse(migrate.converted_turn(self.V, "t-沒有這句"))
+        r = run_kb("versions", "undo", self.turn, cwd=self.V)
+        self.assertIn("那句「升級」：升級時把資料換成新的存法，這一步退不回去", r.stdout)
+        self.assertNotIn(self.turn, r.stdout)  # B-074 不唸代號
+        got = json.loads(run_kb("versions", "items", "--turn", self.turn, "--json", cwd=self.V).stdout)
+        self.assertEqual(len(got["converted"]), 1)
+        self.assertIn("這一步退不回去", run_kb("versions", "items", "--turn", self.turn, cwd=self.V).stdout)
+        self.assertIn(streams.machine_id(self.V), [f.stem for f in (self.V / ".system" / "streams" / "agenda").glob("*.jsonl")])
+        r = run_kb("versions", "undo", "t-沒有這句", cwd=self.V)  # 不是轉換那一句照舊說找不到
+        self.assertIn("找不到這個項目或回合", r.stdout)
+
+    def test_only_conversion_in_the_turn_says_it_cannot(self):
+        (self.V / ".system" / "legacy").mkdir(parents=True, exist_ok=True)
+        (self.V / migrate.CONVERTED_REL).write_text("[]\n壞\n" + json.dumps({"turn": "t-only"}) + "\n", encoding="utf-8")
+        for args in (("undo", "t-only"), ("items", "--turn", "t-only")):
+            r = run_kb("versions", *args, cwd=self.V)
+            self.assertIn("那一句升級時把資料換成新的存法，這一步退不回去", r.stdout, args)
+            self.assertNotIn("找不到", r.stdout, args)
 
 
 if __name__ == "__main__":
