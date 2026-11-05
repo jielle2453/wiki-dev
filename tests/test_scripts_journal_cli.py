@@ -162,41 +162,25 @@ class ChangedText(unittest.TestCase):
 
 
 class Render(Base):
-    def test_render_month_and_all(self):
+    """kb journal render 簡化時刪了（沒人用）；重畫月檔照樣每次寫入都做，這裡直接測 journal.render。"""
+    def test_render_month(self):
         self.copy_fixture("2026-10")
-        self.copy_fixture("2026-09")
-        r = run_kb("journal", "render", "2026-10", cwd=self.V)
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, "已重寫 1 個月"), r.stderr)
+        journal.render(self.V, "2026-10")
         self.assertEqual(journal.md_path(self.V, "2026-10").read_bytes(), (FIXTURES / "journal" / "2026-10.md").read_bytes())
-        self.assertFalse(journal.md_path(self.V, "2026-09").exists())
-        r = run_kb("journal", "render", cwd=self.V)
-        self.assertEqual(r.stdout.strip(), "已重寫 2 個月")
-        self.assertTrue(journal.md_path(self.V, "2026-09").exists())
 
     def test_hand_edit_is_overwritten_and_rerender_is_stable(self):
         self.copy_fixture()
-        run_kb("journal", "render", cwd=self.V)
+        journal.render(self.V, "2026-10")
         md = journal.md_path(self.V, "2026-10")
         before = md.read_bytes()
-        run_kb("journal", "render", cwd=self.V)
+        journal.render(self.V, "2026-10")
         self.assertEqual(md.read_bytes(), before)
         md.write_text(md.read_text(encoding="utf-8").replace("沒有改動", "手改"), encoding="utf-8")
-        run_kb("journal", "render", cwd=self.V)
+        journal.render(self.V, "2026-10")
         self.assertEqual(md.read_bytes(), before)
 
-    def test_json(self):
-        self.copy_fixture()
-        r = run_kb("journal", "render", "--json", cwd=self.V)
-        self.assertEqual(json.loads(r.stdout), {"months": ["2026-10"]})
-
-    def test_month_without_jsonl(self):
-        r = run_kb("journal", "render", "2026-01", cwd=self.V)
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, "已重寫 0 個月"))
-        self.assertFalse(journal.md_path(self.V, "2026-01").exists())
-
-    def test_bad_month_exit_2(self):
-        r = run_kb("journal", "render", "十月", cwd=self.V)
-        self.assertEqual(r.returncode, 2)
+    def test_cli_render_gone(self):
+        self.assertEqual(run_kb("journal", "render", cwd=self.V).returncode, 2)
 
 
 

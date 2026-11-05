@@ -1,4 +1,4 @@
-"""kb finding add／withdraw／list（answer 第 3 點，D-154、D-155）。
+"""kb finding add／list（answer 第 3 點，D-154、D-155）。
 
 推算清單只准這裡寫（經 _lib/findings）：每次在 findings.json 的鎖裡讀改寫（CLI 等 30 秒，等不到「等不到鎖，沒有寫入」exit 3），
 寫前備進回合。拒絕的第一行就是原因、exit 3；成功句與拒絕句一字不差。客戶說「把剛才的答案記下來」時 note 叫它（D-151）。
@@ -26,12 +26,10 @@ def add_arguments(sub):
     ad.add_argument("--how", required=True, help="算法一句，最多 200 字")
     ad.add_argument("--basis", action="extend", nargs="+", default=[], help="依據的檔案卡編號（f-…），可以多個")
     ad.add_argument("--replaces", help="取代哪一筆舊推算（c-…）：舊的記成被這筆取代")
-    wd = subs.add_parser("withdraw", help="收回一筆推算", description="這筆推算不用了：記成已收回（紀錄留著）。")
-    wd.add_argument("id", help="推算編號（c-…）")
     ls = subs.add_parser("list", help="列出推算", description="預設列有效的；--all 含被取代與收回的。")
     ls.add_argument("--entity", help="只列掛在這個實體上的")
     ls.add_argument("--all", action="store_true", help="全部列出")
-    for p in (ad, wd, ls):
+    for p in (ad, ls):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -54,13 +52,6 @@ def _add(vault, args, as_json, conversation, turn_id):
         line, note = f"已改：{old['text']} → {it['text']}", f"改推算：{old['text']} → {it['text']}"
     journal_cli.record_program_or_warn(vault, note, CHANGED, "finding add", conversation)
     _out(as_json, [line], {"finding": it, "replaced": old})
-    return 0
-
-
-def _withdraw(vault, args, as_json, conversation, turn_id):
-    it = findings.withdraw(vault, args.id.strip(), turn_id)
-    journal_cli.record_program_or_warn(vault, f"收回推算：{it['text']}", CHANGED, "finding withdraw", conversation)
-    _out(as_json, [f"已收回：{it['text']}"], {"finding": it})
     return 0
 
 
@@ -92,7 +83,7 @@ def _list(vault, args, as_json):
     return 0
 
 
-WRITERS = {"add": _add, "withdraw": _withdraw}
+WRITERS = {"add": _add}
 
 
 def rel_of(vault, e):

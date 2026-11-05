@@ -1,6 +1,6 @@
 """kb finding 黑箱（answer 第 3 點，驗收 5、7、13、14）：成功與拒絕句一字不差、人讀不印編號、--json 有；
 cards todo 把信義王列進待更新綜合卡、added 帶 source finding、項目帶 findings；照新檔頭寫綜合卡 PostToolUse validate 過；
-replaces 與 withdraw；終端機記程式段；revert 回去。"""
+replaces；終端機記程式段；revert 回去（withdraw 簡化時刪了）。"""
 import json
 import re
 import shutil
@@ -85,7 +85,7 @@ class Add(Base):
 
 
 class ReplaceWithdraw(Base):
-    def test_replace_then_withdraw(self):
+    def test_replace(self):
         old = self.add()
         self.assertEqual(self.kb("add", "--entity", "信義王", "--text", "信義王報價合計 180 萬", "--how", "扣掉重複的一項",
                                  "--basis", self.quote, "--replaces", old),
@@ -95,9 +95,6 @@ class ReplaceWithdraw(Base):
         self.assertEqual((got[old]["status"], got[new]["status"]), ("superseded", "active"))
         self.assertEqual(self.kb("add", "--entity", "信義王", "--text", "x", "--how", "y", "--basis", self.quote,
                                  "--replaces", old, code=3), ["這筆已經被取代了，改最新的那筆"])
-        self.assertEqual(self.kb("withdraw", new), ["已收回：信義王報價合計 180 萬"])
-        self.assertEqual(self.items()[new]["status"], "withdrawn")
-        self.assertEqual(self.kb("withdraw", "c-00000000", code=3), ["沒有這筆推算：c-00000000"])
 
     def test_todo_removed_and_added_after_replace(self):
         old = self.add()

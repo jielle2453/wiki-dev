@@ -100,7 +100,7 @@ class StopHook(unittest.TestCase):
         self.assertNotIn("abc123", self.M.read_text(encoding="utf-8"))
 
     def test_acceptance_30_render_failure_still_marks_done(self):
-        """測試後修正 M3：md 寫不了也照樣 set_done，下一句不會補成中斷句；journal render 之後重建。"""
+        """測試後修正 M3：md 寫不了也照樣 set_done，下一句不會補成中斷句；下一次寫入整月重畫（journal render 簡化時刪了）。"""
         self.prompt("第一句")
         self.M.unlink()
         self.M.mkdir()
@@ -115,11 +115,7 @@ class StopHook(unittest.TestCase):
         first = [x for x in self.rows() if x["prompt"] == "第一句"][0]
         self.assertEqual((first["result"], first["interrupted"]), ("真的回答", False))
         self.M.rmdir()
-        kb = ROOT / "scripts" / "kb.py"
-        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT))
-        r = subprocess.run([sys.executable, str(kb), "journal", "render"], capture_output=True, text=True,
-                           encoding="utf-8", cwd=str(self.V), env=env)
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.prompt("第三句")
         self.assertIn("- 結果：真的回答", self.M.read_text(encoding="utf-8"))
 
     def test_ai_note_wins_over_floor(self):

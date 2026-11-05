@@ -1,5 +1,4 @@
-"""kb journal recent／render：印最近幾段工作日誌（回答「最近改了什麼」「上次聊過什麼」，D-065、D-158）；
-從 jsonl 重渲染 md（D-067，給 lint 與排除題用）。
+"""kb journal recent：印最近幾段工作日誌（回答「最近改了什麼」「上次聊過什麼」，D-065、D-158）。
 recent 每段兩到三行：時間｜你說（前 30 字）、結果（前 30 字）｜做了、有改動才有「改了」（照路徑分類）；程式段寫「你在終端機跑的」。
 --changed、--find <詞>、--since <日期> 可疊加；--json 照舊給全部欄位。
 record_program_or_warn 給 init、folders、versions 寫程式段（D-085）：對話裡叫的（有 sid 且還沒答完）不寫，
@@ -8,7 +7,6 @@ record_program_or_warn 給 init、folders、versions 寫程式段（D-085）：�
 import argparse
 import json
 import os
-import re
 import sys
 
 from kb import guard
@@ -34,12 +32,6 @@ def _positive(text):
     return n
 
 
-def _month(text):
-    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", text):
-        raise argparse.ArgumentTypeError(f"月份要寫成 YYYY-MM：{text}")
-    return text
-
-
 def _date(text):
     from datetime import datetime
     try:
@@ -58,9 +50,6 @@ def add_arguments(sub):
     rc.add_argument("--find", help="只列問、結果、做了裡有這個詞的段")
     rc.add_argument("--since", type=_date, help="只列這天（YYYY-MM-DD）以後的段")
     rc.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
-    rd = subs.add_parser("render", help="從 .system/journal 重寫 系統/工作日誌 的月檔", description="重寫工作日誌月檔。")
-    rd.add_argument("month", nargs="?", type=_month, help="YYYY-MM；沒給就全部有紀錄的月")
-    rd.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
 
 def _head(text):
@@ -110,18 +99,6 @@ def _recent(vault, args, as_json):
     return 0
 
 
-def _render(vault, month, as_json):
-    have = journal.months(vault)
-    months = ([month] if month in have else []) if month else have
-    for m in months:
-        journal.render(vault, m)
-    if as_json:
-        print(json.dumps({"months": months}, ensure_ascii=False))
-    else:
-        print(f"已重寫 {len(months)} 個月")
-    return 0
-
-
 def run(args):
     vault = guard.find_vault(os.getcwd())
     if vault is None:
@@ -130,9 +107,7 @@ def run(args):
     kio.LOCK_TIMEOUT = CLI_LOCK_TIMEOUT
     as_json = getattr(args, "json", False)
     try:
-        if args.journal_command == "recent":
-            return _recent(vault, args, as_json)
-        return _render(vault, args.month, as_json)
+        return _recent(vault, args, as_json)
     except TimeoutError:
         print(LOCK_BUSY)
         return 3
