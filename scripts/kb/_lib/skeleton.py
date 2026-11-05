@@ -161,8 +161,7 @@ def reconcile(vault, turn_id, from_version=None):
             settled.append(rel)
         else:
             ask.append(rel)
-    if ".gitignore" in created + replaced:
-        _untrack_rendered(vault)
+    _untrack_rendered(vault)
     if settled:
         record(vault, settled)
     return {"created": created, "replaced": replaced, "ask": ask}
@@ -172,14 +171,22 @@ UNTRACKED = ("系統/客戶設定檔.md",)  # 以前放行進 git、現在擋掉
 
 
 def _untrack_rendered(vault):
-    """新的 .gitignore 擋掉的渲染頁，已經在 git 裡的不再追蹤（只有改了 .gitignore 的那台做，多人時就是拿到認領的那台）；
-    檔留在這台，別台 pull 後被刪的由 refresh 重畫。不是 git、出錯都不擋升級。"""
+    """.gitignore 已經沒有放行的渲染頁（新版骨架，或她改過但也拿掉了），還在 git 裡的不再追蹤；她自己放行的不動。
+    檔留在這台，別台 pull 後被刪的由 refresh 重畫。重跑無害（--ignore-unmatch）。不是 git、出錯都不擋升級，只記 log。"""
     try:
         from kb._lib import git
-        if git.is_repo(vault):
-            git.untrack(vault, list(UNTRACKED))
-    except Exception:  # noqa: BLE001
-        pass
+        if not git.is_repo(vault):
+            return
+        ignore = (Path(vault) / ".gitignore").read_text(encoding="utf-8") if (Path(vault) / ".gitignore").is_file() else ""
+        rels = [r for r in UNTRACKED if f"!{r}" not in ignore.splitlines()]
+        if rels and not git.untrack(vault, rels):
+            raise OSError("git rm --cached 失敗")
+    except Exception as e:  # noqa: BLE001
+        try:
+            from kb._lib import ledger
+            ledger.log_error(vault, f"設定檔 md 沒能不再追蹤：{type(e).__name__}: {e}", source="skeleton")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _check_rel(rel):

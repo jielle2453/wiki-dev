@@ -239,6 +239,13 @@ def resolve_conflicts(vault, turn_id):
     for rel in git.unmerged(vault):
         other = git.author_of(vault, "MERGE_HEAD", rel) or "同事"
         target = Path(vault) / rel
+        from kb._lib.skeleton import UNTRACKED
+        if rel in UNTRACKED:  # 設定檔 md 不進 git（#42）：還沒升級的那台改了、這邊不再追蹤 → 一律不追蹤，留這台的、之後重畫
+            mine = git.show_stage_bytes(vault, rel, 2)
+            if mine is not None:
+                target.write_bytes(mine)
+            git.untrack(vault, [rel])
+            continue
         if rel.startswith(".system/streams/"):
             _merge_streams(vault, rel)
             git.add(vault, [rel])

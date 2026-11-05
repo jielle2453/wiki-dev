@@ -38,7 +38,8 @@ KINDS = {
     "pending": (".system/pending.json", "list", "items", {"status": "done"}),
 }
 # 掃描看到的、只在這台算的那一半放 .system/local/<種類>.json（新定 3）；共用那一半走流水檔
-SPLIT = ("inventory", "pending")
+SPLIT = ("inventory", "pending", "profile")
+LOCAL_PROFILE = ("md_sha256",)  # 設定檔 md 這台渲染出的指紋：md 不進 git、每台自己畫（#42），比手改要用這台的
 LOCAL_PENDING_KINDS = ("missing_file", "unreadable")  # 原檔不見、讀不到：看這台的掃描，只開在本機
 RETRACT = {k: v[3] for k, v in KINDS.items()}
 # 封存檔不再是獨立的檔：同一筆多一欄 archived（新定 4）。這兩個是同一份流水檔的「封存那一邊」的整份文件視角
@@ -123,6 +124,8 @@ def _write_local(vault, kind, items):
 
 def _split(kind, doc):
     """整份文件 → (共用那份, 本機那一半 {id: {…}})。"""
+    if kind == "profile":  # 共用那份照舊帶著（舊版的別台還讀它），讀的時候換成這台的
+        return doc, {k: doc.get(k) for k in LOCAL_PROFILE if k in doc}
     key = KINDS[kind][2]
     shared = {k: v for k, v in doc.items() if k != key}
     local, out = {}, []
@@ -169,8 +172,10 @@ def _split(kind, doc):
 
 def _join(vault, kind, doc):
     """共用那份 + 本機那一半 → 呼叫端看到的整份文件。"""
-    key = KINDS[kind][2]
     local = _read_local(vault, kind)
+    if kind == "profile":  # 這台沒記過（升級前、新 clone）就先用共用的
+        return dict(doc, **{k: local[k] for k in LOCAL_PROFILE if k in local})
+    key = KINDS[kind][2]
     doc = dict(doc)
     rows = [dict(e) for e in doc.get(key) or []]
     if kind == "pending":

@@ -94,6 +94,38 @@ class RefreshTest(RefreshBase):
         for v in (self.A, self.B):
             self.assertEqual(gf.must(v, "ls-files", md).strip(), "")
             self.assertNotIn("客戶設定檔", gf.must(v, "-c", "core.quotepath=false", "status", "--porcelain"))
+        # review：A 改設定 → 流水檔同步到 B，B 的 md 還在但是舊的；指紋各台自己記，B 不當成手改、refresh 畫成新的
+        r = subprocess.run([sys.executable, str(KB), "profile", "set", "people", "4"], capture_output=True, text=True,
+                           encoding="utf-8", cwd=str(self.A), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT), PYTHONIOENCODING="utf-8"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.commit_push(self.A, "people", "甲")
+        old_b = (self.B / md).read_text(encoding="utf-8")
+        gf.must(self.B, "pull", "--no-rebase")
+        self.assertEqual((self.B / md).read_text(encoding="utf-8"), old_b)  # md 不進 git，pull 不動它
+        self.assertEqual(profile.status(self.B)["state"], "ok")  # 不當成她手改
+        refresh.run(self.B, tid(self.B))
+        self.assertEqual((self.B / md).read_text(encoding="utf-8"), (self.A / md).read_text(encoding="utf-8"))
+
+    def test_profile_md_modify_delete_conflict(self):
+        """#42 review：還沒升級的那台改了設定檔 md、這邊已不再追蹤 → 收拾成不追蹤、留這台的檔、合併做完。"""
+        from kb._lib import profile, skeleton
+        md = profile.MD_POSIX
+        gf.write(self.A, ".gitignore", IGNORE.replace("系統/*" + chr(10), "系統/*" + chr(10) + "!系統/客戶設定檔.md" + chr(10)))
+        self.commit_push(self.A, "old", "甲")
+        gf.must(self.B, "pull", "--no-rebase")
+        gf.write(self.A, ".gitignore", IGNORE)
+        skeleton._untrack_rendered(self.A)
+        self.commit_push(self.A, "untrack", "甲")
+        (self.B / md).write_text((self.B / md).read_text(encoding="utf-8") + chr(10) + "乙加的" + chr(10), encoding="utf-8")
+        gf.must(self.B, "add", "-A")
+        gf.must(self.B, "commit", "-m", "b", who="乙")
+        gf.git(self.B, "pull", "--no-rebase", "--no-edit")
+        self.assertTrue(git.merge_in_progress(self.B))
+        got = refresh.run(self.B, tid(self.B))
+        self.assertEqual(got["conflicts"], [])
+        self.assertFalse(git.merge_in_progress(self.B))
+        self.assertTrue((self.B / md).is_file())
+        self.assertEqual(gf.must(self.B, "ls-files", md).strip(), "")
 
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"

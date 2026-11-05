@@ -60,7 +60,7 @@ def _rewrite_profile(vault, turn_id):
         data = profile.load(vault)
         if data is None:
             return
-        if profile.md_sha256(vault) != data.get("md_sha256"):  # md 有沒套用的手改：重渲染會蓋掉，跟 kb init 一樣請先 apply
+        if profile.md_sha256(vault) not in (None, data.get("md_sha256")):  # md 有沒套用的手改：重渲染會蓋掉，跟 kb init 一樣請先 apply
             raise Skip("設定檔有沒套用的改動，先 kb profile apply 再升級")
         profile.write_locked(vault, data, turn_id)
 
@@ -155,7 +155,7 @@ def _rewrite_dirs(vault, turn_id, free=False):
         data = profile.load(vault)
         if data is None:
             return None
-        if profile.md_sha256(vault) != data.get("md_sha256"):
+        if profile.md_sha256(vault) not in (None, data.get("md_sha256")):  # md 不見（不進 git，#42）不算手改
             raise Skip(DIRS_PENDING)
         effective = profile.with_renamed(data["types"], data["types"], [])
         found = [] if free else profile.renamed_dirs(vault, effective, data["types"])
