@@ -280,5 +280,34 @@ class Round2(Base):
         self.assertIsNone(json.loads(self.kb("--id", "f-00000000", "--json"))["open"])
 
 
+class ScanOnce(Base):
+    """#38：一次 kb lookup 只掃卡一遍（原本 light_sort、lookup、card_titles 等各掃一次，共 4 遍），輸出跟每次重掃一樣。"""
+    def run_cli(self, *argv):
+        import contextlib
+        import io
+        from kb import lookup_cli
+        from kb.cli import build_parser
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = lookup_cli.run(build_parser().parse_args(["lookup", *argv, "--vault", str(self.V)]))
+        self.assertEqual(code, 0, buf.getvalue())
+        return buf.getvalue()
+
+    def test_one_walk_same_output(self):
+        rulings.add(self.V, "口述為準", ["信義王"], [self.quote], "信義王的報價以口述為準", self.t)
+        walk, calls = cards._walk_cards, []
+        cards._walk_cards = lambda vault: calls.append(1) or walk(vault)
+        try:
+            text, js = self.run_cli("信義王"), self.run_cli("信義王", "--json")
+        finally:
+            cards._walk_cards = walk
+        self.assertEqual(len(calls), 2)  # 兩次指令各一遍
+        self.assertEqual(cards._scan_groups.__name__, "_scan_groups")  # 指令結束換回原本的
+        from kb import lookup_cli
+        want = lookup.lookup(self.V, "信義王")  # 不經指令、每次重掃
+        self.assertEqual(json.loads(js), want)
+        self.assertEqual(text, "\n".join(lookup_cli._lines(want)) + "\n")
+
+
 if __name__ == "__main__":
     unittest.main()

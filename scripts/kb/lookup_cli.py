@@ -146,7 +146,9 @@ def run(args):
         print("要給實體名稱，或用 --id 查一份原檔的位置")
         return 3
     try:
-        got = lookup_lib.lookup(vault, args.name.strip())
+        from kb._lib import home
+        with home._one_read():  # 只讀，卡只掃一遍（原本一次 4 遍以上，#38）
+            got = lookup_lib.lookup(vault, args.name.strip())
     except ValueError as e:
         print(f"狀態檔讀不到：{e}")
         return 3
