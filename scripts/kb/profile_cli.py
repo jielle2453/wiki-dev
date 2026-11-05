@@ -1854,6 +1854,7 @@ def run(args):
     kio.LOCK_TIMEOUT = CLI_LOCK_TIMEOUT
     as_json = getattr(args, "json", False)
     command = args.profile_command
+    profile.render_if_missing(vault)  # md 還沒畫先畫，不然說「跑 kb init 補」（#42 問題 12）
     try:
         if command == "check":
             return _check(vault, as_json)
