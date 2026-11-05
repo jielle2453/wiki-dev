@@ -172,7 +172,7 @@ def record_write(vault, rel, turn_id, backup):
                 except (OSError, UnicodeDecodeError):
                     pre = None
                 if pre is not None and pre != got["body"]:
-                    pending = {"before": pending["before"] if pending else got["body"], "after": pre}
+                    pending = {"before": pending["before"] if pending else got["body"], "after": pre, "machine": _machine(vault)}
                     found.extend(hunks(got["body"], pre))
             recs[rel] = _entry(body, turn_id, pending)
         _locked(vault, fn)
@@ -329,6 +329,24 @@ def _pulled_same_fn(vault):
     return f
 
 
+def _machine(vault):
+    """這台的流水檔代號；拿不到回 None（pending 就不記是哪台，照舊兩台都報）。"""
+    try:
+        from kb._lib import env
+        return env.machine_id(vault)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _others_pending(vault, pend, mine):
+    """這個 pending 是別台留的、那台還在寫流水檔（代號換了、找不到那台的檔就照報，免得永遠沒人處理）。"""
+    m = pend.get("machine")
+    if not m or m == mine:
+        return False
+    from kb._lib import streams
+    return (streams.stream_dir(vault, "card_base") / f"{m}.jsonl").is_file()
+
+
 def edits(vault, deadline=None, persist=True):
     """比每張卡現在的內文跟基準。回 {"edits": [...], "more": 時限內沒比完}。
     沒紀錄的卡（含搬了沒換鍵的）補基準、不報；persist=False 時不寫狀態檔。被刪的卡不列。"""
@@ -343,6 +361,7 @@ def edits(vault, deadline=None, persist=True):
             orphans.setdefault(got["sha256"], rel)
     out, added, drop, more = [], {}, [], cut
     pulled = _pulled_same_fn(vault)
+    mine = None
     for rel, kind in found:
         if deadline is not None and time.monotonic() > deadline:
             more = True
@@ -361,6 +380,10 @@ def edits(vault, deadline=None, persist=True):
         else:
             pend = got.get("pending")
             hs = hunks(pend["before"], pend["after"]) if isinstance(pend, dict) else []
+            if hs and pend.get("machine"):  # card_base 是共用流水檔：別台留的 pending 那台會處理，這台不報（#45，新定 3）
+                mine = mine or _machine(vault)
+                if _others_pending(vault, pend, mine):
+                    hs = []
             if got["sha256"] != sha(body):
                 if pulled(rel):  # 多人共用 3 問 1：內容跟 pull 進來時一樣＝同事改的，改的那台會記；這台把基準對上、不報
                     added[rel] = _entry(body, pending=pend)

@@ -555,8 +555,9 @@ def _show(vault, as_json):
     lim = _limits(vault)
     if as_json:
         titles = profile.card_titles(vault, data)
+        conflicts = [c for c in streams.conflicts_of(vault, "profile") if c["field"] != "md_sha256"]  # 機器算的欄不列（#45）
         print(json.dumps({"sections": profile.sections_schema(data, titles, profile.use_choices(vault), **lim),
-                          "pending_edit": _pending_edit(st), "conflicts": streams.conflicts_of(vault, "profile")}, ensure_ascii=False))
+                          "pending_edit": _pending_edit(st), "conflicts": conflicts}, ensure_ascii=False))
         return 0
     lines = []
     titles = profile.card_titles(vault, data)

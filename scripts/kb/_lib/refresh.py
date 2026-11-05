@@ -183,10 +183,11 @@ def _cloud_alias(vault):
     """sources 裡位置不在知識庫底下的來源別名（建置時登記的共用雲端夾），沒有回 None。"""
     try:
         from kb._lib import sources as sources_lib
-        root = os.path.realpath(str(vault))
-        for s in sources_lib.load(vault).entries:
-            spec = str(s.get("spec") or "")
-            if spec and not os.path.realpath(spec).startswith(root) and s.get("alias") not in ("暫存區", "知識庫"):
+        from kb._lib.paths import inside, normalize
+        root = normalize(os.path.realpath(str(vault)), None)
+        for s in sources_lib.load(vault).entries:  # entries 的位置在 root（解好的），沒有 spec（#45）
+            where = s.get("root")
+            if where and not inside(normalize(os.path.realpath(where), None), root) and s.get("alias") not in ("暫存區", "知識庫"):
                 return s["alias"]
     except Exception:  # noqa: BLE001
         pass
@@ -292,7 +293,7 @@ def _record_pending(vault, rel, base, mine_body, turn_id):
         pending = None
         if before is not None and before != mine_body:
             old = cur.get("pending")
-            pending = {"before": old["before"] if old else before, "after": mine_body}
+            pending = {"before": old["before"] if old else before, "after": mine_body, "machine": card_base._machine(vault)}
         recs[rel] = card_base._entry(theirs_body, turn_id, pending)
     card_base._locked(vault, fn)
 

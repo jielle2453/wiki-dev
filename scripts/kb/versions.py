@@ -1128,6 +1128,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     else:
         tail = "成品 0 份"
     # R2-L3：升級前沒遮好的問會被搬進來，_describe 先壓空白再遮再嵌進句子，數字留著（D-086「程式段不遮」的例外）
+    converted = _converted_line(vault, target["turn"], all_turns)  # 格式轉換不可退（#45-07）
     sentence = f"已退回 {_describe(target)}：還原 {len(restored)}、移除 {len(removed)}、{tail}"  # B-074：不唸回合代號
     journal_cli.record_program_or_warn(
         vault, sentence,
@@ -1142,7 +1143,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
             "folders": folders_done, "folders_kept": folders_kept,
             "moves": [{k: m.get(k) for k in ("op", "kind", "from", "to")} for m in target["moves"]],
             "in_bin": [_uri_name(m["from"]) for m in target["moves"] if m["op"] == "trash"], "purged": purged,
-            "again": AGAIN,
+            "again": AGAIN, "converted": bool(converted),
         }, ensure_ascii=False))
         return 0
     if lost:
@@ -1170,6 +1171,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         print(PURGED_LINE)
     if inv_error is not None:
         print(f"清冊讀不到：{inv_error}")
+    if converted:
+        print(converted)
     print(AGAIN)
     return 0
 
@@ -1272,6 +1275,20 @@ WHY_WORDS = {"expired": "那一版的備份已經清掉了", "gone": "willy 沒�
              "missing": "找不到要改回的東西"}
 OUTPUT_KEPT = "{rel} 是成品，先留著；要刪跟我說，我用 delete-outputs 刪。"
 NO_SUCH_TARGET = "找不到這個項目或回合：{token}"
+CONVERTED = "{what}升級時把資料換成新的存法，這一步退不回去"  # 格式轉換不可退（jacky 2026-11-05 定，#45-07）；B-074 不唸代號
+
+
+def _converted_line(vault, token, all_turns=None):
+    """token 是做了格式轉換的那一句 → 白話一句；不是 → None。"""
+    from kb._lib import migrate
+    if not migrate.converted_turn(vault, token):
+        return None
+    t = _turn_of(all_turns if all_turns is not None else turns(vault), str(token).split("#", 1)[0])
+    return CONVERTED.format(what=f"{_describe(t)}：" if t else "那一句")
+
+
+def _not_found(vault, token):
+    return _converted_line(vault, token) or NO_SUCH_TARGET.format(token=token)
 NO_ITEMS = "沒有可以改回的項目"
 UNDO_HEAD = "已改回 {n} 項"
 _PLAIN_OP = {"missing": "不見了", "added": "多了一份", "modified": "被改過"}
@@ -1326,7 +1343,7 @@ def _items(vault, turn_code, n, as_json):
     if turn_code:
         picked = [t for t in all_turns if t["turn"] == turn_code]
         if not picked:
-            print(NO_SUCH_TARGET.format(token=turn_code))
+            print(_not_found(vault, turn_code))
             return 3
     else:
         picked = [t for t in all_turns if _in_range(t) and led.items(t["turn"])][:n]
@@ -1334,11 +1351,12 @@ def _items(vault, turn_code, n, as_json):
     for t in picked:
         undone = led.undone(t["turn"])
         rows += [_public_item(it, t, undone) for it in led.items(t["turn"]) if it.get("why") != "derived"]
+    converted = {t["turn"]: ln for t in picked for ln in [_converted_line(vault, t["turn"], all_turns)] if ln}
     if as_json:
-        print(json.dumps({"items": rows}, ensure_ascii=False))
+        print(json.dumps({"items": rows, "converted": list(converted.values())}, ensure_ascii=False))
         return 0
     if not rows:
-        print(NO_ITEMS)
+        print("\n".join([NO_ITEMS, *converted.values()]))
         return 0
     by_turn = {}
     for r in rows:
@@ -1348,6 +1366,8 @@ def _items(vault, turn_code, n, as_json):
         if t["turn"] not in by_turn:
             continue
         print(f"{_describe(t)}{'（已退回）' if t['reverted'] else ''}")
+        if t["turn"] in converted:
+            print(f"  {converted[t['turn']]}")
         for r in by_turn[t["turn"]]:
             if r["undoable"] is False and r.get("why") == "undone":
                 tail = "（已改回過）"
@@ -1474,11 +1494,12 @@ def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
     by_turn = {t["turn"]: t for t in all_turns}
     todo, unknown = _resolve(led, targets)
     if unknown and not todo:
-        print("\n".join(NO_SUCH_TARGET.format(token=u) for u in unknown))
+        print("\n".join(_not_found(vault, u) for u in unknown))
         return 3
     if not todo:
         print(NO_ITEMS)
         return 3
+    converted = [ln for ln in (_converted_line(vault, c, all_turns) for c in sorted({it["turn"] for it in todo})) if ln]
     rt = _acting_turn(vault, todo[0]["turn"])
     ctx = {"vault": vault, "sources": sources_lib.load(vault), "rt": rt["turn"], "restored": [], "removed": [],
            "touched_z3": [], "moves": [], "render": set(), "kept": []}
@@ -1524,9 +1545,9 @@ def _undo_locked(vault, targets, as_json, conversation, all_turns=None):
     kept = ctx["kept"]
     if as_json:
         print(json.dumps({"done": [it["item"] for it in done], "conflict": conflict, "skipped": skipped, "kept": kept,
-                          "turn": ctx["rt"], "again": AGAIN if done else None}, ensure_ascii=False))
+                          "turn": ctx["rt"], "again": AGAIN if done else None, "converted": converted}, ensure_ascii=False))
     else:
-        _undo_print(done, conflict, skipped, kept, led, unknown)
+        _undo_print(vault, done, conflict, skipped, kept, led, unknown, converted)
     if done:
         journal_cli.record_program_or_warn(
             vault, UNDO_HEAD.format(n=len(done)),
@@ -1597,7 +1618,7 @@ def _render_record_md(vault, path, rt):
         ledger.log_error(vault, f"undo 重畫 {path} 失敗：{type(e).__name__}: {e}", source="versions")
 
 
-def _undo_print(done, conflict, skipped, kept, led, unknown):
+def _undo_print(vault, done, conflict, skipped, kept, led, unknown, converted=()):
     lookup = {it["item"]: it for it in led.all()}
     for it in sorted(done, key=lambda i: (i["turn"], i["seq"])):
         print(_item_text(it, done=True))
@@ -1616,7 +1637,9 @@ def _undo_print(done, conflict, skipped, kept, led, unknown):
         it = lookup.get(s["item"])
         print(f"{it['what'] if it else s['item']}：{s.get('message') or WHY_WORDS.get(s['why'], s['why'])}")
     for u in unknown:
-        print(NO_SUCH_TARGET.format(token=u))
+        print(_not_found(vault, u))
+    for ln in converted:  # 同一句的其他項目照退，格式轉換留著（#45-07）
+        print(ln)
     if done:
         print(AGAIN)
 
