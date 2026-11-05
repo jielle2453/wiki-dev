@@ -189,6 +189,17 @@ class TestWho(Base):
         self.assertNotIn("kb init", r.stdout)
         self.assertEqual(profile.status(self.V)["state"], "ok")
 
+    def test_md_removed_when_sha_not_written(self):
+        """review：畫了 md 但指紋寫不進去（流水檔新格式、鎖逾時）就拿掉剛畫的，不留一份下次被當成手改的 md。"""
+        self.multi(3)
+        md = self.V / "系統" / "客戶設定檔.md"
+        md.unlink()
+        with mock.patch.object(profile, "write_json_atomic", side_effect=OSError("寫不進去")):
+            self.assertFalse(profile.render_if_missing(self.V))
+        self.assertFalse(md.exists())
+        self.assertTrue(profile.render_if_missing(self.V))
+        self.assertEqual(profile.status(self.V)["state"], "ok")
+
     def test_no_profile_keeps_message(self):
         """真的沒有設定（profile.json 也不在）：照舊說還沒有設定檔、不畫 md。"""
         from kb import profile_cli

@@ -1410,6 +1410,7 @@ def render_if_missing(vault):
     md 本來就不在，沒東西要備份，不開回合；沒有設定檔（真的還沒 init）或 md 已在什麼都不做。
     畫不出來（設定檔壞、鎖忙）回 False 不丟，呼叫端照原本那條路報。"""
     md = Path(vault) / MD_POSIX
+    drawn = False
     try:
         if md.is_file() or read_json(_path(vault)) is None:
             return False
@@ -1418,9 +1419,12 @@ def render_if_missing(vault):
             if data is None or md.is_file():
                 return False
             data = copy.deepcopy(data)
+            drawn = True
             data["md_sha256"] = sha256_text(render(vault, data))
             write_json_atomic(_path(vault), data)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  指紋沒記上就把剛畫的拿掉，不然下次當成她手改
+        if drawn:
+            md.unlink(missing_ok=True)
         return False
     return True
 
