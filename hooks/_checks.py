@@ -678,7 +678,9 @@ def refresh_lines(vault):
     for b in got.get("big") or []:
         where = BIG_CLOUD.format(cloud=b["cloud"]) if b.get("cloud") else BIG_LOCAL
         out.append((BIG_LINE.format(name=os.path.basename(b["path"]), mb=b["mb"], where=where), False))
-    pulled = [p for p in got.get("pulled") or [] if not str(p).startswith(".system/")]  # 流水檔不列給 AI（#45）
+    from kb._lib.skeleton import UNTRACKED
+    program = {".gitignore", *UNTRACKED}  # 升級換的 .gitignore、不再追蹤的設定檔 md 是程式動的，不說成同事改的（#42 回測）
+    pulled = [p for p in got.get("pulled") or [] if not str(p).startswith(".system/") and str(p) not in program]  # 流水檔不列給 AI（#45）
     if pulled and not got.get("skipped"):
         names = "、".join(os.path.basename(p) for p in pulled[:REFRESH_NAMES_SHOWN]) + ("…" if len(pulled) > REFRESH_NAMES_SHOWN else "")
         out.append((PULLED_LINE.format(n=len(pulled), names=names), False))
