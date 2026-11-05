@@ -41,12 +41,12 @@
 
 ## 改她原本的檔
 
-- 怎麼改交文件技能（Word `anthropic-skills:docx`、Excel `xlsx`、簡報 `pptx`）：先載入，在 `kb office copy` 的副本上照它的做法改。它說 `unzip`／`zip` 的地方改用 `kb office unpack "<副本>"`／`kb office pack <夾> --to <檔名> --like <副本>`（這台沒有 unzip、zip；`--like` 照原檔順序，沒改的部件逐位元相同）；自己用 python、PowerShell 解開打包或搬檔會被守門擋，不要試。以下是 willy 多的規矩。
+- 怎麼改交文件技能（Word `anthropic-skills:docx`、Excel `xlsx`、簡報 `pptx`）：先載入，在 `kb office copy` 的副本上照它的做法改。它說 `unzip`／`zip` 的地方改用 `kb office unpack "<副本>"`／`kb office pack <夾> --to <檔名> --like <副本>`（這台沒有 unzip、zip；`--like` 照原檔順序，沒改的部件逐位元相同）；轉 PDF、重算、看版面也換成 kb office（上面「本機做檔」）；自己用 python、PowerShell 解開打包或搬檔會被守門擋，不要試。以下是 willy 多的規矩。
 - 放進知識庫時 `--to` 的檔名用「原檔主檔名（AI 修改）」，放在原檔旁邊；`pack` 的工作檔名隨意。
 - **Word**：用修訂標記，作者固定「AI 助理」（不是 Claude），只包住改的那幾個字。修訂長這樣：
   `<w:del w:id="901" w:author="AI 助理" w:date="2026-10-22T10:00:00Z"><w:r><w:delText>15</w:delText></w:r></w:del><w:ins w:id="902" w:author="AI 助理" w:date="2026-10-22T10:00:00Z"><w:r><w:t>30</w:t></w:r></w:ins>`
   改完驗：對解開的夾用 Grep 數 `w:ins`、`w:del`、`w:author="AI 助理"`（不用 `python -c`，會被守門擋），再確認表格與頁尾還在。
-- **Excel**：只改輸入格，公式格不動；不用 openpyxl 存檔，可能弄掉圖表與圖片。改完 `kb office recalc`，把合計讀回來跟預期比；重算會整份重寫檔案（圖表還在、不是逐位元相同），這是正常的。
+- **Excel**：只改輸入格，公式格不動；改法是 `kb office unpack` 後改工作表 XML、再 `pack --like`，文件技能的 openpyxl 存檔不用，可能弄掉圖表與圖片。改完 `kb office recalc`，把合計讀回來跟預期比；重算會整份重寫檔案（圖表還在、不是逐位元相同），這是正常的。
 - **PowerPoint** 分三級：
   - 改幾個字、字數差不多：直接改 `ppt/slides/slideN.xml` 的字，打包。
   - 字變多、改版面：改完 `kb office render --pages <那幾頁>` 轉圖看；這台畫法跟 PowerPoint 不一定一樣，看得出字太多、看不準會超出多少，回答提醒她打開確認那幾頁。

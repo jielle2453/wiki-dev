@@ -178,6 +178,7 @@ class Round2(unittest.TestCase):
             with self.subTest(where=name):
                 for want in ("anthropic-skills:docx", "xlsx", "pptx", "unzip", "kb office unpack", "pack"):
                     self.assertIn(want, text)
+        self.assertIn("openpyxl 存檔不用", edit)  # xlsx 技能預設 openpyxl，會弄掉圖表
 
     def test_answer_says_excel_file(self):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")
