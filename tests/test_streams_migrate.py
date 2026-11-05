@@ -76,17 +76,21 @@ class MigrateStreams(unittest.TestCase):
         self.assertTrue(migrate.converted_turn(self.V, f"{self.turn}#1"))
         self.assertFalse(migrate.converted_turn(self.V, "t-沒有這句"))
         r = run_kb("versions", "undo", self.turn, cwd=self.V)
-        self.assertIn(f"{self.turn} 那一句升級時把資料換成新的存法，這一步退不回去", r.stdout)
+        self.assertIn("那句「升級」：升級時把資料換成新的存法，這一步退不回去", r.stdout)
+        self.assertNotIn(self.turn, r.stdout)  # B-074 不唸代號
+        got = json.loads(run_kb("versions", "items", "--turn", self.turn, "--json", cwd=self.V).stdout)
+        self.assertEqual(len(got["converted"]), 1)
+        self.assertIn("這一步退不回去", run_kb("versions", "items", "--turn", self.turn, cwd=self.V).stdout)
         self.assertIn(streams.machine_id(self.V), [f.stem for f in (self.V / ".system" / "streams" / "agenda").glob("*.jsonl")])
         r = run_kb("versions", "undo", "t-沒有這句", cwd=self.V)  # 不是轉換那一句照舊說找不到
         self.assertIn("找不到這個項目或回合", r.stdout)
 
     def test_only_conversion_in_the_turn_says_it_cannot(self):
         (self.V / ".system" / "legacy").mkdir(parents=True, exist_ok=True)
-        (self.V / migrate.CONVERTED_REL).write_text(json.dumps({"turn": "t-only"}) + "\n", encoding="utf-8")
+        (self.V / migrate.CONVERTED_REL).write_text("[]\n壞\n" + json.dumps({"turn": "t-only"}) + "\n", encoding="utf-8")
         for args in (("undo", "t-only"), ("items", "--turn", "t-only")):
             r = run_kb("versions", *args, cwd=self.V)
-            self.assertIn("t-only 那一句升級時把資料換成新的存法，這一步退不回去", r.stdout, args)
+            self.assertIn("那一句升級時把資料換成新的存法，這一步退不回去", r.stdout, args)
             self.assertNotIn("找不到", r.stdout, args)
 
 

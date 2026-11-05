@@ -430,10 +430,11 @@ def converted_turn(vault, token):
         return False
     for ln in lines:
         try:
-            if json.loads(ln).get("turn") == turn_code:
-                return True
+            row = json.loads(ln)
         except ValueError:
             continue
+        if isinstance(row, dict) and row.get("turn") == turn_code:
+            return True
     return False
 
 
