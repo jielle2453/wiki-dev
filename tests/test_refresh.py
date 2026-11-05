@@ -66,6 +66,12 @@ class RefreshTest(RefreshBase):
                          [s["alias"] for s in sources_lib.load_raw(self.A)["sources"]])
         got = guard.decide(payload("Write", C / sources_lib.SOURCES_REL, C))
         self.assertEqual(got.decision, "deny", got)
+        (C / sources_lib.SOURCES_REL).unlink()  # 快取還在、只刪副本：也補回來
+        self.assertTrue(os.path.samefile(guard.find_vault(str(C)), C))
+        self.assertTrue((C / sources_lib.SOURCES_REL).is_file())
+        empty = self.tmp / "空" / ".system" / "streams" / "sources"  # 空的流水檔夾不算知識庫
+        empty.mkdir(parents=True)
+        self.assertIsNone(guard.find_vault(str(empty)))
 
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"

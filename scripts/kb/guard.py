@@ -868,10 +868,10 @@ def find_vault(cwd):
     for d in [p, *p.parents]:
         if (d / sources_lib.SOURCES_REL).is_file():
             return d
-        if (d / ".system" / "streams" / "sources").is_dir():
-            from kb._lib import streams
-            try:
-                streams.load(d, "sources")
+        from kb._lib import streams
+        if streams.exists(d, "sources"):  # 空的流水檔夾不算
+            try:  # load 快取命中時不寫副本，所以直接寫
+                streams._mirror(d, "sources", streams.load(d, "sources"))
             except Exception:  # noqa: BLE001  補不出來照樣認：之後讀登記表的地方照舊報讀不了
                 pass
             return d
