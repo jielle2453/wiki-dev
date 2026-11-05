@@ -7,6 +7,7 @@ links 只讀、不開回合：列清冊 active 的線上文件連結（換帳號
 import argparse
 import json
 import os
+from pathlib import Path
 
 from kb import journal_cli
 from kb._lib import inventory, output, turn
@@ -16,7 +17,8 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 CLI_LOCK_TIMEOUT = 30
 LOCK_BUSY = "等不到鎖，沒有寫入"
 SAVED = "已放進 {shown}{extra}（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）"  # 退回照 D-074 成品留著（確認後裁定 27）
-OVERWRITTEN = "已改好 {shown}（原本那份備份起來了，說「退回」可以換回來）"  # D-529：蓋回原檔
+OVERWRITTEN = "已改好 {shown}，改之前那份存成「{version}」（說「退回」可以換回來）"  # D-529：蓋回原檔
+ASK_DELETE = "回答最後問她一句要不要刪掉之前的版本；她說好才用 kb source-edit trash 刪"
 LINKED = "已登記線上文件「{title}」（下次整理會做卡）"
 DROPPED = "草稿收起來了：{name}（說「退回」會回來）"
 
@@ -55,14 +57,16 @@ def _save(vault, args, as_json, conversation, turn_id):
     res = output.save(vault, args.file, args.to, turn_id, os.getcwd(), from_=args.source, draft=args.draft,
                       link=args.link, replace=args.replace)
     extra = (f"，改自「{res['from_label']}」" if res["from"] else "") + ("，草稿收起來了" if res["draft"] else "")
-    if (res.get("checked") or {}).get("overwrite"):
-        line = OVERWRITTEN.format(shown=_shown(res["path"])) + _checked_text(res["checked"])
+    version = res.get("version")
+    if version:
+        line = (OVERWRITTEN.format(shown=_shown(res["path"]), version=Path(version).name)
+                + _checked_text(res["checked"]) + "\n" + ASK_DELETE)
     else:
         line = SAVED.format(shown=_shown(res["path"]), extra=extra) + _checked_text(res.get("checked"))
-    overwrite = (res.get("checked") or {}).get("overwrite")
-    changed = ([{"path": res["path"], "action": "modify" if overwrite else "create"}] if res["in_vault"] else []) + (
+    changed = ([{"path": res["path"], "action": "modify" if version else "create"}] if res["in_vault"] else []) + (
+        [{"path": version, "action": "create"}] if version and res["in_vault"] else []) + (
         [{"path": res["draft"], "action": "delete"}] if res["draft"] else [])
-    head = line.splitlines()[0].split("（說")[0].split("（原本")[0]
+    head = line.splitlines()[0].split("（說")[0]
     journal_cli.record_program_or_warn(vault, head, changed + [
         {"path": inventory.INVENTORY_POSIX, "action": "modify"}], "output save", conversation)
     _out(as_json, line, dict(res, ok=True, message=line))
@@ -70,15 +74,14 @@ def _save(vault, args, as_json, conversation, turn_id):
 
 
 def _checked_text(c):
-    """夾打包時驗了什麼：接在成功句後面，AI 照念就是回答要列的改了什麼。"""
+    """夾打包時驗了什麼（只講重算；改了什麼 AI 回答本來就講）：接在成功句後面。"""
     if not c:
         return ""
-    parts = [f"改了 {len(c['changed'])} 個部件"]
     if c.get("recalc"):
-        parts.append(f"重算過（{c['recalc']['used']}），公式 {c['recalc']['formulas']} 個、錯誤 0")
-    elif c.get("recalc_note"):
-        parts.append(c["recalc_note"])
-    return "\n驗過：" + "；".join(parts)
+        return f"\n驗過：重算過（{c['recalc']['used']}），公式 {c['recalc']['formulas']} 個、錯誤 0"
+    if c.get("recalc_note"):
+        return "\n驗過：" + c["recalc_note"]
+    return ""
 
 
 def _link(vault, args, as_json, conversation, turn_id):

@@ -36,22 +36,23 @@
 ## 套範本、照舊檔寫新的
 
 - 範本在設定檔第七節：`kb profile show --json` 的 `範本` 那節，每列的「底」是卡編號；同種文件只有一份直接用，多份才問。
-- `kb office copy <範本或舊檔的卡編號>` 拿副本，照下面「改她原本的檔」交文件技能把內容換成新的，抬頭、表格、頁尾照留。
-- 驗過後 `kb output save … --from <範本或舊檔>`；檔名用新內容的（`2026-10-22 大安陳 合約.docx`），不用「（AI 修改）」。
+- `kb office copy <範本或舊檔的卡編號>` 拿副本，加 `--unpack`，照下面「改她原本的檔」改夾裡的字把內容換成新的，抬頭、表格、頁尾照留。
+- `kb output save "<解開的夾>" --to <放哪個夾>/<新檔名>` 另存（不蓋回範本，自動記改自哪份）；檔名用新內容的（`2026-10-22 大安陳 合約.docx`）。
 
 ## 改她原本的檔
 
-- 怎麼改交文件技能（Word `anthropic-skills:docx`、Excel `xlsx`、簡報 `pptx`）：先載入，在 `kb office copy` 的副本上照它的做法改。它說 `unzip`／`zip` 的地方改用 `kb office unpack "<副本>"`／`kb office pack <夾> --to <檔名> --like <副本>`（這台沒有 unzip、zip；`--like` 照原檔順序，沒改的部件逐位元相同）；轉 PDF、重算、看版面也換成 kb office（上面「本機做檔」）；自己用 python、PowerShell 解開打包或搬檔會被守門擋，不要試。以下是 willy 多的規矩。
-- 放進知識庫時 `--to` 的檔名用「原檔主檔名（AI 修改）」，放在原檔旁邊；`pack` 的工作檔名隨意。
-- **Word**：用修訂標記，作者固定「AI 助理」（不是 Claude），只包住改的那幾個字。修訂長這樣：
-  `<w:del w:id="901" w:author="AI 助理" w:date="2026-10-22T10:00:00Z"><w:r><w:delText>15</w:delText></w:r></w:del><w:ins w:id="902" w:author="AI 助理" w:date="2026-10-22T10:00:00Z"><w:r><w:t>30</w:t></w:r></w:ins>`
-  改完驗：對解開的夾用 Grep 數 `w:ins`、`w:del`、`w:author="AI 助理"`（不用 `python -c`，會被守門擋），再確認表格與頁尾還在。
-- **Excel**：只改輸入格，公式格不動；改法是 `kb office unpack` 後改工作表 XML、再 `pack --like`，文件技能的 openpyxl 存檔不用，可能弄掉圖表與圖片。改完 `kb office recalc`，把合計讀回來跟預期比；重算會整份重寫檔案（圖表還在、不是逐位元相同），這是正常的。
+- **先看開著沒**（她說開著、或你看到視窗）：開著照知識庫 CLAUDE.md 直接改她視窗裡那份，不備份、不另存；要退靠 Office 的復原或版本記錄，這要跟她講清楚。
+- **關著**（D-529）：
+  - `kb office copy <原檔> --unpack`：給副本並解開，印「解開到：<夾>」。
+  - 看內容、改字都在那個夾：Grep 找、Read 看、Edit 改 XML（`word/document.xml`、`xl/worksheets/sheetN.xml`、`ppt/slides/slideN.xml`）；python、PowerShell 讀寫會被守門擋，不要試。Word 直接改字，不用修訂標記、不標作者。
+  - `kb output save "<夾>"`：程式打包（沒改的部件逐位元相同，巨集照留）、驗 XML，Excel 有公式自己重算、有錯誤值就不放；過了才把原檔現在那份存成同夾「<主檔名>（版本一、二…）」再蓋回原檔，檔名不變。
+  - 回「檔案正開著，改視窗裡那份」：原檔沒動，改走上面開著那條。
+  - 回答照念它印的那句，列出改了哪些字、哪幾格、哪幾頁，最後問她一句要不要刪掉之前的版本；她說好才 `kb source-edit trash <那幾份>`。
+- **Excel**：只改輸入格，公式格不動；不要用 openpyxl 存檔，可能弄掉圖表與圖片。
 - **PowerPoint** 分三級：
   - 改幾個字、字數差不多：直接改 `ppt/slides/slideN.xml` 的字，打包。
-  - 字變多、改版面：改完 `kb office render --pages <那幾頁>` 轉圖看；這台畫法跟 PowerPoint 不一定一樣，看得出字太多、看不準會超出多少，回答提醒她打開確認那幾頁。
+  - 字變多、改版面：save 前先 `kb office pack "<夾>" --to 看版面.pptx --like "<副本>"`、`kb office render "<那份>" --pages <那幾頁>` 轉圖看；這台畫法跟 PowerPoint 不一定一樣，看得出字太多、看不準會超出多少，回答提醒她打開確認那幾頁。
   - 大改（換結構、很多頁）：推薦照內容重做一份新的，比修補穩。
-- Excel 與 PowerPoint 沒有修訂標記，回答要列出改了哪幾格、哪幾頁。
 - **轉格式**（「這份轉成 PDF」）：`kb office copy` → `kb office pdf "<副本>"` → `kb output save "<PDF>" --to … --from <原檔>`。
 
 ## 沒有工具時怎麼說

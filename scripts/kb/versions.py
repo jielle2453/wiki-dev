@@ -46,6 +46,7 @@ NOT_IN_VAULT = "不在知識庫裡：這裡往上找不到 .system/sources.json"
 TOUCHED_THIS_TURN = "{rel} 這一句話已經改過，下一句再刪"
 CHANGED_SINCE = "{rel} 之後被改過，留著"
 ALREADY_GONE = "{rel} 已經不在"
+BACKUP_CHANGED = "沒換回 {n} 檔：改之前那份（版本檔）之後被直接改過，跟當時不一樣，現在的檔與那份版本檔照留：{names}"  # D-529 硬連結的備份
 MADE_KEPT = "建的資料夾「{rel}」裡有東西，留著"
 FOLDER_OPEN = "退不回去：「{rel}」裡有檔案正開著（檔案總管或 Office），什麼都沒動；關掉再說一次退回"
 FOLDER_FAILED = "退不回去：{why}，什麼都沒動"
@@ -922,6 +923,18 @@ def _undo_revert_marks(vault, target):
     return unmarked
 
 
+def _backup_changed(row, src):
+    """硬連結的備份（manifest 記了 sha256，D-529）：版本檔被原地改過，備份跟著變了。"""
+    return bool(row.get("sha256")) and inventory.sha256_of(src) != row["sha256"]
+
+
+def _linked_to(path, srcs):
+    try:
+        return any(os.path.samefile(path, s) for s in srcs)
+    except OSError:
+        return False
+
+
 def revert_lock_path(vault):
     """revert 整段持的那把鎖（鎖檔是 .system/revert.lock）。"""
     return Path(vault) / ".system" / "revert"
@@ -1024,6 +1037,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     ai_keys = _output_keys(vault)
 
     restored, removed, lost, touched_z3, kept_msgs, kept_ids = [], [], [], [], [], []
+    changed_backup, changed_srcs = [], []
     purged = False
     sctx = {"vault": vault, "rt": rt["turn"], "restored": [], "render": set()}
     for it in sorted(stream_items, key=lambda i: i["seq"], reverse=True):  # 流水檔：每一項寫一行反向的（多人共用 1）
@@ -1050,11 +1064,17 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
                 if not src.is_file():
                     lost.append(uri)
                     continue
+                if _backup_changed(e, src):
+                    changed_backup.append(uri)
+                    changed_srcs.append(src)
+                    continue
                 turn.backup_source(vault, ext, None, rt["turn"], sources)
                 Path(ext).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, ext)
                 restored.append(uri)
             elif action == "create" and Path(ext).is_file():
+                if _linked_to(ext, changed_srcs):  # 被原地改過的版本檔：照留
+                    continue
                 turn.backup_source(vault, ext, None, rt["turn"], sources)
                 os.remove(ext)
                 removed.append(uri)
@@ -1067,13 +1087,17 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
             if not src.is_file():
                 lost.append(rel)
                 continue
+            if _backup_changed(e, src):
+                changed_backup.append(rel)
+                changed_srcs.append(src)
+                continue
             turn.backup(vault, rel, rt["turn"])
             dst.parent.mkdir(parents=True, exist_ok=True)
             _copy_back(vault, src, dst)
             restored.append(rel)
             if is_z3:
                 touched_z3.append(rel)
-        elif action == "create" and dst.is_file():
+        elif action == "create" and dst.is_file() and not _linked_to(dst, changed_srcs):
             # 成品照 D-011：沒明說就留著，之後用 delete-outputs 刪。「退回」本身那回合的 create 是退回時放回去的舊檔
             # （例如收起來的草稿），不是那回合的成品：清冊沒把它記成那回合的成品就照常拿掉（B 段落差 10）
             restored_back = target["reverted_turn"] and inv_error is None and rel not in out_rels
@@ -1137,7 +1161,7 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
     if as_json:
         print(json.dumps({
             "turn": target["turn"], "prompt_head": target["prompt_head"], "by_turn": rt["turn"],
-            "restored": restored, "removed": removed, "lost": lost,
+            "restored": restored, "removed": removed, "lost": lost, "backup_changed": changed_backup,
             "outputs": out_rels, "outputs_deleted": bool(delete_outputs), "kept": kept_msgs,
             "undone_revert_of": target["reverted_turn"], "inventory_error": inv_error,
             "folders": folders_done, "folders_kept": folders_kept,
@@ -1148,6 +1172,8 @@ def _revert_locked(vault, code, delete_outputs, as_json, conversation):
         return 0
     if lost:
         print(f"無法還原 {len(lost)} 檔（備份已不在）：" + "、".join(lost))
+    if changed_backup:
+        print(BACKUP_CHANGED.format(n=len(changed_backup), names="、".join(changed_backup)))
     print(sentence)
     for rel in out_rels:
         print(f"    {rel}")

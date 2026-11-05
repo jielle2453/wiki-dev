@@ -44,7 +44,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 - 分辨是哪一種。`kb office check` 看工具並印工作區；缺工具照「要先做」問她，說好才 `kb office setup`。
 - **新做**：收資料（實體用 `kb lookup`、按卡型或年列卡用 `kb cards list`、日程用 `kb agenda list`）→ 簡單的直接照用途做成（`references/make.md`），筆記直接存成定稿（draft.md「md 本身就是成品的」），複雜的先寫草稿放暫存區（`references/draft.md`）、她說可以再做：本機檔在工作區做好後 `kb output save … [--draft <草稿>]`，線上文件建好後 `kb output link`；剛回答過的直接做成。
-- **改既有、轉格式**：`kb office copy` → 載入文件技能（`anthropic-skills:docx`／`xlsx`／`pptx`）照它改，unzip／zip 換成 `kb office unpack`／`pack` → 驗（Word 修訂數、Excel `kb office recalc`、簡報 `kb office render`）→ `kb output save … --from <原檔>`。
+- **改既有、轉格式**：關著：`kb office copy <原檔> --unpack` → Grep／Read／Edit 改解開的夾（不用 python）→ `kb output save "<夾>"`（驗過、Excel 重算後蓋回原檔，舊的存成（版本 N））；簡報改版面用 `kb office render` 看；最後問要不要刪舊版本。開著照知識庫 CLAUDE.md 改視窗裡那份不備份。轉格式看 make.md。
 - **回答**：說放在哪（哪個夾，或線上文件存在她帳號）、說「退回」可以退這一步（這份檔先留著，要刪再跟我說）、用了哪幾份資料；做了的事合成一行。
 - 末尾跑 `kb asks --about 實體 --json`：`asks` 有就問一件，`later` 等一段事說完帶一句，`tell` 照貼。
 - 這句話有寫入才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。

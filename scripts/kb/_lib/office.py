@@ -540,22 +540,16 @@ def pack(vault, folder, to, like=None):
 
 EDITABLE = (".docx", ".docm", ".xlsx", ".xlsm", ".pptx", ".pptm")  # 巨集檔的 vbaProject.bin 沒改，--like 打包逐位元留著
 META_SUFFIX = ".json"  # 解開的夾旁邊 <夾名>.json：{"like", "from", "name"}（不放夾裡，免得被打包進去）
-OLE_MAGIC = b"\xd0\xcf\x11\xe0"
-PROTECTED = "這份檔有密碼保護（或是舊格式），解不開，沒有改；請她先在 Office 拿掉密碼另存一份"
-NOTHING_CHANGED = "夾裡沒有改到任何東西，沒放"
 BAD_XML = "改過的 {name} 格式壞了（{why}），沒放；照錯誤位置修好再存一次"
 RECALC_ERRORS = "重算後有 {n} 格是錯誤值，沒放：{cells}"
 MACRO_NO_RECALC = "有巨集的檔不自動重算（重算的程式存檔可能弄掉巨集）；" + NO_RECALC_TAIL
 
 
 def unpack_for_edit(vault, copy, from_id, name):
-    """副本解開成 <主檔名>_unpacked，旁邊寫 <夾名>.json；不是能改的 Office 檔回 None。密碼保護的丟 Refused。"""
+    """副本解開成 <主檔名>_unpacked，旁邊寫 <夾名>.json；不是能改的 Office 檔回 None。密碼保護的（不是 zip）unpack 照舊丟 Refused。"""
     copy = Path(copy)
     if copy.suffix.lower() not in EDITABLE:
         return None
-    with open(copy, "rb") as f:
-        if f.read(4) == OLE_MAGIC:
-            raise Refused(PROTECTED)
     folder = unpack(vault, copy)
     meta = {"like": str(copy), "from": from_id, "name": name}
     Path(str(folder) + META_SUFFIX).write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
@@ -580,7 +574,7 @@ def _members(path):
 
 
 def pack_checked(vault, folder, meta):
-    """照副本打包（--like）再驗：有改到、改過的 XML 能解析、Excel（xlsx）有公式就重算且沒有錯誤值。
+    """照副本打包（--like）再驗：改過的 XML 能解析、Excel（xlsx）有公式就重算且沒有錯誤值。
     Word 不用修訂（D-529，jacky 2026-11-05 定）。不過就刪掉打包出來的檔、丟 Refused。
     回 (檔, {"changed": [...], "recalc": {...} 或 None, "recalc_note": 句子或 None})；檔在工作區，檔名不重要（save 蓋回原檔）。"""
     import xml.etree.ElementTree as ET
@@ -597,8 +591,6 @@ def pack_checked(vault, folder, meta):
     try:
         old, new = _members(like), _members(out)
         changed = sorted(k for k, v in new.items() if old.get(k) != v)
-        if not changed and set(old) == set(new):
-            raise Refused(NOTHING_CHANGED)
         for name in changed:
             if name.lower().endswith((".xml", ".rels")):
                 try:

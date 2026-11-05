@@ -197,50 +197,176 @@ class EditFolder(Base):
         self.assertEqual(Path(lines[0][len("副本："):]).name, "剛放的.docx")
         self.assertIsNotNone(_cards.entry_of(self.V, "客戶案件/大安陳/剛放的.docx"))
 
-    def test_edit_and_save_overwrites_original_and_revert_restores(self):
-        src = self.raw / _cards.MEETING
-        before = src.read_bytes()
-        fid = _cards.entry_of(self.V, "客戶案件/" + _cards.MEETING.split("/", 1)[1])["id"]
-        folder = self.unpack(src)
-        self.assertTrue(Path(str(folder) + ".json").is_file())
-        doc = folder / "word" / "document.xml"
-        doc.write_text(doc.read_text(encoding="utf-8").replace("討論廚房動線", "討論浴室動線"), encoding="utf-8")
-        r = self.save(folder)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue(r.stdout.startswith("已改好 "), r.stdout)
-        self.assertIn("驗過：改了 1 個部件", r.stdout)
-        self.assertNotIn("AI 修改", r.stdout)
-        with zipfile.ZipFile(src) as z:
-            self.assertIn("浴室", z.read("word/document.xml").decode("utf-8"))
-        self.assertEqual(sorted(p.name for p in src.parent.glob("會議紀錄_1*")), ["會議紀錄_1.docx"], "同一個夾只有一份")
-        entry = _cards.entry_of(self.V, "客戶案件/" + _cards.MEETING.split("/", 1)[1])
-        self.assertEqual(entry["id"], fid)
-        self.assertNotIn("derived_from", entry)
-        self.assertGreaterEqual(len(entry["fingerprints"]), 2)
-        self.assertEqual(list(src.parent.glob(".~kb-*")), [])
-        r = run_kb("versions", "revert", cwd=self.V)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(src.read_bytes(), before, "退回換回原本那份")
-
     def edit_once(self, src, old, new):
         folder = self.unpack(src)
         doc = folder / "word" / "document.xml"
         doc.write_text(doc.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        return folder
+
+    def linked_backup(self, turn_id):
+        """這一句原檔那行的回合備份（files/_src/…）與 manifest 那行。"""
+        row = next(e for e in turn.entries(self.V, turn_id) if e.get("action") == "modify" and e.get("uri"))
+        return turn.turn_dir(self.V, turn_id) / "files" / row["path"], row
+
+    def test_two_edits_keep_versions_and_revert_restores(self):
+        """D-529：每次蓋回原檔前舊的存成同夾「（版本一、二…）」；回合備份硬連結到版本檔；退回第二句只拿掉版本二。"""
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        rel = "客戶案件/" + _cards.MEETING.split("/", 1)[1]
+        fid = _cards.entry_of(self.V, rel)["id"]
+        folder = self.edit_once(src, "討論廚房動線", "討論浴室動線")
+        self.assertTrue(Path(str(folder) + ".json").is_file())
         r = self.save(folder)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        lines = r.stdout.strip().splitlines()
+        self.assertEqual(lines[0], f"已改好 {_cards.MEETING.replace('/', chr(92))}，改之前那份存成"
+                                   "「會議紀錄_1（版本一）.docx」（說「退回」可以換回來）")
+        self.assertEqual(lines[-1], "回答最後問她一句要不要刪掉之前的版本；她說好才用 kb source-edit trash 刪")
+        self.assertNotIn("部件", r.stdout)
+        v1 = src.with_name("會議紀錄_1（版本一）.docx")
+        self.assertEqual(v1.read_bytes(), before)
+        backup, row = self.linked_backup(self.t)
+        self.assertTrue(backup.samefile(v1), "回合備份就是版本檔，不多存一份")
+        self.assertEqual(row["sha256"], sha(v1))
+        first = src.read_bytes()
+        with zipfile.ZipFile(src) as z:
+            self.assertIn("浴室", z.read("word/document.xml").decode("utf-8"))
+        entry = _cards.entry_of(self.V, rel)
+        self.assertEqual(entry["id"], fid)
+        self.assertNotIn("derived_from", entry)
+        self.assertEqual(_cards.entry_of(self.V, rel.replace("會議紀錄_1.docx", v1.name)).get("skip_kind"), "AI 判斷")
+        todo = run_kb("cards", "todo", cwd=self.V)
+        self.assertNotIn("版本一", todo.stdout + todo.stderr)
+        self.assertEqual(list(src.parent.glob(".~kb-*")), [])
+
+        turn.start(self.V, "sid-office", "再改一次")
+        r = self.save(self.edit_once(src, "討論浴室動線", "討論陽台動線"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("「會議紀錄_1（版本二）.docx」", r.stdout)
+        v2 = src.with_name("會議紀錄_1（版本二）.docx")
+        self.assertEqual(v2.read_bytes(), first)
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), first, "退回第二句：原檔回到第一次改完")
+        self.assertFalse(v2.exists())
+        self.assertEqual(v1.read_bytes(), before)
+
+    def test_same_turn_twice_reverts_to_before_turn(self):
+        """同一句改兩次：版本一、二都是這一句新建的；回合備份只有第一次（改之前那份）；退回原檔回到這句之前、兩份版本檔都拿掉。"""
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        for old, new in (("討論廚房動線", "討論浴室動線"), ("討論浴室動線", "討論陽台動線")):
+            r = self.save(self.edit_once(src, old, new))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        v1, v2 = (src.with_name(f"會議紀錄_1（版本{n}）.docx") for n in "一二")
+        self.assertEqual(v1.read_bytes(), before)
+        self.assertTrue(v2.is_file())
+        backup, _row = self.linked_backup(self.t)
+        self.assertTrue(backup.samefile(v1))
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), before)
+        self.assertFalse(v1.exists() or v2.exists())
+
+    def test_version_copy_fails_leaves_nothing(self):
+        """存版本檔那步失敗（夾唯讀、磁碟滿）：原檔不動、不留半份版本檔。"""
+        import shutil as sh
+        from unittest import mock
+        from kb._lib import output
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        folder = self.edit_once(src, "討論廚房動線", "討論浴室動線")
+        real = sh.copy2
+
+        def copy2(a, b, *k, **kw):
+            if "（版本" in str(b):
+                Path(b).write_bytes(b"half")
+                raise OSError(28, "磁碟滿")
+            return real(a, b, *k, **kw)
+        with mock.patch.object(output.shutil, "copy2", side_effect=copy2):
+            with self.assertRaises(OSError):
+                output.save(self.V, str(folder), None, self.t, str(self.V))
+        self.assertEqual(src.read_bytes(), before)
+        self.assertEqual(list(src.parent.glob("*（版本*")), [])
+
+    def test_version_number_continues_after_gap(self):
+        from kb._lib import output
+        src = self.raw / _cards.MEETING
+        src.with_name("會議紀錄_1（版本二）.docx").write_bytes(b"x")
+        self.assertEqual(output.version_name(src), "會議紀錄_1（版本三）.docx")
+        self.assertEqual([output._cn(n) for n in (1, 10, 11, 20, 99, 100)], ["一", "十", "十一", "二十", "九十九", "100"])
+
+    def test_office_style_save_of_version_leaves_backup(self):
+        """主管疑慮一之一：Office 存檔是寫新檔再整份換上，連結斷開，回合備份還是改之前那份，退回照常。"""
+        import os
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        r = self.save(self.edit_once(src, "討論廚房動線", "討論浴室動線"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        v1 = src.with_name("會議紀錄_1（版本一）.docx")
+        backup, _row = self.linked_backup(self.t)
+        tmp = v1.with_name("~存檔中.tmp")
+        tmp.write_bytes(b"office saved")
+        os.replace(tmp, v1)
+        self.assertFalse(backup.samefile(v1))
+        self.assertEqual(backup.read_bytes(), before)
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("沒換回", r.stdout)
+        self.assertEqual(src.read_bytes(), before)
+
+    def test_inplace_edit_of_version_is_caught_at_revert(self):
+        """主管疑慮一之二：版本檔被原地改寫，硬連結的回合備份跟著變 → 退回前驗 sha256，明講；原檔與版本檔都照留。"""
+        src = self.raw / _cards.MEETING
+        r = self.save(self.edit_once(src, "討論廚房動線", "討論浴室動線"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        after = src.read_bytes()
+        v1 = src.with_name("會議紀錄_1（版本一）.docx")
+        backup, row = self.linked_backup(self.t)
+        with open(v1, "r+b") as f:
+            f.write(b"PK-changed")
+        self.assertNotEqual(sha(backup), row["sha256"], "原地改寫：連在一起的備份跟著變")
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("沒換回 1 檔：改之前那份（版本檔）之後被直接改過", r.stdout)
+        self.assertEqual(src.read_bytes(), after, "備份不對就不拿來蓋")
+        self.assertTrue(v1.is_file(), "被改過的版本檔不拿掉")
+
+    def test_sync_folder_or_other_drive_copies(self):
+        """主管疑慮二：原檔在 OneDrive 這類同步夾（雲端屬性）或別的磁碟（os.link 失敗）→ 照舊複製一份；退回一樣換得回。
+        真的 OneDrive 沒測（會同步到雲端），用屬性判斷。"""
+        from unittest import mock
+        from kb._lib import output
+        for name, patch in (("同步夾", mock.patch.object(turn, "_cloud", return_value=True)),
+                            ("別的磁碟", mock.patch.object(turn.os, "link", side_effect=OSError(18, "跨磁碟")))):
+            with self.subTest(name):
+                t = turn.start(self.V, "sid-office", name)["turn"]
+                src = self.raw / _cards.MEETING
+                before = src.read_bytes()
+                folder = self.edit_once(src, "討論", f"討論{name}")
+                with patch:
+                    res = output.save(self.V, str(folder), None, t, str(self.V))
+                v = src.with_name(Path(res["version"]).name)
+                backup, row = self.linked_backup(t)
+                self.assertFalse(backup.samefile(v))
+                self.assertNotIn("sha256", row)
+                self.assertEqual(backup.read_bytes(), before)
+                r = run_kb("versions", "revert", cwd=self.V)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(src.read_bytes(), before)
+                self.assertFalse(v.exists())
 
     def test_refusals_leave_original(self):
         src = self.raw / _cards.MEETING
         before = src.read_bytes()
         folder = self.unpack(src)
-        r = self.save(folder)
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "夾裡沒有改到任何東西，沒放"))
         doc = folder / "word" / "document.xml"
         doc.write_text(doc.read_text(encoding="utf-8").replace("</w:body>", "<w:p>"), encoding="utf-8")
         r = self.save(folder)
         self.assertEqual(r.returncode, 3)
         self.assertTrue(r.stdout.startswith("改過的 word/document.xml 格式壞了"), r.stdout)
         self.assertEqual(src.read_bytes(), before)
+        self.assertEqual(list(src.parent.glob("*（版本*")), [])
         plain = self.ws / "隨便的夾"
         plain.mkdir()
         r = self.save(plain)
@@ -249,26 +375,70 @@ class EditFolder(Base):
         self.assertEqual([p.name for p in self.ws.glob("*.docx") if "unpacked" in p.name], [], "沒過的不留打包檔")
 
     def test_open_file_fails_cleanly(self):
-        """原檔開在 Word：換上時被擋 → 明講、原檔不動、不留暫存檔（mock os.replace）。"""
+        """原檔開在 Word：換上時被擋 →「檔案正開著，改視窗裡那份」、原檔不動、不留版本檔與暫存檔（mock os.replace）。"""
         import os
         from unittest import mock
         from kb._lib import output
         src = self.raw / _cards.MEETING
         before = src.read_bytes()
-        folder = self.unpack(src)
-        doc = folder / "word" / "document.xml"
-        doc.write_text(doc.read_text(encoding="utf-8").replace("討論廚房動線", "討論浴室動線"), encoding="utf-8")
-        with mock.patch.object(os, "replace", side_effect=PermissionError(13, "開著", str(src))):
-            with self.assertRaises(PermissionError):
+        folder = self.edit_once(src, "討論廚房動線", "討論浴室動線")
+        real = os.replace
+
+        def replace(a, b):
+            if Path(b) == src:
+                raise PermissionError(13, "開著", str(src))
+            return real(a, b)
+        with mock.patch.object(os, "replace", side_effect=replace):
+            with self.assertRaises(output.Refused) as cm:
                 output.save(self.V, str(folder), None, self.t, str(self.V))
+        self.assertEqual(str(cm.exception), "檔案正開著，改視窗裡那份")
         self.assertEqual(src.read_bytes(), before)
         self.assertEqual(list(src.parent.glob(".~kb-*")), [])
+        self.assertEqual(list(src.parent.glob("*（版本*")), [])
 
     def test_password_protected_refused(self):
         locked = self.raw / "客戶案件" / "大安陳" / "加密.docx"
         _ooxml.cfb(locked)
         out = self.refused("copy", str(locked), "--unpack")
-        self.assertEqual(out, "拿不到副本：" + office.PROTECTED)
+        self.assertEqual(out, "拿不到副本：這不是 Office 檔（解不開）")
+
+    def excel_save(self, ext, recalc):
+        """一份有公式的 Excel：改輸入格 → output.save（recalc 換成假的，不靠這台有沒有 Excel／LibreOffice）。"""
+        from unittest import mock
+        from kb._lib import output
+        src = self.raw / "客戶案件" / "大安陳" / f"報價{ext}"
+        _ooxml.xlsx(src, [("工作表", [[("n", "1"), ("f", "A1*2", "2")]])])
+        folder = self.unpack(src)
+        sheet = folder / "xl" / "worksheets" / "sheet1.xml"
+        sheet.write_text(sheet.read_text(encoding="utf-8").replace("<v>1</v>", "<v>5</v>", 1), encoding="utf-8")
+        with mock.patch.object(office, "recalc", side_effect=recalc) as fake:
+            try:
+                return src, output.save(self.V, str(folder), None, self.t, str(self.V)), fake
+            except output.Refused as e:
+                return src, e, fake
+
+    def test_excel_recalc_errors_refused(self):
+
+        def bad(_vault, _path):
+            return {"used": "Excel", "formulas": 1, "errors": [("sheet1.xml", "B1", "#REF!")]}
+        src, res, _fake = self.excel_save(".xlsx", bad)
+        self.assertEqual(str(res), "重算後有 1 格是錯誤值，沒放：B1（#REF!）")
+        with zipfile.ZipFile(src) as z:
+            self.assertIn("<v>1</v>", z.read("xl/worksheets/sheet1.xml").decode("utf-8"))
+        self.assertEqual(list(src.parent.glob("*（版本*")), [])
+
+    def test_excel_no_tool_saves_with_note(self):
+        def none(_vault, _path):
+            raise office.Unavailable("這台沒有 Excel 也沒有 LibreOffice\n公式要她打開檔案才會更新")
+        src, res, _fake = self.excel_save(".xlsx", none)
+        self.assertEqual(res["checked"]["recalc_note"], "公式要她打開檔案才會更新")
+        self.assertTrue(src.with_name("報價（版本一）.xlsx").is_file())
+
+    def test_xlsm_not_recalculated(self):
+        src, res, fake = self.excel_save(".xlsm", lambda *_a: self.fail("xlsm 不該重算"))
+        fake.assert_not_called()
+        self.assertEqual(res["checked"]["recalc_note"], office.MACRO_NO_RECALC)
+        self.assertTrue(src.with_name("報價（版本一）.xlsm").is_file())
 
     def test_macro_part_kept(self):
         docm = self.raw / "客戶案件" / "大安陳" / "有巨集.docm"
