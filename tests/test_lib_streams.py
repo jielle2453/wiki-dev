@@ -237,6 +237,8 @@ class ProfileLocalSha(StreamsTest):
         self.assertEqual([r.get("md_sha256") for r in streams.load(self.V, "profile").records.values()], ["aaa"])
         streams._write_local(self.V, "profile", {"md_sha256": None})  # 這台沒記過：用共用的
         self.assertEqual(streams.read_doc(self.V, "profile")["md_sha256"], "aaa")
+        streams.write_doc(self.V, "profile", dict(doc, md_sha256=None))  # 清成 None（設定檔重建、沒有 md）：讀回 None
+        self.assertIsNone(streams.read_doc(self.V, "profile")["md_sha256"])
 
 
 if __name__ == "__main__":

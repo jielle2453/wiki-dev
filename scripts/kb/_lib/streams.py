@@ -776,7 +776,7 @@ def write_doc(vault, kind, data):
         before = {k: v for k, v in live.items() if not _is_archived(v)}
     else:
         before = live
-    if kind == "profile" and "profile" in before:  # md 指紋只記在這台那一半（#42）：共用那份照舊，單純重畫不寫共用流水檔
+    if kind == "profile" and "profile" in before and data.get("md_sha256"):  # md 指紋只記在這台那一半（#42）：共用那份照舊，單純重畫不寫共用流水檔；清成 None（沒有 md）照常寫
         data = dict(data)
         if "md_sha256" in before["profile"]:
             data["md_sha256"] = before["profile"]["md_sha256"]
