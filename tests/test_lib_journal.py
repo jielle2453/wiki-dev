@@ -217,7 +217,7 @@ class BadLines(Base):
 
 class RenderFailure(Base):
     def test_render_error_is_logged_not_raised(self):
-        """測試後修正 M3：md 寫不了只寫 log，jsonl 照寫、呼叫端不知道（md 可用 journal render 重建）。"""
+        """測試後修正 M3：md 寫不了只寫 log，jsonl 照寫、呼叫端不知道（下一次寫入整月重畫）。"""
         md = journal.md_path(self.V, "2026-10")
         md.mkdir(parents=True)
         td = turn_data("20261015-180536-test")

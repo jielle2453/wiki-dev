@@ -4,7 +4,7 @@
 回合行分兩次寫：UserPromptSubmit 開口（begin_turn，順便補記上一句的中斷，同月一把鎖），Stop 補完（complete_turn），
 同一行 upsert；程式行只追加，代號一律用現在時間組。
 讀改寫 jsonl 整段包在 FileLock 裡（hook 3 秒、CLI 30 秒，拿不到丟 TimeoutError 給呼叫端）；渲染不在鎖裡，重讀檔案，
-最後一個寫的人渲染的就是最新；渲染失敗只寫 log 不往上丟（md 可用 journal render 重建）。
+最後一個寫的人渲染的就是最新；渲染失敗只寫 log 不往上丟（下一次寫入整月重畫）。
 壞行跳過，只有寫入路徑寫一行 hook-errors.log，重寫時原樣留著（I-046）。
 從人或模型來的欄位（prompt、result、AI 的 note）寫入前一律過 mask_secrets（D-086，多遮不改）；程式的 note 不遮。
 結果先壓成一行再遮再截（值跟關鍵詞隔空行也遮得到，測試後修正 M2）。
@@ -163,7 +163,7 @@ def _locked_edit(vault, month, edit):
     if changed:
         try:
             render(vault, month)
-        except Exception as e:  # noqa: BLE001  md 寫不了不能讓 Stop 跳過 set_done；journal render 可重建
+        except Exception as e:  # noqa: BLE001  md 寫不了不能讓 Stop 跳過 set_done；下一次寫入整月重畫
             ledger.log_error(vault, f"工作日誌渲染失敗 {month}: {type(e).__name__}: {e}", source="journal")
     return changed
 
