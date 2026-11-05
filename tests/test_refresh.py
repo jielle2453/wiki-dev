@@ -310,3 +310,37 @@ class StopHookTest(RefreshBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SmallLines(unittest.TestCase):
+    """#45（問題 06）：同步進來的流水檔不列給 AI；設定檔 conflicts 不列機器算的 md_sha256。"""
+
+    def test_pulled_line_skips_streams(self):
+        sys.path.insert(0, str(ROOT / "hooks"))
+        import _checks
+        got = {"pulled": [".system/streams/profile/m-1.jsonl", "報價單.docx"], "conflicts": [], "big": []}
+        with mock.patch.object(git, "is_repo", lambda v: True), mock.patch.object(git, "rebase_in_progress", lambda v: False), \
+                mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
+            lines = [x for x, _once in _checks.refresh_lines("V")]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("1 個檔（報價單.docx）", lines[0])
+        got["pulled"] = [".system/streams/profile/m-1.jsonl"]
+        with mock.patch.object(git, "is_repo", lambda v: True), mock.patch.object(git, "rebase_in_progress", lambda v: False), \
+                mock.patch.object(refresh, "head_changed", lambda v: True), mock.patch.object(refresh, "run", lambda v: got):
+            self.assertEqual(_checks.refresh_lines("V"), [])
+
+    def test_profile_conflicts_skip_md_sha(self):
+        import io
+        from contextlib import redirect_stdout
+        from kb import profile_cli
+        from kb._lib import profile, streams
+        rows = [{"id": "p", "field": "md_sha256", "values": []}, {"id": "p", "field": "types", "values": []}]
+        buf = io.StringIO()
+        with mock.patch.object(profile, "status", lambda v: {"state": "ok", "data": {}}), \
+                mock.patch.object(profile_cli, "_limits", lambda v: {}), \
+                mock.patch.object(profile, "sections_schema", lambda *a, **k: []), \
+                mock.patch.object(profile, "card_titles", lambda v, d: {}), mock.patch.object(profile, "use_choices", lambda v: []), \
+                mock.patch.object(profile_cli, "_pending_edit", lambda st: None), \
+                mock.patch.object(streams, "conflicts_of", lambda v, k: rows), redirect_stdout(buf):
+            profile_cli._show("V", True)
+        self.assertEqual([c["field"] for c in json.loads(buf.getvalue())["conflicts"]], ["types"])

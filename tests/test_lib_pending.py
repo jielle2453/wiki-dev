@@ -530,3 +530,23 @@ class WakeOnKnowledge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MissingShared(Base):
+    def test_shared_folder_missing_says_colleague(self):
+        """#45（問題 09，D-334）：多人時共用夾裡不見的檔不問「是你刪的嗎」；單人、不共用的夾照舊。"""
+        from unittest import mock
+        from kb._lib import people, sources as sources_lib
+
+        class S:
+            entries = [{"alias": "共用雲端", "shared": True, "root": "x"}, {"alias": "我的夾", "root": "y"}]
+        a = dict(entry("f-1", "file://共用雲端/a.docx", "missing"), missing_since="2026-10-01T00:00:00")
+        b = dict(entry("f-2", "file://我的夾/b.docx", "missing"), missing_since="2026-10-01T00:00:00")
+        with mock.patch.object(people, "multi", lambda v: True), mock.patch.object(sources_lib, "load", lambda v: S()):
+            pending.sync_missing(self.V, [a, b], self.t)
+        self.assertEqual(pending.ask_of(pending.open_for(self.V, "f-1", "missing_file")), pending.MISSING_ASK_SHARED)
+        self.assertEqual(pending.ask_of(pending.open_for(self.V, "f-2", "missing_file")), MISSING_Q)
+        c = dict(entry("f-3", "file://共用雲端/c.docx", "missing"), missing_since="2026-10-01T00:00:00")
+        with mock.patch.object(people, "multi", lambda v: False), mock.patch.object(sources_lib, "load", lambda v: S()):
+            pending.sync_missing(self.V, [c], self.t)
+        self.assertEqual(pending.ask_of(pending.open_for(self.V, "f-3", "missing_file")), MISSING_Q)
