@@ -67,19 +67,65 @@ def _ok(vault, *args, **kw):
     return out.strip() if rc == 0 else None
 
 
+def _plain_git_dir(vault):
+    """一般 clone（.git 是夾、裡面有 HEAD）→ 那個夾；worktree、submodule（.git 是檔）等回 None 交給 git 判斷。
+    每句開頭都會問，讀檔不叫子行程（#44：多人每句先付 0.4 秒 git）。"""
+    d = Path(vault) / ".git"
+    try:
+        ok = (d / "HEAD").is_file() and (d / "objects").is_dir() and (d / "refs").is_dir()  # 只有 HEAD 的壞夾交給 git 判斷
+        return d.resolve() if ok else None
+    except OSError:
+        return None
+
+
 def is_repo(vault):
     if not (Path(vault) / ".git").exists():  # 單人沒有 git 的知識庫：不叫子行程（每句開頭都問）
         return False
-    return available() and _ok(vault, "rev-parse", "--is-inside-work-tree") == "true"
+    if not available():
+        return False
+    return _plain_git_dir(vault) is not None or _ok(vault, "rev-parse", "--is-inside-work-tree") == "true"
 
 
 def _git_dir(vault):
+    d = _plain_git_dir(vault)
+    if d is not None:
+        return d
     got = _ok(vault, "rev-parse", "--absolute-git-dir")
     return Path(got) if got else None
 
 
+def _head_from_files(d):
+    """讀 .git/HEAD → 分支檔或 packed-refs 的 sha；讀不懂回 None（呼叫端改叫 git）。"""
+    try:
+        text = (d / "HEAD").read_text(encoding="utf-8").strip()
+        if not text.startswith("ref:"):
+            return text if _is_sha(text) else None
+        ref = text[4:].strip()
+        f = d / ref
+        if f.is_file():
+            sha = f.read_text(encoding="utf-8").strip()
+            return sha if _is_sha(sha) else None
+        packed = d / "packed-refs"
+        if packed.is_file():
+            for line in packed.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == ref and _is_sha(parts[0]):
+                    return parts[0]
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
+def _is_sha(s):
+    return len(s) in (40, 64) and all(c in "0123456789abcdef" for c in s)
+
+
 def head(vault):
-    return _ok(vault, "rev-parse", "HEAD") if is_repo(vault) else None
+    if not is_repo(vault):
+        return None
+    d = _plain_git_dir(vault)
+    got = _head_from_files(d) if d is not None else None
+    return got or _ok(vault, "rev-parse", "HEAD")
 
 
 def changed_since(vault, old, new):

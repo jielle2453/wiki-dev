@@ -115,6 +115,49 @@ class GitTest(unittest.TestCase):
         self.assertEqual(git.unmerged(self.b), [])
         self.assertEqual((self.b / "卡.md").read_text(encoding="utf-8").strip(), "甲的")
 
+    def test_head_and_dir_read_from_files_without_git(self):
+        """#44：一般 clone 每句開頭讀 .git 裡的檔，不叫子行程；packed-refs、detached、rebase 一樣對。"""
+        want = gf.must(self.a, "rev-parse", "HEAD").strip()
+        no_git = mock.patch.object(git, "_once", side_effect=AssertionError("不該叫 git"))
+        with no_git:
+            self.assertTrue(git.is_repo(self.a))
+            self.assertEqual(git.head(self.a), want)
+            self.assertFalse(git.rebase_in_progress(self.a))
+            self.assertFalse(git.merge_in_progress(self.a))
+            (self.a / ".git" / "rebase-merge").mkdir()
+            self.assertTrue(git.rebase_in_progress(self.a))
+            (self.a / ".git" / "rebase-merge").rmdir()
+        gf.must(self.a, "pack-refs", "--all")
+        self.assertFalse((self.a / ".git" / "refs" / "heads" / "main").exists())
+        with no_git:
+            self.assertEqual(git.head(self.a), want)
+        gf.must(self.a, "checkout", "-q", "--detach")
+        with no_git:
+            self.assertEqual(git.head(self.a), want)
+
+    def test_dot_git_file_falls_back_to_git(self):
+        """.git 是檔（git worktree）：讀不懂就照舊叫 git。"""
+        wt = Path(self._tmp.name) / "wt"
+        gf.must(self.a, "worktree", "add", "-q", "--detach", str(wt))
+        self.assertTrue((wt / ".git").is_file())
+        self.assertTrue(git.is_repo(wt))
+        self.assertEqual(git.head(wt), gf.must(self.a, "rev-parse", "HEAD").strip())
+        self.assertFalse(git.rebase_in_progress(wt))
+
+    def test_unborn_and_broken_dot_git(self):
+        """還沒有 commit 的分支 head 是 None；.git 只有 HEAD 的壞夾不當成 repo（交給 git 判斷）。"""
+        fresh = Path(self._tmp.name) / "fresh"
+        fresh.mkdir()
+        gf.must(fresh, "init", "-q", "-b", "main")
+        self.assertTrue(git.is_repo(fresh))
+        self.assertIsNone(git.head(fresh))
+        broken = Path(self._tmp.name) / "broken"
+        (broken / ".git").mkdir(parents=True)
+        (broken / ".git" / "HEAD").write_text("ref: refs/heads/main" + chr(10), encoding="utf-8")
+        self.assertIsNone(git._plain_git_dir(broken))
+        self.assertFalse(git.is_repo(broken))
+        self.assertIsNone(git.head(broken))
+
 
 if __name__ == "__main__":
     unittest.main()
