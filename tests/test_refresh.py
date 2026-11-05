@@ -52,6 +52,27 @@ class RefreshBase(unittest.TestCase):
 
 
 class RefreshTest(RefreshBase):
+    def test_fresh_clone_found_and_guarded(self):
+        """#39：新 clone 沒有 .gitignore 擋掉的衍生副本，find_vault 照樣認、從流水檔補出副本，守門照常擋。"""
+        from kb import guard
+        from tests._guard_fixture import payload
+        C = self.tmp / "C"
+        subprocess.run(["git", "clone", str(self.bare), str(C)], check=True, capture_output=True, env=gf.ENV)
+        self.assertFalse((C / sources_lib.SOURCES_REL).exists())
+        found = guard.find_vault(str(C / ".system" / "streams"))
+        self.assertIsNotNone(found)
+        self.assertTrue(os.path.samefile(found, C))
+        self.assertEqual([s["alias"] for s in sources_lib.load_raw(C)["sources"]],
+                         [s["alias"] for s in sources_lib.load_raw(self.A)["sources"]])
+        got = guard.decide(payload("Write", C / sources_lib.SOURCES_REL, C))
+        self.assertEqual(got.decision, "deny", got)
+        (C / sources_lib.SOURCES_REL).unlink()  # 快取還在、只刪副本：也補回來
+        self.assertTrue(os.path.samefile(guard.find_vault(str(C)), C))
+        self.assertTrue((C / sources_lib.SOURCES_REL).is_file())
+        empty = self.tmp / "空" / ".system" / "streams" / "sources"  # 空的流水檔夾不算知識庫
+        empty.mkdir(parents=True)
+        self.assertIsNone(guard.find_vault(str(empty)))
+
     def test_not_repo_does_nothing(self):
         plain = self.tmp / "plain"
         plain.mkdir()

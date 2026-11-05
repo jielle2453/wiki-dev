@@ -857,7 +857,8 @@ ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改
 
 
 def find_vault(cwd):
-    """從 cwd 往上找第一個含 .system/sources.json 的目錄；找不到回 None（不是在知識庫裡開的對話）。"""
+    """從 cwd 往上找第一個含 .system/sources.json（或來源流水檔夾）的目錄；找不到回 None（不是在知識庫裡開的對話）。
+    新 clone 只有流水檔、沒有 .gitignore 擋掉的衍生副本：先從流水檔補出副本再認（#39）。"""
     if not cwd:
         return None
     try:
@@ -866,6 +867,13 @@ def find_vault(cwd):
         return None
     for d in [p, *p.parents]:
         if (d / sources_lib.SOURCES_REL).is_file():
+            return d
+        from kb._lib import streams
+        if streams.exists(d, "sources"):  # 空的流水檔夾不算
+            try:  # load 快取命中時不寫副本，所以直接寫
+                streams._mirror(d, "sources", streams.load(d, "sources"))
+            except Exception:  # noqa: BLE001  補不出來照樣認：之後讀登記表的地方照舊報讀不了
+                pass
             return d
     return None
 
