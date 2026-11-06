@@ -26,7 +26,7 @@ DROPPED = "草稿收起來了：{name}（說「退回」會回來）"
 def add_arguments(sub):
     subs = sub.add_subparsers(dest="output_command", metavar="<子子命令>", required=True)
     sv = subs.add_parser("save", help="把做好的檔放進知識庫（沒給 --to 落暫存區）", description="工作區的檔用搬的、知識庫外的用複製的；先備份、登記，退回時成品先留著、要刪再刪。")
-    sv.add_argument("file", help="工作區或知識庫外的檔；或 kb office copy --unpack 解開的夾（程式打包、驗過，沒給 --to 蓋回原檔、原本那份備進回合）")
+    sv.add_argument("file", help="工作區或知識庫外的檔；或 kb office copy --unpack 解開的夾（程式打包、驗過，沒給 --to 蓋回原檔、舊的存成同夾（版本 N））")
     sv.add_argument("--to", help="放到哪：<夾>/<檔名>（使用者的任何夾；暫存區底下也行）；沒給落暫存區，檔名照原檔")
     sv.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
     sv.add_argument("--from", dest="source", help="改自哪份原檔（卡編號、uri 或路徑）")

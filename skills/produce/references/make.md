@@ -50,7 +50,7 @@
   - 回答照念它印的那句，列出改了哪些字、哪幾格、哪幾頁，最後問她一句要不要刪掉之前的版本；她說好才 `kb source-edit trash <那幾份>`。
 - **Excel**：只改輸入格，公式格不動；不要用 openpyxl 存檔，可能弄掉圖表與圖片。
 - **PowerPoint** 分三級：
-  - 改幾個字、字數差不多：直接改 `ppt/slides/slideN.xml` 的字，打包。
+  - 改幾個字、字數差不多：直接改 `ppt/slides/slideN.xml` 的字，照上面 `kb output save "<夾>"`。
   - 字變多、改版面：save 前先 `kb office pack "<夾>" --to 看版面.pptx --like "<副本>"`、`kb office render "<那份>" --pages <那幾頁>` 轉圖看；這台畫法跟 PowerPoint 不一定一樣，看得出字太多、看不準會超出多少，回答提醒她打開確認那幾頁。
   - 大改（換結構、很多頁）：推薦照內容重做一份新的，比修補穩。
 - **轉格式**（「這份轉成 PDF」）：`kb office copy` → `kb office pdf "<副本>"` → `kb output save "<PDF>" --to … --from <原檔>`。
