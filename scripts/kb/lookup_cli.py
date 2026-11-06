@@ -1,4 +1,6 @@
-"""kb lookup <名稱或別名>（answer 第 1 點，D-153）：一次給齊一個實體的材料，只讀、不開回合、不記日誌。
+"""kb lookup <名稱或別名>（answer 第 1 點，D-153）：一次給齊一個實體的材料，不開回合、不記日誌。
+#46：順帶「回答末尾要問的事」（--json 的 asks，同 kb asks --about；人讀最後幾行），answer 不必再叫 kb asks；
+跟 kb asks 一樣會寫 .system/asks_seen.json（同 session 問過的不再問）、關掉到期的題。同一句只有第一次 lookup 帶。
 
 人讀第一行是摘要（實體、型別與狀態、各類份數、還沒整理幾份），之後每類一段；不印內部編號（日程確認後裁定 6），
 要編號取 --json。名稱沒登記：列提到它的卡，都沒有就一句「沒有登記這個名稱，也沒有卡提到它」，有製作中的檔再一行列出來（#37）。
@@ -156,11 +158,37 @@ def run(args):
         print(f"查不出來（{type(e).__name__}），沒有結果")
         return 3
     _touch(vault, got)
+    got["asks"] = _end_asks(vault, got)
     if getattr(args, "json", False):
         print(json.dumps(got, ensure_ascii=False))
     else:
-        print("\n".join(_lines(got)))
+        print("\n".join(_lines(got) + _end_lines(got)))
     return 0
+
+
+ASKS_FLAG = "asks_given"  # 回合旗標：這一句的 lookup 已經帶過要問的事
+
+
+def _end_asks(vault, got):
+    """回答末尾要問的事（#46，同 kb asks --about <查的實體> 的 --json，回過的照樣記進 asks_seen），answer 不必再叫 kb asks。
+    同一句只有第一次 lookup 帶（回合記 asks_given），之後是 None，不然一句裡好幾題都被記成問過；終端機沒有回合旗標，每次都帶。
+    算不出來（鎖忙、狀態檔壞）也是 None，不擋查詢。"""
+    from kb import asks_cli
+    from kb._lib import turn
+    try:
+        now = turn.now(vault)
+        if now and now.get(ASKS_FLAG):
+            return None
+        out = asks_cli.about(vault, [got["entity"]["name"] if got["entity"] else got["query"]])
+        turn.mark(vault, ASKS_FLAG)
+        return out
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _end_lines(got):
+    from kb import asks_cli
+    return asks_cli.end_lines(got["asks"]) if got.get("asks") else []
 
 
 def _touch(vault, got):

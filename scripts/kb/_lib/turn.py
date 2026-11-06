@@ -83,6 +83,8 @@ def start(vault, session_id, prompt, inherit=None, transcript=None):
         data["transcript"] = str(transcript)
     if inherit:
         data["journal_turn"] = journal_key(inherit)
+        if inherit.get("program_notes"):  # 指令自帶的「做了」也接著（#46）
+            data["program_notes"] = list(inherit["program_notes"])
         for flag in MARK_FLAGS:  # 同一句話跑過整理、按過停止，退回自己後照樣認得（answer 裁定 21）
             if inherit.get(flag):
                 data[flag] = True
@@ -484,6 +486,27 @@ def touch(vault, entities=(), files=()):
         return bool(change_turn(vault, tid, change))
     except (OSError, ValueError) as e:
         ledger.log_error(vault, f"touched 沒記到：{type(e).__name__}: {e}")
+        return False
+
+
+def add_program_note(vault, text):
+    """對話裡叫的 kb 寫入指令那句白話（record_program_or_warn 的 note，先遮好）加進回合的 program_notes（#46）：
+    Stop 沒有 AI 的 turn note 時拿它當「做了」。回合的找法同 touch（--turn 是那個回合，否則對話裡、還沒答完的回合）；
+    寫不了不擋指令（回 False）。"""
+    text = str(text or "").strip()
+    if not text:
+        return False
+    if OVERRIDE:
+        tid = OVERRIDE
+    else:
+        data = _read_turn(_now_file(vault))
+        if not data or not data.get("session_id") or data.get("done"):
+            return False
+        tid = data["turn"]
+    try:
+        return bool(change_turn(vault, tid, lambda d: d.update(program_notes=list(d.get("program_notes") or []) + [text]) or True))
+    except (OSError, ValueError, TimeoutError) as e:
+        ledger.log_error(vault, f"program_notes 沒記到：{type(e).__name__}: {e}")
         return False
 
 

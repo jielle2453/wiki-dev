@@ -123,10 +123,13 @@ def in_conversation(vault):
 
 
 def record_program_or_warn(vault, note, changed, command, conversation, actions=None):
-    """程式段：conversation（in_conversation 的結果）為真不寫；代號由 record_program 用現在時間組（L2）。
+    """程式段：conversation（in_conversation 的結果）為真不寫程式段，note 遮好記進回合的 program_notes，
+    Stop 沒有 AI 的 turn note 時拿它當「做了」（#46）；代號由 record_program 用現在時間組（L2）。
     寫失敗（鎖、IO）印一行到 stderr，不擋指令。"""
     try:
         if conversation:
+            from kb._lib import credentials
+            turn.add_program_note(vault, credentials.mask_secrets(" ".join(str(note or "").split())))
             return
         journal.record_program(vault, note, changed, command, actions=actions)
     except Exception as e:  # noqa: BLE001  日誌沒記到不能讓指令失敗
