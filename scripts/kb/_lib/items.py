@@ -9,6 +9,7 @@
 只讀（不寫任何東西）；不 import kb.versions（它 import 這支）。
 """
 import json
+import re
 from pathlib import Path
 
 from kb._lib import inventory, turn
@@ -151,7 +152,7 @@ class Ledger:
                 it["undoable"], it["why"] = False, "gone"  # willy 沒留一份：missing／added／modified 都改不回
             base.append(((d.get("time", ""), _ORDER["detected"], i), it))
         base.sort(key=lambda x: x[0])
-        out = [it for _k, it in base] + sorted(expanded, key=lambda it: (it["file"], str(it["key"])))
+        out = _fold_versions([it for _k, it in base]) + sorted(expanded, key=lambda it: (it["file"], str(it["key"])))
         writes = {w["path"]: w.get("time", "") for w in turn.writes(self.vault, tid)}  # 同路徑第二次以後的寫入（writes.jsonl）
         for n, it in enumerate(out, 1):
             it["seq"], it["turn"], it["item"] = n, tid, f"{tid}#{n}"
@@ -250,6 +251,39 @@ def _records(data, list_key):
             return None
         out[str(rec["id"])] = (i, rec)
     return out
+
+
+def _fold_versions(its):
+    """改 Office 檔存的版本檔（D-529）：同一句 create 的「<主檔名>（版本 N）<副檔名>」併進同夾原檔那項（versions），
+    不單獨列：只退版本檔那項會把唯一的備份刪掉（jacky 2026-11-05 定）。"""
+    mods = [it for it in its if it["src"] == "manifest" and it["op"] == "modify" and (it.get("row") or {}).get("path")]
+    if not mods:
+        return its
+    out = []
+    for it in its:
+        path = (it.get("row") or {}).get("path") or ""
+        host = next((m for m in mods if it["src"] == "manifest" and it["op"] == "create" and _version_of(path, m["row"]["path"])), None)
+        if host is None:
+            out.append(it)
+        else:
+            host.setdefault("versions", []).append(it["row"])
+            host["keys"] = host["keys"] + it["keys"]  # 之後有人動了版本檔，退這項要算衝突
+    return out
+
+
+def _version_of(path, original):
+    folder, _sep, name = original.rpartition("/")
+    vfolder, _sep, vname = path.rpartition("/")
+    stem, dot, ext = name.rpartition(".")
+    if vfolder != folder or not dot:
+        return False
+    return re.fullmatch(re.escape(stem) + "（版本[一二三四五六七八九十0-9]+）" + re.escape("." + ext), vname) is not None
+
+
+def version_label(row):
+    """版本檔那行 → 「版本二」。"""
+    name = str(row.get("path") or "").rpartition("/")[2]
+    return name[name.rfind("（版本") + 1:name.rfind("）")]
 
 
 def _what(it):

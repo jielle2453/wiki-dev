@@ -289,12 +289,56 @@ class EditFolder(Base):
         self.assertEqual(src.read_bytes(), before)
         self.assertEqual(list(src.parent.glob("*（版本*")), [])
 
+    def office_items(self, turn_id):
+        r = run_kb("versions", "items", "--turn", turn_id, "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return [it for it in json.loads(r.stdout)["items"] if "會議紀錄_1" in it["what"]]
+
+    def test_items_fold_version_into_original_and_undo(self):
+        """OBS 回測：版本檔不單獨列項，併在原檔那項（jacky 2026-11-05 修法一）；退那一項＝原檔換回＋版本檔拿掉。"""
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        r = self.save(self.edit_once(src, "討論廚房動線", "討論浴室動線"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = self.office_items(self.t)
+        self.assertEqual(len(got), 1, got)
+        self.assertEqual(got[0]["what"], "會議紀錄_1.docx")
+        self.assertEqual([Path(v).name for v in got[0]["versions"]], ["會議紀錄_1（版本一）.docx"])
+        r = run_kb("versions", "items", "--turn", self.t, cwd=self.V)
+        self.assertIn("會議紀錄_1.docx：改了內容（舊的存成版本一）", r.stdout)
+        self.assertNotIn("（版本一）.docx：新增", r.stdout)
+        r = run_kb("versions", "undo", got[0]["item"], cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), before)
+        self.assertFalse(src.with_name("會議紀錄_1（版本一）.docx").exists())
+
+    def test_items_same_turn_twice_one_item(self):
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        for old, new in (("討論廚房動線", "討論浴室動線"), ("討論浴室動線", "討論陽台動線")):
+            r = self.save(self.edit_once(src, old, new))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = self.office_items(self.t)
+        self.assertEqual(len(got), 1, got)
+        r = run_kb("versions", "items", "--turn", self.t, cwd=self.V)
+        self.assertIn("（舊的存成版本一、版本二）", r.stdout)
+        r = run_kb("versions", "undo", got[0]["item"], cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), before)
+        self.assertEqual(list(src.parent.glob("*（版本*")), [])
+
     def test_version_number_continues_after_gap(self):
         from kb._lib import output
         src = self.raw / _cards.MEETING
         src.with_name("會議紀錄_1（版本二）.docx").write_bytes(b"x")
         self.assertEqual(output.version_name(src), "會議紀錄_1（版本三）.docx")
         self.assertEqual([output._cn(n) for n in (1, 10, 11, 20, 99, 100)], ["一", "十", "十一", "二十", "九十九", "100"])
+        from kb._lib import items
+        orig = "_src/客戶案件/大安陳/會議紀錄_1.docx"
+        self.assertTrue(items._version_of("_src/客戶案件/大安陳/會議紀錄_1（版本十二）.docx", orig))
+        for other in ("_src/客戶案件/大安陳/會議紀錄_1（版本控制）.docx", "_src/客戶案件/別的/會議紀錄_1（版本一）.docx",
+                      "_src/客戶案件/大安陳/會議紀錄_1（版本一）.xlsx"):
+            self.assertFalse(items._version_of(other, orig), other)
 
     def test_office_style_save_of_version_leaves_backup(self):
         """主管疑慮一之一：Office 存檔是寫新檔再整份換上，連結斷開，回合備份還是改之前那份，退回照常。"""

@@ -1300,6 +1300,7 @@ WHY_WORDS = {"expired": "那一版的備份已經清掉了", "gone": "willy 沒�
              "undone": "已經改回過了", "failed": "沒做成", "refused": "紀錄的路徑不對", "kept": "先留著", "taken": "原位已經有東西了",
              "missing": "找不到要改回的東西"}
 OUTPUT_KEPT = "{rel} 是成品，先留著；要刪跟我說，我用 delete-outputs 刪。"
+VERSION_KEPT = "{name} 照留（舊的那份還在）"  # D-529 版本檔沒拿掉
 NO_SUCH_TARGET = "找不到這個項目或回合：{token}"
 CONVERTED = "{what}升級時把資料換成新的存法，這一步退不回去"  # 格式轉換不可退（jacky 2026-11-05 定，#45-07）；B-074 不唸代號
 
@@ -1332,6 +1333,9 @@ def _item_text(it, done=False):
     if src == "manifest":
         word = {"modify": "換回舊版" if done else "改了內容", "delete": "拿回來" if done else "刪了",
                 "create": "拿掉" if done else "新增", "purged": "清掉了"}.get(op, op)
+        if it.get("versions"):  # D-529：版本檔併在原檔這項
+            labels = "、".join(items.version_label(v) for v in it["versions"])
+            word += f"，{labels}拿掉" if done else f"（舊的存成{labels}）"
         return f"{name}：{word}"
     if src == "folders":
         if op == "move":
@@ -1350,6 +1354,8 @@ def _item_text(it, done=False):
 def _public_item(it, t, undone_by):
     out = {"item": it["item"], "turn": it["turn"], "said": _describe(t), "op": it["op"], "kind": it["kind"], "what": it["what"],
            "from": it["from"], "to": it["to"], "by": it["by"], "copy": bool(it["copy"]), "undoable": it["undoable"]}
+    if it.get("versions"):
+        out["versions"] = [v.get("uri") or v.get("path") for v in it["versions"]]
     if it["src"] == "record":
         out.update(file=it["file"], key=it["key"])
         if it.get("stream"):
@@ -1742,7 +1748,24 @@ def _undo_folder_item(ctx, it):
 
 
 def _undo_file_item(ctx, led, it):
-    """manifest 的一檔：modify／delete 放回舊版、create 拿掉（成品留著）。登記的來源（有 uri）照 uri 找回原位。"""
+    """manifest 的一檔：modify／delete 放回舊版、create 拿掉（成品留著）。登記的來源（有 uri）照 uri 找回原位。
+    併進來的版本檔（D-529）：原檔換回之後再一份一份拿掉；硬連結的備份被原地改過就整項不動。"""
+    if it.get("versions"):
+        backup = led.backup_file(it["turn"], it["row"].get("path"))
+        if backup.is_file() and _backup_changed(it["row"], backup):
+            name = it["row"].get("uri") or it["row"].get("path")
+            return "skipped", "failed", BACKUP_CHANGED.format(n=1, names=name)
+        for v in it["versions"]:  # 版本檔開著：先擋，免得原檔換回了、版本檔拿不掉
+            path = inventory.path_of(ctx["vault"], ctx["sources"], v["uri"]) if v.get("uri") else Path(ctx["vault"]) / v["path"]
+            if path and Path(path).is_file() and not _writable(Path(path)):
+                return "skipped", "failed", FILE_OPEN.format(rel=Path(path).name)
+        got = _undo_file_item(ctx, led, dict(it, versions=None))
+        if got[0] == "done":
+            for v in reversed(it["versions"]):
+                status, why, _msg = _undo_file_item(ctx, led, dict(it, row=v, versions=None))
+                if status != "done" and why != "kept":  # 成品那條已經說「先留著」
+                    ctx["kept"].append(VERSION_KEPT.format(name=str(v.get("uri") or v["path"]).rpartition("/")[2]))
+        return got
     vault, sources, rt = ctx["vault"], ctx["sources"], ctx["rt"]
     e = it["row"]
     action, recorded, uri = e.get("action"), e.get("path"), e.get("uri")
