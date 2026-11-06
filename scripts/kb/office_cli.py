@@ -25,6 +25,8 @@ CLI_LOCK_TIMEOUT = 30
 NOT_LISTED = "清冊沒有這份檔；先跑 kb inventory scan"
 COPY_HEAD = "拿不到副本："
 ONLY_HERE = "只收工作區或暫存區裡的檔：{path}"
+UNPACKED = "解開到：{folder}（看內容、改字都在這個夾，用 Grep／Read／Edit；改好 kb output save \"<這個夾>\"）"
+NOT_OFFICE = "這種檔不用解開；原檔沒動"
 
 
 def add_arguments(sub):
@@ -36,6 +38,7 @@ def add_arguments(sub):
     rn.add_argument("args", nargs=argparse.REMAINDER, help="給腳本的參數")
     cp = subs.add_parser("copy", help="拿一份原檔的副本", description="把清冊裡的一份檔複製到工作區；原檔不動。總資料夾從目前目錄往上找。")
     cp.add_argument("target", help="清冊編號（f-…）、uri 或路徑")
+    cp.add_argument("--unpack", action="store_true", help="docx、xlsx、pptx 順便解開成夾（改 XML 用；改好 kb output save <夾>）")
     up = subs.add_parser("unpack", help="解開工作區的 Office 檔", description="解開成一個夾（預設 <主檔名>_unpacked），改 XML 用。")
     up.add_argument("file", help="工作區裡的 docx、xlsx、pptx")
     up.add_argument("--to", help="解開到哪個夾（工作區裡）")
@@ -124,12 +127,18 @@ def _copy(args, as_json):
         sources = sources_lib.load(vault)
         entry, path, _uri = convert.resolve(vault, sources, args.target, os.getcwd())
         convert.gate(vault, sources, entry, path)
+        if entry is None and _uri:  # 剛放進登記的夾、清冊還沒有：掃那一個來源補記（簡化一 A），排除、密碼上面已擋
+            from kb.inventory_cli import scan_and_apply
+            scan_and_apply(vault, sources, [inventory.split_uri(_uri)[0]], via="office copy")
+            entry, path, _uri = convert.resolve(vault, sources, args.target, os.getcwd())
+            convert.gate(vault, sources, entry, path)
         if entry is None or entry.get("status") != "active":
             raise convert.Refused(NOT_LISTED, None)
         ws = office.workspace(vault, _turn_id(vault))
         dst = _free_name(ws / Path(str(path)).name)
         shutil.copy2(path, dst)
         os.chmod(dst, stat.S_IREAD | stat.S_IWRITE)  # 唯讀原檔的副本也要能改、能清（測試後修正裁定 20 L-9）
+        folder = office.unpack_for_edit(vault, dst, entry["id"], Path(str(path)).name) if getattr(args, "unpack", False) else None
     except convert.Refused as e:
         return _fail(as_json, COPY_HEAD + e.args[0])
     except office.Refused as e:
@@ -138,6 +147,11 @@ def _copy(args, as_json):
         return _fail(as_json, f"{COPY_HEAD}狀態檔壞了（{e}）")
     except OSError:
         return _fail(as_json, COPY_HEAD + convert.LOCKED)
+    if getattr(args, "unpack", False):
+        second = UNPACKED.format(folder=folder) if folder else NOT_OFFICE
+        _out(as_json, [f"副本：{dst}", second], {"ok": True, "copy": str(dst), "id": entry["id"], "workspace": str(ws),
+                                                 "folder": str(folder) if folder else None})
+        return 0
     _out(as_json, [f"副本：{dst}", "原檔沒動；改好用 kb output save --from 放進暫存區"],
          {"ok": True, "copy": str(dst), "id": entry["id"], "workspace": str(ws)})
     return 0

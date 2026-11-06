@@ -37,6 +37,8 @@ ORIGINAL = "客戶原檔先用 kb office copy 拿副本"
 COLON = "檔名不能有冒號"
 LINKED_BEFORE = "這個網址已經登記過了：{title}"
 TITLE_CHARS = "標題不能有 $ 或 ` 這兩種字元"
+LOCKED = "檔案正開著，改視窗裡那份"  # D-529：蓋不回去，原檔不動、不留版本檔；AI 改走知識庫 CLAUDE.md 的附著改
+NOT_EDIT_FOLDER ="這個夾不是 kb office copy --unpack 解開的，不知道原檔是哪份；用 copy --unpack 重拿一次"
 _URL = re.compile(r"^https://claude\.ai/[^\s\"'`$\\]+$")
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f$`]')
 
@@ -159,12 +161,53 @@ def place_at(vault, sources, dest_dir, name):
             "dest_rel": se._dest_rel(dest_uri), "uri_shown": uri, "legacy": legacy}
 
 
-def backup_before(vault, sources, place, turn_id, action):
-    """寫之前把位置備進回合：知識庫裡 turn.backup；登記的來源 turn.backup_source；沒登記的地方沒有備份。"""
+def backup_before(vault, sources, place, turn_id, action, link_from=None):
+    """寫之前把位置備進回合：知識庫裡 turn.backup；登記的來源 turn.backup_source；沒登記的地方沒有備份。
+    link_from：版本檔（D-529），回合備份硬連結到它。"""
     if place["kind"] == "vault":
-        turn.backup(vault, place["rel"], turn_id, action=action)
+        turn.backup(vault, place["rel"], turn_id, action=action, link_from=link_from)
     elif place["kind"] == "source":
-        turn.backup_source(vault, place["target"], None, turn_id, sources)
+        turn.backup_source(vault, place["target"], None, turn_id, sources, link_from=link_from)
+
+
+_CN = "零一二三四五六七八九"
+
+
+def _cn(n):
+    """1～99 寫成中文數字（版本一、十二、二十）；更大的照阿拉伯數字。"""
+    if n < 10:
+        return _CN[n]
+    if n < 100:
+        tens, ones = divmod(n, 10)
+        return ("" if tens == 1 else _CN[tens]) + "十" + (_CN[ones] if ones else "")
+    return str(n)
+
+
+def version_name(target):
+    """原檔同夾的下一個「<主檔名>（版本 N）.<副檔名>」：現有最大號加一（她刪了中間的也不回頭補）。"""
+    target = Path(target)
+    taken = {p.name.casefold() for p in target.parent.iterdir()}
+    name = lambda n: f"{target.stem}（版本{_cn(n)}）{target.suffix}"  # noqa: E731
+    return name(max((n for n in range(1, 1000) if name(n).casefold() in taken), default=0) + 1)
+
+
+def _keep_version(vault, sources, place, turn_id):
+    """蓋回原檔前（D-529）：現在的原檔複製成版本檔（回合記 create），原檔的回合備份硬連結到它（不多存一份）。回版本檔的位置。"""
+    vplace = place_at(vault, sources, place["target"].parent, version_name(place["target"]))
+    backup_before(vault, sources, vplace, turn_id, "create")
+    shutil.copy2(str(place["target"]), str(vplace["target"]))
+    backup_before(vault, sources, place, turn_id, "modify", link_from=vplace["target"])
+    return vplace
+
+
+def _register_version(vault, vplace, turn_id):
+    """版本檔記進清冊、標不整理（skip_kind，D-113 現有欄位），整理不做卡、lookup 不當成現行那份。"""
+    from kb._lib import cards
+    entry = inventory.register_output(vault, vplace["rel"] or vplace["bkey"], turn_id, uri=vplace["uri"],
+                                      target=vplace["target"] if vplace["kind"] == "source" else None,
+                                      backup_key=vplace["bkey"])
+    if entry:
+        inventory.set_skip(vault, [entry["id"]], cards.SKIP_AI)
 
 
 def shown_path(place):
@@ -259,6 +302,10 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
     --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
     from kb._lib import sources as sources_lib
     sources = sources_lib.load(vault)
+    checked = None
+    if _abs(src, cwd).is_dir():  # copy --unpack 解開的夾：程式照副本打包、驗了才蓋回原檔（簡化一 C，D-529）
+        src, to, from_, checked = _pack_folder(vault, _abs(src, cwd), to, from_)
+        replace = replace or checked["overwrite"]
     if not to:  # 沒給 --to：落暫存區（登記成團隊雲端的夾就落那裡，多人共用 2），檔名照原檔（D-324）
         parent_text, name = str(sources_lib.hold_root(vault) or Path(vault) / OUTPUT), Path(str(src)).name
     else:
@@ -290,9 +337,39 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
     if existing and not replace:
         raise conflict(place, target.is_file() and inventory.sha256_of(target) == inventory.sha256_of(src),
                        rename="改 --to 的檔名")
-    backup_before(vault, sources, place, turn_id, "modify" if existing else "create")
+    overwrite = bool(checked and checked["overwrite"] and existing)
+    vplace = None
+    if overwrite:
+        vtarget = target.with_name(version_name(target))
+        try:
+            vplace = _keep_version(vault, sources, place, turn_id)
+        except OSError:  # 夾唯讀、磁碟滿：不留半份版本檔，原檔還沒動
+            try:
+                os.unlink(str(vtarget))
+            except OSError:
+                pass
+            raise
+    else:
+        backup_before(vault, sources, place, turn_id, "modify" if existing else "create")
     target.parent.mkdir(parents=True, exist_ok=True)
-    if mode == "move":
+    if existing:  # 蓋過去：先寫同夾的暫存檔再整份換上，開著或沒權限時原檔不動、不留半份（D-529）
+        tmp = target.with_name(f".~kb-{target.name}")
+        try:
+            shutil.copy2(str(src), str(tmp))
+            os.replace(str(tmp), str(target))
+        except OSError as e:
+            for leftover in (tmp, vplace and vplace["target"]):
+                try:
+                    if leftover:
+                        os.unlink(str(leftover))
+                except OSError:
+                    pass
+            if overwrite and isinstance(e, PermissionError):
+                raise Refused(LOCKED) from None
+            raise
+        if mode == "move":
+            os.unlink(str(src))
+    elif mode == "move":
         shutil.move(str(src), str(target))
     else:
         shutil.copy2(str(src), str(target))
@@ -304,11 +381,35 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
         entry = inventory.register_output(vault, place["rel"] or place["bkey"], turn_id,
                                           derived_from=source["id"] if source else None, uri=place["uri"],
                                           target=target if place["kind"] == "source" else None, backup_key=place["bkey"])
+    if vplace:
+        _register_version(vault, vplace, turn_id)
     if draft_rel:
         _drop(vault, draft_rel, turn_id)
     return {"path": shown_path(place), "id": entry["id"] if entry else None, "mode": mode,
             "from": source["id"] if source else None, "from_label": label_of(vault, source) if source else None,
-            "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault"}
+            "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault", "checked": checked,
+            "version": shown_path(vplace) if vplace else None}
+
+
+def _pack_folder(vault, folder, to, from_):
+    """解開的夾 → (打包好的檔, --to, --from, 驗的結果)。沒給 --to 蓋回原檔（舊的先存成版本檔）；給了 --to 另存，--from 預設原檔。"""
+    from kb._lib import office
+    meta = office.edit_meta(vault, folder)
+    if meta is None:
+        raise Refused(NOT_EDIT_FOLDER)
+    try:
+        packed, info = office.pack_checked(vault, folder, meta)
+    except (office.Refused, office.Unavailable) as e:
+        raise Refused(str(e)) from None
+    overwrite = not to
+    if overwrite:  # 蓋回原檔（D-529）：位置照清冊、檔名不變；舊的存成版本檔，不記 derived_from（改的就是它自己）
+        entry = next((e for e in inventory.load(vault)["entries"] if e.get("id") == meta.get("from")), None)
+        if not entry or not entry.get("locations"):
+            raise Refused(NO_SOURCE.format(target=meta["name"]))
+        to, from_ = entry["locations"][0]["uri"], None
+    else:
+        from_ = from_ or meta.get("from")
+    return str(packed), to, from_, dict(info, file=packed.name, overwrite=overwrite)
 
 
 def link(vault, url, title, turn_id, type_=None, names=(), basis=()):

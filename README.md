@@ -151,7 +151,7 @@ answer 只讀；要把剛才算好的答案留下來，說「把剛才的答案�
 要一份東西直接說（produce）：
 
 - 「幫我把王宅的報價整理成 Excel」：AI 先在 `AI 產出/` 寫一份草稿（md，每個數字標出處、回原檔核對過，合計由程式加），你說可以才做成 Excel，有公式的會重算過再核一次。
-- 「王宅合約的付款條件改成 30 天」：AI 拿一份副本、用修訂標記改（作者「AI 助理」），存進 `AI 產出/`，原檔不動；說「退回上一版」可以退這一步，做好的檔先留著，要刪再說。
+- 「王宅合約的付款條件改成 30 天」：檔案關著時，AI 拿副本解開、直接改字，驗過後蓋回原檔，改之前那份存成同夾「（版本一）」，最後問你要不要刪舊版本；說「退回上一版」可以換回來。開著的話直接改你視窗裡那份（不備份，用 Office 的復原）。
 - 「幫我做一份內湖李的進度報告給業主」：草稿你看過後，AI 會推薦做成線上文件，講清楚存在你的 claude.ai 帳號、預設只有你看得到、要 Word 怎麼拿；你要本機檔也可以。
 - 「做一份設計提案簡報給業主」：同樣先推薦線上簡報；你說要 PowerPoint 檔就本機做，做完轉成圖看過版面。
 
@@ -203,8 +203,8 @@ answer 只讀；要把剛才算好的答案留下來，說「把剛才的答案�
 - `kb statement add|withdraw|restore|list`：記一條客戶口述（`--replaces` 改舊的）、收回、恢復被取代的那條、列出；`kb ruling add|remove|recheck|decline|list`：記一條裁示（口述為準、不採用、可以讀；`kb ruling add --kind 可以讀 --file <編號或路徑> [--label <這一種>]` 讓檔名像密碼的那一份可以讀）、收回、原檔新版看過了照舊、檔名像密碼的這份不要讀之後不再問、列出（最後一行是條數），重寫 `系統/裁示.md`。都先備份，說「退回上一版」救得回。
 - `kb unlock save|get|forget|list|authorize|revoke`：密碼存進這台電腦的憑證管理員（`save --kind 記下的密碼|PDF 密碼 --name <名稱> --value "<密碼>"`）、取出、刪掉、列名字（不列密碼）、這一種的 PDF 用這組開（`authorize --name <名稱> --label <這一種> --example <編號>`）、不再自動開；只在 Windows。`kb convert <編號> --password "<密碼>"`、`--saved <名稱>`（`--explicit` 沒授權過也試）打開加密的 PDF。
 - `kb finding add|list`：記一筆推算（`--entity`、`--text` 結果、`--how` 算法、`--basis` 依據的卡，`--replaces` 取代舊的）、列出（依據變了的標「待重算」）；寫前先備份。
-- `kb office check|setup`：看這台電腦有什麼做文件的工具（Office、LibreOffice、Node.js、套件）、裝工具到 `%LOCALAPPDATA%\wiki-with-willy\tools\`；`kb office copy <編號或路徑>`：拿一份原檔的副本到工作區（`.system/temp/office/`），原檔不動；`kb office run|unpack|pack|pdf|recalc|render`：跑工作區的做檔腳本、解開與打包 Office 檔、轉 PDF、重算 Excel、轉成每頁的圖。都不寫知識庫。
-- `kb output save <檔> --to "AI 產出/<型別>/<檔名>"`：把做好的檔放進 AI 產出（工作區的搬、知識庫外的複製），先備份、登記，說「退回上一版」時成品先留著、要刪再說；`--from` 記改自哪份、`--draft` 收掉草稿、`--link` 掛到線上文件。`kb output link <網址> --title …`：登記一份線上文件（Claude artifact），下次整理做卡；`kb output drop-draft <草稿>`：草稿不要了。
+- `kb office check|setup`：看這台電腦有什麼做文件的工具（Office、LibreOffice、Node.js、套件）、裝工具到 `%LOCALAPPDATA%\wiki-with-willy\tools\`；`kb office copy <編號或路徑> [--unpack]`：拿一份原檔的副本到工作區（`.system/temp/office/`），原檔不動，`--unpack` 順便解開給 AI 改；`kb office run|unpack|pack|pdf|recalc|render`：跑工作區的做檔腳本、解開與打包 Office 檔、轉 PDF、重算 Excel、轉成每頁的圖。都不寫知識庫。
+- `kb output save <檔> --to "AI 產出/<型別>/<檔名>"`：把做好的檔放進 AI 產出（工作區的搬、知識庫外的複製），先備份、登記，說「退回上一版」時成品先留著、要刪再說；`--from` 記改自哪份、`--draft` 收掉草稿、`--link` 掛到線上文件；給 `copy --unpack` 解開的夾、不給 `--to`，就驗過後蓋回原檔、舊的存成同夾「（版本 N）」（D-529）。`kb output link <網址> --title …`：登記一份線上文件（Claude artifact），下次整理做卡；`kb output drop-draft <草稿>`：草稿不要了。
 - `kb profile add 範本 文件=<文件> 底=<卡標題或編號>`：記哪種文件以哪份為底（設定檔第七節）；`kb profile remove 範本 文件=<文件>` 拿掉。
 - `kb folders relocate <別名> <新路徑>`：登記的資料夾搬家或改名了，抽樣比對新位置、換登記的位置（別名、不讀的設定、清冊不動）；`--check` 只比不換；寫前先備份，說「退回上一版」回到舊位置。`kb folders purge "<別名/相對路徑>"`：「不想讓 AI 看到」的夾排除後清殘留（卡的舊版、備份裡的舊版、暫存、推算、工作日誌與留痕裡的路徑）；還有綜合卡寫著那夾的內容就拒絕；清掉的退回救不回。
 - `kb source-edit move|rename|trash|where|open`：搬一份檔或一個夾（`--to <夾>`，同一顆硬碟才代搬；`--replace` 先把目標的同名檔丟回收筒）、改名（副檔名不改）、丟進資源回收筒（只收檔）、列一個實體的檔放在哪些夾、在檔案總管打開一或兩個夾；`move`、`rename`、`trash` 收 `--check` 只算影響；搬、改名寫前先備份並記下搬動，說「退回上一版」搬得回來（丟進回收筒的要從回收筒拿）。

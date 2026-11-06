@@ -574,12 +574,13 @@ def entries(vault, turn_id):
     return rows
 
 
-def backup(vault, rel, turn_id, action=None, by=None):
+def backup(vault, rel, turn_id, action=None, by=None, link_from=None):
     """寫入前把舊版複製到 versions/<turn_id>/files/<rel>，manifest 追加一行。同回合同路徑只做第一次；第二次以後只在
     writes.jsonl 記這次寫的時間（#20 裁定 4，manifest 不動）。
     action 預設存在 modify、不存在 create；呼叫端刪檔前傳 delete。
     by 只收 "program"：程式自己改的（綜合卡檔頭快取重渲染、改名、合併），寫進那行，大改動門檻不數（實體與綜合卡第 9 點）。
     查重、複製、記帳在同一把鎖裡（第一輪 M1／L3）；複製失敗或鎖逾時丟 OSError（TimeoutError 也是）。
+    link_from：見 _keep_old（D-529）。
     """
     if by not in (None, "program"):
         raise ValueError(f"backup 的 by 只收 program：{by!r}")
@@ -606,19 +607,43 @@ def backup(vault, rel, turn_id, action=None, by=None):
             return
         exists = target.is_file()
         action = action or ("modify" if exists else "create")
-        if exists:
-            dst = vdir / "files" / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, dst)
         row = {"path": rel, "action": action, "time": _now().strftime("%Y-%m-%dT%H:%M:%S")}
+        if exists:
+            _keep_old(target, vdir / "files" / rel, link_from, row)
         if by:
             row["by"] = by
         _append_line(manifest, row)
 
 
-def backup_source(vault, target, cwd, turn_id, sources=None):
+CLOUD_ATTRS = 0x400 | 0x1000 | 0x40000 | 0x80000 | 0x100000 | 0x400000  # 重解析點、離線、雲端占位、釘選／取消釘選（OneDrive 這類）
+
+
+def _cloud(path):
+    return bool(getattr(os.stat(path), "st_file_attributes", 0) & CLOUD_ATTRS)
+
+
+def _keep_old(src, dst, link_from, row):
+    """舊版放進回合。link_from（D-529 改 Office 的版本檔，內容同 src）：硬連結過去不多存一份，row 記 sha256 讓退回時
+    驗它沒被原地改過；同步夾（雲端屬性，OneDrive 可能把它換成只在雲端）、別的磁碟、連不了就照舊複製。"""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if link_from is not None:
+        try:
+            if not (_cloud(src) or _cloud(link_from)):  # 新建的版本檔未必已被標上，原檔也看
+                os.link(link_from, dst)
+                from kb._lib import inventory
+                row["sha256"] = inventory.sha256_of(dst)
+                return
+        except OSError:
+            row.pop("sha256", None)
+            if os.path.lexists(dst):  # 連上了才失敗：先拆掉，免得下面的複製寫進版本檔本身
+                os.unlink(dst)
+    shutil.copy2(src, dst)
+
+
+def backup_source(vault, target, cwd, turn_id, sources=None, link_from=None):
     """登記的來源（Z9，知識庫外）寫入前備份（放寬甲 D-306）：舊版複製到 versions/<回合>/files/_src/<別名>/<相對路徑>，
     manifest 那行多 uri（file://<別名>/<相對路徑>）；退回時 versions 照 uri 經 inventory.path_of 放回。同回合同路徑只做第一次。
+    link_from：見 _keep_old（D-529）。
     target 不在任何登記的來源裡丟 ValueError；複製失敗丟 OSError。回 uri。"""
     from kb._lib import sources as sources_lib
     from kb._lib.paths import _text_forms, inside, normalize
@@ -645,11 +670,9 @@ def backup_source(vault, target, cwd, turn_id, sources=None):
             return uri
         src_file = Path(real)
         exists = src_file.is_file()
-        if exists:
-            dst = vdir / "files" / key
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dst)
         row = {"path": key, "uri": uri, "action": "modify" if exists else "create", "time": _now().strftime("%Y-%m-%dT%H:%M:%S")}
+        if exists:
+            _keep_old(src_file, vdir / "files" / key, link_from, row)
         _append_line(manifest, row)
     return uri
 
