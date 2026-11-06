@@ -171,19 +171,26 @@ ASKS_FLAG = "asks_given"  # 回合旗標：這一句的 lookup 已經帶過要�
 
 def _end_asks(vault, got):
     """回答末尾要問的事（#46，同 kb asks --about <查的實體> 的 --json，回過的照樣記進 asks_seen），answer 不必再叫 kb asks。
-    同一句只有第一次 lookup 帶（回合記 asks_given），之後是 None，不然一句裡好幾題都被記成問過；終端機沒有回合旗標，每次都帶。
-    算不出來（鎖忙、狀態檔壞）也是 None，不擋查詢。"""
+    同一句只有第一次帶出題的 lookup 帶（回合記 asks_given），之後是 None，不然一句裡好幾題都被記成問過；沒帶出題不標，
+    同句後面 lookup 別的實體照樣帶。旗標讀寫都是 mark 那個回合（對話裡還沒答完的），終端機與答完的回合每次都帶。
+    --turn（子代理、card-maker）不帶：它不回答客戶，帶了會把主對話沒問的題記成問過。算不出來（鎖忙、狀態檔壞）也是 None，不擋查詢。"""
     from kb import asks_cli
     from kb._lib import turn
+    if turn.OVERRIDE:
+        return None
     try:
-        now = turn.now(vault)
-        if now and now.get(ASKS_FLAG):
+        data = turn.last(vault)
+        if data and data.get("session_id") and not data.get("done") and data.get(ASKS_FLAG):
             return None
         out = asks_cli.about(vault, [got["entity"]["name"] if got["entity"] else got["query"]])
-        turn.mark(vault, ASKS_FLAG)
-        return out
     except Exception:  # noqa: BLE001
         return None
+    if asks_cli.end_lines(out):
+        try:
+            turn.mark(vault, ASKS_FLAG)
+        except Exception:  # noqa: BLE001  標不到：題已記成問過，照樣回，不吞掉
+            pass
+    return out
 
 
 def _end_lines(got):

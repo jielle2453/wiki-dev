@@ -128,8 +128,7 @@ def record_program_or_warn(vault, note, changed, command, conversation, actions=
     寫失敗（鎖、IO）印一行到 stderr，不擋指令。"""
     try:
         if conversation:
-            from kb._lib import credentials
-            turn.add_program_note(vault, credentials.mask_secrets(" ".join(str(note or "").split())))
+            turn.add_program_note(vault, journal._mask(" ".join(str(note or "").split()), vault))  # 同程式段：清冊檔名不遮
             return
         journal.record_program(vault, note, changed, command, actions=actions)
     except Exception as e:  # noqa: BLE001  日誌沒記到不能讓指令失敗

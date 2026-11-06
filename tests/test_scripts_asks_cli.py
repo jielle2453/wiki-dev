@@ -173,8 +173,8 @@ class AllAndSetAside(Base):
 
 class LookupCarries(Base):
     """#46：kb lookup 順帶「回答末尾要問的事」（同 kb asks --about <查的實體>），answer 不必再叫 asks；同一句只有第一次 lookup 帶。"""
-    def lookup(self, *args, session=None):
-        pre = ["--session", session] if session else []
+    def lookup(self, *args, session=None, turn_id=None):
+        pre = (["--session", session] if session else []) + (["--turn", turn_id] if turn_id else [])
         r = run_kb(*pre, "lookup", "信義王", *args, cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r.stdout
@@ -187,6 +187,12 @@ class LookupCarries(Base):
         seen = json.loads((self.V / ".system" / "asks_seen.json").read_text(encoding="utf-8"))
         self.assertIn(got["asks"][0]["key"], seen)  # 跟 kb asks 一樣記「問過」
         self.assertIsNone(json.loads(self.lookup("--json", session="s1"))["asks"])  # 同一句第二次不帶
+
+    def test_job_turn_does_not_carry(self):
+        """--turn（子代理、card-maker）不回答客戶：不帶題、不記問過（review 第 1 條）。"""
+        job = turn.start(self.V, "sid-job", "整理")["turn"]
+        self.assertIsNone(json.loads(self.lookup("--json", turn_id=job))["asks"])
+        self.assertFalse((self.V / ".system" / "asks_seen.json").exists())
 
     def test_text_has_end_section(self):
         out = self.lookup().splitlines()
