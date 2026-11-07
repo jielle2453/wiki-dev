@@ -721,7 +721,8 @@ def _drop_synced(vault, gone, turn_id, counts):
 
 def _scrub_prompts(vault, words, keep, counts):
     """回合檔（turns/*.json）與回合夾的 turn.json：「問」提到那些卡的編號、標題、那夾路徑的整欄換「（已排除）」，note 照字詞換
-    （第七輪）；keep 裡的回合（排除那一句、清那一句）不動。回合檔在它自己的鎖裡改。"""
+    （第七輪）；keep 裡的回合（排除那一句、清那一句）不動。回合檔在它自己的鎖裡改。
+    program_notes（kb 指令自帶的「做了」，#46）連 keep 的回合也照字詞換：那一句 Stop 時才寫進日誌，在清之後。"""
     targets = [(p, "state") for p in sorted((Path(vault) / turn.TURNS_REL).glob("*.json"))]
     targets += [(d / "turn.json", "backups") for d in _version_dirs(vault)]
     for p, kind in targets:
@@ -730,9 +731,15 @@ def _scrub_prompts(vault, words, keep, counts):
         try:
             with FileLock(p) if kind == "state" else contextlib.nullcontext():
                 data = read_json(p)
-                if not isinstance(data, dict) or {data.get("turn"), data.get("journal_turn")} & keep:
+                if not isinstance(data, dict):
                     continue
                 new = dict(data)
+                if isinstance(data.get("program_notes"), list):
+                    new["program_notes"] = [words(str(x)) for x in data["program_notes"]]
+                if {data.get("turn"), data.get("journal_turn")} & keep:
+                    if new != data:
+                        write_json_atomic(p, new)
+                    continue
                 head = data.get("prompt_head")
                 if isinstance(head, str) and words(head) != head:
                     new["prompt_head"] = PURGED

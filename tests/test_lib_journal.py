@@ -186,6 +186,40 @@ class Program(Base):
         self.assertFalse((self.V / ".system" / "turns").exists())
 
 
+class CommandNotes(Base):
+    """#46：對話裡叫的 kb 寫入指令，自己那句白話記進回合；Stop 的「做了」照 AI 的 → 指令的 → 地板句挑。"""
+    def record(self, note, conversation=True):
+        from kb import journal_cli
+        journal_cli.record_program_or_warn(self.V, note, [], "finding add", conversation)
+
+    def test_conversation_note_used_when_no_ai_note(self):
+        t = turn.start(self.V, SID, "記一下")
+        self.record("記下推算：合計 180 萬")
+        self.record("收回口述：舊的聯絡人")
+        data = turn.turn_data(self.V, t["turn"])
+        self.assertEqual(data["program_notes"], ["記下推算：合計 180 萬", "收回口述：舊的聯絡人"])
+        self.assertEqual(journal.finish_fields(self.V, data)[:2], ("記下推算：合計 180 萬；收回口述：舊的聯絡人", "program"))
+        self.assertFalse(self.rows(this_month()))  # 對話裡照舊不另寫程式段
+
+    def test_ai_note_wins_and_floor_when_none(self):
+        t = turn.start(self.V, SID, "記一下")
+        self.assertEqual(journal.finish_fields(self.V, turn.turn_data(self.V, t["turn"]))[:2], (journal.NO_CHANGES, "program"))
+        self.record("記下推算：合計 180 萬")
+        turn.set_note(self.V, SID, "記了信義王的報價合計")
+        self.assertEqual(journal.finish_fields(self.V, turn.turn_data(self.V, t["turn"]))[:2], ("記了信義王的報價合計", "ai"))
+
+    def test_many_notes_cut_and_masked(self):
+        t = turn.start(self.V, SID, "記一下")
+        for i in range(5):
+            self.record(f"記下第 {i} 件，密碼 abc{i}")
+        note = journal.finish_fields(self.V, turn.turn_data(self.V, t["turn"]))[0]
+        self.assertEqual(note, "記下第 0 件，密碼 ███；記下第 1 件，密碼 ███；記下第 2 件，密碼 ███…等 5 件")
+
+    def test_terminal_still_program_row(self):
+        self.record("記下推算：合計 180 萬", conversation=False)
+        self.assertEqual([r["note"] for r in self.rows(this_month())], ["記下推算：合計 180 萬"])
+
+
 class BadLines(Base):
     def test_bad_line_skipped_logged_and_kept_on_rewrite(self):
         p = journal.jsonl_path(self.V, "2026-10")
