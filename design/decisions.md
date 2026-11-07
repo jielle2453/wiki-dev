@@ -3272,5 +3272,5 @@
   4. produce 本文與 make.md 拿掉做法（render 原則、字型、PowerPoint 三級、Excel 改法、驗的步驟、文件技能腳本細節），拿掉骨架 `kb asks`、`kb turn note` 兩行（#46 程式自己做）。
 - 為什麼：團隊規矩 9d：willy 只管改之前、改之後的保護，中間交給 AI 與內建技能；做法寫死會讓 AI 死板，保護才是 willy 才有的。
 - 放棄了：拿掉 `kb office render` 等子指令（要改程式與測試、省不到東西，9c）；守門擋 Word COM 寫入（看不到，先靠那句話）。
-- 代價：PowerPoint 字變多超出版面要靠 AI 自己判斷；常駐多 26 字（5008 → 5034）。
+- 代價：PowerPoint 字變多超出版面要靠 AI 自己判斷；常駐比 #46 併後的 main 多 1 字（5040 → 5041，併 #46 時那句從 151 字縮成 126 字）。
 - 重談條件：OBS 回測 C 組報價合計沒算好的值、改 Word 沒留（版本一）或轉 PDF 沒經 output save。
