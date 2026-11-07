@@ -100,8 +100,17 @@ class Save(Base):
         self.assertTrue(outside.exists(), "知識庫外的檔用複製的")
         self.assertEqual((self.V / "暫存區/簡報/提案.pptx").read_bytes(), b"pptx")
 
+    def test_outside_replace_keeps_version_unregistered(self):
+        """#47：沒登記的位置 --replace 也留版本檔、不進清冊、不崩（審查 1）。"""
+        dest = self.tmp / "外面"
+        self.ok("save", str(self.work()), "--to", str(dest / "a.pptx"))
+        out = self.ok("save", str(self.work()), "--to", str(dest / "a.pptx"), "--replace")
+        self.assertIn("改之前那份存成「a（版本一）.pptx」", out)
+        self.assertTrue((dest / "a（版本一）.pptx").is_file())
+        self.assertFalse([e for e in inventory.load(self.V)["entries"] if "版本" in json.dumps(e, ensure_ascii=False)])
+
     def test_same_name_conflict_then_replace(self):
-        """放寬甲：同名不再加 (2)，回 conflict；--replace 先備進回合再覆蓋。"""
+        """放寬甲：同名不再加 (2)，回 conflict；--replace 舊的存成同夾（版本一）再覆蓋（#47，跟存夾同一套 D-529）。"""
         self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx")
         r = run_kb("output", "save", str(self.work()), "--to", "暫存區/報價/a.xlsx", "--json", cwd=self.V)
         self.assertEqual(r.returncode, 3, r.stdout)
@@ -110,7 +119,8 @@ class Save(Base):
         self.assertIn("--replace", data["refused"])
         self.assertFalse((self.V / "暫存區/報價/a (2).xlsx").exists())
         out = self.ok("save", str(self.work()), "--to", "暫存區/報價/a.xlsx", "--replace")
-        self.assertTrue(out.startswith("已放進 暫存區\\報價\\a.xlsx"), out)
+        self.assertTrue(out.startswith("已改好 暫存區\\報價\\a.xlsx，改之前那份存成「a（版本一）.xlsx」"), out)
+        self.assertTrue((self.V / "暫存區/報價/a（版本一）.xlsx").is_file())
 
     def test_no_to_lands_in_hold_with_original_name(self):
         """D-324：沒給 --to 落暫存區、檔名照原檔，照樣登記成 AI 產出。"""

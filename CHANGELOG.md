@@ -16,6 +16,10 @@ bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；�
   - `kb lookup` 順帶回答末尾要問的事（`--json` 的 `asks`，同 `kb asks --about`；人讀最後幾行），同一句只有第一次帶出題的帶，`--turn` 不帶；answer 不再另叫 `kb asks`。
 - **為什麼**：#40 後實測改一份既有 Word 要 10～11 次 kb；OBS 回測三：4 次、46～48 秒。
 - **為什麼**（#46）：說明要 AI 每句跑 `kb turn note`、末尾跑 `kb asks`，真庫各只跑 22、5 次，遠少於句數；照做時每句多 1～2 次工具呼叫。2026-11-06 C003 複本實測：lookup＋asks 兩次 kb 共約 2.85 秒，改後一次 1.80 秒。
+- **改了什麼**（#47，D-530）：
+  - `kb output save` 存 Excel 不論單一檔或解開的夾都自己重算、驗；`--replace` 蓋回也同夾留（版本 N）。
+  - 骨架 CLAUDE.md 那句只講保護（原檔先拿副本、做好一律 output save、匯出另存也是）；produce、make.md 拿掉做法與 `kb asks`、`kb turn note` 兩行。
+- **為什麼**（#47）：團隊規矩 9d；OBS 三輪存單一檔的 Excel 沒重算、轉 PDF 直寫進知識庫。
 - **升級**：她沒改過知識庫的 CLAUDE.md 就直接換新；改過就問她留哪份。
 
 ## 0.32.6 — 2026-11-04
