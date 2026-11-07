@@ -30,7 +30,10 @@ for _stream in (sys.stdout, sys.stderr):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)
-import _codex  # noqa: E402  Codex 轉接（codex 分支）
+try:
+    import _codex  # noqa: E402  Codex 轉接（codex 分支）
+except BaseException:  # noqa: BLE001  載不進來：Claude 的 payload 照舊，Codex 的當成不認得（review 二輪 4）
+    _codex = None
 
 _BLOCKS = []  # 這次要打回的理由（_block 收、main 最後印一行）
 
@@ -54,7 +57,7 @@ def main():
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
-        items = (_codex.normalize(payload) or []) if _codex.is_codex(payload) else [payload]  # Codex 的 apply_patch 逐檔登記
+        items = (_codex.normalize(payload) or []) if _codex is not None and _codex.is_codex(payload) else [payload]  # Codex 的 apply_patch 逐檔登記
         for item in items:
             try:
                 _one(item)

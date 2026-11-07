@@ -53,7 +53,7 @@ def patch(*ops):
 
 class Units(unittest.TestCase):
     def test_agreement_yes(self):
-        for t in ("好", "同意", "可以", "OK", "好的", "沒問題", "好，去做", "嗯嗯", "確定！", "yes"):
+        for t in ("好", "同意", "可以", "OK", "好的", "沒問題", "好，去做", "嗯嗯", "確定！", "yes", "我同意", "同意，請繼續", "yes please"):
             with self.subTest(t=t):
                 self.assertTrue(_codex.is_agreement(t))
 
@@ -129,6 +129,18 @@ class Guard(unittest.TestCase):
 
     def test_patch_through_shell_judged_as_patch(self):
         cmd = "apply_patch <<'EOF'\n" + patch(("Update File", self.salary)) + "EOF"
+        self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
+
+    def test_patch_text_inside_other_command_not_trusted(self):
+        """review 二輪 1：多行指令裡夾一段 patch，不能只判 patch 的檔而放過前面的指令。"""
+        ok = self.V / "暫存區" / "新.md"
+        cmd = f"Remove-Item \"{self.salary}\"\n" + patch(("Add File", ok))
+        self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
+        cmd = "apply_patch <<EOF\n" + patch(("Add File", ok)) + "EOF"  # 結束字沒加引號：裡面的 $() 會展開，不當 patch
+        self.assertIsNone(_codex.shell_patch(cmd, str(self.V)))
+
+    def test_shell_wrapper_flags_with_values(self):
+        cmd = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", f'Get-Content "{self.salary}"']
         self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
 
     def test_indented_patch_header_still_judged(self):
