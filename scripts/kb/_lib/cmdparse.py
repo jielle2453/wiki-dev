@@ -1280,6 +1280,84 @@ def shell_words(command, powershell):
     return words
 
 
+_SEG_BREAK = {False: set(";&|()\n\r`"), True: set(";&|(){}\n\r")}
+
+
+def segments(command, powershell, comments=False):
+    """#50：在引號外的串接、換行、管線、括號處切開，回每一段的文字；引號沒成對回 None。只給守門找「整句裡有沒有密碼動作」用。
+    comments=True 另外照殼的規則拿掉註解（# 到行尾；PowerShell 另有 <# … #>），只用來找出是哪個動作好講理由：
+    拿得比殼多會吃掉真的指令，所以這種切法的結果只能讓守門多問、不能讓它不問（審查：{#、全形空白、$'\\'' 都會錯位）。"""
+    out, buf, quote, i, n = [], [], None, 0, len(command)
+    esc = "`" if powershell else "\\"
+    while i < n:
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == esc and quote == '"' and i + 1 < n:
+                buf.append(command[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch == esc and i + 1 < n:
+            buf.append(command[i:i + 2])
+            i += 2
+            continue
+        if ch in "'\"":
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        at_word = i == 0 or command[i - 1].isspace() or command[i - 1] in ";&|(){}"
+        if comments and powershell and command.startswith("<#", i) and at_word:
+            j = command.find("#>", i + 2)
+            i = n if j < 0 else j + 2
+            buf.append(" ")
+            continue
+        if comments and ch == "#" and at_word:
+            j = command.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if ch in _SEG_BREAK[powershell]:
+            out.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    if quote:
+        return None
+    out.append("".join(buf))
+    return [s.strip() for s in out if s.strip()]
+
+
+def comment_cuts(command, tool=None):
+    """#50：單一 kb 呼叫裡可能是註解開頭的位置（引號外、前面是空白類字元的 #），由前到後。給得比殼寬：
+    殼不當註解時 kb 收到 #… 會拆不過、不執行，所以每個位置都截一次去判斷只會多問。"""
+    cuts = set()
+    for powershell in ((False,) if tool == "Bash" else (True,) if tool == "PowerShell" else (False, True)):
+        esc = "`" if powershell else "\\"
+        quote, i, n = None, 0, len(command)
+        while i < n:
+            ch = command[i]
+            if quote:
+                if ch == esc and quote == '"' and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+                i += 1
+                continue
+            if ch in "'\"":
+                quote = ch
+            elif ch == "#" and i and command[i - 1].isspace():
+                cuts.add(i)
+            i += 1
+    return sorted(cuts)
+
+
 def kb_argv(command, tool=None):
     """單一 kb 呼叫傳給 kb.py 的參數（腳本之後的字）：回 [(字, 不確定)]；拆不出來回 None。
     tool 不知道時 Bash、PowerShell 兩種拆法要一樣，不一樣的字算不確定。"""
@@ -1291,6 +1369,8 @@ def kb_argv(command, tool=None):
         k = 1
         while k < len(words) and words[k][0].startswith("-"):
             k += 2 if words[k][0] == "-X" else 1  # python -I -u -X utf8 kb.py …
+        if powershell and any(w == "--%" for w, _u in words):
+            words = [(w, True) for w, _u in words]  # #50 審查：PowerShell 的 --% 停止解析，kb 收到的參數跟這裡拆的不同
         results.append(words[k + 1:])
     argv = results[0]
     if len(results) > 1 and results[0] != results[1]:
