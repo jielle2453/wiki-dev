@@ -46,7 +46,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - **拿掉來源、恢復讀、列出**：`remove`（確認後）、`include`、`list`。**搬家改名了**：`folders locate "<別名>"` 找新位置 → `folders relocate "<別名>" "<新路徑>" --check` → 照實講 → 她說要才去掉 `--check`。
 - **搬、改名、刪、放哪**：`source-edit move|rename|trash|where`（`--to` 收 `where` 印的「別名/相對路徑」）；整個夾與刪先 `--check`。
 - **整個知識庫**：指令與說法照 `references/ops.md`；備份、清空間先 `--check`，還原先 `restore check`，升級先 `upgrade --check --json`；開場出現「已換到」先 `upgrade --finish`，出現「換了位置」跑 `moved`；換帳號 `output links`。
-- **被擋或拒絕**：照訊息裡的指令或做法接著做完，不跟客戶提；訊息說做不到的，照核心規則 R-12。這句話有寫入，送出前跑 `kb turn note "<白話一句>"`（R-13）。
+- **被擋或拒絕**：照訊息裡的指令或做法接著做完，不跟客戶提；訊息說做不到的，照核心規則 R-12。
 
 ## 共通
 
