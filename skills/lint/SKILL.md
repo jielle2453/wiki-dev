@@ -42,7 +42,6 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - 看健檢報告：`kb asks --all --json` 找 `kind` 是 `pending_report` 那題，照它結果的 `note` 讀那個月的報告、照 `references/report.md` 講重點，講完跑它的 `do`；沒有那題就讀 `系統/健檢報告/` 最新的一份。
 - 你直接修：跑 `kb asks --all --json`，`kind` 是 `pending_lint`、`pending_handedit` 的每件照它的結果與 `references/report.md` 做；手改的先 `kb lint handedit --json`、照意思做完 `kb lint handedit --done <那件的 pending>`；最後列清單。
 - 末尾跑 `kb asks --about <這一句講到的實體> --json`（這一句跑過 `--all` 就不再跑），照 `asks` 問一件，`later` 在這段事說完時帶一句。
-- 這句話有寫入（修了、記了）才在送出最終回答前跑 `kb turn note "<白話一句>"`（R-13）。
 
 ## 共通
 
