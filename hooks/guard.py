@@ -33,7 +33,10 @@ for _stream in (sys.stdout, sys.stderr):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)
-import _codex  # noqa: E402  Codex 轉接（codex 分支）
+try:
+    import _codex  # noqa: E402  Codex 轉接（codex 分支）
+except BaseException:  # noqa: BLE001  轉接載不進來：main 照守門出錯處理（知識庫裡 deny），不讓 Codex 因 hook 起不來而放行（review 6）
+    _codex = None
 
 FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
@@ -72,6 +75,8 @@ def main():
         tool = str(payload.get("tool_name", "") or "") if isinstance(payload, dict) else ""
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
+        if _codex is None:
+            raise ImportError("hooks/_codex.py 載不進來")
         if not _codex.is_codex(payload):
             decision, reason, updated, _vault = _judge(payload, tool)
         else:

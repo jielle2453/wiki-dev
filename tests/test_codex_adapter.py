@@ -59,7 +59,8 @@ class Units(unittest.TestCase):
 
     def test_agreement_no(self):
         for t in ("不要", "等一下", "不同意", "好，但先等等", "可以嗎", "先不要", "取消", "no", "算了", "", "   ",
-                  "好啊順便幫我把上個月的報表也整理成一份", "別", "再想想", "沒有同意"):
+                  "好啊順便幫我把上個月的報表也整理成一份", "別", "再想想", "沒有同意",
+                  "這是什麼", "是誰", "對吧？", "那是什麼東西", "好啊順便"):
             with self.subTest(t=t):
                 self.assertFalse(_codex.is_agreement(t))
 
@@ -70,6 +71,7 @@ class Units(unittest.TestCase):
         self.assertEqual([k for k, _ in got], ["Write", "Edit", "Write", "Edit"])
         self.assertEqual(Path(got[0][1]), Path("C:/v/a/新.md"))
         self.assertEqual(_codex.patch_targets("隨便的字", "C:/v"), [])
+        self.assertEqual(len(_codex.patch_targets("*** Begin Patch\n  *** Update File: a.md\n*** End Patch", "C:/v")), 1)
 
     def test_patch_text_keys(self):
         p = patch(("Add File", "x.md"))
@@ -79,6 +81,9 @@ class Units(unittest.TestCase):
     def test_command_array(self):
         self.assertEqual(_codex._command_text(["powershell.exe", "-Command", "Get-Date"]), "Get-Date")
         self.assertEqual(_codex._command_text(["ls", "-la"]), "ls -la")
+        self.assertEqual(_codex._command_text(["bash", "-lc", "cat a"]), "cat a")
+        self.assertEqual(_codex._command_text(["pwsh.exe", "-NoProfile", "-Command", "Get-Content", "x"]), "Get-Content x")
+        self.assertEqual(_codex._command_text(["python", "kb.py", "unlock", "-c", "foo"]), "python kb.py unlock -c foo")
 
 
 class Guard(unittest.TestCase):
@@ -121,6 +126,15 @@ class Guard(unittest.TestCase):
     def test_unparsed_patch_denied_in_vault(self):
         r = run(GUARD, pre(self.V, "apply_patch", {"command": "看不懂的東西"}))
         self.assertEqual(decision(r), ("deny", _codex.PATCH_REASON))
+
+    def test_patch_through_shell_judged_as_patch(self):
+        cmd = "apply_patch <<'EOF'\n" + patch(("Update File", self.salary)) + "EOF"
+        self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
+
+    def test_indented_patch_header_still_judged(self):
+        text = patch(("Add File", self.V / "暫存區" / "新.md")).replace("*** End Patch",
+                                                                      f"  *** Update File: {self.salary}\n*** End Patch")
+        self.assertEqual(decision(run(GUARD, pre(self.V, "apply_patch", {"command": text})))[0], "deny")
 
     def test_unparsed_patch_outside_vault_silent(self):
         r = run(GUARD, pre(self.tmp, "apply_patch", {"command": "看不懂的東西"}))

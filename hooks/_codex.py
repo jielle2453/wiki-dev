@@ -19,16 +19,17 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 WINDOWS = os.name == "nt"
-PATCH_RE = re.compile(r"^\*\*\* (Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
+PATCH_RE = re.compile(r"^[ \t]*\*\*\* (Add File|Update File|Delete File|Move to): (.+?)\s*$", re.M)
 PATCH_TOOL = "apply_patch"
 CONSENT_REASON = ("這個密碼動作要客戶同意：先用一句話跟客戶說要做什麼、問她可不可以；"
                   "她回同意之後，再跑一次一模一樣的指令。")
 PATCH_REASON = "看不出這次改的是哪些檔，這次沒放行：改用一個檔一個 patch 再試一次。"
 PENDING, GRANTED = "codex_consent_pending", "codex_consent"
 
-AGREE = ("同意", "好", "可以", "ok", "okay", "yes", "是", "對", "確定", "允許", "沒問題", "行", "嗯", "去做", "做吧")
-REFUSE = ("不", "別", "沒有", "等", "先", "再", "no", "取消", "停", "算了", "嗎", "?", "？", "但")
-AGREE_MAX = 12  # 去掉標點後超過這個字數就不算一句單純的同意（交代別的事時不當同意）
+AGREE = ("沒問題", "同意", "可以", "確定", "允許", "去做", "做吧", "okay", "ok", "yes", "好", "是", "對", "行", "嗯")  # 長的在前
+FILLERS = ("的", "啊", "呀", "喔", "哦", "囉", "了", "吧", "唷", "耶", "嘛", "請", "就")
+SHELLS = ("powershell", "pwsh", "cmd", "bash", "sh", "zsh")
+SHELL_FLAGS = ("-command", "-c", "/c", "-lc", "-ic")
 
 
 def is_codex(payload):
@@ -36,13 +37,19 @@ def is_codex(payload):
 
 
 def _command_text(command):
-    """Codex 的指令可能是陣列（["powershell.exe", "-Command", "…"]）：取 -Command／-c／/c 後面那段，沒有就用空白接起來。"""
+    """Codex 的指令可能是陣列：第一個是殼（["powershell.exe", "-Command", "…"]、["bash", "-lc", "…"]）就取殼旗標後面那段
+    （好幾段用空白接，同 PowerShell）；不是殼照 Windows 的規則加引號接成一行（review 2：不在陣列任意位置找 -c）。"""
     if isinstance(command, list):
+        import subprocess
+
         parts = [str(x) for x in command]
-        for i, p in enumerate(parts[:-1]):
-            if p.lower() in ("-command", "-c", "/c"):
-                return parts[i + 1]
-        return " ".join(parts)
+        if parts and os.path.splitext(os.path.basename(parts[0]))[0].lower() in SHELLS:
+            for i in range(1, len(parts) - 1):
+                if parts[i].lower() in SHELL_FLAGS:
+                    return " ".join(parts[i + 1:])
+                if not parts[i].startswith(("-", "/")):
+                    break
+        return subprocess.list2cmdline(parts)
     return command if isinstance(command, str) else ""
 
 
@@ -80,8 +87,12 @@ def normalize(payload):
             return None
         return [dict(payload, tool_name=name, tool_input={"file_path": path}) for name, path in targets]
     if tool == "Bash":
+        command = _command_text(ti.get("command"))
+        if "*** Begin Patch" in command:  # 從殼叫 apply_patch（apply_patch <<'EOF' …）：照 patch 逐檔判（review 7）
+            targets = patch_targets(command, cwd)
+            return [dict(payload, tool_name=n, tool_input={"file_path": p}) for n, p in targets] if targets else None
         name = "PowerShell" if WINDOWS else "Bash"
-        return [dict(payload, tool_name=name, tool_input=dict(ti, command=_command_text(ti.get("command"))))]
+        return [dict(payload, tool_name=name, tool_input=dict(ti, command=command))]
     if tool == "view_image":
         return [dict(payload, tool_name="Read", tool_input={"file_path": str(ti.get("path") or ti.get("file_path") or "")})]
     return [payload]
@@ -100,10 +111,17 @@ def combine(results):
 
 
 def is_agreement(prompt):
-    """客戶這一句是不是單純的同意：去掉空白標點後不超過 AGREE_MAX 字、有同意的字、沒有拒絕或保留的字。"""
+    """客戶這一句是不是單純的同意：去掉空白與標點後，整句只由同意的字（AGREE）與語助詞（FILLERS）組成，至少一個同意字
+    （review 3：「這是什麼」「是誰」含「是」但有別的字，不算；「不要」「等一下」「可以嗎」也因此不算）。"""
     t = re.sub(r"[\s，。！!、,.~～…」「]", "", str(prompt or "")).casefold()
-    t_check = t.replace("沒問題", "")
-    return 0 < len(t) <= AGREE_MAX and any(a in t for a in AGREE) and not any(r in t_check for r in REFUSE)
+    rest = t
+    for a in AGREE:
+        rest = rest.replace(a, "")
+    if rest == t:
+        return False
+    for f in FILLERS:
+        rest = rest.replace(f, "")
+    return rest == ""
 
 
 def _hash(command):

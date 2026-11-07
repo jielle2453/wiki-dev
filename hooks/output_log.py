@@ -56,7 +56,10 @@ def main():
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
         items = (_codex.normalize(payload) or []) if _codex.is_codex(payload) else [payload]  # Codex 的 apply_patch 逐檔登記
         for item in items:
-            _one(item)
+            try:
+                _one(item)
+            except BaseException as e:  # noqa: BLE001  一份出錯不擋後面幾份（review 5）
+                _log(e, payload)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
         _log(e, payload)
     if _BLOCKS:
