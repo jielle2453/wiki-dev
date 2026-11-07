@@ -31,7 +31,10 @@ FILLERS = ("的", "啊", "呀", "喔", "哦", "囉", "了", "吧", "唷", "耶",
 SHELLS = ("powershell", "pwsh", "cmd", "bash", "sh", "zsh")
 SHELL_FLAGS = ("-command", "-c", "/c", "-lc", "-ic")
 PS_VALUE_OPTS = ("-executionpolicy", "-windowstyle", "-outputformat", "-inputformat", "-workingdirectory",
-                 "-configurationname", "-version", "-psconsolefile")  # PowerShell 帶值的選項：值不算第一個非旗標
+                 "-configurationname", "-version", "-psconsolefile")  # PowerShell 帶值的選項：值不算第一個非旗標（可縮寫）
+PS_VALUE_ALIASES = ("-ep", "-ex", "-w", "-wd", "-o", "-of", "-if", "-v")
+SH_VALUE_OPTS = ("-o", "+o", "-O", "+O", "--rcfile", "--init-file")  # bash 類帶值的旗標
+CD_RE = re.compile(r"""(?:^|[;&|\n(]|&&)\s*(?:cd|Set-Location|sl|pushd|chdir)\s+("[^"]*"|'[^']*'|[^\s;&|)]+)""", re.I)
 
 
 def is_codex(payload):
@@ -55,9 +58,16 @@ def _command_text(command):
                     return " ".join(parts[i + 1:]) if shell in ("powershell", "pwsh", "cmd") else parts[i + 1]
                 if not low.startswith(("-", "/")):
                     break  # 第一個非旗標是腳本（bash evil.sh -c …）：後面的 -c 是腳本的參數，不是殼的（review 三輪 4）
-                i += 2 if low in PS_VALUE_OPTS else 1  # -ExecutionPolicy Bypass 的值跳過（review 二輪 2）
+                i += 2 if _takes_value(shell, parts[i]) else 1  # -ExecutionPolicy Bypass 的值跳過（review 二輪 2、四輪 2）
         return subprocess.list2cmdline(parts)
     return command if isinstance(command, str) else ""
+
+
+def _takes_value(shell, flag):
+    low = flag.lower()
+    if shell in ("powershell", "pwsh"):
+        return low in PS_VALUE_ALIASES or (len(low) >= 3 and any(o.startswith(low) for o in PS_VALUE_OPTS))
+    return flag in SH_VALUE_OPTS
 
 
 def patch_text(tool_input):
@@ -99,7 +109,14 @@ def normalize(payload):
         items = [dict(payload, tool_name=name, tool_input=dict(ti, command=command))]
         if "*** Begin Patch" in command:
             # 從殼叫 apply_patch：整條照殼指令判，另外 patch 裡的每個檔也照 Write／Edit 判（只會多擋，不會少判；review 7、三輪 1～3）
-            items += [dict(payload, tool_name=n, tool_input={"file_path": p}) for n, p in patch_targets(command, cwd)]
+            # 相對路徑照 cwd 判，指令裡 cd 到的夾也各判一次（review 四輪 1：cd <知識庫> && apply_patch 不能因為 cwd 在外面就少判）
+            bases = [cwd] + [os.path.join(cwd, d.strip("\"'")) for d in CD_RE.findall(command)]
+            seen = set()
+            for base in bases:
+                for n, p in patch_targets(command, base):
+                    if (n, p) not in seen:
+                        seen.add((n, p))
+                        items.append(dict(payload, tool_name=n, tool_input={"file_path": p}))
         return items
     if tool == "view_image":
         return [dict(payload, tool_name="Read", tool_input={"file_path": str(ti.get("path") or ti.get("file_path") or "")})]

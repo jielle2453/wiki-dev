@@ -93,6 +93,9 @@ class Units(unittest.TestCase):
         self.assertEqual(_codex._command_text(["python", "kb.py", "unlock", "-c", "foo"]), "python kb.py unlock -c foo")
         self.assertEqual(_codex._command_text(["bash", "evil.sh", "-c", "echo hi"]), "bash evil.sh -c \"echo hi\"")
         self.assertEqual(_codex._command_text(["powershell", "-ExecutionPolicy", "Bypass", "-Command", "Get-Date"]), "Get-Date")
+        self.assertEqual(_codex._command_text(["powershell", "-ep", "Bypass", "-Command", "Get-Date"]), "Get-Date")
+        self.assertEqual(_codex._command_text(["pwsh", "-NoProfile", "-Exec", "Bypass", "-c", "Get-Date"]), "Get-Date")
+        self.assertEqual(_codex._command_text(["bash", "-o", "pipefail", "-c", "cat a"]), "cat a")
 
 
 class Guard(unittest.TestCase):
@@ -147,6 +150,11 @@ class Guard(unittest.TestCase):
         self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
         tricky = f"apply_patch <<'EOF'\n" + patch(("Add File", ok)) + f"EOF\nRemove-Item \"{self.salary}\"\nEOF"
         self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": tricky})))[0], "deny")  # 三輪 1：結束字後面的指令也判
+
+    def test_cd_into_vault_then_patch_judged_there(self):
+        """review 四輪 1：cd 到子夾再 apply_patch，相對路徑也照 cd 後的夾判（守門只在 cwd 是知識庫裡時動作，同 Claude 版）。"""
+        cmd = f"cd 暫存區 && apply_patch <<'EOF'\n" + patch(("Update File", "../.system/sources.json")) + "EOF"
+        self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
 
     def test_shell_wrapper_flags_with_values(self):
         cmd = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", f'Get-Content "{self.salary}"']
