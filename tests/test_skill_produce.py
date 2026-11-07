@@ -13,7 +13,7 @@ SKILL_DIR = ROOT / "skills" / "produce"
 SKILL = SKILL_DIR / "SKILL.md"
 REFS = {name: SKILL_DIR / "references" / name for name in ("draft.md", "make.md")}
 EVALS = ROOT / "tests" / "evals" / "produce.json"
-DESC = ("要 AI 做出一份東西都用這個：做成 Word、Excel、PowerPoint、PDF、線上文件或簡報，「幫我做一份報價」「照去年的合約寫新的」"
+DESC = ("要 AI 做出或改一份東西都用這個：做成 Word、Excel、PowerPoint、PDF、線上文件或簡報，「幫我做一份報價」「照去年的合約寫新的」"
         "「合約付款條件改成 30 天」「剛才那個表存成檔」「剛才討論的寫成筆記」「草稿可以了，定稿」；問資料、記下來、整理檔案、搬檔、寄出去不用這個。")
 DESC_MAX = 150
 BODY_MAX_CHARS = 3000
@@ -101,7 +101,7 @@ class Body(unittest.TestCase):
                      "kb office render", "kb output save", "kb output link", "kb lookup", "kb cards list",
                      "kb agenda list", "kb asks", "turn note", "references/draft.md", "references/make.md"):
             with self.subTest(want=want):
-                self.assertIn(want, self.body if want.startswith("kb office run") else part)
+                self.assertIn(want, self.body if want.startswith(("kb office run", "kb office recalc")) else part)
 
     def test_references_exist_short_no_abs_paths(self):
         for p in [SKILL, *REFS.values()]:
@@ -114,8 +114,8 @@ class Body(unittest.TestCase):
 
     def test_make_covers_spec_points(self):
         make = REFS["make.md"].read_text(encoding="utf-8")
-        for want in ("claude.ai 帳號", "只有她看得到", "按下載", "微軟正黑體", "zh-TW", "AI 助理", "kb office run",
-                     "kb office recalc", "kb office render", "（AI 修改）", "--link", "LibreOffice", "Node.js"):
+        for want in ("claude.ai 帳號", "只有她看得到", "按下載", "微軟正黑體", "zh-TW", "kb office run",
+                     "kb office recalc", "kb office render", "--link", "LibreOffice", "Node.js"):
             with self.subTest(want=want):
                 self.assertIn(want, make)
         draft = REFS["draft.md"].read_text(encoding="utf-8")
@@ -145,9 +145,10 @@ class Round2(unittest.TestCase):
     def test_draft_written_with_write(self):
         self.assertIn("檔案工具（Write）", self.body)
 
-    def test_redline_author_example_and_grep(self):
-        self.assertIn('w:author="AI 助理"', self.make)
-        self.assertIn("<w:ins", self.make)
+    def test_no_redline_rules(self):
+        """D-529 拿掉 Word 修訂與作者「AI 助理」；看夾用 Grep。"""
+        self.assertNotIn("AI 助理", self.make)
+        self.assertNotIn("<w:ins", self.make)
         self.assertIn("Grep", self.make)
 
     def test_tally_row_format(self):
@@ -170,15 +171,20 @@ class Round2(unittest.TestCase):
                 self.assertNotIn("退回才拿得掉", text)
                 self.assertIn("先留著", text)
 
-    def test_edit_existing_goes_to_document_skill(self):
-        """#40：改既有交文件技能，骨架與 make.md 講同一套：載入文件技能、unzip／zip 換成 kb office unpack／pack。"""
+    def test_edit_existing_closed_three_steps(self):
+        """D-529（簡化一）：關著三步、看夾不用 python、開著改視窗裡那份不備份、問刪版本；不再載入文件技能、不加修訂。"""
         part = self.body[self.body.index("**改既有、轉格式**"):self.body.index("**回答**")]
         edit = self.make[self.make.index("## 改她原本的檔"):self.make.index("## 沒有工具時怎麼說")]
         for name, text in (("骨架", part), ("make.md", edit)):
             with self.subTest(where=name):
-                for want in ("anthropic-skills:docx", "xlsx", "pptx", "unzip", "kb office unpack", "pack"):
+                for want in ("kb office copy <原檔> --unpack", "Grep", "kb output save \"<夾>\"", "知識庫 CLAUDE.md",
+                             "改視窗裡那份", "不備份", "版本", "要不要刪"):
                     self.assertIn(want, text)
-        self.assertIn("openpyxl 存檔不用", edit)  # xlsx 技能預設 openpyxl，會弄掉圖表
+                for gone in ("anthropic-skills:docx", "AI 助理", "（AI 修改）", "w:ins"):
+                    self.assertNotIn(gone, text)
+        self.assertIn("不用 python", part)
+        self.assertIn("kb source-edit trash", edit)
+        self.assertIn("不要用 openpyxl 存檔", edit)  # xlsx 技能預設 openpyxl，會弄掉圖表
 
     def test_answer_says_excel_file(self):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")
