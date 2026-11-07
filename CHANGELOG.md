@@ -12,6 +12,10 @@ bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；�
   - 退回：硬連結的備份記 sha256，被直接改過就不拿它蓋、明講；`versions items` 把版本檔併進原檔那一項。
   - 骨架 CLAUDE.md、produce SKILL／make.md、README 改成新做法；拿掉 Word 修訂、作者「AI 助理」、「（AI 修改）」另存。
 - **為什麼**：#40 後實測改一份既有 Word 要 10～11 次 kb；OBS 回測三：4 次、46～48 秒。
+- **改了什麼**（#47，D-530）：
+  - `kb output save` 存 Excel 不論單一檔或解開的夾都自己重算、驗；`--replace` 蓋回也同夾留（版本 N）。
+  - 骨架 CLAUDE.md 那句只講保護（原檔先拿副本、做好一律 output save、匯出另存也是）；produce、make.md 拿掉做法與 `kb asks`、`kb turn note` 兩行。
+- **為什麼**（#47）：團隊規矩 9d；OBS 三輪存單一檔的 Excel 沒重算、轉 PDF 直寫進知識庫。
 - **升級**：她沒改過知識庫的 CLAUDE.md 就直接換新；改過就問她留哪份。
 
 ## 0.32.6 — 2026-11-04

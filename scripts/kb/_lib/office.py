@@ -573,6 +573,31 @@ def _members(path):
         return {i.filename: z.read(i.filename) for i in z.infolist()}
 
 
+def check_excel(vault, path):
+    """工作區裡的 Excel 放進來前（output save 存檔與存夾都走這裡，#47）：xlsx 有公式就原地重算、錯誤值不是 0 丟 Refused；
+    沒工具照放（recalc_note）；xlsm 不重算（重算程式存檔可能弄掉巨集）。不是 Excel 或沒公式回兩個 None。"""
+    info = {"recalc": None, "recalc_note": None}
+    low = Path(path).suffix.lower()
+    try:
+        if low not in (".xlsx", ".xlsm") or not formula_report(path)[0]:
+            return info
+    except (zipfile.BadZipFile, OSError):  # 不是 zip（舊格式、壞檔）：不驗，照舊放
+        return info
+    if low == ".xlsm":
+        info["recalc_note"] = MACRO_NO_RECALC
+        return info
+    try:
+        info["recalc"] = recalc(vault, path)
+    except Unavailable as e:
+        info["recalc_note"] = str(e).splitlines()[-1]  # 公式要打開才更新：照放
+        return info
+    errors = info["recalc"]["errors"]
+    if errors:
+        cells = "、".join(f"{c}（{err}）" for _s, c, err in errors[:10])
+        raise Refused(RECALC_ERRORS.format(n=len(errors), cells=cells))
+    return info
+
+
 def pack_checked(vault, folder, meta):
     """照副本打包（--like）再驗：改過的 XML 能解析、Excel（xlsx）有公式就重算且沒有錯誤值。
     Word 不用修訂（D-529，jacky 2026-11-05 定）。不過就刪掉打包出來的檔、丟 Refused。
@@ -597,20 +622,7 @@ def pack_checked(vault, folder, meta):
                     ET.fromstring(new[name])
                 except ET.ParseError as e:
                     raise Refused(BAD_XML.format(name=name, why=e)) from None
-        info = {"changed": changed, "recalc": None, "recalc_note": None}
-        low = ext.lower()
-        if low == ".xlsm" and formula_report(out)[0]:
-            info["recalc_note"] = MACRO_NO_RECALC
-        elif low == ".xlsx" and formula_report(out)[0]:
-            try:
-                info["recalc"] = recalc(vault, out)
-            except Unavailable as e:
-                info["recalc_note"] = str(e).splitlines()[-1]  # 公式要打開才更新：照放
-            else:
-                errors = info["recalc"]["errors"]
-                if errors:
-                    cells = "、".join(f"{c}（{err}）" for _s, c, err in errors[:10])
-                    raise Refused(RECALC_ERRORS.format(n=len(errors), cells=cells))
+        info = dict(check_excel(vault, out), changed=changed)
     except BaseException:
         try:
             out.unlink()
