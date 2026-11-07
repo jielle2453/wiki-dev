@@ -1976,7 +1976,16 @@ def secret_action(command, tool, vault, cwd=None):
     """D-212：單一 kb 呼叫是不是四種開新口子的密碼動作（kb unlock get、kb ruling add --kind 可以讀、kb unlock authorize、
     kb convert --saved … --explicit）。是回理由句，不是回 None。參數照 kb 自己的 argparse 認（縮寫、--x=值、順序都一樣）；
     子命令那個字、或 unlock／ruling／convert 的參數裡有看不出實際值的字（變數、萬用字元），認不出來，照 ask。
-    argparse 拆不過的不問：守門用的就是 kb.py 跑的那一份 argparse，拆不過 kb 就什麼都不做。"""
+    argparse 拆不過的不問：守門用的就是 kb.py 跑的那一份 argparse，拆不過 kb 就什麼都不做。
+    #50：後面接 # 註解時殼不會把註解傳給 kb：每個可能的註解開頭都截掉再認一次，任何一種是密碼動作就問。"""
+    for cut in [None] + cmdparse.comment_cuts(command, tool):
+        ask = _secret_action_one(command if cut is None else command[:cut].rstrip(), tool, vault, cwd)
+        if ask is not None:
+            return ask
+    return None
+
+
+def _secret_action_one(command, tool, vault, cwd=None):
     parsed = cmdparse.kb_argv(command, tool)
     if parsed is None:
         return ASK_UNKNOWN
@@ -2030,6 +2039,49 @@ def secret_action(command, tool, vault, cwd=None):
     return None
 
 
+def secret_in(command, tool, vault, cwd, root):
+    """#50：串在一起的句子裡任何一段是密碼動作就回理由句（整句沒有 kb.py 不看，舊設計）。
+    主判斷不拿註解：照串接、換行、管線切段（引號沒成對又有這三個字照問）。有 kb.py 的段是單一 kb 呼叫就照 secret_action 認；
+    不是單一呼叫的段，有 unlock／ruling／convert（拆字接回去比）、或 kb.py 後面第一個字認不出，照 ASK_UNKNOWN
+    （包在 bash -c、env、變數前綴、路徑放變數、夾了導向都算）。另一種切法照殼拿掉註解，只用來找出是哪個動作講理由，
+    不會讓本來要問的變成不問。工具不知道時兩種殼都看。"""
+    from kb import cli
+    name = cmdparse.KB_SCRIPT.rsplit("/", 1)[-1]
+    words = set(SECRET_COMMANDS)
+
+    def plain(text):  # 殼會接回去的拆字（unl\ock、"un""lock"、unl`ock）先接回去再比（第二輪審查 1）
+        return re.sub(r"[\\`'\"{}]", "", text.casefold())
+
+    def has_word(text):
+        return bool(words & set(re.findall(r"[a-z]+", plain(text))))
+
+    def unclear_sub(seg):  # 每個 kb.py 後面的第一個字：- 開頭（全域選項會吃值，猜不準子命令）、或不是認得的非密碼子命令，算認不出
+        text = plain(seg)
+        for m in re.finditer(re.escape(name), text):
+            rest = text[m.end():].split()
+            if rest and (rest[0].startswith("-") or rest[0] not in cli.COMMANDS or rest[0] in words):
+                return True
+        return False
+    if name not in command.casefold():
+        return None
+    unknown = False
+    for powershell in ((False,) if tool == "Bash" else (True,) if tool == "PowerShell" else (False, True)):
+        for comments in (True, False):
+            segs = cmdparse.segments(command, powershell, comments)
+            if segs is None:
+                unknown = unknown or (not comments and has_word(command))
+                continue
+            for seg in segs:
+                single = name in seg.casefold() and cmdparse.is_single_plugin_call(seg, root, cwd, tool)
+                if single:
+                    ask = secret_action(seg, tool, vault, cwd)
+                    if ask is not None:
+                        return ask
+                elif not comments and (has_word(seg) or (name in seg.casefold() and unclear_sub(seg))):
+                    unknown = True  # 不是乾淨的單一呼叫卻有這三個字（路徑放變數也算）、或 kb.py 後面認不出：寧可問
+    return ASK_UNKNOWN if unknown else None
+
+
 def decide(payload):
     """照 tool_name 分流。回 Decision(decision, zone, reason_code, reason, ledger_rows, vault)。"""
     tool = payload.get("tool_name", "") or ""
@@ -2045,15 +2097,17 @@ def decide(payload):
                 and cmdparse.KB_SCRIPT.rsplit("/", 1)[-1] in command.casefold()):
             # PowerShell 把彎引號當引號：任何子命令的文字參數都拆得開、能夾帶別的陳述式，直接擋；Bash 裡是普通字，照常認（第四輪）
             return Decision("deny", "", "curly_quote", CURLY_REASON, [_row(tool, "deny", "", "curly_quote", command)], vault)
-        if cmdparse.is_single_plugin_call(command, root, cwd, tool):
-            try:
-                ask = secret_action(command, tool, vault, cwd)
+        single = cmdparse.is_single_plugin_call(command, root, cwd, tool)
+        if single or cmdparse.KB_SCRIPT.rsplit("/", 1)[-1] in command.casefold():
+            try:  # 單一呼叫照 secret_action（含後面接註解，#50）；串在一起的照 secret_in 逐段看
+                ask = secret_action(command, tool, vault, cwd) if single else secret_in(command, tool, vault, cwd, root)
             except NoSuchFile:
                 return Decision("deny", "", NO_SUCH_FILE, NO_SUCH_FILE_REASON,
                                 [_row(tool, "deny", "", NO_SUCH_FILE, command)], vault)
             if ask is not None:  # D-212：開新口子的密碼動作要客戶按允許；前綴讓 AI 知道要停下來請客戶按（第五輪 S1）
                 reason = ASK_PREFIX + ask  # 代入的名稱在 secret_action 裡遮過（B-424 (1)）
                 return Decision("ask", "", SECRET_ACTION, reason, [_row(tool, "ask", "", SECRET_ACTION, command)], vault)
+        if single:
             return Decision("allow", "", "", KB_CALL_REASON, [], vault)
         if vault is None:
             return Decision("pass", "", "", "", [], None)

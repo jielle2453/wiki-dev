@@ -100,7 +100,7 @@ class Body(unittest.TestCase):
     def test_skeleton_points_to_programs_and_references(self):
         part = self.section("## 骨架", "## 共通")
         for want in ("kb lookup", "kb cards list", "kb agenda list", "kb journal recent", "kb asks", "kb convert",
-                     "kb tally", "kb cards redo", "kb pending add", "turn note", "references/find.md",
+                     "kb tally", "kb cards redo", "kb pending add", "references/find.md",  # turn note 不再要求（#46，R-13）
                      "references/verify.md"):
             with self.subTest(want=want):
                 self.assertIn(want, part)
@@ -134,7 +134,7 @@ class Round2(unittest.TestCase):
         line = next(ln for ln in part.splitlines() if "一律不改" in ln)
         for want in ("綜合卡、檔案卡、設定檔一律不改", "照原檔答", "cards redo", "D-155",
                      "用卡標題與短標講，不貼〔f-…〕這類編號",  # 裁定 31
-                     "其他問題不寫檔；只有 `kb cards redo` 或 `kb pending add` 的回合才叫 `turn note`"):  # 裁定 32
+                     "其他問題不寫檔。"):  # 裁定 32；#46 起寫入的程式自己記，不叫 turn note
             with self.subTest(want=want):
                 self.assertIn(want, line)
 
@@ -181,7 +181,7 @@ class Round3(unittest.TestCase):
         part = self.verify[self.verify.index("## 四、"):self.verify.index("## 五、")]
         self.assertIn("用卡標題與短標講，不貼〔f-…〕這類編號（D-160、B-089）", part)
         line = next(ln for ln in part.splitlines() if "turn note" in ln)
-        self.assertIn("只有標重做（`kb cards redo`）或記待處理（`kb pending add`）的回合", line)
+        self.assertIn("程式會自己記進工作日誌，不用跑 `kb turn note`", line)  # #46
         self.assertNotIn("convert 記了讀不到", self.verify)
 
     def test_33_tally_example_without_json(self):

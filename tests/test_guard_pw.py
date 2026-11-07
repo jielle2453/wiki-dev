@@ -359,6 +359,48 @@ class SecretActionAsk(Base):
         d = self.assertDecision("Bash", self.kb("unlock authorize --name 門 --label 門禁 --example \"Zq7x-secret\""), "ask")
         self.assertNotIn("Zq7x", d.reason)
 
+    def test_comment_and_chained_still_ask(self):
+        """#50：密碼動作後面接 # 註解（PowerShell 另有 <# #>）、或用 ;、換行、&&、| 跟別的指令串在一起，照樣 ask、理由句同一句。"""
+        get = self.kb("unlock get --name 工地大門")
+        want = "需要客戶按允許才會執行：要把存好的「工地大門」密碼顯示出來"
+        for tool in ("Bash", "PowerShell"):
+            for cmd in (get + " #x", get + " # 註解 it's", get + "\n#x", get + "; echo hi", get + "\necho hi",
+                        "echo hi; " + get, "echo hi\n" + get, get + " && echo hi", get + " | more"):
+                d = self.assertDecision(tool, cmd, "ask")
+                with self.subTest(tool=tool, cmd=cmd):
+                    self.assertEqual((d.reason_code, d.reason), ("secret_action", want))
+        for cmd in ("<# x #> " + get, get + " <#x#>"):  # Bash 的 <# 是導向接註解，語法錯整句不跑，不用問
+            self.assertEqual(self.assertDecision("PowerShell", cmd, "ask").reason, want)
+        d = self.assertDecision("Bash", self.kb("unlock get --name 'a #b'"), "ask")
+        self.assertIn("「a #b」", d.reason)  # 引號裡的 # 不是註解
+        # 認不出的跑法照 ask（ASK_UNKNOWN）：帶路徑的直譯器、包在別的指令裡、變數前綴、引號裡的替換、註解判不準的（審查列的）
+        kb_py = '"%s/scripts/kb.py"' % ROOT.as_posix()
+        py = "python " + kb_py + " unlock get --name a"
+        for tool, cmd in (("Bash", '"C:/Py/python.exe" ' + kb_py + " unlock get --name a"),
+                          ("Bash", "echo {#; " + py), ("Bash", "echo ${#x}; " + py), ("PowerShell", "echo ${#x}; " + py),
+                          ("Bash", "echo \\\n#x; " + py), ("Bash", "echo a\u3000#; " + py), ("PowerShell", "echo hi #x\r" + py),
+                          ("Bash", "echo $'\\''; " + py), ("Bash", 'echo "$(echo ")"; ' + py),
+                          ("Bash", "cat <<'E'\nit's\nE\n" + py), ("Bash", 'echo "$(' + py.replace('"', "'") + ')"'),
+                          ("Bash", "bash -c '" + py.replace('"', '\\"') + "'"), ("Bash", "PYTHONUTF8=1 " + py),
+                          ("PowerShell", "& " + py), ("Bash", "env " + py), ("Bash", "echo hi #" + get),
+                          ("PowerShell", "echo hi <# " + get + " #>"),
+                          # 第二輪審查：拆字、子命令放變數又夾導向、腳本路徑放變數、PowerShell --%
+                          ("Bash", "python " + kb_py + " unl\\ock get --name a"),
+                          ("Bash", "python " + kb_py + ' "un""lock" get --name x 2>/dev/null'),
+                          ("Bash", "u=unlock; python " + kb_py + " $u get --name x >/dev/null"),
+                          ("PowerShell", "python " + kb_py + " unl`ock get --name x"),
+                          ("Bash", "K=" + kb_py + '; python "$K" unlock get --name x'),
+                          ("PowerShell", "python " + kb_py + " --% unlock get --name x"),
+                          # 第三輪審查：段尾再放一個 kb.py、全域選項的值被當成子命令
+                          ("Bash", "S=unlock; python " + kb_py + " $S get x > out_kb.py"),
+                          ("Bash", "S=unlock; python " + kb_py + " --turn status $S get x > /dev/null")):
+            with self.subTest(tool=tool, cmd=cmd):
+                d = self.decide(tool, cmd)
+                self.assertEqual((d.decision, d.reason_code), ("ask", "secret_action"), d)
+        for tool in ("Bash", "PowerShell"):  # 不是密碼動作的照舊放行
+            self.assertDecision(tool, self.kb("cards todo --json # x"), "allow")
+            self.assertDecision(tool, self.kb("convert a.pdf --saved n #x --explicit"), "allow")  # --explicit 在註解裡
+
 
 class Round28e(Base):
     """測試 28 第四輪三件小的：unparsed 理由句不叫 AI 去問客戶；Bash 動詞本身是變數、eval 間接展開照 unparsed 擋；

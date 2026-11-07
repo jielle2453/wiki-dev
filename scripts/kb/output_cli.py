@@ -17,7 +17,7 @@ from kb.inventory_cli import NOT_IN_VAULT, find_vault
 CLI_LOCK_TIMEOUT = 30
 LOCK_BUSY = "等不到鎖，沒有寫入"
 SAVED = "已放進 {shown}{extra}（說「退回」可以退回這一步；這份檔會先留著，要刪再跟我說）"  # 退回照 D-074 成品留著（確認後裁定 27）
-OVERWRITTEN = "已改好 {shown}，改之前那份存成「{version}」（說「退回」可以換回來）"  # D-529：蓋回原檔
+OVERWRITTEN = "已改好 {shown}{extra}，改之前那份存成「{version}」（說「退回」可以換回來）"  # D-529：蓋回原檔
 ASK_DELETE = "回答最後問她一句要不要刪掉之前的版本；她說好才用 kb source-edit trash 刪"
 LINKED = "已登記線上文件「{title}」（下次整理會做卡）"
 DROPPED = "草稿收起來了：{name}（說「退回」會回來）"
@@ -28,7 +28,7 @@ def add_arguments(sub):
     sv = subs.add_parser("save", help="把做好的檔放進知識庫（沒給 --to 落暫存區）", description="工作區的檔用搬的、知識庫外的用複製的；先備份、登記，退回時成品先留著、要刪再刪。")
     sv.add_argument("file", help="工作區或知識庫外的檔；或 kb office copy --unpack 解開的夾（程式打包、驗過，沒給 --to 蓋回原檔、舊的存成同夾（版本 N））")
     sv.add_argument("--to", help="放到哪：<夾>/<檔名>（使用者的任何夾；暫存區底下也行）；沒給落暫存區，檔名照原檔")
-    sv.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份先備進回合；使用者明確說取代才加）")
+    sv.add_argument("--replace", action="store_true", help="目的地有同名的就覆蓋（原本那份存成同夾（版本 N），說退回會換回；使用者明確說取代才加）")
     sv.add_argument("--from", dest="source", help="改自哪份原檔（卡編號、uri 或路徑）")
     sv.add_argument("--draft", help="定稿前的草稿（暫存區裡的（草稿）.md），收起來")
     sv.add_argument("--link", help="這份是哪個線上文件下載回來的（https://claude.ai/…）")
@@ -59,7 +59,7 @@ def _save(vault, args, as_json, conversation, turn_id):
     extra = (f"，改自「{res['from_label']}」" if res["from"] else "") + ("，草稿收起來了" if res["draft"] else "")
     version = res.get("version")
     if version:
-        line = (OVERWRITTEN.format(shown=_shown(res["path"]), version=Path(version).name)
+        line = (OVERWRITTEN.format(shown=_shown(res["path"]), extra=extra, version=Path(version).name)
                 + _checked_text(res["checked"]) + "\n" + ASK_DELETE)
     else:
         line = SAVED.format(shown=_shown(res["path"]), extra=extra) + _checked_text(res.get("checked"))
