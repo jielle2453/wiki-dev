@@ -49,6 +49,8 @@
   "_why_card_title_max_chars": "卡標題與檔名的標題段最多幾字（D-029、B-040），檔名加短編號後仍在 Windows 路徑長度內",
   "synthesis_min_cards": 2,
   "_why_synthesis_min_cards": "實體掛到幾張檔案卡才列進待建綜合卡（D-114）；只出現一次的不建，免得長出跟檔案卡重複的薄卡",
+  "card_self_max": 2,
+  "_why_card_self_max": "一次整理要做卡的份數在這個數以內（至少 1 份）主對話照批次材料自己做、不派 card-maker（#48，D-531：jacky 實測小改自己做比較快；11-03 API 測試自己做 0.28 美元 117 秒、派子代理 0.40～0.49 美元 141 秒）；0 是一律派",
   "card_batch_size": 20,
   "_why_card_batch_size": "kb cards dispatch 一批切幾份給一個 card-maker（D-197）：spike 第 9 題一批 20、同時 3 個做 92 份，子代理 context 5.5～7.8 萬沒有摺疊；一批太大中斷時重派的多",
   "card_parallel": 3,

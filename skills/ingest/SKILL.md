@@ -30,7 +30,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 
 ## 原則
 
-- **製卡交給製卡助手，自己不讀原檔。** 原檔內容進主對話會讓對話被摺疊、做不完也多花額度；交給背景的子代理，客戶照常能問（D-022、D-196）。只有 `plan` 的 `cards` 那步（線上文件、密碼檔，子代理做不了）自己做。
+- **製卡交給製卡助手，自己不讀原檔。** 原檔內容進主對話會讓對話被摺疊、做不完也多花額度；交給背景的子代理，客戶照常能問（D-022、D-196）。只有 `plan` 的 `cards` 那步（線上文件、密碼檔，子代理做不了）與 dispatch 回 `self` 的批次（份數少，程式判斷）自己做；其他不自己決定直接改卡（D-531）。
 - **派工照程式給的 prompt，不自己拆批。** 批次、認領、算在哪一句由程式記，自己拆會重做、漏做、退不回來（D-197）。
 - **子代理的回報不轉述檔案內容。** 檔案內容只該進卡，轉述就把原檔內容帶回主對話、也可能講出不該講的；客戶問內容就讀卡回答（D-022）。
 - **照程式給的做。** 要做的事在 `plan`、要問的事在 `asks`，指令與參數都是程式寫好的；自己拼容易打錯，也會漏掉程式的保護（D-104、D-132）。
@@ -51,7 +51,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
   - `names`：照 carding.md 第十一節判斷每個新名字，有把握的跑 `entity accept`，有疑慮的不動（`asks` 會問）（D-202）。
   - `dispatch`：跑 `cards dispatch --json`，照「讀派工結果」做；先用現有資料回答這句、末尾說還在整理。
   - `cards`（線上文件、密碼檔）：照 carding.md 自己寫卡；打回後還是不行、或讀不到又沒記進待處理，只停那一份、告訴客戶。
-- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。
+- **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；帶 `self` 的不派，照 `do` 拿材料、照它的 `read` 自己做，做完跑 `do` 第二條再 dispatch；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。
 - **客戶說停**（「先停」「今天先到這裡」）：跑 `cards stop --json`，`agents` 每個用 TaskStop 停掉，再跑 `cards status` 照它那句講（停下前在寫的卡會寫完）；這個對話之後不自動整理。客戶說「整理」「繼續整理」就直接跑 `cards dispatch --json`（即 `plan` 最前面的 `resume`，D-200）。
 - **回答**：`plan` 做完（有 `dispatch` 就等到 `done`），重跑 `cards todo --json`，完整回答派工那一句客戶問的，答案在前；問資料的照 answer 的做法答（先答、核對、`kb tally`、短標）。做了的事合成一行（檔名最多 5 個；好幾件就說「另外整理了 N 件，說『剛剛做了什麼』看細節」），`failed` 裡 `tell` 沒帶到的照原因講；`tell` 的句子原樣貼；`asks` 有就問一件 `question`，結果的 `label` 列成選項，回答裡說的回覆方式要跟畫面上的一致；`n` 不給客戶看。
 - **客戶回了**：

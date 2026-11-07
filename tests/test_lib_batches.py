@@ -263,7 +263,7 @@ class Claims(Base):
 class Order(Base):
     def test_synthesis_waits_for_cards_and_agenda(self):
         stale = [{"entity_id": f"e-{i}", "name": f"甲{i}"} for i in range(7)]
-        self.out = {"new": files(2), "synthesis_stale": stale}
+        self.out = {"new": files(3), "synthesis_stale": stale}  # 3 份超過 card_self_max，照舊派（#48）
         got = self.dispatch()
         self.assertEqual([b["kind"] for b in got["batches"]], ["cards"])
         self.assertEqual(got["left"], {"cards": 0, "agenda": 0, "synthesis": 7})
@@ -327,6 +327,77 @@ class BigChange(Base):
         got = self.dispatch()
         self.assertIsNone(got["approval"])
         self.assertEqual({b["kind"] for b in got["batches"]}, {"synthesis"})
+
+
+class SelfMode(Base):
+    """#48（D-531）：做卡份數在 card_self_max 內，批次回 self、主對話做完 cards batch --done；超過或設 0 照舊派。"""
+
+    def test_small_self_then_next_kind_then_done(self):
+        self.out = {"new": files(1), "agenda_unscanned": [{"id": "f-9", "card_path": "p", "existing": []}]}
+        got = self.dispatch()
+        b = got["batches"][0]
+        self.assertEqual((b["kind"], b["items"], b["self"]), ("cards", 1, True))
+        self.assertEqual(b["do"], [f"kb cards batch {b['batch']} --json", f"kb cards batch {b['batch']} --done"])
+        self.assertNotIn("prompt", b)
+        self.assertIsNone(got["say"], "不說交給製卡助手在背景")
+        self.assertEqual(batches.self_done(self.V, SID, b["batch"]), self.t)
+        self.assertEqual(self.data()["batches"][0]["status"], "done")
+        self.out = {"agenda_unscanned": [{"id": "f-9", "card_path": "p", "existing": []}]}
+        nxt = self.dispatch()
+        self.assertEqual([(x["kind"], x.get("self")) for x in nxt["batches"]], [("agenda", True)])
+        batches.self_done(self.V, SID, nxt["batches"][0]["batch"])
+        self.out = {}
+        self.assertTrue(self.dispatch()["done"])
+
+    def test_over_max_or_zero_dispatches_agent(self):
+        self.out = {"new": files(3)}
+        self.assertIn("prompt", self.dispatch()["batches"][0])
+        self.tearDown()
+        self.setUp()
+        self.config(card_self_max=0)
+        self.out = {"new": files(1)}
+        got = self.dispatch()
+        self.assertIn("prompt", got["batches"][0])
+        with self.assertRaises(batches.Refused) as cm:
+            batches.self_done(self.V, SID, got["batches"][0]["batch"])
+        self.assertEqual(str(cm.exception), batches.NOT_SELF)
+
+    def test_done_only_own_open_batch(self):
+        self.out = {"new": files(1)}
+        bid = self.dispatch()["batches"][0]["batch"]
+        with self.assertRaises(batches.Refused):
+            batches.self_done(self.V, "sid-別的", bid)
+        with self.assertRaises(batches.Refused):
+            batches.self_done(self.V, SID, "b-deadbeef")
+        batches.self_done(self.V, SID, bid)
+        with self.assertRaises(batches.Refused) as cm:
+            batches.self_done(self.V, SID, bid)
+        self.assertEqual(str(cm.exception), batches.STOPPED)
+
+    def test_other_agent_stop_keeps_self_batch(self):
+        """審查 1：同一個對話別的製卡助手停下（沒認領批次），self 批次不被當沒人認領放掉。"""
+        self.out = {"new": files(1)}
+        bid = self.dispatch()["batches"][0]["batch"]
+        self.edit(lambda d: d["agents"].append({"agent_id": "a-1", "session_id": SID, "turn": self.t}))
+        batches.agent_stop(self.V, SID, "a-1")
+        self.assertEqual(self.data()["batches"][0]["status"], "open")
+        batches.self_done(self.V, SID, bid)
+
+    def test_reused_job_grows_back_to_agent(self):
+        """審查 2：self 的 job 沒關、下一句多了一大批，改回派製卡助手。"""
+        self.out = {"new": files(1)}
+        self.dispatch()
+        self.edit(lambda d: d["batches"][0].update(status="done"))
+        self.out = {"new": files(30, start=100)}
+        got = self.dispatch()
+        self.assertIn("prompt", got["batches"][0])
+        self.assertNotIn("self", self.data()["jobs"][0])
+
+    def test_ids_small_is_self(self):
+        """每句開頭 md 那條（dispatch --ids）也走同一個判斷。"""
+        self.out = {"new": files(30)}
+        got = batches.dispatch(self.V, SID, self.t, ids=["f-00000003"])
+        self.assertTrue(got["batches"][0]["self"])
 
 
 class Stop(Base):
