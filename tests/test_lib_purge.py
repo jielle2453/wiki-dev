@@ -400,5 +400,25 @@ class LintDerived(unittest.TestCase):
         self.assertNotIn(DIARY, out)
 
 
+class ProgramNotes(unittest.TestCase):
+    """#46：kb 指令自帶的「做了」（回合的 program_notes）連排除那一句的回合也照字詞換，Stop 之後寫進日誌時才不帶檔名。"""
+    def setUp(self):
+        from tests._guard_fixture import make_vault
+        self.tmp, self.V, _raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_keep_turn_program_notes_scrubbed(self):
+        from kb._lib import purge
+        t = turn.start(self.V, SID, "把私人夾排除")
+        turn.add_program_note(self.V, "排除：私人/王家心情.docx")
+        counts = {"left": {"state": 0, "backups": 0}}
+        purge._scrub_prompts(self.V, lambda text: text.replace("私人/王家心情.docx", "（已排除）"), {t["turn"]}, counts)
+        data = turn.turn_data(self.V, t["turn"])
+        self.assertEqual(data["program_notes"], ["排除：（已排除）"])
+        self.assertEqual(data["prompt_head"], "把私人夾排除")  # keep 的回合其他欄照舊不動
+
+
 if __name__ == "__main__":
     unittest.main()

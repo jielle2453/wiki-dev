@@ -295,17 +295,19 @@ class ScanOnce(Base):
 
     def test_one_walk_same_output(self):
         rulings.add(self.V, "口述為準", ["信義王"], [self.quote], "信義王的報價以口述為準", self.t)
+        from unittest import mock
+        from kb import lookup_cli
         walk, calls = cards._walk_cards, []
         cards._walk_cards = lambda vault: calls.append(1) or walk(vault)
-        try:
-            text, js = self.run_cli("信義王"), self.run_cli("信義王", "--json")
+        try:  # 順帶的要問的事（#46）是另一支（kb asks 本體），這裡只數查實體本身
+            with mock.patch.object(lookup_cli, "_end_asks", return_value=None):
+                text, js = self.run_cli("信義王"), self.run_cli("信義王", "--json")
         finally:
             cards._walk_cards = walk
         self.assertEqual(len(calls), 2)  # 兩次指令各一遍
         self.assertEqual(cards._scan_groups.__name__, "_scan_groups")  # 指令結束換回原本的
-        from kb import lookup_cli
         want = lookup.lookup(self.V, "信義王")  # 不經指令、每次重掃
-        self.assertEqual(json.loads(js), want)
+        self.assertEqual(json.loads(js), dict(want, asks=None))
         self.assertEqual(text, "\n".join(lookup_cli._lines(want)) + "\n")
 
 
