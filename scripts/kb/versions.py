@@ -373,6 +373,18 @@ def _copy_back(vault, src, dst):
                 from kb._lib import ledger
                 rel = Path(dst).relative_to(Path(vault)).as_posix() if Path(dst).is_relative_to(Path(vault)) else Path(dst).name
                 ledger.log_error(vault, f"退回後「{rel}」設回隱藏沒成：{e.strerror or type(e).__name__}", source="versions")
+    _remirror(vault, dst)
+
+
+def _remirror(vault, path):
+    """#49：本機那一半（.system/local/<種類>.json）換回或拿掉後，流水檔的副本要重寫（流水檔那一半先退時副本接的還是新的）。
+    副本是衍生的，重寫不成只記一行 log，不中斷退回。"""
+    try:
+        from kb._lib import streams
+        streams.remirror_local(vault, path)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"退回後副本沒重寫：{type(e).__name__}: {str(e)[:100]}", source="versions")
 
 
 def _output_keys(vault):
@@ -814,6 +826,7 @@ def _remove(vault, rel, acting_turn):
     turn.backup(vault, rel, acting_turn, action="delete")
     os.remove(Path(vault) / rel)
     _prune_dirs(vault, rel)
+    _remirror(vault, Path(vault) / rel)  # #49 審查：那一回合才建的本機那一半被拿掉，副本也要跟著換
 
 
 def _rels_of(entries_):
