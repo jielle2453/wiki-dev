@@ -30,11 +30,8 @@ AGREE = ("我同意", "沒問題", "同意", "繼續", "可以", "確定", "允�
 FILLERS = ("的", "啊", "呀", "喔", "哦", "囉", "了", "吧", "唷", "耶", "嘛", "請", "就", "please")
 SHELLS = ("powershell", "pwsh", "cmd", "bash", "sh", "zsh")
 SHELL_FLAGS = ("-command", "-c", "/c", "-lc", "-ic")
-# 只有整條指令就是「apply_patch 接不展開的 patch」才照 patch 判（review 二輪 1）：heredoc 的結束字要加引號、或整段單引號；
-# 前面最多一個 cd <夾> &&。其他（多行指令裡夾一段 patch、grep 這個字）照一般殼指令判。
-SHELL_PATCH_RE = re.compile(
-    r"\A\s*(?:cd\s+(\"[^\"]*\"|'[^']*'|[^\s&;|]+)\s*&&\s*)?apply_patch\s+"
-    r"(?:<<-?\s*(['\"])(\w+)\2[ \t]*\n(.*)\n[ \t]*\3\s*|'([^']*)'\s*)\Z", re.S)
+PS_VALUE_OPTS = ("-executionpolicy", "-windowstyle", "-outputformat", "-inputformat", "-workingdirectory",
+                 "-configurationname", "-version", "-psconsolefile")  # PowerShell 帶值的選項：值不算第一個非旗標
 
 
 def is_codex(payload):
@@ -50,10 +47,15 @@ def _command_text(command):
         parts = [str(x) for x in command]
         shell = os.path.splitext(os.path.basename(parts[0]))[0].lower() if parts else ""
         if shell in SHELLS:
-            for i in range(1, len(parts) - 1):
-                if parts[i].lower() in SHELL_FLAGS:  # 殼的旗標可帶值（-ExecutionPolicy Bypass），找第一個指令旗標（review 二輪 2）
+            i = 1
+            while i < len(parts) - 1:
+                low = parts[i].lower()
+                if low in SHELL_FLAGS:
                     # PowerShell、cmd 把後面幾段接成指令；bash -c 只有下一段是指令，再後面是 $0、$1
                     return " ".join(parts[i + 1:]) if shell in ("powershell", "pwsh", "cmd") else parts[i + 1]
+                if not low.startswith(("-", "/")):
+                    break  # 第一個非旗標是腳本（bash evil.sh -c …）：後面的 -c 是腳本的參數，不是殼的（review 三輪 4）
+                i += 2 if low in PS_VALUE_OPTS else 1  # -ExecutionPolicy Bypass 的值跳過（review 二輪 2）
         return subprocess.list2cmdline(parts)
     return command if isinstance(command, str) else ""
 
@@ -80,18 +82,6 @@ def patch_targets(text, cwd):
     return out
 
 
-def shell_patch(command, cwd):
-    """整條殼指令就是 apply_patch 接一段不展開的 patch：回 (patch 文字, 效用 cwd)；不是回 None。"""
-    m = SHELL_PATCH_RE.match(command or "")
-    if not m:
-        return None
-    where = m.group(1)
-    if where:
-        where = where.strip("\"'")
-        cwd = where if os.path.isabs(where) else os.path.join(cwd, where)
-    return (m.group(4) if m.group(4) is not None else m.group(5)), cwd
-
-
 def normalize(payload):
     """Codex payload → [現有格式的 payload]；apply_patch 拆不出檔回 None。其他工具原樣一份。"""
     tool = payload.get("tool_name") or ""
@@ -105,12 +95,12 @@ def normalize(payload):
         return [dict(payload, tool_name=name, tool_input={"file_path": path}) for name, path in targets]
     if tool == "Bash":
         command = _command_text(ti.get("command"))
-        sp = shell_patch(command, cwd)
-        if sp is not None:  # 從殼叫 apply_patch（apply_patch <<'EOF' …）：照 patch 逐檔判（review 7）
-            targets = patch_targets(*sp)
-            return [dict(payload, tool_name=n, tool_input={"file_path": p}) for n, p in targets] if targets else None
         name = "PowerShell" if WINDOWS else "Bash"
-        return [dict(payload, tool_name=name, tool_input=dict(ti, command=command))]
+        items = [dict(payload, tool_name=name, tool_input=dict(ti, command=command))]
+        if "*** Begin Patch" in command:
+            # 從殼叫 apply_patch：整條照殼指令判，另外 patch 裡的每個檔也照 Write／Edit 判（只會多擋，不會少判；review 7、三輪 1～3）
+            items += [dict(payload, tool_name=n, tool_input={"file_path": p}) for n, p in patch_targets(command, cwd)]
+        return items
     if tool == "view_image":
         return [dict(payload, tool_name="Read", tool_input={"file_path": str(ti.get("path") or ti.get("file_path") or "")})]
     return [payload]
@@ -121,6 +111,9 @@ def combine(results):
     for r in results:
         if r[0] == "deny":
             return "deny", r[1], None
+    for r in results:
+        if r[0] == "ask":  # 密碼動作夾在多份裡也要走同意（不能因為合併成不表態就放行）
+            return r
     if len(results) == 1:
         return results[0]
     if results and all(r[0] == "allow" for r in results):

@@ -78,12 +78,21 @@ class Units(unittest.TestCase):
         for ti in ({"command": p}, {"patch": p}, {"input": p}, {"command": ["apply_patch", p]}):
             self.assertEqual(_codex.patch_text(ti), p)
 
+    def test_combine(self):
+        allow, ask, deny, none = ("allow", "a", None), ("ask", "q", {"command": "x"}), ("deny", "d", None), (None, "", None)
+        self.assertEqual(_codex.combine([allow, deny, ask])[0], "deny")
+        self.assertEqual(_codex.combine([allow, ask]), ask)  # 有 ask 不能合成不表態
+        self.assertEqual(_codex.combine([allow, allow]), ("allow", "a", None))
+        self.assertEqual(_codex.combine([allow, none]), (None, "", None))
+
     def test_command_array(self):
         self.assertEqual(_codex._command_text(["powershell.exe", "-Command", "Get-Date"]), "Get-Date")
         self.assertEqual(_codex._command_text(["ls", "-la"]), "ls -la")
         self.assertEqual(_codex._command_text(["bash", "-lc", "cat a"]), "cat a")
         self.assertEqual(_codex._command_text(["pwsh.exe", "-NoProfile", "-Command", "Get-Content", "x"]), "Get-Content x")
         self.assertEqual(_codex._command_text(["python", "kb.py", "unlock", "-c", "foo"]), "python kb.py unlock -c foo")
+        self.assertEqual(_codex._command_text(["bash", "evil.sh", "-c", "echo hi"]), "bash evil.sh -c \"echo hi\"")
+        self.assertEqual(_codex._command_text(["powershell", "-ExecutionPolicy", "Bypass", "-Command", "Get-Date"]), "Get-Date")
 
 
 class Guard(unittest.TestCase):
@@ -136,8 +145,8 @@ class Guard(unittest.TestCase):
         ok = self.V / "暫存區" / "新.md"
         cmd = f"Remove-Item \"{self.salary}\"\n" + patch(("Add File", ok))
         self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": cmd})))[0], "deny")
-        cmd = "apply_patch <<EOF\n" + patch(("Add File", ok)) + "EOF"  # 結束字沒加引號：裡面的 $() 會展開，不當 patch
-        self.assertIsNone(_codex.shell_patch(cmd, str(self.V)))
+        tricky = f"apply_patch <<'EOF'\n" + patch(("Add File", ok)) + f"EOF\nRemove-Item \"{self.salary}\"\nEOF"
+        self.assertEqual(decision(run(GUARD, pre(self.V, "Bash", {"command": tricky})))[0], "deny")  # 三輪 1：結束字後面的指令也判
 
     def test_shell_wrapper_flags_with_values(self):
         cmd = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", f'Get-Content "{self.salary}"']
