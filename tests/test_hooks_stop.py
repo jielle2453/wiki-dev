@@ -168,7 +168,7 @@ class StopHook(unittest.TestCase):
         self.assertNotIn("matcher", groups[0])
         hooks = groups[0]["hooks"]
         self.assertEqual(len(hooks), 1)
-        self.assertEqual(hooks[0]["command"], 'python "${CLAUDE_PLUGIN_ROOT}/hooks/stop.py"')
+        self.assertEqual(hooks[0]["command"], 'python "${PLUGIN_ROOT}/hooks/stop.py"')  # codex 分支
         self.assertEqual(hooks[0]["timeout"], 10)
         self.assertIn("每句話記進工作日誌", cfg["description"])
 

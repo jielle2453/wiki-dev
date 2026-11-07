@@ -159,13 +159,13 @@ class SessionHook(unittest.TestCase):
         cfg = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         groups = cfg["hooks"]["SessionStart"]
         self.assertEqual(len(groups), 1)
-        self.assertEqual(groups[0]["matcher"], "startup|resume|clear|compact")
+        self.assertEqual(groups[0]["matcher"], "startup|resume|clear|compact|fork")  # codex 分支：Codex 多 fork
         hooks = groups[0]["hooks"]
         self.assertEqual(len(hooks), 1)
-        self.assertEqual(hooks[0]["command"], 'python "${CLAUDE_PLUGIN_ROOT}/hooks/session.py"')
+        self.assertEqual(hooks[0]["command"], 'python "${PLUGIN_ROOT}/hooks/session.py"')
         self.assertEqual(hooks[0]["timeout"], 10)
-        self.assertTrue(cfg["description"].startswith("開場帶入核心規則與 kb 指令前綴；"))
-        self.assertEqual(len(cfg["hooks"]), 8)  # card-maker 加 SubagentStart、SubagentStop；B 段第 6 步加 SessionEnd
+        self.assertTrue(cfg["description"].startswith("Codex 版（codex 分支）：開場帶入核心規則與 kb 指令前綴；"))
+        self.assertEqual(len(cfg["hooks"]), 6)  # codex 分支：沒有 SubagentStart、SubagentStop（Q1-A）
 
 
 KB = ROOT / "scripts" / "kb.py"

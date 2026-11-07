@@ -4,6 +4,8 @@
 給誰看：改這個 repo 的 Claude 與人。怎麼用 plugin 看 README.md，設計與決策看 design/。
 什麼時候更新：目錄或流程變了的那個 commit 一起改。
 
+🔴 **這是 `codex` 長期分支（Codex 版，spec `design/specs/2026-11-07-Codex版.md`）**：不併回 main；`hooks/hooks.json` 是 Codex 的格式，Claude 版的在 main。安裝看 `安裝-Codex.md`。
+
 ## 一、原始碼地圖（按需讀，在 `ops/`）
 
 本檔只放每次改 repo 都用得到的；每個檔做什麼、改過什麼在 `ops/map-*.md`，**要改、要查那個檔時才讀對應那份**，先 Grep 檔名、讀那一列就好，不整份讀。清單會漂，以 `git ls-files` 為準；「尚未」是 design/architecture.md 第九節計畫中、這版還沒有的目錄。

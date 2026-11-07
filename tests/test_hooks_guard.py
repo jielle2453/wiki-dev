@@ -85,12 +85,13 @@ class Hook(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_hooks_json_blocks_on_failure(self):
-        """D-186 第 4 點：hook 本身掛掉、逾時、起不來時 Claude Code 擋下（onFailure: block，Claude Code 2.1.295 起）。"""
+        """codex 分支：Codex 沒有 onFailure（hook 出錯會放行，安裝-Codex.md 第四節），守門 timeout 拉到 30 秒。"""
         cfg = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         hooks = [h for group in cfg["hooks"]["PreToolUse"] for h in group["hooks"]]
         self.assertTrue(hooks)
         for h in hooks:
-            self.assertEqual(h.get("onFailure"), "block", h)
+            self.assertNotIn("onFailure", h)
+            self.assertEqual(h["timeout"], 30)
 
 
     def test_secret_action_asks_and_ledger_records_ask(self):

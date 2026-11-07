@@ -32,6 +32,8 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)
+import _codex  # noqa: E402  Codex 轉接（codex 分支）
 
 FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
@@ -68,72 +70,110 @@ def main():
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         tool = str(payload.get("tool_name", "") or "") if isinstance(payload, dict) else ""
-        from kb import guard
-        from kb._lib import ledger
-
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
-        d = guard.decide(payload)
-        rows = list(d.ledger_rows)
-        decision, reason = d.decision, d.reason
-        updated = None
-        agent_turn = None
-        if d.vault is not None and payload.get("agent_id"):
-            from kb._lib import turn as turn_lib
-            agent_turn = turn_lib.agent_turn(d.vault, payload.get("session_id"), payload.get("agent_id"))
-        if d.vault is not None and agent_turn and tool in WRITE_TOOLS and decision != "deny" and _outside(payload, tool, d.vault):
-            decision, reason = "deny", AGENT_DENY  # 子代理寫知識庫外面：一律不准（build 桌面版確認修）
-            ti = payload.get("tool_input") or {}
-            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                         "head": str(ti.get("file_path") or ti.get("notebook_path") or "")})
-        if d.vault is not None and agent_turn and tool in ("Grep", "Glob") and decision != "deny"                 and _search_reaches_free(payload, tool, d.vault):
-            decision, reason = "deny", AGENT_DENY  # 範圍碰到彈性區（spec 裁定 4）：放行、不表態的都擋（知識庫上層是 Z11）
-            ti = payload.get("tool_input") or {}
-            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                         "head": str(ti.get("path") or ti.get("pattern") or "")})
-        if d.vault is not None and agent_turn and tool in SHELL_TOOLS and decision != "deny" and decision != "allow":
-            decision, reason = "deny", AGENT_DENY  # 守門沒意見或要詢問的 shell 指令：子代理一律不准（第二輪修 R3）
-            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                         "head": str((payload.get("tool_input") or {}).get("command") or "")})
-        if decision == "allow" and d.vault is not None:
-            why, updated = scope(payload, tool, d, agent_turn)
-            if why:
-                decision, reason, updated = "deny", why, None
-                ti = payload.get("tool_input") or {}
-                rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                             "head": str(ti.get("command") or ti.get("file_path") or ti.get("path") or "")})
-        if decision == "allow" and tool in WRITE_TOOLS and d.zone in BACKUP_ZONES and d.vault is not None:
-            # 事務層：寫綜合卡、暫存區、檔案索引放行前先回合備份；大改動或備份失敗就改 deny（D-074、D-075）
-            from kb._lib import turn
-
-            ti = payload.get("tool_input") or {}
-            target = ti.get("notebook_path") if tool == "NotebookEdit" else ti.get("file_path")
-            ok, code, why = turn.before_write(d.vault, str(target), payload.get("cwd") or os.getcwd(), d.zone,
-                                              payload.get("session_id"), agent_turn)
-            if not ok:
-                decision, reason = "deny", why
-                rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": code, "head": str(target)})
-        if decision == "ask" and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
-            tokens = kb_args((payload.get("tool_input") or {}).get("command"), tool)
-            if tokens is not None and _has_flag(split_global(tokens)[0]):
-                decision, reason = "deny", SELF_FLAGS  # 跟 allow 那條一樣：自己帶 --turn／--agent／--session 的不准（#20 第二輪 review）
-                rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                             "head": str((payload.get("tool_input") or {}).get("command") or "")})
-            else:
-                updated = with_session(payload, tool, tokens)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
-        if decision in ("allow", "ask") and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
-            _mark_secret(d.vault, payload, tool)
-        if d.vault is not None:
-            try:
-                for row in rows:
-                    ledger.append(d.vault, row)
-                ledger.touch_status(d.vault)
-            except BaseException as e:  # noqa: BLE001  留痕失敗不改決定
-                ledger.log_error(d.vault, f"{type(e).__name__}: {str(e)[:200]}")
-        if decision in ("allow", "deny", "ask"):  # ask：開新口子的密碼動作，Claude Code 跳允許詢問（D-212）
+        if not _codex.is_codex(payload):
+            decision, reason, updated, _vault = _judge(payload, tool)
+        else:
+            decision, reason, updated = _codex_main(payload, tool)
+        if decision in ("allow", "deny", "ask"):  # ask：開新口子的密碼動作，Claude Code 跳允許詢問（D-212）；Codex 不會走到 ask
             emit(decision, reason, updated if decision in ("allow", "ask") else None)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
         _on_error(e, payload, tool)
+
+
+def _codex_main(payload, tool):
+    """Codex（codex 分支）：apply_patch 逐檔判、合併；ask 換成「客戶下一句同意才放行」（_codex 檔頭）。"""
+    from kb import guard
+    from kb._lib import ledger
+
+    items = _codex.normalize(payload)
+    if items is None:  # 拆不出檔名的 patch：知識庫裡一律擋
+        vault = guard.find_vault(payload.get("cwd") or os.getcwd())
+        if vault is None:
+            return None, "", None
+        ledger.append(vault, {"tool": tool, "decision": "deny", "zone": "", "reason_code": "patch_unparsed",
+                              "head": _codex.patch_text(payload.get("tool_input") or {})[:200]})
+        return "deny", _codex.PATCH_REASON, None
+    results = [_judge(p, str(p.get("tool_name") or "")) for p in items]
+    decision, reason, updated = _codex.combine([r[:3] for r in results])
+    vault = results[0][3]
+    if decision == "ask" and vault is not None:
+        command = (items[0].get("tool_input") or {}).get("command")
+        if _codex.take_consent(vault, payload.get("session_id"), command):
+            decision = "allow"
+        else:
+            ledger.append(vault, {"tool": tool, "decision": "deny", "zone": "", "reason_code": "consent_needed",
+                                  "head": str(command or "")[:200]})
+            decision, reason, updated = "deny", _codex.CONSENT_REASON + reason, None
+    elif decision == "ask":
+        decision, updated = "deny", None
+    return decision, reason, updated
+
+
+def _judge(payload, tool):
+    """一份（現有格式的）payload 的判斷：回 (decision, reason, updatedInput, vault)，留痕寫好，不輸出。"""
+    from kb import guard
+    from kb._lib import ledger
+
+    d = guard.decide(payload)
+    rows = list(d.ledger_rows)
+    decision, reason = d.decision, d.reason
+    updated = None
+    agent_turn = None
+    if d.vault is not None and payload.get("agent_id"):
+        from kb._lib import turn as turn_lib
+        agent_turn = turn_lib.agent_turn(d.vault, payload.get("session_id"), payload.get("agent_id"))
+    if d.vault is not None and agent_turn and tool in WRITE_TOOLS and decision != "deny" and _outside(payload, tool, d.vault):
+        decision, reason = "deny", AGENT_DENY  # 子代理寫知識庫外面：一律不准（build 桌面版確認修）
+        ti = payload.get("tool_input") or {}
+        rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                     "head": str(ti.get("file_path") or ti.get("notebook_path") or "")})
+    if d.vault is not None and agent_turn and tool in ("Grep", "Glob") and decision != "deny"                 and _search_reaches_free(payload, tool, d.vault):
+        decision, reason = "deny", AGENT_DENY  # 範圍碰到彈性區（spec 裁定 4）：放行、不表態的都擋（知識庫上層是 Z11）
+        ti = payload.get("tool_input") or {}
+        rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                     "head": str(ti.get("path") or ti.get("pattern") or "")})
+    if d.vault is not None and agent_turn and tool in SHELL_TOOLS and decision != "deny" and decision != "allow":
+        decision, reason = "deny", AGENT_DENY  # 守門沒意見或要詢問的 shell 指令：子代理一律不准（第二輪修 R3）
+        rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                     "head": str((payload.get("tool_input") or {}).get("command") or "")})
+    if decision == "allow" and d.vault is not None:
+        why, updated = scope(payload, tool, d, agent_turn)
+        if why:
+            decision, reason, updated = "deny", why, None
+            ti = payload.get("tool_input") or {}
+            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                         "head": str(ti.get("command") or ti.get("file_path") or ti.get("path") or "")})
+    if decision == "allow" and tool in WRITE_TOOLS and d.zone in BACKUP_ZONES and d.vault is not None:
+        # 事務層：寫綜合卡、暫存區、檔案索引放行前先回合備份；大改動或備份失敗就改 deny（D-074、D-075）
+        from kb._lib import turn
+
+        ti = payload.get("tool_input") or {}
+        target = ti.get("notebook_path") if tool == "NotebookEdit" else ti.get("file_path")
+        ok, code, why = turn.before_write(d.vault, str(target), payload.get("cwd") or os.getcwd(), d.zone,
+                                          payload.get("session_id"), agent_turn)
+        if not ok:
+            decision, reason = "deny", why
+            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": code, "head": str(target)})
+    if decision == "ask" and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
+        tokens = kb_args((payload.get("tool_input") or {}).get("command"), tool)
+        if tokens is not None and _has_flag(split_global(tokens)[0]):
+            decision, reason = "deny", SELF_FLAGS  # 跟 allow 那條一樣：自己帶 --turn／--agent／--session 的不准（#20 第二輪 review）
+            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
+                         "head": str((payload.get("tool_input") or {}).get("command") or "")})
+        else:
+            updated = with_session(payload, tool, tokens)  # 密碼動作也記在這個對話的回合（secret_shown 標對句，#20 裁定 5）
+    if decision in ("allow", "ask") and d.vault is not None and tool in SHELL_TOOLS and not agent_turn:
+        _mark_secret(d.vault, payload, tool)
+    if d.vault is not None:
+        try:
+            for row in rows:
+                ledger.append(d.vault, row)
+            ledger.touch_status(d.vault)
+        except BaseException as e:  # noqa: BLE001  留痕失敗不改決定
+            ledger.log_error(d.vault, f"{type(e).__name__}: {str(e)[:200]}")
+    return decision, reason, updated, d.vault
 
 
 def kb_args(command, tool):

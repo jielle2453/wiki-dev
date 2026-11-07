@@ -49,7 +49,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - **拿計畫**：`cards todo --json`，看 `plan` 與 `announce`；`announce` 有句子先照貼。`asks`、`tell` 留到「回答」才用（背景做完會變）。
 - **照計畫做**：照 `plan` 一步一步做，有 `read` 的先讀（相對於本 skill 資料夾），再照 `do` 做。
   - `names`：照 carding.md 第十一節判斷每個新名字，有把握的跑 `entity accept`，有疑慮的不動（`asks` 會問）（D-202）。
-  - `dispatch`：跑 `cards dispatch --json`，照「讀派工結果」做；先用現有資料回答這句、末尾說還在整理。
+  - `dispatch`：Codex 版沒有製卡助手，不跑 `cards dispatch`：跟 `cards` 那步一樣，照 carding.md 自己替 `cards todo --json` 列的新檔與改過的檔寫卡（一次最多 10 份，做完先回答這句、末尾說還有幾份沒整理）。
   - `cards`（線上文件、密碼檔）：照 carding.md 自己寫卡；打回後還是不行、或讀不到又沒記進待處理，只停那一份、告訴客戶。
 - **讀派工結果**（`cards dispatch --json`）：`batches` 每一批用 Agent 工具派（`subagent_type` 照 `agent`、`description` 與 `prompt` 原樣、背景跑）；`say` 有句子照講一次，收到通知之後對客戶只說 `say`。每收到製卡助手的通知再跑一次 `cards dispatch --json`；`done` 到「回答」；`failed` 程式不會再派它們，你也不要再派，原因留到「回答」講。`approval` 等其他欄位與等的時候（`cards status`）照 commands.md 的 cards dispatch 一節。
 - **客戶說停**（「先停」「今天先到這裡」）：跑 `cards stop --json`，`agents` 每個用 TaskStop 停掉，再跑 `cards status` 照它那句講（停下前在寫的卡會寫完）；這個對話之後不自動整理。客戶說「整理」「繼續整理」就直接跑 `cards dispatch --json`（即 `plan` 最前面的 `resume`，D-200）。

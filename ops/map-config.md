@@ -7,6 +7,7 @@
 | 路徑 | 用途 |
 |---|---|
 | `.claude-plugin/plugin.json` | plugin manifest：名稱、版號、描述 |
+| `.codex-plugin/plugin.json` `.agents/plugins/marketplace.json` `安裝-Codex.md` | （codex 分支）Codex 的 manifest（版號跟 `.claude-plugin` 同）、本機市集、安裝說明與實機要測清單 |
 | `.claude/settings.json` | repo 內的權限：只放行測試與 `kb.py` |
 | `README.md` `CHANGELOG.md` `LICENSE` | 給使用者的說明、一版一段的變更、MIT；升級打包：CHANGELOG 每一段開頭多一行 `- **給客戶的一句話**：…`（白話一句、不寫編號；發行程式抄進名單、`kb upgrade --finish` 讀來唸，沒寫不准發行）；D-521 裁定 13：改知識例句「紀事多一條」；D-523 裁定 8：README 綜合卡段順序改成 現況、自訂段、推算、相關檔、紀事 |
 | `.gitattributes` `.gitignore` | 行尾一律 LF；不進 repo 的東西；`.gitignore` 多 `dist/`（`tools/release.py` 打的 zip） |

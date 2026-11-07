@@ -247,7 +247,7 @@ class ClosedWindow(_dispatch.Base):
                 self.assertEqual(self.end(reason).returncode, 0)
                 self.assertEqual({b["status"] for b in batches.load(self.V)["batches"]}, {"open"})
         cfg = json.loads((_out.ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-        self.assertEqual(cfg["hooks"]["SessionEnd"][0]["matcher"], "logout|prompt_input_exit|other")
+        self.assertEqual(cfg["hooks"]["SessionEnd"][0]["matcher"], "other")  # codex 分支：Codex 的 SessionEnd 只有 other
 
     def released_by(self, reason):
         self.assertEqual(self.end(reason).returncode, 0)

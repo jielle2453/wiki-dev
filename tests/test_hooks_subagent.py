@@ -132,13 +132,10 @@ class Stop(Base):
 
 class Registration(unittest.TestCase):
     def test_hooks_json_has_both_events_with_matcher(self):
+        """codex 分支（Q1-A）：Codex 版不用製卡子代理，hooks.json 沒有這兩項；subagent.py 留著不註冊。"""
         cfg = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        for event, arg in (("SubagentStart", "start"), ("SubagentStop", "stop")):
-            (group,) = cfg[event]
-            self.assertEqual(group["matcher"], "^wiki-with-willy:card-maker$")
-            (hook,) = group["hooks"]
-            self.assertEqual(hook["command"], f'python "${{CLAUDE_PLUGIN_ROOT}}/hooks/subagent.py" {arg}')
-            self.assertEqual(hook["timeout"], 10)
+        for event in ("SubagentStart", "SubagentStop"):
+            self.assertNotIn(event, cfg)
 
 
 if __name__ == "__main__":

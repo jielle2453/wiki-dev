@@ -132,9 +132,9 @@ class OutputLog(unittest.TestCase):
         cfg = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         groups = cfg["hooks"]["PostToolUse"]
         self.assertEqual(len(groups), 1)
-        self.assertEqual(groups[0]["matcher"], "Write|Edit|MultiEdit|NotebookEdit")
+        self.assertEqual(groups[0]["matcher"], "^apply_patch$")  # codex 分支
         hook = groups[0]["hooks"][0]
-        self.assertIn("${CLAUDE_PLUGIN_ROOT}/hooks/output_log.py", hook["command"])
+        self.assertIn("${PLUGIN_ROOT}/hooks/output_log.py", hook["command"])
         self.assertEqual(hook["timeout"], 10)
 
     def test_bad_json_silent_exit_0(self):

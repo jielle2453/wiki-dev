@@ -129,7 +129,7 @@ class TurnHook(unittest.TestCase):
         groups = cfg["hooks"]["UserPromptSubmit"]
         cmds = [h["command"] for g in groups for h in g["hooks"]]
         self.assertEqual(len(cmds), 1, cmds)
-        self.assertIn("${CLAUDE_PLUGIN_ROOT}/hooks/turn.py", cmds[0])
+        self.assertIn("${PLUGIN_ROOT}/hooks/turn.py", cmds[0])  # codex 分支
         self.assertEqual(groups[0]["hooks"][0]["timeout"], 5)
         self.assertEqual(len(cfg["hooks"]["PreToolUse"]), 1)  # PreToolUse 不動
 
