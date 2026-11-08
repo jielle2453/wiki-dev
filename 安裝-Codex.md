@@ -1,6 +1,6 @@
 # wiki-with-willy 安裝說明（OpenAI Codex 版）
 
-日期：2026-11-07（codex 分支第一版，**還沒在 Codex 實機裝過**）
+日期：2026-11-09（2026-11-08～09 在 Codex CLI 0.167.0、Windows 11 實機裝過、測過，結果在第五節）
 給誰看：替客戶安裝的服務人員。Claude Code 版的安裝看 README.md。
 什麼時候更新：實機測過、Codex 改了外掛或 hook 的做法時。
 
@@ -8,8 +8,8 @@
 
 | 項目 | 怎麼確認 | 為什麼 |
 |---|---|---|
-| Windows 上的 Codex 桌面 App（或 Codex CLI） | 打得開、登入得了 | 官方只保證「桌面 App 手動安裝的外掛」會跑 hook；CLI 要實機確認；IDE 擴充不支援外掛 |
-| **Python 3** | 命令列跑 `python --version` 有版本號 | 🔴 **沒有 Python 就完全沒有守門**：Codex 的 hook 起不來時會照樣讓 AI 改檔（Claude 版會擋下，Codex 不會） |
+| Windows 上的 Codex 桌面 App 或 Codex CLI | 打得開、登入得了 | 兩種都會跑外掛的 hook（CLI 2026-11-08 實測）；IDE 擴充不支援外掛 |
+| **Python 3**（3.10 以上） | 命令列跑 `python --version` 有版本號；在 Codex 裡問「跑 python --version」也要有 | 🔴 **沒有 Python 就完全沒有守門**：Codex 的 hook 起不來時會照樣讓 AI 改檔（Claude 版會擋下，Codex 不會） |
 | 建議裝 OpenAI 的文件技能 | 在 Codex 打 `$skill-installer`，裝 Word、Excel、PowerPoint 的技能 | 做文件時 AI 才有現成的技能可用；沒裝也能做，只是比較慢 |
 
 ## 二、安裝
@@ -25,7 +25,7 @@
 ## 三、裝好之後的差別（跟 Claude 版比）
 
 - 知識庫裡多一份 `AGENTS.md`（Codex 讀它，內容跟 `CLAUDE.md` 一樣）。舊知識庫沒有這份的話，跑一次 `kb init` 補骨架。
-- 整理新檔由主對話自己做，一次最多 10 份，沒有背景的製卡助手，大量整理會比 Claude 版慢。
+- 整理新檔：Codex 有開子代理的工具就每批派一個去做；沒有就由主對話自己一批一批做（等比較久、做的時候不好插話）。做法程式都一樣，卡的內容不受影響。
 - 密碼相關的動作（顯示存好的密碼、用存好的密碼開檔、讓某一種檔自動用密碼）AI 會先問客戶，**客戶下一句回「好」「可以」「同意」才做**；回別的就不做。
 - 升級（「升級」「有新版嗎」）這版不支援，由服務人員換外掛夾的檔案，再照第二節第 4 步重新信任 hook。
 - 貼圖片、貼長文字給 AI 收進知識庫：這版可能收不到，AI 會照實說。
@@ -40,21 +40,16 @@
 | 密碼動作 | 第三節。 |
 | 攔不到的 | Codex 的網路搜尋這類雲端工具（不碰本機檔）；客戶自己另外裝的 MCP 檔案工具（Claude 版也沒管）。 |
 
-## 五、實機要測
+## 五、實機測過的結果（2026-11-08～09，Codex CLI 0.167.0、Windows 11）
 
-1. CLI 跑不跑外掛的 hook（文件只保證桌面 App 手動裝的）；本機市集怎麼加。
-2. hook 指令裡的 `${PLUGIN_ROOT}` 有沒有被代換成外掛夾。
-3. Windows 上 `Bash` 的 `tool_input.command` 長怎樣（純 PowerShell 字串、包了 `powershell.exe -Command`、或陣列）。
-4. AI 讀檔是不是都走 shell；`view_image` 的工具名與參數名（轉接假設是 `path`）。
-5. `apply_patch` 的 patch 放在 `command` 還是 `patch`（轉接兩個都收）；patch 裡的路徑是絕對還是相對。
-6. `updatedInput` 對 `Bash` 有沒有生效：kb 指令要被插 `--session`，沒生效的話「退回」會退到別的對話的。
-7. 守門擋下時 Codex 會不會把整段指令或 patch 秀給客戶看（第三方回報有），密碼指令被擋時會不會露出密碼。
-8. Stop hook 印 `{}` 有沒有被接受。
-9. 開場段（`additionalContextLimit: 0`）整段進到模型，沒有被存成檔只給頭尾。
-10. 信任 hook：第一次裝、升級後各要按幾次。
-11. Codex 的 sandbox 裡 PowerShell 能不能附著到客戶開著的 Word、Excel、PowerPoint。
-12. 對話紀錄（`transcript_path`）的格式：貼的圖、貼的長文字放在哪；之後補 `kb intake --pasted` 的解析。
-13. Python 在 sandbox 裡能不能寫知識庫的 `.system\`、讀知識庫外面登記的客戶資料夾。
-14. 密碼動作的同意流程：AI 被擋後會不會照理由去問客戶、客戶回「好」之後 AI 會不會重跑**同一個**指令。
-15. `SessionEnd` 只給 3 秒，放掉整理批次來不來得及（Codex 版不派批次，應該沒事）。
-16. 知識庫的 `.codex\config.toml` 要不要關 Codex 的記憶功能（鍵名待查）。
+| 項目 | 結果 |
+|---|---|
+| CLI 跑外掛 hook、`${PLUGIN_ROOT}` 代換、開場段整段進模型 | 過 |
+| 守門：讀寫、`apply_patch`、`view_image`、kb 指令插 `--session`（`updatedInput`）、Stop 印 `{}` | 過；擋下時 Codex 會在理由後面接「. Command: <指令>」 |
+| 信任 hook | 過；一個事件一行、按 Enter 進去逐個信任（第二節第 4 步）；外掛重裝後要再信任一次 |
+| 整理（「整理一下」）：派子代理做卡、子代理自己 `--done` 收批、抽日程、最後問一題 | 過（11-09，5 份假資料，卡上數字與原檔一致） |
+| 問資料：查卡、回原檔核對、對不上的記待處理、問一題 | 過（11-09） |
+| 密碼動作的同意（客戶下一句回「好」） | 過（UserPromptSubmit 逾時已改 30 秒：Python 冷啟動約 7.5 秒） |
+| 沙盒 | `elevated` 不能用，要改 `unelevated`（第二節第 5 步） |
+| SessionEnd | 有被叫到，但 `codex exec` 結束時會被中斷；批次 30 分鐘後自己過期，不影響 |
+| 還沒測 | 附著客戶開著的 Word／Excel／PowerPoint；貼圖、貼長文字收進知識庫；桌面 App（CLI 已測） |
