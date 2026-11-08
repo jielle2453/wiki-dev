@@ -33,7 +33,6 @@ from pathlib import Path
 
 from kb._lib import backup, config, env, migrate, paths, skeleton
 from kb._lib import vault as vault_lib
-from kb._lib.areas import FREE_DIR, FREE_SINCE_AFTER
 from kb._lib.io import FileLock, read_json, write_json_atomic
 
 HISTORY_REL = ".system/upgrade-history.json"
@@ -830,22 +829,50 @@ def _pending_snapshot(vault, hist, plugin):
     return None
 
 
-FREE_LINE = "第一層的「" + FREE_DIR + "」現在是你自己的區：我平常不讀，你問到才讀。"
+UPGRADE_LINE = "第一層的「_個人」現在跟其他夾一樣：你說整理我才整理；裡面有不想讓我讀的，跟我說一句設成不讀。"
+NOTE_BOTH = "系統/隨手記.md 已經有了，_個人/隨手記.md 沒有搬過去；首頁便條現在用 系統/隨手記.md"
+NOTE_NOT_MOVED = "_個人/隨手記.md 沒搬到 系統/（{why}）；首頁便條現在用 系統/隨手記.md，要留舊的請自己搬過去"
+LINKED = "它或 系統/ 是連結"
+OLD_AREA_UNTIL = "0.33.0"  # 這一版（含）以前第一層的 _個人 是彈性區（#51 撤回，D-532）
 
 
-def _free_line(vault, cur):
-    """D-512、spec 裁定 2：從 FREE_SINCE_AFTER（含）以前升上來、第一層本來就有不是型別夾的 FREE_DIR 時講一句；
-    升級前的版本看不懂不講（寧可少說）。"""
-    from kb._lib import profile
+def _old_area(vault, cur):
+    """D-532：從 OLD_AREA_UNTIL（含）以前升上來、第一層有 _個人 時收尾，回 notes：隨手記.md 搬到 系統/隨手記.md
+    （那裡已有就兩份都不動、回 NOTE_BOTH；它或 系統/ 是連結、搬不成都回 NOTE_NOT_MOVED）；還有別的東西回 UPGRADE_LINE，只剩 .gitkeep 就刪它、拿掉夾。
+    她放的檔不動；升級前的版本看不懂、是連結、是型別夾（舊庫的 dir 叫它）都不動（寧可少做）。"""
+    from kb._lib import inventory, profile
     was = parse_version(cur)
-    if was is None or was > parse_version(FREE_SINCE_AFTER) or not (Path(vault) / FREE_DIR).is_dir():
-        return None
+    root = Path(vault) / "_個人"
+    if was is None or was > parse_version(OLD_AREA_UNTIL) or not root.is_dir() or inventory._is_link(root):
+        return []
     try:
-        if profile.type_of_folder(vault, FREE_DIR) is not None:
-            return None  # migrate 沒改成（md 有手改這類）還是型別夾：不是她自己的區
+        if profile.type_of_folder(vault, "_個人") is not None:
+            return []
     except (ValueError, OSError):
-        return None
-    return FREE_LINE
+        return []
+    notes = []
+    note, dest = root / "隨手記.md", Path(vault) / "系統" / "隨手記.md"
+    if note.is_file() or inventory._is_link(note):
+        if inventory._is_link(note) or inventory._is_link(dest.parent):
+            notes.append(NOTE_NOT_MOVED.format(why=LINKED))  # 連結不跟：搬過去可能落在知識庫外（security-review）
+        elif dest.exists():
+            notes.append(NOTE_BOTH)
+        else:
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                os.rename(note, dest)
+            except OSError as e:
+                notes.append(NOTE_NOT_MOVED.format(why=backup.oserror_sentence(e) or type(e).__name__))
+    try:
+        rest = [p for p in root.iterdir() if p.name != ".gitkeep"]
+        if not rest:
+            (root / ".gitkeep").unlink(missing_ok=True)
+            root.rmdir()
+    except OSError:
+        rest = True
+    if rest:
+        notes.append(UPGRADE_LINE)
+    return notes
 
 
 def finish(vault, turn_id):
@@ -884,15 +911,15 @@ def finish(vault, turn_id):
                 by = "auto"
         if k != "downgrade":
             mig = migrate.apply(vault, turn_id)  # 先於 kb init：init 自己也會升設定檔 schema，但不備進回合（驗收 8 要退得回）
-            free_line = _free_line(vault, cur)  # init 之前看：init 會把彈性區補出來
             had = {rel for rel in skeleton.files() if (Path(vault) / rel).exists()}
             _run_init(vault)
             sk = skeleton.reconcile(vault, turn_id, from_version=cur)
+            old_area = _old_area(vault, cur)  # init 之後：系統/ 已在
             created = sorted({rel for rel in skeleton.files() if rel not in had and (Path(vault) / rel).exists()}
                              | set(sk["created"]))  # 缺的骨架檔多半是 init 補的，reconcile 看到時已經在了
             result.update(migrated=mig["migrated"], migrate_skipped=mig["skipped"], cards_migrated=mig["cards"],
                           left_in_output=mig.get("left_in_output") or [],
-                          migrate_notes=(mig.get("notes") or []) + ([free_line] if free_line else []),
+                          migrate_notes=(mig.get("notes") or []) + old_area,
                           skeleton_created=created, skeleton_replaced=sk["replaced"], skeleton_ask=sk["ask"])
         result["snapshot"] = snapshot if k != "patch" else None
         hist["current"], hist["pending"] = plugin, None

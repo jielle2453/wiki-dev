@@ -15,8 +15,6 @@ build 第一輪修 S8：記過的子代理目前認領的是讀舊 wiki（adopt�
 build 桌面版確認修：記過的子代理用 Write／Edit／MultiEdit／NotebookEdit 寫到知識庫外面一律 deny（之前把卡寫到知識庫的上一層）。
 第二輪修：--t、--a、--s 開頭而且是這三個旗標前綴的（--tu=、--ses、--ag=…）一樣算；記過的子代理跑 Bash／PowerShell，
 不是「單一 kb 呼叫而且在白名單裡」的一律 deny（&&、管線、環境變數前綴、cd 再接、python -c 都算），客戶按過一律允許 python 也繞不過。
-彈性區（D-510）：檔案工具寫 Z12 放行前一樣備進回合（大改動只數 Z1）；記過的子代理用檔案工具碰 Z12、或單一 kb 呼叫的參數
-指到彈性區（例 convert）一律 deny。
 永不以非 0 結束，永不丟例外到 Claude Code。
 hook 不是從 scripts/ 跑的，所以這裡動 sys.path；hooks/*.py 是唯一准動 sys.path 的地方（CLAUDE.md 三）。
 """
@@ -36,7 +34,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 FILE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "NotebookEdit")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 SHELL_TOOLS = ("Bash", "PowerShell")
-BACKUP_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z8", "Z9", "Z12")  # 放行的檔案工具寫前都先回合備份（D-046 補、D-510；放寬甲 D-306：使用者的區與客戶設定檔也備）
+BACKUP_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z8", "Z9")  # 放行的檔案工具寫前都先回合備份（D-046 補；放寬甲 D-306：使用者的區與客戶設定檔也備）
 ERROR_REASON = "守門出錯，這次沒放行，已記在 hook-errors.log：改跑 kb selftest 看原因，修不好照核心規則請服務人員。"
 AGENT_DENY = "製卡助手不能做這件事"
 SELF_FLAGS = "kb 指令不能自己帶 --turn、--agent、--session 或 --via"
@@ -86,11 +84,6 @@ def main():
             ti = payload.get("tool_input") or {}
             rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
                          "head": str(ti.get("file_path") or ti.get("notebook_path") or "")})
-        if d.vault is not None and agent_turn and tool in ("Grep", "Glob") and decision != "deny"                 and _search_reaches_free(payload, tool, d.vault):
-            decision, reason = "deny", AGENT_DENY  # 範圍碰到彈性區（spec 裁定 4）：放行、不表態的都擋（知識庫上層是 Z11）
-            ti = payload.get("tool_input") or {}
-            rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
-                         "head": str(ti.get("path") or ti.get("pattern") or "")})
         if d.vault is not None and agent_turn and tool in SHELL_TOOLS and decision != "deny" and decision != "allow":
             decision, reason = "deny", AGENT_DENY  # 守門沒意見或要詢問的 shell 指令：子代理一律不准（第二輪修 R3）
             rows.append({"tool": tool, "decision": "deny", "zone": d.zone, "reason_code": "agent_scope",
@@ -208,8 +201,6 @@ def scope(payload, tool, d, agent_turn):
     ti = payload.get("tool_input") or {}
     if agent_turn and tool in FILE_TOOLS and _secret_target(payload, tool, d.vault):
         return AGENT_DENY, None
-    if agent_turn and tool in FILE_TOOLS and d.zone == "Z12":
-        return AGENT_DENY, None  # 製卡助手不碰客戶自己的區（D-510）
     if agent_turn and tool in WRITE_TOOLS and _adopt_agent(d.vault, payload.get("agent_id")):
         return AGENT_DENY, None  # 讀舊 wiki 的批次不寫任何檔
     if tool not in SHELL_TOOLS:
@@ -226,8 +217,6 @@ def scope(payload, tool, d, agent_turn):
         if (cmd, sub) not in AGENT_ALLOW:
             return AGENT_DENY, None
         if cmd == "convert" and _has_flag(tokens, CONVERT_DENY):
-            return AGENT_DENY, None
-        if _free_target(payload, tokens, d.vault):
             return AGENT_DENY, None
         if (cmd, sub) == ("entity", "tag") and _has_flag(tokens, TAG_DENY):
             return AGENT_DENY, None
@@ -315,78 +304,6 @@ def _secret_target(payload, tool, vault):
         pattern = f"{ti.get('pattern') or ''} {ti.get('glob') or ''}".lower()
         return rel == ".system" or rel.startswith(".system/") or "secret" in pattern or "unlock" in pattern
     return False
-
-
-class _NO_SOURCES:  # 保留別名的 uri：path_of 不看來源登記
-    entries = ()
-
-
-def _free_target(payload, tokens, vault):
-    """子代理的 kb 呼叫有沒有參數指到彈性區（D-510）：不是旗標的每個參數解回路徑（uri 照 inventory.path_of，跟 convert 同一套），
-    normalize 之後（.. 與 . 收掉）在彈性區根或它底下就算。保留別名（知識庫、暫存區）不讀來源登記；
-    要讀來源登記而讀不了的一律算（寧可擋）；別名對不到的 convert 也解不回路徑，不算。"""
-    from kb.guard import free_root
-    from kb._lib import inventory, sources as sources_lib
-    from kb._lib.paths import inside, normalize
-
-    cwd = payload.get("cwd") or os.getcwd()
-    root = free_root(normalize(str(vault), None))
-    srcs = None
-    for t in tokens:
-        if not t or t.startswith("-"):
-            continue
-        try:
-            if t.startswith("file://"):
-                alias = inventory.split_uri(t.replace("\\", "/"))[0].casefold()
-                if srcs is None and alias not in inventory.RESERVED_CF:
-                    srcs = sources_lib.load(vault)
-                p = inventory.path_of(vault, srcs or _NO_SOURCES, t.replace("\\", "/"))
-                if p is None:
-                    continue  # 別名對不到：convert 也解不回路徑
-                n = normalize(str(p), cwd)
-            else:
-                n = normalize(t, cwd)
-        except (OSError, ValueError):
-            return True
-        if n == root or inside(n, root):
-            return True
-    return False
-
-
-_WILD = set("*?[{")
-_EXTGLOB = ("@(", "+(", "!(")
-
-
-def _may_climb(seg):
-    """這一段會不會展開成 ..：就是 ..、有 {…} 或 extglob（裡面可能寫 ..）、. 開頭又有萬用字元（.?、.*）。* 、** 不配 ..。"""
-    import fnmatch
-    return seg == ".." or "{" in seg or any(e in seg for e in _EXTGLOB) or (seg.startswith(".") and fnmatch.fnmatchcase("..", seg))
-
-
-def _search_reaches_free(payload, tool, vault):
-    """製卡助手的 Grep／Glob 範圍會不會碰到彈性區（spec 裁定 4、8）：起點是 path（沒給是 cwd）接上 Glob 樣式裡第一個萬用字元之前的部分
-    （含 ..、絕對路徑的樣式），normalize 之後在彈性區裡、是它、或是知識庫根與它的上層 → 碰到，不再比樣式；萬用字元之後還有 .. 的也算
-    （看不出最後落在哪）。認不出路徑一律算碰到。"""
-    from kb.guard import free_root
-    from kb._lib.paths import inside, normalize
-
-    ti = payload.get("tool_input") or {}
-    cwd = payload.get("cwd") or os.getcwd()
-    vault_n = normalize(str(vault), None)
-    root = free_root(vault_n)
-    path = str(ti.get("path") or cwd).replace("\\", "/")
-    pattern = str(ti.get("pattern") or "").replace("\\", "/") if tool == "Glob" else ""
-    absolute = pattern.startswith("/") or pattern[1:3] == ":/"
-    full = pattern if absolute else (path.rstrip("/") + "/" + pattern if pattern else path)
-    segs = full.split("/")
-    k = next((n for n, seg in enumerate(segs) if any(c in _WILD for c in seg) or any(e in seg for e in _EXTGLOB)), len(segs))
-    if any(_may_climb(seg) for seg in segs[k:]):
-        return True  # 萬用字元之後還可能往上走：看不出最後落在哪
-    try:
-        head = normalize("/".join(segs[:k]) or "/", cwd)
-    except (OSError, ValueError):
-        return True
-    return head == root or inside(head, root) or head == vault_n or inside(vault_n, head)
 
 
 def with_flags(tool_input, *pairs):

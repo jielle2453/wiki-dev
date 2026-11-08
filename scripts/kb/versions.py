@@ -36,7 +36,7 @@ from kb import guard, journal_cli
 from kb._lib import card_base, credentials, inventory, items, ledger, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
-from kb._lib.areas import FREE_DIR, HOLD_DIR
+from kb._lib.areas import HOLD_DIR
 from kb._lib.io import read_json, write_json_atomic, write_text_atomic
 
 ENTRY_LINES_MAX = 15
@@ -79,7 +79,7 @@ SIDE_WORDS = {"other": "另一個對話", "none": "對話外", "self": "這個�
 OTHER_LINE = "另一個對話還有 {n} 次改動，不在這裡退"
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
-RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", HOLD_DIR, "檔案索引", FREE_DIR)}
+RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", HOLD_DIR, "檔案索引")}
 
 
 def add_arguments(sub):

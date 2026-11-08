@@ -43,7 +43,7 @@ class Table(Base):
         """lint 題：pending.json schema 1 → 2 加一列（D-226）。"""
         self.assertEqual([m.rel for m in migrate.STATE_FILES],
                          [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json",
-                          ".system/profile.json", ".system/profile.json", "暫存區", "_個人"])  # 第五列：型別夾補編號（D-249）；第六列：彈性區（D-512）；第七列：暫存區（D-324）
+                          ".system/profile.json", "暫存區"])  # 第五列：型別夾補編號（D-249）；第六列：暫存區（D-324）；彈性區兩列 #51 拿掉
 
     def test_card_header_table_is_empty_for_now(self):
         self.assertEqual(migrate.CARD_HEADER_MIGRATIONS, [])
@@ -330,27 +330,17 @@ class SynthesisLayout(unittest.TestCase):
         self.assertNotIn(self.DAAN, [s["rel"] for s in got["skipped"]])
 
 
-class FreeRename(Base):
-    """放寬丙 4：_extras 改名 _個人。"""
+class OldExtras(Base):
+    """#51（D-532）：_extras 改名那列拿掉，_extras 當一般夾。"""
 
-    def test_old_dir_is_renamed_with_its_files(self):
+    def test_extras_left_alone(self):
         (self.V / "_extras").mkdir()
         (self.V / "_extras" / "a.md").write_text("x", encoding="utf-8")
-        self.assertEqual([p["rel"] for p in migrate.pending(self.V)], ["_個人"])
-        got = migrate.apply(self.V, self.turn)
-        self.assertIn("_個人", got["migrated"])
-        self.assertFalse((self.V / "_extras").exists())
-        self.assertEqual((self.V / "_個人" / "a.md").read_text(encoding="utf-8"), "x")
-        self.assertEqual(migrate.pending(self.V), [])
-
-    def test_both_present_is_left_alone_with_a_note(self):
-        (self.V / "_extras").mkdir()
-        (self.V / "_個人").mkdir()
         self.assertEqual(migrate.pending(self.V), [])
         got = migrate.apply(self.V, self.turn)
-        self.assertTrue((self.V / "_extras").is_dir() and (self.V / "_個人").is_dir())
-        self.assertEqual(got["notes"], [migrate.FREE_BOTH_NOTE])
-        self.assertIn("沒有合併", migrate.FREE_BOTH_NOTE)
+        self.assertEqual((self.V / "_extras" / "a.md").read_text(encoding="utf-8"), "x")
+        self.assertFalse((self.V / "_個人").exists())
+        self.assertEqual(got["notes"], [])
 
 
 if __name__ == "__main__":

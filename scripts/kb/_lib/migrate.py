@@ -19,19 +19,14 @@ entities.json schema 2 → 3（標籤記在實體上，D-505 七）：每個 act
 做完照 profile_cli._follow 跟上清冊、檔案卡、總目錄與綜合卡快取；md 有手改未套用、背景整理在跑時 Skip。
 暫存區（D-324，放寬甲第二輪）：再一列，rel 是 暫存區（不是狀態檔）：_lib/hold_migrate 的 needs 判斷第一層還有沒有能做的（收件匣改名、
 AI 產出／收件匣的檔搬進暫存區、同名一樣的拿掉、空夾拿掉），有就算 0（要遷）、沒有算 1；升級前照 D-215 拍快照，不另備路徑。
-彈性區（D-512）：再一列，rel 也是 profile.json：型別表有列的 dir 是 FREE_DIR（她自己把型別夾改名成它）算 6、沒有算 7。
-rewrite 照 dir_plan（叫 FREE_DIR 的夾名不留，改回預設編號名）改夾名、寫 dir，跟補編號那列同一套 _follow；Skip 的條件也一樣。
-_extras 改名 _個人（放寬丙 4，D-314）：再一列，rel 是 FREE_DIR（不是狀態檔）：第一層有 _extras 沒有 _個人 算 0（要遷）、其他算 1；
-rewrite 把夾改名（升級前照 D-215 拍快照）。兩個都有就不動，apply 記一行 log、notes 說一聲沒有合併。
+彈性區撤回（#51，D-532）：彈性區那列（dir 是彈性區名改回預設名）與 _extras 改名那列拿掉；schema 6 → 7 照第一列寫回，dir 不動。
 apply 按列判斷（同一個 rel 兩列各看各的），migrated 同一個 rel 只列一次；補編號那列多回 notes（「型別夾補上編號：…」，finish 印）。
 """
 import json
-import os
 from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cards, entities, hold_migrate, inventory, profile
-from kb._lib.areas import FREE_DIR
 from kb._lib import pending as pending_lib  # 這支自己有 pending()
 from kb._lib.io import FileLock, read_json, write_text_atomic
 
@@ -116,7 +111,6 @@ def _rewrite_entities(vault, turn_id):
 DIRS_PENDING = "設定檔有沒套用的改動，先 kb profile apply 再升級"
 DIRS_BUSY = "背景整理還在跑，型別夾先不補編號；等它做完再跑一次 kb upgrade --finish"
 DIRS_NOTE = "型別夾補上編號：{pairs}"
-FREE_NOTE = "型別夾「" + FREE_DIR + "」改成「{to}」：這個名字現在是你自己的區"
 
 
 def _dirs_stored(vault):
@@ -130,23 +124,7 @@ def _dirs_stored(vault):
     return 6 if any(not t.get("dir") for t in data["types"]) else profile.SCHEMA_VERSION
 
 
-def _free_stored(vault):
-    """彈性區那列：型別表有列的 dir 是 FREE_DIR 算 6，沒有（或沒有型別）算 7；沒有設定檔、讀不了回 None。"""
-    try:
-        data = profile.load(vault)
-    except (ValueError, OSError):
-        return None
-    if data is None:
-        return None
-    return 6 if any(profile._is_free(t.get("dir") or "") for t in data["types"]) else profile.SCHEMA_VERSION
-
-
-def _rewrite_free(vault, turn_id):
-    """D-512：dir 是 FREE_DIR 的型別夾改成預設編號名（dir_plan 不留這個名字），其他列照舊。回 notes 給 apply。"""
-    return _rewrite_dirs(vault, turn_id, free=True)
-
-
-def _rewrite_dirs(vault, turn_id, free=False):
+def _rewrite_dirs(vault, turn_id):
     """D-249：沒有 dir 的列補上編號（profile.dir_plan(number_legacy=True)）；她以前改過名的記她的夾名。回 notes 給 apply。"""
     from kb import profile_cli
     from kb._lib import backup
@@ -159,9 +137,9 @@ def _rewrite_dirs(vault, turn_id, free=False):
         if profile.md_sha256(vault) not in (None, data.get("md_sha256")):  # md 不見（不進 git，#42）不算手改
             raise Skip(DIRS_PENDING)
         effective = profile.with_renamed(data["types"], data["types"], [])
-        found = [] if free else profile.renamed_dirs(vault, effective, data["types"])
+        found = profile.renamed_dirs(vault, effective, data["types"])
         plan = profile.dir_plan(vault, profile.with_renamed(data["types"], data["types"], found), data["types"],
-                                number_legacy=not free)
+                                number_legacy=True)
         if plan["refusal"]:
             raise Skip(plan["refusal"])
         renamed = [r for r in found if not r["default"]]
@@ -179,8 +157,6 @@ def _rewrite_dirs(vault, turn_id, free=False):
         _changed, touched = entities._guarded(vault, act)
     if touched or plan["moves"] or pairs:
         profile_cli._refresh(vault, touched + profile_cli._moved_names(vault, data, list(plan["moves"]) + pairs), turn_id)
-    if free:
-        return {"notes": [FREE_NOTE.format(to=b) for a, b in sorted(plan["moves"]) if profile._is_free(a)]}
     notes = [DIRS_NOTE.format(pairs="、".join(f"{a} → {b}" for a, b in sorted(plan["moves"])))] if plan["moves"] else []
     if renamed:
         notes.append(profile_cli.RENAMED_DONE.format(pairs=profile.renamed_pairs(renamed)))
@@ -200,26 +176,6 @@ def _hold_stored(vault):
         return None
 
 
-OLD_FREE = "_extras"  # 舊名：只給這一列遷移用
-
-
-def _old_free_dir(vault):
-    p = Path(vault) / OLD_FREE
-    return p.is_dir() and not p.is_symlink()
-
-
-def _free_name_stored(vault):
-    """_extras 改名那列：有 _extras、沒有 _個人 算 0（要遷），其他算 1。"""
-    return 0 if _old_free_dir(vault) and not (Path(vault) / FREE_DIR).exists() else 1
-
-
-def _rewrite_free_name(vault, turn_id):
-    os.rename(Path(vault) / OLD_FREE, Path(vault) / FREE_DIR)
-
-
-FREE_BOTH_NOTE = f"{OLD_FREE} 跟 {FREE_DIR} 都在，沒有合併；要合併請自己把 {OLD_FREE} 裡的東西搬進 {FREE_DIR}"
-
-
 STATE_FILES = (
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, profile.stored_schema, _rewrite_profile),
     Migration(inventory.INVENTORY_POSIX, lambda: inventory.SCHEMA_VERSION, _raw_version(inventory.INVENTORY_POSIX),
@@ -229,9 +185,7 @@ STATE_FILES = (
     Migration(pending_lib.PENDING_POSIX, lambda: pending_lib.SCHEMA_VERSION, _raw_version(pending_lib.PENDING_POSIX),
               _rewrite_pending),
     Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _dirs_stored, _rewrite_dirs),
-    Migration(profile.PROFILE_POSIX, lambda: profile.SCHEMA_VERSION, _free_stored, _rewrite_free),
     Migration(hold_migrate.REL, lambda: 1, _hold_stored, hold_migrate.rewrite),  # 收件匣與 AI 產出合成暫存區（放寬甲第二輪 13）
-    Migration(FREE_DIR, lambda: 1, _free_name_stored, _rewrite_free_name),  # _extras 改名 _個人（放寬丙 4）
 )
 CARD_HEADER_MIGRATIONS = []
 
@@ -406,13 +360,6 @@ def apply(vault, turn_id):
                 left += extra.get("left_in_output") or []
             else:
                 skipped += extra or []
-    if _old_free_dir(vault) and (Path(vault) / FREE_DIR).exists():  # 兩個都有：不動，記 log、說一聲
-        notes.append(FREE_BOTH_NOTE)
-        try:
-            from kb._lib import ledger
-            ledger.log_error(vault, FREE_BOTH_NOTE, source="migrate")
-        except Exception:  # noqa: BLE001
-            pass
     count = _migrate_cards(vault, turn_id, skipped) + _migrate_synthesis(vault, turn_id, skipped)  # 綜合卡版面併進卡數
     return {"migrated": migrated, "skipped": skipped, "cards": count, "notes": notes, "left_in_output": left,
             "streams": migrate_streams(vault, turn_id)}

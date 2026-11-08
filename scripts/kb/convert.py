@@ -8,7 +8,6 @@ PDF 走選配 pypdfium2（裁定 36）：文字層寫暫存檔，掃描頁轉 PN
 temp 是重解析點就不清（裁定 17）。暫存檔名只用驗過格式的編號，否則用指紋前 12 碼（裁定 16）。
 守門對 kb.py 一律放行，所以抽字前先做守門同一套判斷（實作疑義裁定 8）：guard.classify 是 Z10／Z10b 或條目 excluded、
 Z11、Z1／Z6／Z7／Z8 都拒；來源根以下的段像密碼或金鑰也拒（總資料夾內部豁免，D-081）；這四種不寫待處理。
-彈性區（Z12，D-510）收：彈性區根以下的段像密碼或金鑰拒（內部豁免不套它）；不在清冊，不寫待處理。
 讀前看一次目前的屬性：只在雲端（OneDrive）就照 placeholder 回，不讀內容（manage 第二版，B-095）。
 找不到原檔（含 status missing）只印一行、不寫待處理（實作疑義裁定 2）。其他讀不到的 exit 3，條目在清冊就寫一條 unreadable。
 原檔被別的程式鎖住、沒權限（OSError）→ 一句話 exit 3、不寫待處理（裁定 18）；--json 時所有失敗都印 JSON。
@@ -163,8 +162,6 @@ def gate(vault, sources, entry, path):
         raise Refused(OUTSIDE, None)
     if zone in NOT_CARD_ZONES or (zone == "Z8" and guard.is_willy_file(zone, target_n, normalize(str(vault), None))):
         raise Refused(NOT_CARD, None)
-    if zone == "Z12" and guard.credential_hit(target_n, zone, normalize(str(vault), None), sources) is not None:
-        raise Refused(CREDENTIAL, None)  # 彈性區不在清冊，沒有「可以讀」這條路（D-510）
     if zone == "Z9":
         _status, src = sources.lookup(target_n)
         segs = target_n[len(src["root"]):].strip("/").split("/") if src else []
