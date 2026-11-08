@@ -216,3 +216,31 @@ class Asks(MoneyBase):
         self.assertTrue(any(f"money merge {a} {b['item']['id']}" in d for d in yes["do"]))
         unsure = next(x for x in asks if x["kind"] == "pending_money_unsure")
         self.assertTrue(any(fid in (r.get("note") or "") for r in unsure["results"]))
+
+
+class ReviewFixes(MoneyBase):
+    """code-review 修正：重開取消的已收付回到已收付、留的那筆取消了不併、重複要給到期日、--unsure 編號錯不寫、
+    還沒收付的不能只改收付日、同一對 money_dupe 不論順序只開一件。"""
+
+    def test_reopen_and_merge(self):
+        a = self.add("--dir", "收", "--amount", "5000", "--date", "2026-10-30", "--entity", "李小姐")["item"]["id"]
+        self.kb("money", "cancel", a)
+        self.assertEqual(self.kbj("money", "reopen", a)["item"]["status"], "done")
+        b = self.add("--dir", "收", "--amount", "5000", "--date", "2026-10-30", "--entity", "李小姐", "--new")["item"]["id"]
+        self.kb("money", "cancel", a)
+        self.kb("money", "merge", a, b, code=3)
+        self.assertEqual(money.get(self.V, b)["status"], "done")
+
+    def test_repeat_needs_due_and_edit_date_open(self):
+        self.kb("money", "add", "--dir", "付", "--amount", "20000", "--entity", "文具店", "--repeat", "每月", code=3)
+        o = self.add("--dir", "收", "--amount", "100", "--due", "2026-12-01", "--entity", "王先生")["item"]["id"]
+        self.kb("money", "edit", o, "--date", "2026-11-03", code=3)
+
+    def test_unsure_bad_id_writes_nothing_and_dupe_pair_once(self):
+        self.kb("money", "add", "--dir", "收", "--amount", "5000", "--entity", "李小姐", "--new", "--unsure", "m-00000000", code=3)
+        self.assertEqual(money.load(self.V)["items"], [])
+        a = self.add("--dir", "收", "--amount", "5000", "--entity", "李小姐")["item"]["id"]
+        b = self.add("--dir", "收", "--amount", "5000", "--entity", "李小姐", "--new", "--unsure", a)["item"]["id"]
+        t = turn.current(self.V)["turn"]
+        pending.add_money(self.V, "money_dupe", "x", t, data={"keep": b, "other": a})
+        self.assertEqual(len([i for i in pending.load(self.V)["items"] if i["kind"] == "money_dupe"]), 1)

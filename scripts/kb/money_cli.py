@@ -242,6 +242,18 @@ def _day(text):
     return money._date(text) if text else None
 
 
+def _candidate_lines(rows):
+    """候選的人讀行（不印編號）：日期、方向、金額、實體、說明，還沒收付的標出來。"""
+    out = []
+    for c in rows:
+        amt = numbers.show(c["amount"]) if c.get("amount") is not None else "金額未知"
+        day = c.get("date") or c.get("due")
+        out.append(f"- {agenda.md_of(day) if day else ''} {money.DIR_TEXT.get(c.get('dir'), '')} {amt}"
+                   f"（{'、'.join(c.get('entities') or []) or money.OTHER}）"
+                   + (f" {c['text']}" if c.get("text") else "") + ("（還沒收付）" if c.get("open") else ""))
+    return out
+
+
 def _list(vault, args, as_json):
     data = money.load(vault)
     items = [i for i in data["items"] if i.get("status") != "cancelled"]
@@ -259,13 +271,14 @@ def _list(vault, args, as_json):
     if as_json:
         print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "money")}, ensure_ascii=False))
         return 0
-    print("\n".join(f"- {money.describe(vault, i)}" for i in items) if items else "帳是空的")
+    prof, ents = money._profile(vault), money._ents(vault)
+    print("\n".join(f"- {money.describe(vault, i, prof, ents)}" for i in items) if items else "帳是空的")
     return 0
 
 
 def _candidates(vault, args, as_json):
     got = money.candidates(vault, args.dir, amount=args.amount, date=args.date, due=args.due, entities=args.entity)
-    _out(as_json, [f"- {money.describe(vault, money.get(vault, c['id']))}" for c in got] or ["沒有可能同一筆的"], {"candidates": got})
+    _out(as_json, _candidate_lines(got) or ["沒有可能同一筆的"], {"candidates": got})
     return 0
 
 
@@ -331,8 +344,8 @@ def run(args):
             print(json.dumps(dict(e.payload, message=str(e)), ensure_ascii=False))
         else:
             print(str(e))
-            for c in e.payload.get("candidates") or []:
-                print(f"- {money.describe(vault, money.get(vault, c['id']))}")
+            for line in _candidate_lines(e.payload.get("candidates") or []):
+                print(line)
         return 3
     except agenda.AgendaRefused as e:
         print(str(e))

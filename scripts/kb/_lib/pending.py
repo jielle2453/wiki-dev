@@ -259,7 +259,8 @@ def add_money(vault, kind, text, turn_id, data, file_ids=(), entity_ids=None):
     found = {}
 
     def change(items):
-        old = next((i for i in items if i.get("status") == "open" and i.get("kind") == kind and i.get("data") == data), None)
+        old = next((i for i in items if i.get("status") == "open" and i.get("kind") == kind
+                    and _same_money(kind, i.get("data"), data)), None)
         if old is not None:
             found["item"] = dict(old)
             return False
@@ -270,6 +271,13 @@ def add_money(vault, kind, text, turn_id, data, file_ids=(), entity_ids=None):
         return True
     created = _edit(vault, turn_id, change)
     return found["item"], bool(created)
+
+
+def _same_money(kind, a, b):
+    """money_dupe 的兩筆不論順序算同一件；其他照整份比。"""
+    if kind == "money_dupe":
+        return {(a or {}).get("keep"), (a or {}).get("other")} == {(b or {}).get("keep"), (b or {}).get("other")}
+    return a == b
 
 
 def resolve_money_dupe(vault, ids, turn_id, how="併成一筆"):

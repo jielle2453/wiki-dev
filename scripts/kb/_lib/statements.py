@@ -147,20 +147,18 @@ def _need_active(data, sid):
     return it
 
 
-MONEY_DIRS = {"收": "in", "付": "out", "in": "in", "out": "out"}
 MONEY_MSG = "--money 要寫 收 或 付 加金額，例：--money 收 5000"
 
 
 def money_mark(direction, amount):
-    """帳關著時錢的話的內部記號（D-343）：{"dir","amount","ledger": None}；看不懂丟 StatementRefused。"""
-    from kb._lib import numbers
-    d = MONEY_DIRS.get(str(direction or "").strip())
-    if d is None:
-        raise StatementRefused(MONEY_MSG)
+    """帳關著時錢的話的內部記號（D-343）：{"dir","amount","ledger": None}；方向與金額照 kb money 同一支讀，看不懂丟 StatementRefused。"""
+    from kb._lib import money
     try:
-        value = numbers.plain(numbers.parse_number(str(amount).strip(), negative=False))
-    except numbers.NumberRefused as e:
-        raise StatementRefused(str(e)) from None
+        d, value = money._dir(direction), money._amount(amount)
+    except money.MoneyRefused as e:
+        raise StatementRefused(MONEY_MSG if str(e) == money.DIR_MSG else str(e)) from None
+    if d not in ("in", "out") or value is None:
+        raise StatementRefused(MONEY_MSG)
     return {"dir": d, "amount": value, "ledger": None}
 
 

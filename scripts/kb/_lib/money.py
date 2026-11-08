@@ -46,6 +46,9 @@ ADV_SINGLE = "單人知識庫沒有墊的人"
 ADV_MEMBER = "「{}」不是成員名單上的人（設定檔第五節）"
 REPEAT_MSG = "重複要是 每年、每月、每週、不重複 之一"
 REPEAT_PARTIAL = "重複的那筆要整筆收付；少收付的部分另記一筆"
+REPEAT_NEEDS_DUE = "重複的要給 --due（下一次的到期日）"
+EDIT_DATE_OPEN = "還沒收付的這筆不能只改收付日；收付了用 kb money settle <編號> --date <那天>"
+MERGE_KEEP_CANCELLED = "要留的那筆已經取消了；先 kb money reopen 再併，或換一筆留"
 STATEMENT_NO_MONEY = "這句口述沒有錢的記號"
 STATEMENT_DONE = "這句口述已經補進帳了"
 UNSURE_NEEDS_NEW = "--unsure 要跟 --new 一起給"
@@ -407,10 +410,14 @@ def add(vault, turn_id, dir_, amount=None, date=None, due=None, entities=(), ite
     names = _names(ents, entities)
     lines = _lines(vault, items, prof, ents)
     every = _every(repeat) if repeat else None
+    if every and not due_:
+        raise MoneyRefused(REPEAT_NEEDS_DUE)
     text = " ".join(str(text or "").split())
     note = " ".join(str(note or "").split())
 
     def fn(data):
+        if unsure:
+            _find(data, unsure)  # 寫之前先驗，編號錯了不寫（不然 AI 重跑會記兩次）
         origin, source = None, "confirmed"
         if card:
             found = agenda._card(vault, card, no_card="這份還沒有檔案卡，先寫卡再記帳")
@@ -479,6 +486,8 @@ def edit(vault, mid, turn_id, by="ai", amount=None, date=None, due=None, entitie
             new.pop("amount")
         if new.get("amount", it.get("amount")) is None and it.get("status") == "done":
             raise MoneyRefused(AMOUNT_UNKNOWN_DONE)
+        if "date" in new and it.get("status") == "open" and it.get("dir") != "none":
+            raise MoneyRefused(EDIT_DATE_OPEN)
         changes = []
         for k in EDITABLE:
             if k in new and new[k] != it.get(k):
@@ -547,12 +556,16 @@ def set_status(vault, mid, status, turn_id, by="ai"):
     def fn(data):
         it = _find(data, mid)
         old = it.get("status")
-        if old == status:
+        want = status
+        if want == "open":  # 重開：取消前收付了的（有收付日）回到已收付，否則回到還沒收付；已收付的重開＝改回還沒收付
+            if old == "cancelled" and (it.get("date") or it.get("dir") == "none"):
+                want = "done"
+            elif old == "done":
+                it["date"] = None
+        if want == old:
             return it, False
-        if status == "open" and it.get("dir") != "none":
-            it["date"] = None if it.get("status") == "done" else it.get("date")
-        it["status"] = status
-        _log(it, f"status {old} → {status}", by, turn_id)
+        it["status"] = want
+        _log(it, f"status {old} → {want}", by, turn_id)
         return it, True
     return _mutate(vault, turn_id, fn, check="write")
 
@@ -579,6 +592,8 @@ def merge(vault, keep, drop, turn_id, by="ai"):
 
     def fn(data):
         a, b = _find(data, keep), _find(data, drop)
+        if a.get("status") == "cancelled":
+            raise MoneyRefused(MERGE_KEEP_CANCELLED)
         if b.get("status") == "cancelled":
             raise MoneyRefused("要併掉的那筆已經取消了")
         extra = list(b.get("cards") or []) + ([b["origin"]["card"]] if (b.get("origin") or {}).get("card") else [])
@@ -928,10 +943,11 @@ def _qty_text(q, unit):
     return f"{sign}{numbers.show(abs(d))}" + (f" {unit}" if unit else "")
 
 
-def describe(vault, it):
-    """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」。"""
+def describe(vault, it, prof=None, ents=None):
+    """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」；列很多筆的呼叫端把 prof、ents 讀一次帶進來。"""
     from kb._lib import agenda, entities, numbers
-    prof, ents = _profile(vault), _ents(vault)
+    prof = _profile(vault) if prof is None else prof
+    ents = _ents(vault) if ents is None else ents
     amt = numbers.show(it["amount"]) if it.get("amount") is not None else "金額未知"
     d = it.get("dir")
     if d == "none":
@@ -976,7 +992,8 @@ def tell_lines(vault, turn_id=None):
         return []
     if len(added) > TELL_LISTED:
         return [f"我從檔案記了 {len(added)} 筆帳，說「列帳」我念給你聽"]
-    return [f"我從檔案記了 {len(added)} 筆帳：" + "、".join(describe(vault, i) for i in added)]
+    prof, ents = _profile(vault), _ents(vault)
+    return [f"我從檔案記了 {len(added)} 筆帳：" + "、".join(describe(vault, i, prof, ents) for i in added)]
 
 
 # ---------- 製卡抽錢（D-343、D-140 那套） ----------

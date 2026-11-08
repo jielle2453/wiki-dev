@@ -910,8 +910,7 @@ def _pending_results(item):
         return [_result("說哪個對", note="照 note skill 記下她說的（口述或裁示），記完 kb pending resolve " + pid), drop]
     data = item.get("data") or {}
     if kind == "money_dupe":  # 記帳 2：D-276 看不出是不是同一筆
-        return [_result("是同一筆", [cmd("money", "merge", data.get("keep", ""), data.get("other", "")),
-                                     cmd("pending", "resolve", pid, "--how", "是同一筆，併成一筆")]),
+        return [_result("是同一筆", [cmd("money", "merge", data.get("keep", ""), data.get("other", ""))]),  # merge 自己關這件
                 _result("不是", [cmd("pending", "resolve", pid, "--how", "不是同一筆，兩筆都留")])]
     if kind == "money_unsure":  # 記帳 2：D-274 看不出流向
         card = data.get("card", "")
