@@ -288,6 +288,33 @@ class Upgrade(UpgradeBase):
         self.assertEqual(self.note.read_text(encoding="utf-8"), "新的\n")
         self.assertIn(upgrade.NOTE_BOTH, got["migrate_notes"])
 
+    def test_type_folder_named_it_untouched(self):
+        """review：舊庫的型別夾叫 _個人（dir 是它）不是彈性區：空的也不拿掉、不說 UPGRADE_LINE。"""
+        with mock.patch.object(profile, "type_of_folder", side_effect=lambda v, f: "倉庫" if f == NAME else None):
+            got = self.finish()
+        self.assertTrue(self.F.is_dir())
+        self.assertNotIn(upgrade.UPGRADE_LINE, got["migrate_notes"])
+
+    def test_gitkeep_kept_when_her_files_there(self):
+        (self.F / ".gitkeep").write_text("", encoding="utf-8")
+        (self.F / "a.docx").write_bytes(b"x")
+        got = self.finish()
+        self.assertTrue((self.F / ".gitkeep").is_file())
+        self.assertIn(upgrade.UPGRADE_LINE, got["migrate_notes"])
+
+    def test_note_move_failed_said(self):
+        (self.F / "隨手記.md").write_text("便條\n", encoding="utf-8")
+        real = os.rename
+
+        def rename(a, b, *k, **kw):
+            if str(a).endswith("隨手記.md"):
+                raise PermissionError(13, "denied")
+            return real(a, b, *k, **kw)
+        with mock.patch.object(os, "rename", side_effect=rename):
+            got = self.finish()
+        self.assertTrue((self.F / "隨手記.md").is_file())
+        self.assertTrue(any(n.startswith("_個人/隨手記.md 沒搬到 系統/") for n in got["migrate_notes"]), got["migrate_notes"])
+
     def test_newer_vault_not_touched(self):
         (self.F / ".gitkeep").write_text("", encoding="utf-8")
         self.PLUGIN = "0.34.1"

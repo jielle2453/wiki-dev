@@ -831,34 +831,43 @@ def _pending_snapshot(vault, hist, plugin):
 
 UPGRADE_LINE = "第一層的「_個人」現在跟其他夾一樣：你說整理我才整理；裡面有不想讓我讀的，跟我說一句設成不讀。"
 NOTE_BOTH = "系統/隨手記.md 已經有了，_個人/隨手記.md 沒有搬過去；首頁便條現在用 系統/隨手記.md"
+NOTE_NOT_MOVED = "_個人/隨手記.md 沒搬到 系統/（{why}）；首頁便條現在用 系統/隨手記.md，要留舊的請自己搬過去"
 OLD_AREA_UNTIL = "0.33.0"  # 這一版（含）以前第一層的 _個人 是彈性區（#51 撤回，D-532）
 
 
 def _old_area(vault, cur):
-    """D-532：從 OLD_AREA_UNTIL（含）以前升上來、第一層有 _個人 時收尾，回 notes：.gitkeep 刪掉；隨手記.md 搬到 系統/隨手記.md
-    （那裡已有就兩份都不動、回 NOTE_BOTH）；還有別的東西回 UPGRADE_LINE，空了就把夾拿掉。她放的檔不動；
-    升級前的版本看不懂、是連結就不動（寧可少做）；搬不動（OSError）照還有東西說。"""
-    from kb._lib import inventory
+    """D-532：從 OLD_AREA_UNTIL（含）以前升上來、第一層有 _個人 時收尾，回 notes：隨手記.md 搬到 系統/隨手記.md
+    （那裡已有就兩份都不動、回 NOTE_BOTH；搬不成回 NOTE_NOT_MOVED）；還有別的東西回 UPGRADE_LINE，只剩 .gitkeep 就刪它、拿掉夾。
+    她放的檔不動；升級前的版本看不懂、是連結、是型別夾（舊庫的 dir 叫它）都不動（寧可少做）。"""
+    from kb._lib import inventory, profile
     was = parse_version(cur)
     root = Path(vault) / "_個人"
     if was is None or was > parse_version(OLD_AREA_UNTIL) or not root.is_dir() or inventory._is_link(root):
         return []
-    notes = []
     try:
-        keep, note, dest = root / ".gitkeep", root / "隨手記.md", Path(vault) / "系統" / "隨手記.md"
-        if keep.is_file():
-            keep.unlink()
-        if note.is_file():
-            if dest.exists():
-                notes.append(NOTE_BOTH)
-            else:
+        if profile.type_of_folder(vault, "_個人") is not None:
+            return []
+    except (ValueError, OSError):
+        return []
+    notes = []
+    note, dest = root / "隨手記.md", Path(vault) / "系統" / "隨手記.md"
+    if note.is_file():
+        if dest.exists():
+            notes.append(NOTE_BOTH)
+        else:
+            try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 os.rename(note, dest)
-        if any(root.iterdir()):
-            notes.append(UPGRADE_LINE)
-        else:
+            except OSError as e:
+                notes.append(NOTE_NOT_MOVED.format(why=backup.oserror_sentence(e) or type(e).__name__))
+    try:
+        rest = [p for p in root.iterdir() if p.name != ".gitkeep"]
+        if not rest:
+            (root / ".gitkeep").unlink(missing_ok=True)
             root.rmdir()
     except OSError:
+        rest = True
+    if rest:
         notes.append(UPGRADE_LINE)
     return notes
 
