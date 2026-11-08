@@ -14,6 +14,8 @@ kb.py 單一呼叫的放行仍在最前面。
 produce（第 3 點、實作回報裁定 1、3）：Z2、Z9 擋寫的理由句指到 kb office copy／source-edit move，Z10／Z10b 照舊；
 檔案工具 Write／Edit／MultiEdit 寫 .system/temp/office/ 底下放行（工作區，不備份不登記）：路徑先 normalize（.. 跳出去照 Z7），
 磁碟上存在的部分再 realpath 一次，連結跳出去的也照 Z7。
+skill 夾（D-533）：知識庫 .claude/skills/ 底下（不含夾本身）是 Z13，在 RESERVED 判 Z7 之前；跳出判斷照工作區（in_skills），
+跳出去、中間段結尾空白或點的照 Z7。讀放行；檔案工具寫放行、hook 寫前備進回合；指令寫照 Z7 擋，理由教改用檔案工具。
 密碼與守門（D-183～D-186）：
 - 照 shell 語法拆（D-186）：heredoc 與 here-string 內文是資料（cmdparse.split_bodies），只抽絕對路徑照讀判斷；
   每一段照動詞分讀寫（cmdparse.stage_kind）：已知只讀指令只有導向才是寫，直譯器只看程式碼有沒有寫檔，殼照舊整段看；
@@ -55,7 +57,7 @@ if os.name != "nt":
 # （_user_rules）：建、搬、改名放行，只有救不回來的（刪、蓋掉同名檔、改既有檔內容）才擋，並教 AI 改用的做法。
 AI_TAIL = "不用跟使用者提這一步。"
 USER_ZONES = ("Z2", "Z4", "Z8", "Z9")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
-WILLY_ZONES = ("Z1", "Z5", "Z6", "Z7")  # willy 自己的檔：指令寫一律 willy；檔案工具寫只有 Z1、Z5、客戶設定檔放行
+WILLY_ZONES = ("Z1", "Z5", "Z6", "Z7", "Z13")  # willy 自己的檔：指令寫一律 willy；檔案工具寫只有 Z1、Z5、Z13、客戶設定檔放行
 PROFILE_MD = "系統/客戶設定檔.md"
 INDEX_MD = "總目錄.md"
 WILLY_REASON = "「{name}」是 willy 自己的檔：{hint}。" + AI_TAIL
@@ -84,6 +86,7 @@ VAULT_MOVE_REASON = "整個知識庫要搬家：請使用者關掉這個對話�
 MOVE_COPY_VERBS = {"mv", "move", "move-item", "mi", "cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync"}
 WORKSPACE_POSIX = ".system/temp/office"  # kb office 的工作區：檔案工具寫放行（實作回報裁定 1）
 WORKSPACE_TOOLS = ("Write", "Edit", "MultiEdit")
+SKILLS_POSIX = ".claude/skills"  # 客戶的 skill（D-533）：底下是 Z13，檔案工具寫放行、hook 先備份；指令寫照 Z7 擋
 LO_PROFILE_DIR = "_lo_profile"  # kb office 固定的 LibreOffice 設定夾（office.LO_PROFILE），不算工作區
 
 
@@ -111,8 +114,9 @@ ZONES = {
     "Z10b": {"name": "範圍含排除夾", "read": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON),
              "write": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON)},
     "Z11": {"name": "其他", "read": ("pass", "", ""), "write": ("pass", "", "")},
+    "Z13": _zone("skill"),
 }
-VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8")
+VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8", "Z13")
 SOURCE_ZONES = ("Z9", "Z10", "Z10b")
 CREDENTIAL_REASON = "檔名像密碼或金鑰（{seg}），使用者沒說過這份可以讀，不讀也不寫。"
 CREDENTIAL_INSIDE_REASON = "這個範圍裡有檔名像密碼或金鑰的檔（{rel}），使用者沒說過可以讀；縮到不含它的子資料夾或指定單一檔。"
@@ -855,6 +859,8 @@ def classify(path, vault, sources):
                 return "Z10b", "知識庫"
         parts = path[len(vault) + 1:].split("/")
         first = parts[0]
+        if first == ".claude" and len(parts) > 2 and parts[1] == "skills" and in_skills(path, vault):
+            return "Z13", None
         if first in RESERVED:
             return RESERVED[first], None
         if len(parts) == 1:
@@ -905,12 +911,12 @@ def is_willy_file(zone, path, vault_n):
 
 
 def _willy_shell_zone(zone, path, vault_n):
-    """指令寫這個路徑一律 willy：is_willy_file 之外加 Z1 綜合卡、Z5 檔案索引、客戶設定檔（指令寫也不給，教用 Edit）。"""
-    return zone in ("Z1", "Z5", "Z6", "Z7") or is_willy_file(zone, path, vault_n)
+    """指令寫這個路徑一律 willy：is_willy_file 之外加 Z1 綜合卡、Z5 檔案索引、Z13 skill、客戶設定檔（指令寫也不給，教用 Edit）。"""
+    return zone in ("Z1", "Z5", "Z6", "Z7", "Z13") or is_willy_file(zone, path, vault_n)
 
 
 def willy_hint(zone, path, vault_n):
-    if zone in ("Z1", "Z5"):
+    if zone in ("Z1", "Z5", "Z13"):
         return HINT_EDIT
     if zone == "Z6" and path == _profile_path(vault_n):
         return HINT_PROFILE
@@ -954,6 +960,23 @@ def in_workspace(path, vault_n):
     return real == real_root or inside(real, real_root)
 
 
+def in_skills(path, vault_n):
+    """normalize 過的 path 在 .claude/skills/ 底下（不含 skills 夾本身），做法照 in_workspace：字串前綴（新庫還沒有夾也算）；
+    skills 夾已存在時，磁碟上存在的部分 realpath 後還要在裡面（連結、junction 跳出去的不算）；還不存在時，存在的最近上層不能被連結導走。"""
+    root = vault_n.rstrip("/") + "/" + SKILLS_POSIX
+    if path == root or not inside(path, root):
+        return False
+    if not os.path.exists(root):
+        anc = _nearest_existing(root)
+        return anc is not None and normalize(os.path.realpath(anc), None) == anc
+    cur = _nearest_existing(path)
+    if cur is None:
+        return False
+    real = normalize(os.path.realpath(cur), None)
+    real_root = normalize(os.path.realpath(root), None)
+    return real == real_root or inside(real, real_root)
+
+
 def _nearest_existing(path):
     """normalize 過的 path 往上找第一個磁碟上存在的；找不到回 None。"""
     cur = path
@@ -970,6 +993,8 @@ def _file_tool(tool, target, cwd, vault, sources):
     path = normalize(target, cwd)
     vault_n = normalize(vault, None)
     zone, alias = classify(path, vault_n, sources)
+    if zone == "Z13" and _odd_segments(target):
+        zone = "Z7"  # 中間段結尾是空白或點：Windows 會建出 skills 以外的夾，照 Z7（同工作區）
     if tool in WORKSPACE_TOOLS and zone == "Z7" and not _odd_segments(target) and in_workspace(path, vault_n):
         return Decision("allow", zone, "", "工作區", [], vault)  # 實作回報裁定 1：不經回合備份（hook 只備 Z1／Z3／Z5）
     seg = credential_hit(path, zone, vault_n, sources)

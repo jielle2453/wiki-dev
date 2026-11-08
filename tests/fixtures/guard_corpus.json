@@ -11643,6 +11643,70 @@
    ],
    "來源": "開檔與Office一起改 裁定 31",
    "note": "(5) 開新檔的 Documents.Add( 照擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/查報價/SKILL.md"
+   },
+   "cwd": "<V>",
+   "expect": "allow",
+   "來源": "skill夾放寫 驗收 1、7",
+   "note": "Z13：skill 夾檔案工具寫放行（夾還不在也放行）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "echo x > .claude/skills/查報價/SKILL.md"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 3",
+   "note": "Z13 指令寫照 Z7 擋（willy，教改用檔案工具）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content -Path '<V>\\.claude\\skills\\查報價\\SKILL.md' -Value x"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 3",
+   "note": "Z13 指令寫照 Z7 擋"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 資料與介面格式",
+   "note": "skills 夾本身照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/../settings.json"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 5",
+   "note": ".. 跳出 skills 照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/x/settings.json"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.claude/skills/",
+    "junction: <V>/.claude/skills/x -> <V>/.claude"
+   ],
+   "來源": "skill夾放寫 驗收 6",
+   "note": "skills 底下的 junction 連到 .claude：照 Z7"
   }
  ]
 }
