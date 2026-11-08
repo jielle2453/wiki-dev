@@ -406,9 +406,15 @@ def _seq(row):
     return s if isinstance(s, int) else 0
 
 
+def _old_format(row):
+    v = row.get("v", 1)
+    return not isinstance(v, int) or v < 2
+
+
 class _Fold:
     """一行一行套到一筆上：一般欄取最後一行；只往後加的欄（D-337）把各行帶來的清單合起來，
-    同內容只留一次、照 date 再照版號（seq、by、行的先後、清單裡的位置）排；drop 的拿掉、undrop 的放回。"""
+    同內容只留一次、照 date 再照版號（seq、by、行的先後、清單裡的位置）排；drop 的拿掉、undrop 的放回。
+    格式 1（0.34.0 以前）的行在這種欄照舊整份取代。"""
 
     def __init__(self, kind):
         self.lists = append_only(kind) if kind else ()
@@ -418,6 +424,8 @@ class _Fold:
         touched = set()
         for k, v in (row.get("set") or {}).items():
             if k in self.lists and isinstance(v, list):
+                if _old_format(row):  # 格式 1 的行照舊讀（整份取代，含舊版退回寫的較短清單）；從格式 2 的行起才合起來
+                    self.acc[(rid, k)] = ({}, set())
                 seen = self.acc.setdefault((rid, k), ({}, set()))[0]
                 for i, e in enumerate(v):
                     key = _ekey(e)
@@ -471,7 +479,7 @@ def _merge(vault, files, kind=None):
         for k in list(row.get("set") or {}) + list(row.get("unset") or []):
             if k not in fold.lists:  # 只往後加的欄不算撞到（D-337）
                 setters.setdefault((rid, k), []).append(row)
-        st.meta[rid] = {"seq": max(row.get("seq", 0), st.meta.get(rid, {}).get("seq", 0)), "by": row.get("by"),
+        st.meta[rid] = {"seq": max(_seq(row), st.meta.get(rid, {}).get("seq", 0)), "by": row.get("by"),
                         "who": row.get("who"), "at": row.get("at")}
     for (rid, field), lines in setters.items():
         if len(lines) < 2:

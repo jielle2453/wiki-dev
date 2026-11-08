@@ -275,6 +275,20 @@ class AppendOnly(StreamsTest):
 
     A, B = "m-aaaa0001", "m-bbbb0002"
 
+    def put(self, name, kind, *rows):  # 沒寫 v 的行當格式 2（新版寫的）
+        super().put(name, kind, *[dict({"v": 2}, **r) if isinstance(r, dict) else r for r in rows])
+
+    def test_v1_rows_read_as_before(self):
+        """格式 1 的行照舊整份取代（0.34.0 以前的退回寫較短的清單，拿掉的那行不回來）；從格式 2 的行起合起來。"""
+        self.put(self.A, "agenda", {"v": 1, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": self.A,
+                                    "set": {"history": [H0]}},
+                 {"v": 1, "op": "set", "id": "a-1", "seq": 2, "base": 1, "by": self.A, "set": {"history": [H0, HA]}},
+                 {"v": 1, "op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.A, "set": {"history": [H0]},
+                  "reverts": [{"kind": "agenda", "id": "a-1", "seq": 2, "by": self.A}]})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["history"], [H0])
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 4, "base": 3, "by": self.B, "set": {"history": [H0, HB]}})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["history"], [H0, HB])
+
     def seed(self):
         self.put(self.A, "agenda", {"v": 1, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": self.A,
                                     "set": {"date": "2026-11-25", "text": "開會", "history": [H0]}})
