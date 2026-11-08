@@ -153,7 +153,7 @@ def build(out, vault, config, tell_all=True):
     steps = [s for s in full if s["step"] in ("sync",) + PURGE_STEPS] if batch else full  # 清殘留批次時也留（疑義第 8 條）
     asks, hidden = visible(vault, annotate(vault, asks, config))  # 先放著的不列（D-226），有時間性的照列
     if not tell_all:
-        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault) + _tagged_tell(vault),
+        return {"plan": steps, "asks": _number(asks), "tell": agenda.tell_lines(vault) + _money_tell(vault) + _tagged_tell(vault),
                 "set_aside": hidden}
     waiting = _waiting(out, vault)
     announce = ANNOUNCE.format(n=waiting, how_long=_how_long(waiting, vault, config)) if waiting and not batch else None
@@ -688,6 +688,15 @@ def _inbox_asks(vault):
     return out
 
 
+def _money_tell(vault):
+    """這一回合從檔案記的帳（記帳 2，照 agenda.tell_lines）；讀不到就沒有。"""
+    try:
+        from kb._lib import money
+        return money.tell_lines(vault)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _number(asks):
     n = 0
     for ask in asks:
@@ -977,6 +986,7 @@ def _tell(out, vault):
     if out.get("unbacked"):
         lines.append(UNBACKED_TELL.format(n=out["unbacked"]))
     lines.extend(agenda.tell_lines(vault))
+    lines.extend(_money_tell(vault))
     lines.extend(_opened_tell(vault))
     lines.extend(_judged_tell(vault))
     lines.extend(_tagged_tell(vault))

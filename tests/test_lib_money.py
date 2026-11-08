@@ -241,6 +241,7 @@ class Extract(MoneyBase):
         fid = self.card()
         self.add("--dir", "付", "--amount", "3000", "--entity", "信義王", "--card", fid, "--text", "進貨")
         self.assertTrue(money.tell_lines(self.V, self.t)[0].startswith("我從檔案記了 1 筆帳："))
+        self.assertTrue(any(x.startswith("我從檔案記了 1 筆帳：") for x in self.kbj("asks")["tell"]))  # 回答末尾（plan.tell）
 
     def test_purge_card_drops_inferred_keeps_said(self):
         fid = self.card()

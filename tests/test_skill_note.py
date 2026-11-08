@@ -254,8 +254,8 @@ class RecordAnswer(unittest.TestCase):
 
     def test_description_unchanged(self):
         desc = split(self.text)[0]
-        self.assertIn("description: 客戶口述要記的日程與事：「9/25 下午有個會」「答應王先生 10/10 前給報價」「交屋改 12/10」"
-                      "「提醒我寄發票」「第二期款付了」「信義王結案了」，偏好、糾正舊資料、決定、「把這個記下來」、加型別或改型別名、"
+        self.assertIn("description: 客戶口述要記的日程、帳與事：「9/25 下午有個會」「答應王先生 10/10 前給報價」「交屋改 12/10」"
+                      "「提醒我寄發票」「收到尾款12萬」「信義王結案了」，偏好、糾正舊資料、決定、「把這個記下來」、加型別或改型別名、"
                       "開場有「日程：逾期」時都用這個；問現況、寫成一份筆記、整理檔案、加資料夾不用。", desc)
 
 
