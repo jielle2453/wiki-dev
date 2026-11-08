@@ -22,6 +22,7 @@ RECORD_FILES = {  # .system/ 的 JSON → 條目清單的鍵（每筆有 id）
     ".system/rulings.json": "rulings",
     ".system/pending.json": "items",
     ".system/findings.json": "findings",
+    ".system/money.json": "items",  # 帳（記帳 2）
 }
 DERIVED = {  # 由別的東西重算的檔：不單獨改回（改完它的來源會重算），列出來也標 system
     ".system/inventory.json": None,

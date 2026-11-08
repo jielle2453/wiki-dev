@@ -501,3 +501,37 @@ class EverySession(unittest.TestCase):
         got = self.out(f'python "{ROOT}/scripts/kb.py" selftest --json')
         self.assertEqual(got["permissionDecision"], "allow")
         self.assertNotIn("updatedInput", got)
+
+
+class MoneyAgentAllow(unittest.TestCase):
+    """記帳 2 驗收 22：製卡子代理只放行抽錢那幾個 kb money 子命令；cancel、merge、edit 擋（主對話不受這張表管）。"""
+
+    def setUp(self):
+        from kb._lib import batches, turn
+        self.tmp, self.V, self.raw = make_vault()
+        turn.start(self.V, "sid-m", "好，現在做")
+        batches.agent_start(self.V, "sid-m", "a0204e73")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def call(self, args, agent=True):
+        from tests.test_cardmaker_round1 import guard_out
+        from kb._lib import batches
+        data = payload("Bash", f'python "{ROOT}/scripts/kb.py" {args}', self.V)
+        data.update(session_id="sid-m")
+        if agent:
+            data.update(agent_id="a0204e73", agent_type=batches.AGENT)
+        return guard_out(data)
+
+    def test_22_allow_and_deny(self):
+        for ok in ("money add --dir 付 --amount 3000 --entity 信義王 --card f-1a2b3c4d", "money attach m-1a2b3c4d --card f-1a2b3c4d",
+                   "money settle m-1a2b3c4d", "money unsure --card f-1a2b3c4d --text 看不出", "money scanned f-1a2b3c4d",
+                   "money list --json", "money candidates --dir 付 --amount 3000"):
+            with self.subTest(ok=ok):
+                self.assertEqual(self.call(ok)["permissionDecision"], "allow")
+        for denied in ("money cancel m-1a2b3c4d", "money merge m-1a2b3c4d m-2a2b3c4d", "money edit m-1a2b3c4d --amount 1"):
+            with self.subTest(denied=denied):
+                out = self.call(denied)
+                self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]), ("deny", "製卡助手不能做這件事"))
+        self.assertEqual(self.call("money cancel m-1a2b3c4d", agent=False)["permissionDecision"], "allow")

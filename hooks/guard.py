@@ -43,7 +43,9 @@ GLOBAL_VALUE_FLAGS = ("--turn", "--agent", "--session", "--via")  # --via 只有
 AGENT_ALLOW = {("cards", "batch"), ("cards", "list"), ("cards", "todo"), ("cards", "wip"), ("cards", "skip"), ("convert", ""), ("version", ""),
                ("agenda", "add"), ("agenda", "edit"), ("agenda", "recheck"), ("agenda", "scanned"), ("agenda", "cancel"),
                ("agenda", "list"), ("entity", "add"), ("entity", "suggest-close"), ("entity", "clean"), ("entity", "list"),
-               ("entity", "tag"), ("entity", "render"), ("entity", "log"), ("entity", "field")}
+               ("entity", "tag"), ("entity", "render"), ("entity", "log"), ("entity", "field"),
+               ("money", "add"), ("money", "attach"), ("money", "settle"), ("money", "unsure"), ("money", "scanned"),
+               ("money", "list"), ("money", "candidates")}  # 製卡抽錢（記帳 2）；cancel、merge、edit 這些只在主對話
 NO_SUB = ("convert", "version")
 CONVERT_DENY = ("--password", "--saved", "--explicit")
 SECRET_FLAGS = ("--password", "--value")  # 值是密碼的旗標：改寫會把值印進 hook 的輸出（#20 裁定 5 實作疑義）

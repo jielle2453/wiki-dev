@@ -147,12 +147,30 @@ def _need_active(data, sid):
     return it
 
 
-def add(vault, text, entities, turn_id, replaces=None):
+MONEY_DIRS = {"收": "in", "付": "out", "in": "in", "out": "out"}
+MONEY_MSG = "--money 要寫 收 或 付 加金額，例：--money 收 5000"
+
+
+def money_mark(direction, amount):
+    """帳關著時錢的話的內部記號（D-343）：{"dir","amount","ledger": None}；看不懂丟 StatementRefused。"""
+    from kb._lib import numbers
+    d = MONEY_DIRS.get(str(direction or "").strip())
+    if d is None:
+        raise StatementRefused(MONEY_MSG)
+    try:
+        value = numbers.plain(numbers.parse_number(str(amount).strip(), negative=False))
+    except numbers.NumberRefused as e:
+        raise StatementRefused(str(e)) from None
+    return {"dir": d, "amount": value, "ledger": None}
+
+
+def add(vault, text, entities, turn_id, replaces=None, money=None):
     """回 (新條目, 被取代的條目或 None)。驗完才寫：一句、字元、實體都登記且 active、replaces 是有效的口述；
-    replaces 那條標 superseded、記 replaced_by。"""
+    replaces 那條標 superseded、記 replaced_by。money 是 money_mark 的結果（帳關著時錢的話，D-343）：帶它的可以不掛實體
+    （使用者 11-09，只放寬這一種）。"""
     text = check_text(text)
     names = names_of(vault, list(entities or []))
-    if not names:
+    if not names and money is None:
         raise StatementRefused(NO_ENTITY.format(""))
     from kb._lib import people
     who = people.me(vault)
@@ -163,6 +181,8 @@ def add(vault, text, entities, turn_id, replaces=None):
               "status": "active", "replaced_by": None}
         if who:
             it["who"] = who  # 多人共用 2：誰說的（單人不寫，升級前的也沒有）
+        if money is not None:
+            it["money"] = dict(money)  # 內部記號：不顯示在卡、日程頁、首頁（D-343）
         data["statements"].append(it)
         if old is not None:
             old["status"] = "superseded"
@@ -171,6 +191,20 @@ def add(vault, text, entities, turn_id, replaces=None):
     got = _mutate(vault, turn_id, fn)
     wake_entities(vault, names, turn_id)
     return got
+
+
+def set_ledger(vault, sid, mid, turn_id):
+    """改開時補進帳（D-343）：口述的錢記號補上 ledger（帳那筆的編號）。沒有記號什麼都不做。回條目。"""
+    def fn(data):
+        it = find(data, sid)
+        if it is None:
+            raise StatementRefused(NOT_FOUND.format(sid))
+        mark = it.get("money")
+        if not isinstance(mark, dict) or mark.get("ledger") == mid:
+            return it, False
+        it["money"] = dict(mark, ledger=mid)
+        return it, True
+    return _mutate(vault, turn_id, fn)
 
 
 def said_by(s, multi):

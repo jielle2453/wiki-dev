@@ -706,7 +706,7 @@ def renumber(asks):
 
 SET_ASIDE_POSIX = ".system/set_aside.json"
 PENDING_KEYED = ("missing", "close")  # 這兩種題目住在 pending.json，key 就是 p- 編號
-PENDING_ONLY = ("handedit", "tag_edit", "lint", "unreadable", "script_touched", "conflict", "report")  # 沒有整理題的待處理，照這個順序
+PENDING_ONLY = ("handedit", "tag_edit", "lint", "unreadable", "script_touched", "conflict", "money_dupe", "money_unsure", "report")  # 沒有整理題的待處理，照這個順序
 # 急的排前面：有時間性的 → 整理題照 _asks 的順序 → 沒有整理題的待處理
 _ORDER = ("batch", "drift", "missing", "credential_same_kind", "ruling_recheck", "overdue", "agenda_conflict", "close", "draft",
           "inbox_place", "name") + tuple(f"pending_{k}" for k in PENDING_ONLY) + ("carried",)
@@ -899,6 +899,16 @@ def _pending_results(item):
         return (got or [resolve]) + [drop]
     if kind == "conflict":
         return [_result("說哪個對", note="照 note skill 記下她說的（口述或裁示），記完 kb pending resolve " + pid), drop]
+    data = item.get("data") or {}
+    if kind == "money_dupe":  # 記帳 2：D-276 看不出是不是同一筆
+        return [_result("是同一筆", [cmd("money", "merge", data.get("keep", ""), data.get("other", "")),
+                                     cmd("pending", "resolve", pid, "--how", "是同一筆，併成一筆")]),
+                _result("不是", [cmd("pending", "resolve", pid, "--how", "不是同一筆，兩筆都留")])]
+    if kind == "money_unsure":  # 記帳 2：D-274 看不出流向
+        card = data.get("card", "")
+        how = "照檔案記：kb money add --card " + card + " --dir {} …（金額、實體、品項照那張卡），記完 kb pending resolve " + pid
+        return [_result("她收的", note=how.format("收")), _result("她付的", note=how.format("付")),
+                _result("不是她的錢", [cmd("pending", "resolve", pid, "--how", "不是她的錢，不記")])]
     return [resolve, drop]
 
 

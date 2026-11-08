@@ -9,6 +9,8 @@ mentions_total 是全部份數；比對用 entities.key，第一版的卡也找�
 放寬丙：cards 每張多 archived（清冊封存的排後面）、卡上有口述為準裁示的多 rulings；實體封存了頂層 archived 是 true。
 tags（標籤字典第四節第 6 點）：實體清單的標籤正本 [{"field","words"}]，照第八節的順序（D-505：沒有綜合卡的也有）；沒標過是空的。
 fields（記帳 1b 第 7 點）：實體的數字欄 {欄: {"value","unit","said"}}，第九節這個型別、有值的，照第九節的順序；said 是她說的或她在屬性欄改的。
+money（記帳 2 第 7 點）：money.for_entity（合計、未收付全部、最近幾筆、庫存；地點型別的實體是那裡的各商品庫存）；帳關著而且
+這個實體沒有任何一筆時不給這鍵。owed_to：問的是成員名字（多人）時，墊了還沒還的（D-338）。
 推算 stale 的那筆 text 是 null、多 redo「依據變了，要用就重算：<how>」（B-100）；findings.brief 不動，綜合卡待辦要原文。
 """
 from pathlib import Path
@@ -118,6 +120,7 @@ def lookup(vault, query):
         out.update(mentions=found[:limit], mentions_total=len(found))
         if not found:  # 還沒整理的檔沒有卡，可能就在裡面（#37）
             out["in_progress"], out["in_progress_total"] = wip_hint(vault, [query], sorted_=sorted_)
+        _owed(vault, query, out)
         return out
     prof = entities._profile(vault)
     name = e["name"]
@@ -150,7 +153,29 @@ def lookup(vault, query):
         out["findings"] = [_finding(findings.brief(vault, c, titles, ctx)) for c in finds]
     out["agenda"] = _agenda(vault, name)
     out["in_progress"] = [r for r in cards.wip(vault, sorted_=sorted_) if name in r["entities"]]  # 製作中（D-525）
+    _money(vault, name, out)
+    _owed(vault, query, out)
     return out
+
+
+def _money(vault, name, out):
+    """帳（記帳 2）：帳關著而且這個實體一筆都沒有就不給。"""
+    from kb._lib import money
+    if not money.exists(vault) and money.mode(vault) == "off":
+        return
+    got = money.for_entity(vault, name)
+    if got["items"] or got["stock"] or money.mode(vault) != "off":
+        out["money"] = got
+
+
+def _owed(vault, query, out):
+    """問的是成員（多人）：墊了還沒還的（D-338）。"""
+    from kb._lib import money, people
+    if not people.multi(vault):
+        return
+    member = next((m for m in people.members(vault) if entities.key(m) == entities.key(query)), None)
+    if member is not None and money.exists(vault):
+        out["owed_to"] = money.owed_to(vault, member)
 
 
 def wip_hint(vault, words, names=(), sorted_=None):

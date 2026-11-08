@@ -339,14 +339,34 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=(),
     if about_lines:
         changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
     journal_cli.record_program_or_warn(vault, sentence[1:], changed, "profile apply", conversation)
+    backfill = _money_backfill(vault, old, merged)
     if as_json:
         print(json.dumps(dict(_public(st), applied=True, created_dirs=created, removed_dirs=removed_dirs,
-                              unskipped=len(unskipped), about=about, pending_types=pend), ensure_ascii=False))
+                              unskipped=len(unskipped), about=about, pending_types=pend,
+                              **({"backfill": backfill} if backfill else {})), ensure_ascii=False))
         return 0
     print(sentence)
-    for line in about_lines + pending_lines:
+    for line in about_lines + pending_lines + ([BACKFILL_LINE.format(**backfill)] if backfill else []):
         print(line)
     return 0
+
+
+BACKFILL_LINE = "帳關著時記下的錢有 {statements} 句、舊檔案 {cards} 份還沒進帳：問她一次要不要補（kb money backfill --json）"
+
+
+def _money_backfill(vault, old, new):
+    """第十節從關改成開或只記我講的（D-343）：{"statements": 標過還沒進帳的口述句數, "cards": 改成開時要抽錢的舊卡份數}；
+    不是這種改法回 None。讀不到帳或卡只記 log、當 0。"""
+    if profile.money_mode(old) != "off" or profile.money_mode(new) == "off":
+        return None
+    from kb._lib import ledger, money
+    try:
+        n = len(money.backfill(vault))
+        m = len(money.unscanned(vault)["money_unscanned"]) if profile.money_mode(new) == "on" else 0
+    except (ValueError, OSError) as e:
+        ledger.log_error(vault, f"算補帳份數失敗：{type(e).__name__}: {e}", source="profile")
+        n = m = 0
+    return {"statements": n, "cards": m}
 
 
 def _create_dirs(vault, st, as_json):
@@ -708,10 +728,13 @@ def _edit_locked(vault, op, args, as_json, conversation):
     if about_lines:
         changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
     journal_cli.record_program_or_warn(vault, message, changed, f"profile {op}", conversation)
-    _out(as_json, (first["lines"] if first else []) + [message] + about_lines,
+    backfill = _money_backfill(vault, old, data)  # 關改成開或只記我講的（記帳 2 第 4 點）
+    _out(as_json, (first["lines"] if first else []) + [message] + about_lines
+         + ([BACKFILL_LINE.format(**backfill)] if backfill else []),
          dict({"applied": True, "section": section, "op": op, "row": res["row"],
                "message": message, "created_dirs": created, "unskipped": len(unskipped),
-               "retag": sum(sum(v.values()) for v in marked.values())}, **_first_payload(first)))
+               "retag": sum(sum(v.values()) for v in marked.values())}, **_first_payload(first),
+              **({"backfill": backfill} if backfill else {})))
     return 0
 
 

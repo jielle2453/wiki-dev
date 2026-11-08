@@ -1423,6 +1423,7 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
             changed += [{"path": rel, "action": "modify"} for rel, _names in touched]
             if key(old_name) != key(new_name):
                 changed += _agenda_follow(vault, {key(old_name): new_name}, turn_id)
+                changed += _money_follow(vault, {key(old_name): new_name}, turn_id)
                 changed += _knowledge_follow(vault, {key(old_name): new_name}, turn_id)
             _save(vault, data, turn_id, undo)
             changed.append({"path": ENTITIES_POSIX, "action": "modify"})
@@ -1563,6 +1564,7 @@ def merge(vault, src_ref, dst_ref, turn_id):
             changed += [{"path": rel, "action": "modify"}
                         for rel, _n in retarget_cards(vault, {key(src["name"]): dst["name"]}, turn_id, undo)]
             changed += _agenda_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
+            changed += _money_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
             changed += _knowledge_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
             changed += _drop_close_items(vault, src, f"實體已合併進「{dst['name']}」", turn_id, undo)
             _save(vault, data, turn_id, undo)
@@ -1784,6 +1786,9 @@ def _agenda_snapshot(vault, undo):
     if (Path(vault) / agenda.AGENDA_POSIX).exists():
         undo.file(agenda.AGENDA_POSIX)
         undo.file(agenda.MD_POSIX)
+    from kb._lib import money
+    if money.exists(vault):  # 帳也一起（記帳 2）
+        undo.file(money.MONEY_POSIX)
 
 
 def _agenda_follow(vault, mapping, turn_id):
@@ -1791,6 +1796,14 @@ def _agenda_follow(vault, mapping, turn_id):
     from kb._lib import agenda
     if agenda.rename_entity(vault, mapping, turn_id):
         return [{"path": agenda.AGENDA_POSIX, "action": "modify"}, {"path": agenda.MD_POSIX, "action": "modify"}]
+    return []
+
+
+def _money_follow(vault, mapping, turn_id):
+    """帳裡掛的實體、品項的商品與地點跟著換（記帳 2）；拿掉的實體不叫這裡，名字留在帳裡。回給日誌的 changed。"""
+    from kb._lib import money
+    if money.rename_entity(vault, mapping, turn_id):
+        return [{"path": money.MONEY_POSIX, "action": "modify"}]
     return []
 
 
