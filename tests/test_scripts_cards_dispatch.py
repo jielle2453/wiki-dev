@@ -73,7 +73,7 @@ class Dispatch(Base):
         first, second = got["batches"][0]["batch"], got["batches"][1]["batch"]
         items = batches.load(self.V)["batches"][0]["items"]
         r = self.ok("cards", "batch", first, "--done", "--failed", f"{items[0]}：讀不到", "--failed", "f-別批：不收")
-        self.assertEqual(r, f"批次 {first} 記成做完：做好 19、沒做成 1；接著跑 kb cards dispatch --json")
+        self.assertEqual(r, f"批次 {first} 記成做完：做好 19、沒做成 1（不是這批的編號沒記：f-別批）；接著跑 kb cards dispatch --json")
         b = next(x for x in batches.load(self.V)["batches"] if x["batch"] == first)
         self.assertEqual((b["status"], b["failed"]), ("done", {items[0]: "讀不到"}))
         self.assertEqual(self.ok("cards", "batch", first, "--done"), batches.STOPPED)  # 重複收：不改、不報錯
@@ -81,6 +81,17 @@ class Dispatch(Base):
         self.assertEqual(self.js("cards", "dispatch")["running"], 2)
         self.ok("cards", "stop")
         self.assertEqual(self.ok("cards", "batch", second, "--done"), batches.STOPPED)  # 停掉（放掉）的不收
+
+    def test_codex_done_refuses_expired_and_failed_alone(self):
+        """review：過期的批次 --done 不收（放回去重派，不把沒做的記成沒做成）；--failed 沒帶 --done 報錯。"""
+        b = self.js("cards", "dispatch")["batches"][0]["batch"]
+        r = run_kb("--session", SID, "--turn", self.t, "cards", "batch", b, "--failed", "x：y", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.startswith("--failed 要跟 --done 一起用")), (2, True))
+        data = batches.load(self.V)
+        data["batches"][0]["created"] = "2026-01-01T00:00:00"
+        (self.V / ".system" / "batches.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.ok("cards", "batch", b, "--done"), batches.STOPPED)
+        self.assertEqual(batches.load(self.V)["batches"][0]["status"], "open")
 
     def test_human_lines(self):
         self.assertEqual(self.ok("cards", "dispatch"), "派了 3 批（做卡 20、20、5）；還在跑 0 批；還剩 0")

@@ -1319,13 +1319,15 @@ def agent_stop(vault, session_id, agent_id, message=None):
 
 def batch_done(vault, batch_id, failed=()):
     """codex 分支（spec 裁定 8）：子代理或主對話自己把一批記成做完，取代 SubagentStop 的 agent_stop。
-    還是 open（過期了也算）就改 done、`failed`（「<編號>：<原因>」）只收這批的編號、做完的卡收認領標籤，回那批；
-    不在、或不是 open（停了、做完了、放掉了）回 None、不改。不驗產物：沒寫好的卡下次 dispatch 會從待做清單再列。"""
+    認領中（跟 batch_view 同一個 live 判斷）就改 done、`failed`（「<編號>：<原因>」）只收這批的編號、做完的卡收認領標籤，
+    回那批（多 `ignored`：不是這批的編號，不存）；不在、停了、做完了、放掉了、過期了回 None、不改（過期的照舊放回去重派；
+    review：記成 done 會把沒做的當沒做成、不再派）。不驗產物：這批還在待做清單的，下次 dispatch 記成沒做成（預設原因）。"""
     reasons = report_failures("\n".join(f"- {x}" for x in failed or ()))
+    minutes = _settings(vault)["card_batch_expire_minutes"]
     with lock(vault):
         data = load(vault)
         b = next((x for x in data["batches"] if x.get("batch") == batch_id), None)
-        if b is None or b.get("status") != "open":
+        if b is None or not live(b, _now(), minutes, _agents(data)):
             return None
         b["status"] = "done"
         b["failed"] = {k: v for k, v in reasons.items() if k in (b.get("items") or [])}
@@ -1336,7 +1338,7 @@ def batch_done(vault, batch_id, failed=()):
         except Exception as e:  # noqa: BLE001  同 agent_stop：收不掉的留給健檢清
             from kb._lib import ledger
             ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
-    return b
+    return dict(b, ignored=[k for k in reasons if k not in (b.get("items") or [])])
 
 
 def _release_orphans(data, session_id, now, minutes):

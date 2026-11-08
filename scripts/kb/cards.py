@@ -667,6 +667,9 @@ def _dispatch(vault, args, as_json):
 
 
 def _batch(vault, batch_id, agent, as_json, done=False, failed=()):
+    if failed and not done:
+        print('--failed 要跟 --done 一起用：kb cards batch <批次> --done --failed "<編號>：<原因>"')
+        return 2
     if done:  # codex 分支（spec 裁定 8）
         b = batches.batch_done(vault, batch_id, failed)
         if b is None:
@@ -674,9 +677,12 @@ def _batch(vault, batch_id, agent, as_json, done=False, failed=()):
             return 0
         n = len(b.get("items") or [])
         if as_json:
-            print(json.dumps({"batch": batch_id, "done": n - len(b["failed"]), "failed": b["failed"]}, ensure_ascii=False))
+            print(json.dumps({"batch": batch_id, "done": n - len(b["failed"]), "failed": b["failed"],
+                              "ignored": b["ignored"]}, ensure_ascii=False))
         else:
-            print(f"批次 {batch_id} 記成做完：做好 {n - len(b['failed'])}、沒做成 {len(b['failed'])}；接著跑 kb cards dispatch --json")
+            print(f"批次 {batch_id} 記成做完：做好 {n - len(b['failed'])}、沒做成 {len(b['failed'])}"
+                  + (f"（不是這批的編號沒記：{'、'.join(b['ignored'])}）" if b["ignored"] else "")
+                  + "；接著跑 kb cards dispatch --json")
         return 0
     try:
         got = batches.batch_view(vault, batch_id, agent)
