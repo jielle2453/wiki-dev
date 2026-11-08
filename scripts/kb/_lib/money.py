@@ -1339,7 +1339,7 @@ def _type_tables(items, ents, link, rank_n):
             continue
         first = (it.get("entities") or [None])[0]
         e = entities.find(ents, first)[0] if first else None
-        typ = e.get("type") if e else OTHER
+        typ = (e.get("type") if e else None) or OTHER  # 沒型別的實體也歸「其他」，不讓排序壞掉
         rec = by_type.setdefault(typ, {}).setdefault(first or OTHER, {"in": Decimal(0), "out": Decimal(0)})
         rec[it["dir"]] += Decimal(str(it.get("amount") or 0))
     out = []
@@ -1549,7 +1549,9 @@ def hand_change(orig, body):
     da = _ISO.findall(a) + ["/".join(x) for x in _MD.findall(_ISO.sub("#", a))]
     db = _ISO.findall(b) + ["/".join(x) for x in _MD.findall(_ISO.sub("#", b))]
     ma, mb = _AMT.findall(a), _AMT.findall(b)
-    out = {"date": db[0] if da != db and db else None, "amount": mb[0] if ma != mb and mb else None}
+    if da[1:] != db[1:] or ma[1:] != mb[1:]:  # 只認那筆自己的日期與金額（每行第一個）；別處的數字（拆自、說明裡的）交給 AI
+        return None
+    out = {"date": db[0] if da[:1] != db[:1] and db else None, "amount": mb[0] if ma[:1] != mb[:1] and mb else None}
     return out if out["date"] or out["amount"] else None
 
 
@@ -1574,7 +1576,7 @@ def _strip(line):
     return line[2:] if line.startswith("- ") else line
 
 
-def _apply_page(data, got, lines, turn_id):
+def _apply_page(data, got, lines, turn_id, off=False):
     """帳頁的手改在資料上做（歷程 by hand）：刪掉一行＝取消、改日期（已收付的改收付日、還沒的改到期日）、改金額（新定 1）。
     做不了的記成認不出的（交給 AI，D-299）；改了字的認得出就從 got["add"] 拿掉。回 (做了什麼, 認不出的)。"""
     from kb._lib import renders
@@ -1588,8 +1590,15 @@ def _apply_page(data, got, lines, turn_id):
             new["due" if it.get("status") == "open" else "date"] = _hand_day(change["date"], it)
         if change.get("amount"):
             new["amount"] = _amount(change["amount"])
-        _edit_fn(it["id"], new, turn_id, HAND_BY)(data)
-        applied.append(f"改了『{short(it)}』")
+        _r, changed = _edit_fn(it["id"], new, turn_id, HAND_BY)(data)
+        if changed:
+            applied.append(f"改了『{short(it)}』")
+
+    if off:  # 帳關著（D-343）：帳頁上的改動不照做，整段交給 AI（同日程頁上帳的那行被拒的做法）
+        why = {"checked": "你打了勾", "removed": "你刪掉了", "changed_date": "你改了日期"}
+        extra = [{"kind": "changed", "text": f"{_strip(c['line'])}（{why[k]}；帳是關的）", "orig": _strip(c["line"])}
+                 for k in ("checked", "removed", "changed_date") for c in got[k]]
+        return [], extra
 
     for c in got["checked"]:
         extra.append({"kind": "changed", "text": f"{_strip(c['line'])}（你打了勾）", "orig": _strip(c["line"])})
@@ -1622,15 +1631,15 @@ def _apply_page(data, got, lines, turn_id):
 
 
 def _merge_reports(reports):
+    """幾頁的報告合成一份；有一頁她那份沒存成（KEEP_FAILED）就整份報 KEEP_FAILED（呼叫端這次不重寫、不往下做）。"""
     from kb._lib import hand as hand_lib
+    if hand_lib.KEEP_FAILED in reports:
+        return hand_lib.KEEP_FAILED
     dicts = [r for r in reports if isinstance(r, dict)]
     if dicts:
         return {"applied": [x for r in dicts for x in r["applied"]], "carried": [x for r in dicts for x in r["carried"]],
                 "dropped": sum(r["dropped"] for r in dicts), "saved": dicts[0]["saved"]}
-    for word in (hand_lib.UNRECOGNIZED, hand_lib.KEEP_FAILED):
-        if word in reports:
-            return word
-    return None
+    return hand_lib.UNRECOGNIZED if hand_lib.UNRECOGNIZED in reports else None
 
 
 def _consume_hand(vault, data, turn_id):
@@ -1639,15 +1648,18 @@ def _consume_hand(vault, data, turn_id):
     from kb._lib import hand, pending, renders
     reports, failed = [], set()
     ids = {i.get("id") for i in data["items"]}
+    off = None
     for rel in page_rels(vault):
         hers = renders.check(vault, rel)
         if hers is None:
             continue
+        if off is None:  # 有被手改的頁才讀開關
+            off = mode(vault) == "off"
         base_text, lines = renders.base(vault, rel) or ("", [])
         ignore = OVERVIEW_IGNORE if rel == MD_POSIX else YEAR_IGNORE
 
         def run(st, rel=rel, hers=hers, base_text=base_text, lines=lines, ignore=ignore):
-            return hand.consume(vault, rel, hers, base_text, lines, ids, lambda g: _apply_page(data, g, lines, turn_id),
+            return hand.consume(vault, rel, hers, base_text, lines, ids, lambda g: _apply_page(data, g, lines, turn_id, off),
                                 ignore_sections=ignore, state=st, skip=_skip)
         got = hand.guarded(vault, rel, hers, data, run,
                            lambda saved, diff, rel=rel: pending.add_handedit(vault, rel, saved, diff, turn_id))

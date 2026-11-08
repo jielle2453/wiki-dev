@@ -413,6 +413,23 @@ class PageHand(PageBase):
         self.assertNotIn("9,999", year, "合計改了不算，下次照帳重算")
         self.assertNotIn("李小姐", year)
 
+    def test_05c_review_fixes(self):
+        """code-review：只認第一個日期與金額；別處的數字改了交給 AI；沒變不說改了；帳關著時帳頁的改動交給 AI；她那份沒存成要報出來。"""
+        self.assertEqual(money.hand_change("> - 11/5（四）收 300 甲（拆自 10/30 那筆）", "> - 11/5（四）收 300 甲（拆自 10/31 那筆）"), None)
+        self.assertEqual(money.hand_change("> - 11/5（四）收 300 甲", "> - 11/6（四）收 350 甲"), {"date": "11/6", "amount": "350"})
+        self.assertEqual(money._merge_reports([{"applied": ["x"], "carried": [], "dropped": 0, "saved": "a"}, hand.KEEP_FAILED]),
+                         hand.KEEP_FAILED)
+        mid = self.put("收", "300", date="2026-10-05", text="零售")["id"]
+        y = money.year_rel("2026")
+        self.edit_page(y, "10/5（一）收 300 零售", "10/5（一）收 300.0 零售")
+        report = money.apply_hand(self.V, self.t)
+        self.assertEqual((report["applied"], money.get(self.V, mid)["amount"]), ([], 300), "金額沒變不說改了")
+        self.set_mode("off")
+        self.edit_page(y, "> - 10/5（一）收 300 零售\n", "")
+        report = money.apply_hand(self.V, self.t)
+        self.assertEqual(money.get(self.V, mid)["status"], "done", "帳關著：不照做")
+        self.assertEqual(len(report["carried"]), 1)
+
     def test_05b_unrecognized_goes_to_ai(self):
         self.put("收", "50000", due="2026-11-20", entities=["王先生"], text="第二期")
         self.edit_page(money.MD_POSIX, "## 還沒收付的\n", "## 還沒收付的\n- 王先生說月底一起付\n")
