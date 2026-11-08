@@ -155,6 +155,7 @@ class Follow(MoneyBase):
         self.assertEqual(money.get(self.V, mid)["entities"], ["王先生"])
         self.kb("entity", "remove", "王先生")
         self.assertEqual(money.get(self.V, mid)["entities"], ["王先生"])  # 拿掉的實體錢不刪
+        self.assertIn("王先生（已拿掉）", self.kb("money", "list").stdout)  # 測試報告低 #5：帳上看得出已拿掉
 
 
 class TwoMachines(MoneyBase):

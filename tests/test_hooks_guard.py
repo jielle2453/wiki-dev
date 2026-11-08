@@ -526,8 +526,10 @@ class MoneyAgentAllow(unittest.TestCase):
 
     def test_22_allow_and_deny(self):
         for ok in ("money add --dir 付 --amount 3000 --entity 信義王 --card f-1a2b3c4d", "money attach m-1a2b3c4d --card f-1a2b3c4d",
-                   "money settle m-1a2b3c4d", "money unsure --card f-1a2b3c4d --text 看不出", "money scanned f-1a2b3c4d",
-                   "money list --json", "money candidates --dir 付 --amount 3000"):
+                   "money settle m-1a2b3c4d --card f-1a2b3c4d", "money unsure --card f-1a2b3c4d --text 看不出",
+                   "money scanned f-1a2b3c4d", "money list --json", "money candidates --dir 付 --amount 3000",
+                   "money add --card=f-1a2b3c4d --dir 付 --amount 3000 --new --unsure m-1a2b3c4d",
+                   "money add --ca f-1a2b3c4d --dir 付 --amount 3000"):
             with self.subTest(ok=ok):
                 self.assertEqual(self.call(ok)["permissionDecision"], "allow")
         for denied in ("money cancel m-1a2b3c4d", "money merge m-1a2b3c4d m-2a2b3c4d", "money edit m-1a2b3c4d --amount 1"):
@@ -535,3 +537,16 @@ class MoneyAgentAllow(unittest.TestCase):
                 out = self.call(denied)
                 self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]), ("deny", "製卡助手不能做這件事"))
         self.assertEqual(self.call("money cancel m-1a2b3c4d", agent=False)["permissionDecision"], "allow")
+
+    def test_22_writes_need_card_and_no_statement(self):
+        """測試報告中 #1：子代理寫帳一定帶 --card；--from-statement 是補她說的，子代理一律擋。"""
+        for denied in ("money add --dir 付 --amount 3000 --entity 信義王", "money settle m-1a2b3c4d",
+                       "money attach m-1a2b3c4d", "money add --new --dir 付 --amount 3000",
+                       "money add --dir 收 --amount 5000 --from-statement s-1a2b3c4d --card f-1a2b3c4d",
+                       "money add --from-st=s-1a2b3c4d --card f-1a2b3c4d --dir 收 --amount 5000",
+                       "money add --dir 付 --amount 3000; echo --card f-1a2b3c4d"):
+            with self.subTest(denied=denied):
+                out = self.call(denied)
+                self.assertEqual(out["permissionDecision"], "deny", out)
+        out = self.call("money settle m-1a2b3c4d")
+        self.assertIn("--card", out["permissionDecisionReason"])
