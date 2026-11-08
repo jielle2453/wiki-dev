@@ -383,7 +383,7 @@ test('表單：必填空著不送出，填了才算數；Enter 送出；關掉 =
 
 test('home 資料缺欄位也畫得出來（保守）', () => {
   const home = lib.normalizeHome({});
-  assert.deepStrictEqual(home.todo, { overdue: [], today: [], week: [] });
+  assert.deepStrictEqual(home.todo, { overdue: [], today: [], week: [], stock: [], owed: [] }); // stock、owed 是記帳 3 加的
   assert.deepStrictEqual(home.confirm, []);
   const plugin = { runner: {}, home, ui: lib.defaultUi(), loadedVersion: '0.28.0' };
   const view = new lib.HomeView({}, plugin);
