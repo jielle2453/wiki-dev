@@ -17,9 +17,10 @@
 1. 把 `codex` 分支的檔案放在客戶電腦上一個固定的資料夾（以下叫 `<外掛夾>`），不要放在同步資料夾（OneDrive、Google 雲端硬碟）底下。🔴 **路徑裡不能有 `#`**：Codex 會把 `#` 後面當成 git 分支，加市集時報「--ref is only supported for git marketplace sources」（2026-11-08 Codex CLI 0.167.0 實測）；已經在這種夾裡就用 `mklink /J` 建一個不含 `#` 的目錄連結再加。
 2. 把 `<外掛夾>` 加成本機市集：`codex plugin marketplace add <外掛夾>`（市集檔是 `<外掛夾>\.agents\plugins\marketplace.json`，名稱 `wiki-with-willy-local`）；桌面 App 用外掛目錄加本機市集。
 3. 裝外掛：`codex plugin add wiki-with-willy@wiki-with-willy-local`，或在 Codex 打 `/plugins`（桌面 App 是「外掛」分頁）找到 wiki-with-willy 安裝、打開。🔴 **裝的時候會複製一份到 `%USERPROFILE%\.codex\plugins\cache\`，實際跑的是那份**：`<外掛夾>` 換了新版要再跑一次這步才生效。
-4. 🔴 **信任 hook**：在 Codex 打 `/hooks`（桌面 App 是「設定 > Hooks」），把 wiki-with-willy 的每一個 hook 都按信任。沒按就整組不跑，等於沒守門。**外掛升級、換了 hook 程式之後要再按一次。**
-5. 開客戶的知識庫資料夾當專案，**開一個新對話**（裝好外掛後要新對話才載入）。
-6. 確認：新對話裡 AI 看得到一段「【wiki-with-willy】」開頭的開場段。問 AI「你有看到 wiki-with-willy 的開場段嗎」即可。
+4. 🔴 **信任 hook**：在知識庫資料夾開 Codex 打 `/hooks`（桌面 App 是「設定 > Hooks」），最上面會寫「N hooks need review」；清單一個事件一行，**要選到那一行按 Enter 進去**才看得到個別的 hook（Source: Plugin – wiki-with-willy@wiki-with-willy-local），逐個按信任，willy 共 6 個（每個事件一個）。沒按就整組不跑，等於沒守門。信任記在 `%USERPROFILE%\.codex\config.toml` 的 `[hooks.state."wiki-with-willy@…:hooks/hooks.json:<事件>:0:0"]`（`trusted_hash`）；**外掛重裝、升級、hook 指令或程式改了，雜湊變了就要再按一次。**（2026-11-08 實測）
+5. 🔴 **沙盒**：Windows 的 Codex（桌面 App 預設）是 `elevated` 沙盒，AI 跑的指令讀不到 `%USERPROFILE%\.codex\` 底下任何東西，外掛的 kb 程式與技能說明都在那裡，整個 willy 不能用（2026-11-08 實測，OpenAI 自家外掛也一樣）。要在 `config.toml` 的 `[windows]` 改成 `sandbox = "unelevated"`（隔離較弱、整台 Codex 都套用；待主管裁定是不是正式做法）。
+6. 開客戶的知識庫資料夾當專案，**開一個新對話**（裝好外掛後要新對話才載入）。
+7. 確認：新對話裡 AI 看得到一段「【wiki-with-willy】」開頭的開場段。問 AI「你有看到 wiki-with-willy 的開場段嗎」即可。
 
 ## 三、裝好之後的差別（跟 Claude 版比）
 
