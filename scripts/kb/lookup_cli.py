@@ -89,6 +89,10 @@ def _lines(got):
     tags = [f"{t['field']} {'、'.join(t['words'])}" for t in got.get("tags") or [] if t["words"]]
     if tags:
         out.append("標籤：" + "；".join(tags))
+    if got.get("fields"):  # 數字欄（記帳 1b 第 7 點）：「數字：售價 1,800 元、進價 1,200 元（你說的）」
+        from kb._lib import numbers
+        out.append("數字：" + "、".join(f"{f} {numbers.show(v['value'])}" + (f" {v['unit']}" if v["unit"] else "")
+                                        + ("（你說的）" if v["said"] else "") for f, v in got["fields"].items()))
     if got["cards"]:
         out += ["檔案卡："] + [_card_line(c) for c in got["cards"]]
     if got["statements"]:

@@ -43,7 +43,7 @@ class Table(Base):
         """lint 題：pending.json schema 1 → 2 加一列（D-226）。"""
         self.assertEqual([m.rel for m in migrate.STATE_FILES],
                          [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json",
-                          ".system/profile.json", "暫存區"])  # 第五列：型別夾補編號（D-249）；第六列：暫存區（D-324）；彈性區兩列 #51 拿掉
+                          ".system/profile.json", "暫存區", ".system/profile.json"])  # 第五列：型別夾補編號（D-249）；第六列：暫存區（D-324）；彈性區兩列 #51 拿掉；第七列：記帳開關補第十節（記帳 1b）
 
     def test_card_header_table_is_empty_for_now(self):
         self.assertEqual(migrate.CARD_HEADER_MIGRATIONS, [])

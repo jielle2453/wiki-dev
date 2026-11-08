@@ -11,7 +11,8 @@
    manifest 那幾行 action 改 purged、path 換「（已排除）」（Stop 補記的「改了」才不會帶出卡名，疑義第 4 條）；
 4. .system/temp/ 裡那些條目的轉出檔（<編號>.md、<編號>_p<N>.png），office 工作區裡同檔名的副本；
 5. 目前的 pending.json 那些條目刪掉、agenda.json 從那些卡抽的推測條目刪掉（確認過的留著、拿掉出處卡）、
-   rulings.json 掛那些卡的拿掉卡編號（只掛那些卡的標已收回）、findings.json 依據含那些卡的推算整條刪掉；
+   rulings.json 掛那些卡的拿掉卡編號（只掛那些卡的標已收回）、findings.json 依據含那些卡的推算整條刪掉、
+   entities.json 數字欄出處是那些卡的值清掉、old 裡那幾筆拿掉（記帳 1b；回合夾的 entities.json 舊版同一支）；
 6. 工作日誌：changed 與 note 裡指到那夾的路徑換「（已排除）」，有指到的回合 result 整欄換掉，prompt 不動（journal.scrub）；
 7. ledger.tsv 與 hook-errors.log 裡指到那夾的路徑換「（已排除）」。
 先改目前的狀態（備進這一回合），再清全部回合（含這一回合剛備的），最後是暫存、日誌與留痕。
@@ -339,6 +340,35 @@ def drop_findings(data, ids):
     return before - len(data["findings"])
 
 
+def drop_entity_fields(data, ids):
+    """實體的數字欄（記帳 1b 第 9 點）：值的出處卡是那些卡的，值清掉（null）；old 裡出處是那些卡的那幾筆拿掉。回有沒有改。"""
+    if not isinstance(data, dict) or not isinstance(data.get("entities"), list):
+        return False
+    changed = False
+    for e in data["entities"]:
+        if not isinstance(e, dict):
+            continue
+        for k, v in list(e.items()):
+            if not (isinstance(k, str) and k.startswith(entities.FIELD_PREFIX) and isinstance(v, dict)):
+                continue
+            old = [o for o in v.get("old") or [] if not (isinstance(o, dict) and o.get("card") in ids)]
+            new = dict(v, old=old)
+            if v.get("card") in ids:
+                new.update(value=None, card=None, doc_date=None)
+            if new != v:
+                e[k] = new
+                changed = True
+    return changed
+
+
+def _entity_fields(vault, ids, turn_id):
+    """目前的實體清單：數字欄的出處卡在那夾的清掉（entities 的鎖、先備進這一回合）。"""
+    with entities.lock(vault):
+        data = entities.load(vault)
+        if drop_entity_fields(data, ids):
+            entities._save(vault, data, turn_id)
+
+
 def _pending_md(data):
     with tempfile.TemporaryDirectory() as d:
         pending.render(d, data)
@@ -363,7 +393,8 @@ def _current_state(vault, ids, turn_id, counts):
              (agenda.AGENDA_POSIX, lambda: agenda._mutate(vault, turn_id, lambda data: (None, drop_agenda(data, ids)))),
              (rulings.RULINGS_POSIX, lambda: rulings._mutate(vault, turn_id, lambda data: (None, drop_rulings(data, ids)))),
              (findings.FINDINGS_POSIX, lambda: counts.__setitem__(
-                 "findings", counts["findings"] + findings._mutate(vault, turn_id, f_change))))
+                 "findings", counts["findings"] + findings._mutate(vault, turn_id, f_change))),
+             (entities.ENTITIES_POSIX, lambda: _entity_fields(vault, ids, turn_id)))
     for rel, act in parts:
         if (Path(vault) / rel).exists():
             try:
@@ -774,6 +805,7 @@ JSON_DROPS = {
     rulings.RULINGS_POSIX: lambda data, ids, prefix: drop_rulings(data, ids),
     findings.FINDINGS_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),
     findings.ARCHIVE_POSIX: lambda data, ids, prefix: bool(drop_findings(data, ids)),  # lint 題：推算封存檔（T-8）
+    entities.ENTITIES_POSIX: lambda data, ids, prefix: drop_entity_fields(data, ids),  # 數字欄的出處卡（記帳 1b）
 }
 
 

@@ -19,6 +19,8 @@ from kb.lint import state  # noqa: E402
 from kb.lint.checks import tag_edits  # noqa: E402
 
 LI, LI_REL = "e-aaaa0001", "案子/內湖李/內湖李.md"
+OPENING_ONE = ("你在卡的屬性欄改了標籤或數字：1 張綜合卡（信義王）；跑 kb entity tag --from-card 記進去（數字一起記，"
+               "同 kb entity field --from-card），說一聲記了什麼；不在字典的詞直接加進字典，不是數字的問客戶要記成多少。")  # 記帳 1b 第 6 點
 SID = "test-sid"
 
 
@@ -227,14 +229,14 @@ class HandEdit(Base):
     def test_opening_line_then_from_card(self):
         """驗收 11（裁定 6）：開場段有那一行；--from-card 照她改的記進正本、句子一字不差、開場那行不再出現。"""
         self.edit("階段: 施工", "階段: 完工")
-        self.assertIn("客戶在 Obsidian 改了 1 張綜合卡的標籤（信義王）：跑 kb entity tag --from-card 記進去，說一聲記了什麼；不在字典的直接加進字典。",
+        self.assertIn(OPENING_ONE,
                       self.opening())
         self.assertEqual(entities.tag_edits(self.V), [{"name": "信義王", "fields": ["階段"], "ok": True, "problem": None}])
         r = self.kb("entity", "tag", "--from-card")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "照你在卡上改的記下了：信義王 階段 完工"))
         self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "完工")
         self.assertEqual(entry(self.V, E.XINYI)["tags_said"], ["階段"])
-        self.assertFalse([x for x in self.opening() if x.startswith("客戶在 Obsidian 改了") and "標籤" in x])
+        self.assertFalse([x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")])
         self.assertEqual(self.kb("entity", "tag", "--from-card", "信義王").stdout.strip(), "卡上的標籤跟實體清單一樣，沒有要記的")
 
     def test_from_card_outside_dictionary_not_written(self):
@@ -253,7 +255,7 @@ class HandEdit(Base):
         self.edit("階段: 施工", "階段: [施工, 完工]")
         want = "信義王的卡上「階段」寫了 2 個詞，這一欄只能選一個：要留哪一個？"
         self.assertEqual(entities.tag_edits(self.V), [{"name": "信義王", "fields": ["階段"], "ok": False, "problem": want}])
-        self.assertIn("客戶在 Obsidian 改了 1 張綜合卡的標籤（信義王）：跑 kb entity tag --from-card 記進去，說一聲記了什麼；不在字典的直接加進字典。",
+        self.assertIn(OPENING_ONE,
                       self.opening())
         r = self.kb("entity", "tag", "--from-card", "信義王")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, want))
@@ -272,8 +274,8 @@ class HandEdit(Base):
             p.write_text(p.read_text(encoding="utf-8").replace("階段: 施工", "階段: 完工"), encoding="utf-8", newline="\n")
             os.utime(p, (time.time() + 30, time.time() + 30))
         self.edit("階段: 施工", "階段: 完工")
-        (line,) = [x for x in self.opening() if x.startswith("客戶在 Obsidian 改了") and "標籤" in x]
-        self.assertTrue(line.startswith("客戶在 Obsidian 改了 5 張綜合卡的標籤（"), line)
+        (line,) = [x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")]
+        self.assertTrue(line.startswith("你在卡的屬性欄改了標籤或數字：5 張綜合卡（"), line)
         self.assertEqual(line.split("（")[1].split("）")[0].count("、"), 2)
         self.assertIn("…）", line)
 
@@ -373,14 +375,14 @@ class Absorb(Base):
 
     def test_dropped_line_is_none_and_kept(self):
         self.edit("階段: 施工\n", "")
-        self.assertIn("客戶在 Obsidian 改了 1 張綜合卡的標籤（信義王）：跑 kb entity tag --from-card 記進去，說一聲記了什麼；不在字典的直接加進字典。",
+        self.assertIn(OPENING_ONE,
                       self.opening())
         r = self.kb("entity", "tag", "--from-card")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "照你在卡上改的記下了：信義王 階段 沒有"))
         e = entry(self.V, E.XINYI)
         self.assertEqual((e["tags"]["階段"], e["tags_said"]), ("", ["階段"]))
         self.assertIn("階段: []\n", (self.V / T.XINYI_REL).read_text(encoding="utf-8"), "渲染照正本寫回空的")
-        self.assertFalse([x for x in self.opening() if x.startswith("客戶在 Obsidian 改了") and "標籤" in x])
+        self.assertFalse([x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")])
         self.kb("profile", "add", "標籤", "型別=案子", "欄名=預算", "詞=高、中")
         T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 木作]", "階段: 施工", "預算: 高"], turn_id=self.t)
         e = entry(self.V, E.XINYI)

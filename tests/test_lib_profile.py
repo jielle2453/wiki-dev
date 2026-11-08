@@ -69,15 +69,22 @@ class Defaults(unittest.TestCase):
         self.assertTrue(all(e["action"] == "kind_only" and e["source"] == "inferred" for e in d["exclusions"]))
 
     def test_fixture_json_is_defaults_with_md_sha(self):
+        """fixture 是記帳 1b 之前的預設（沒有九、十節）：其餘跟現在的預設一樣。"""
         data = json.loads((PROFILE / "profile.json").read_text(encoding="utf-8"))
         want = profile.defaults(DAY)
         want["md_sha256"] = profile.sha256_text(fixture_md())
+        self.assertEqual((want.pop("fields"), [m["mode"] for m in want.pop("money")]), ([], ["on"]))  # 新庫是開（記帳 1b）
         self.assertEqual(data, want)
 
 
 class Render(unittest.TestCase):
     def test_render_equals_fixture(self):
-        self.assertEqual(profile.render_text(profile.defaults(DAY)), fixture_md())
+        """fixture 的 md 是記帳 1b 之前的八節：現在的預設多畫九、十節，前八節一字不差。"""
+        text = profile.render_text(profile.defaults(DAY))
+        self.assertTrue(text.startswith(fixture_md()))
+        self.assertEqual(text[len(fixture_md()):].count("\n## "), 2)
+        self.assertIn("\n## 九、數字欄\n", text)
+        self.assertTrue(text.endswith("| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| 開 |  | 推測 | 2026-10-19 |\n"))
 
     def test_round_trip(self):
         d = profile.defaults(DAY)
@@ -120,7 +127,8 @@ class Parse(unittest.TestCase):
     def test_three_sections_empty_is_ok(self):
         self.assertEqual(profile.parse_md(md_with(cards=[], exclusions=[])),
                          {"types": [], "card_types": [], "exclusions": [], "synthesis_sections": [], "about": [],
-                          "preferences": [], "templates": [], "tags": []})
+                          "preferences": [], "templates": [], "tags": [], "fields": [],
+                          "money": [{"mode": "on", "places": [], "source": "inferred", "date": DAY}]})
 
     def test_missing_section(self):
         text = md_with().replace("## 二、卡型與段落", "## 卡型與段落")
@@ -736,7 +744,7 @@ class Edited(unittest.TestCase):
         self.assertEqual((got3["about"], res["message"]), ([], "已拿掉關於你：林美華"))
 
     def test_bad_section_and_column(self):
-        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
+        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤、數字欄、記帳")
         self.assertEqual(self.err("偏好", "add", 名稱="x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好、用在哪、序號")
         self.assertEqual(self.err("卡型", "remove", 提示="x"), "「卡型」這一節沒有「提示」欄；欄是 卡型、段落")
 
@@ -748,7 +756,11 @@ class SectionsSchema(unittest.TestCase):
         d["preferences"] = [pref("回答先講結論")]
         got = profile.sections_schema(d)
         self.assertEqual([s["name"] for s in got], list(profile.SECTION_NAMES))
-        types, cards, ex, synth, about, prefs, templates, tags = got
+        types, cards, ex, synth, about, prefs, templates, tags, fields, money = got
+        self.assertEqual((fields["number"], fields["key"], fields["add"]),
+                         (9, ["型別", "欄名"], "kb profile add 數字欄 型別={型別} 欄名={欄名} 單位={單位}"))
+        self.assertEqual((money["number"], money["key"], money["remove"]), (10, [], None))
+        self.assertEqual(money["columns"][0], {"name": "狀態", "choices": ["開", "只記我講的", "關"]})
         self.assertEqual((tags["number"], tags["key"], tags["remove"]), (8, ["型別", "欄名"], None))
         self.assertEqual(tags["add"], "kb profile add 標籤 型別={型別} 欄名={欄名} 詞={詞} 可多選={可多選}")
         self.assertEqual((templates["key"], templates["add"], templates["remove"]),
@@ -876,7 +888,7 @@ class SchemaFive(unittest.TestCase):
 
     def test_render_has_section_eight(self):
         text = profile.render_text(profile.defaults(DAY))
-        self.assertTrue(text.endswith(SECTION8), text[-300:])
+        self.assertIn(SECTION8 + "\n## 九、數字欄", text)  # 記帳 1b：第八節後面接九、十節
         self.assertEqual(profile.defaults(DAY)["tags"], [])
         self.assertEqual(profile.SCHEMA_VERSION, 7)
 
