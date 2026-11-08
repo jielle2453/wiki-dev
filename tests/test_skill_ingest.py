@@ -159,13 +159,13 @@ class CardMakerSkeleton(unittest.TestCase):
         self.steps = self.body[self.body.index("## 骨架"):self.body.index("## 共通")]
 
     def test_dispatch_flow_in_order(self):
-        marks = ["cards todo --json", "cards dispatch --json", "Agent 工具", "subagent_type", "approval", "cards status",
-                 "cards stop --json", "TaskStop", "`asks` 有就問一件", "note_cmd", "turn note"]
+        marks = ["cards todo --json", "cards dispatch --json", "派一個子代理", "沒有派子代理的工具", "approval", "cards status",
+                 "cards stop --json", "你派的子代理都中斷", "`asks` 有就問一件", "note_cmd", "turn note"]
         pos = [self.steps.index(m) for m in marks]
         self.assertEqual(pos, sorted(pos), marks)
 
     def test_three_new_principles(self):
-        for lead, code in (("一次最多寫 10 份卡", "D-196"), ("派工照程式給的 prompt", "D-197"), ("子代理的回報不轉述檔案內容", "D-022")):  # codex 分支：第一條改了
+        for lead, code in (("製卡交給製卡助手", "D-196"), ("派工照程式給的 prompt", "D-197"), ("子代理的回報不轉述檔案內容", "D-022")):
             with self.subTest(principle=lead):
                 line = next((ln for ln in self.body.splitlines() if lead in ln), "")
                 self.assertIn(code, line)

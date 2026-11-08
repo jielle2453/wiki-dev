@@ -74,7 +74,10 @@ LOCKED_HEAD = "有密碼"
 STOPPED = "這批已經停了或做完了"
 NO_SOURCE = "沒有登記這個來源：{}"
 APPROVAL_QUESTION = "這次要更新 {n} 張綜合卡，比平常多；要繼續嗎？"
-PROMPT = "批次 {batch}：{what}。第一步跑 {prefix} cards batch {batch} --json，照它做，做完照你的說明回報。"
+# codex 分支（spec 裁定 8）：Codex 沒有子代理定義檔，prompt 自己指到 card-maker.md 並交代收尾（甲乙共用 --done）
+PROMPT = ("批次 {batch}：{what}。你是製卡者：先讀 {maker}，照它做；第一步跑 {prefix} cards batch {batch} --json。"
+          "做完跑 {prefix} cards batch {batch} --done（沒做成的每份加一個 --failed \"<編號>：<原因一句>\"），"
+          "最後一則照 card-maker.md 的回報格式。")
 DESCRIPTION = "整理第 {n} 批（{what}）"  # 給 Agent 工具的 description：繁中，主對話轉述也不會冒英文（S6）
 SAY_FIRST = "交給製卡助手在背景整理，好了跟你說；這期間照常問我"
 SAY_PROGRESS = "做好 {done} 份了{failed}；還在做 {running} 批"
@@ -650,6 +653,11 @@ def prefix():
     return f'python "{plugin_root().as_posix()}/scripts/kb.py"'
 
 
+def maker():
+    """製卡者說明的絕對路徑（codex 分支：prompt 指過去；執行時算、不存，D-019）。"""
+    return f'"{plugin_root().as_posix()}/agents/card-maker.md"'
+
+
 def _what(kind, n):
     if kind == ADOPT:
         return f"讀{KIND_TEXT[kind]} {n} 段"
@@ -869,7 +877,7 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
     n0 = sum(1 for b in data["batches"] if b.get("job") == job["job"]) - len(made)
     shown = [{"batch": b["batch"], "kind": b["kind"], "items": len(b["items"]), "agent": AGENT,
               "description": DESCRIPTION.format(n=n0 + i + 1, what=_what(b["kind"], len(b["items"]))),
-              "prompt": PROMPT.format(batch=b["batch"], what=_what(b["kind"], len(b["items"])), prefix=pre)}
+              "prompt": PROMPT.format(batch=b["batch"], what=_what(b["kind"], len(b["items"])), prefix=pre, maker=maker())}
              for i, b in enumerate(made)]
     has_job = not (fresh and not (made or approval))
     return {"job": job["job"] if has_job else None, "turn": jt, "batches": shown, "running": len(run), "left": counts,
@@ -997,7 +1005,7 @@ def dispatch_adopt(vault, session_id, turn_id):
     n0 = len(mine_b)
     shown = [{"batch": b["batch"], "kind": ADOPT, "items": len(b["items"]), "agent": AGENT,
               "description": DESCRIPTION.format(n=n0 + i + 1, what=_what(ADOPT, len(b["items"]))),
-              "prompt": PROMPT.format(batch=b["batch"], what=_what(ADOPT, len(b["items"])), prefix=pre)}
+              "prompt": PROMPT.format(batch=b["batch"], what=_what(ADOPT, len(b["items"])), prefix=pre, maker=maker())}
              for i, b in enumerate(made)]
     return {"job": job["job"] if not (fresh and not made) else None, "turn": job["turn"], "batches": shown,
             "running": len(busy), "left": {ADOPT: len(left)}, "approval": None, "done": done and not fresh,
@@ -1307,6 +1315,28 @@ def agent_stop(vault, session_id, agent_id, message=None):
         from kb._lib import ledger
         ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
     return agent["turn"]
+
+
+def batch_done(vault, batch_id, failed=()):
+    """codex 分支（spec 裁定 8）：子代理或主對話自己把一批記成做完，取代 SubagentStop 的 agent_stop。
+    還是 open（過期了也算）就改 done、`failed`（「<編號>：<原因>」）只收這批的編號、做完的卡收認領標籤，回那批；
+    不在、或不是 open（停了、做完了、放掉了）回 None、不改。不驗產物：沒寫好的卡下次 dispatch 會從待做清單再列。"""
+    reasons = report_failures("\n".join(f"- {x}" for x in failed or ()))
+    with lock(vault):
+        data = load(vault)
+        b = next((x for x in data["batches"] if x.get("batch") == batch_id), None)
+        if b is None or b.get("status") != "open":
+            return None
+        b["status"] = "done"
+        b["failed"] = {k: v for k, v in reasons.items() if k in (b.get("items") or [])}
+        save(vault, data, (_job_of(data, b) or {}).get("turn") or turn.current(vault)["turn"])
+    if b["kind"] == "cards":
+        try:
+            release_claims(vault, [k for k in b.get("items") or [] if k not in b["failed"]])
+        except Exception as e:  # noqa: BLE001  同 agent_stop：收不掉的留給健檢清
+            from kb._lib import ledger
+            ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
+    return b
 
 
 def _release_orphans(data, session_id, now, minutes):

@@ -57,11 +57,30 @@ class Dispatch(Base):
         got = self.js("cards", "dispatch")
         self.assertEqual([b["items"] for b in got["batches"]], [20, 20, 5])
         self.assertEqual(got["turn"], self.t)
-        for b in got["batches"]:
-            self.assertEqual(b["prompt"], f"批次 {b['batch']}：做卡 {b['items']} 份。第一步跑 {PREFIX} cards batch {b['batch']} "
-                                          "--json，照它做，做完照你的說明回報。")
+        maker = f'"{plugin_root().as_posix()}/agents/card-maker.md"'
+        for b in got["batches"]:  # codex 分支（spec 裁定 8）：prompt 自己指到 card-maker.md、交代 --done 收尾
+            self.assertEqual(b["prompt"], f"批次 {b['batch']}：做卡 {b['items']} 份。你是製卡者：先讀 {maker}，照它做；"
+                                          f"第一步跑 {PREFIX} cards batch {b['batch']} --json。做完跑 {PREFIX} cards batch "
+                                          f"{b['batch']} --done（沒做成的每份加一個 --failed \"<編號>：<原因一句>\"），"
+                                          "最後一則照 card-maker.md 的回報格式。")
+        self.assertTrue((plugin_root() / "agents" / "card-maker.md").is_file())
         again = self.js("cards", "dispatch")
         self.assertEqual((again["batches"], again["running"]), ([], 3))
+
+    def test_codex_done_closes_batch_then_dispatch_continues(self):
+        """codex 分支（spec 裁定 8）：子代理或主對話自己 --done 收尾；--failed 只收這批的編號；收過的再收印停了。"""
+        got = self.js("cards", "dispatch")
+        first, second = got["batches"][0]["batch"], got["batches"][1]["batch"]
+        items = batches.load(self.V)["batches"][0]["items"]
+        r = self.ok("cards", "batch", first, "--done", "--failed", f"{items[0]}：讀不到", "--failed", "f-別批：不收")
+        self.assertEqual(r, f"批次 {first} 記成做完：做好 19、沒做成 1；接著跑 kb cards dispatch --json")
+        b = next(x for x in batches.load(self.V)["batches"] if x["batch"] == first)
+        self.assertEqual((b["status"], b["failed"]), ("done", {items[0]: "讀不到"}))
+        self.assertEqual(self.ok("cards", "batch", first, "--done"), batches.STOPPED)  # 重複收：不改、不報錯
+        self.assertEqual(self.ok("cards", "batch", "b-沒有這批", "--done"), batches.STOPPED)
+        self.assertEqual(self.js("cards", "dispatch")["running"], 2)
+        self.ok("cards", "stop")
+        self.assertEqual(self.ok("cards", "batch", second, "--done"), batches.STOPPED)  # 停掉（放掉）的不收
 
     def test_human_lines(self):
         self.assertEqual(self.ok("cards", "dispatch"), "派了 3 批（做卡 20、20、5）；還在跑 0 批；還剩 0")
