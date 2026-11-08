@@ -7,9 +7,14 @@ cancelled）、date（收付那天，open 是 None）、due（到期日）、ent
 基本單位）、advanced_by（墊的人，D-338）、text、note、split_from、repeat（{every, from}）、repeat_of、source（confirmed｜inferred｜
 corrected）、origin（{"card","fp"}｜{"statement"}｜None）、cards（補的出處卡）、created_turn、history。帳全隊看得到、不分誰的，
 不另存記的人（D-339：誰改的照流水檔每行的「是誰」答）。
-寫都經 _mutate：鎖、讀、fn、有變才備進回合再寫、after_write（第 3 份的掛點，這份空的）。寫之前看設定檔第十節：關的時候
+寫都經 _mutate：鎖、讀、先吃她對帳頁的手改、fn、有變才備進回合再寫、after_write 重畫帳頁；放開鎖之後重畫 系統/日程.md
+（日程頁也列帳的到期件，記帳 3）。寫之前看設定檔第十節：關的時候
 拒絕所有寫入、只記我講的拒絕帶卡的（D-343，保險；句子給 AI 不給她）；實體改名合併、purge 這些跟著動的不擋。
 庫存、收付合計、未收付都由這裡算（D-271、D-284），AI 不心算。
+帳頁（記帳 3，D-283、D-284、D-342）：系統/帳.md 總覽（還沒收付的、庫存、每季比較、每年）與 系統/帳/<YYYY>.md 每年一頁（全年、
+月份段：合計、照型別的表、商品、預設收起來的明細）。內容沒變不寫（舊年份的頁只有那年的帳變了才寫）；手改照 agenda 那套
+（hand.guarded／consume、renders.diff）：明細與還沒收付的那幾行刪掉＝取消、改日期、改金額照做，表與合計改了不算、下次重算，
+看不懂的放進「你加的」交給 AI（D-299）。實體名字寫成連到卡實際位置的連結（D-280，agenda.linker）。
 """
 import copy
 import datetime as dt
@@ -132,9 +137,25 @@ def exists(vault):
 
 # ---------- 寫 ----------
 
-def after_write(vault, turn_id, data):
-    """寫完的掛點（第 3 份畫帳頁、卡底下用）；這份什麼都不做。"""
-    return None
+def after_write(vault, turn_id, data, skip=()):
+    """寫完（還拿著鎖）重畫帳頁；skip 是她那份沒存成、這次不重寫的頁。畫不出來只記 log，不讓 AI 以為沒記到又加一次。"""
+    try:
+        render(vault, turn_id, data, hand={}, skip=skip)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"帳.md 重畫失敗：{type(e).__name__}: {e}", source="money_render")
+
+
+def _after_unlock(vault, turn_id):
+    """放開帳的鎖之後重畫日程頁（列帳的到期件）；日程正拿著它自己的鎖（日程頁手改套用到帳）時不叫，日程那邊寫完自己會重畫。"""
+    from kb._lib import agenda
+    if agenda.holding(vault) or not (Path(vault) / agenda.MD_POSIX).exists():
+        return
+    try:
+        agenda.render(vault, turn_id)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"日程.md 重畫失敗：{type(e).__name__}: {e}", source="money_render")
 
 
 def check_mode(vault, card=False):
@@ -146,20 +167,28 @@ def check_mode(vault, card=False):
         raise MoneyRefused(SPOKEN_MSG, refused="spoken")
 
 
-def _mutate(vault, turn_id, fn, check=None):
-    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、after_write。check 是 "write"／"card" 時先看開關。"""
+def _mutate(vault, turn_id, fn, check=None, hand_out=None):
+    """鎖住讀改寫：fn(data) 回 (結果, 有沒有改)；有改才備份、寫、after_write。check 是 "write"／"card" 時先看開關。
+    fn 之前先吃她對帳頁的手改（照 agenda._mutate）；hand_out 是清單時把處理報告放進去。放開鎖之後重畫日程頁。"""
     if check:
         check_mode(vault, card=check == "card")
+    from kb._lib import hand as hand_lib
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
         data = load(vault)
+        hand, failed = _consume_hand(vault, data, turn_id)
+        if hand_out is not None:
+            hand_out.append(hand)
         result, changed = fn(data)
+        changed = changed or isinstance(hand, dict) or hand == hand_lib.UNRECOGNIZED
         if changed:
             from kb._lib import turn
             turn.backup(vault, MONEY_POSIX, turn_id)
             write_json_atomic(p, data)
-            after_write(vault, turn_id, data)
+            after_write(vault, turn_id, data, skip=failed)
+    if changed:
+        _after_unlock(vault, turn_id)
     return result
 
 
@@ -479,29 +508,35 @@ def edit(vault, mid, turn_id, by="ai", amount=None, date=None, due=None, entitie
     if note is not None:
         new["note"] = " ".join(str(note).split())
 
+    return _mutate(vault, turn_id, _edit_fn(mid, new, turn_id, by), check="write")
+
+
+def _edit_fn(mid, new, turn_id, by):
+    """edit 在鎖裡改資料的那一段（new 已經驗過、轉好）；帳頁手改套用也用它。"""
     def fn(data):
+        want = dict(new)
         it = _find(data, mid)
         before = copy.deepcopy(it)
-        if it.get("dir") == "none" and "amount" in new:
-            new.pop("amount")
-        if new.get("amount", it.get("amount")) is None and it.get("status") == "done":
+        if it.get("dir") == "none" and "amount" in want:
+            want.pop("amount")
+        if want.get("amount", it.get("amount")) is None and it.get("status") == "done":
             raise MoneyRefused(AMOUNT_UNKNOWN_DONE)
-        if "date" in new and it.get("status") == "open" and it.get("dir") != "none":
+        if "date" in want and it.get("status") == "open" and it.get("dir") != "none":
             raise MoneyRefused(EDIT_DATE_OPEN)
         changes = []
         for k in EDITABLE:
-            if k in new and new[k] != it.get(k):
-                changes.append(f"{k} {_show(it.get(k))} → {_show(new[k])}")
-                it[k] = new[k]
+            if k in want and want[k] != it.get(k):
+                changes.append(f"{k} {_show(it.get(k))} → {_show(want[k])}")
+                it[k] = want[k]
                 if k == "due" and it.get("repeat"):
-                    it["repeat"] = {**it["repeat"], "from": new[k]}
+                    it["repeat"] = {**it["repeat"], "from": want[k]}
         if not changes:
             return (it, before), False
         if it.get("source") == "inferred":
             it["source"] = "corrected"
         _log(it, "；".join(changes), by, turn_id)
         return (it, before), True
-    return _mutate(vault, turn_id, fn, check="write")
+    return fn
 
 
 def settle(vault, mid, turn_id, amount=None, date=None, due=None, by="ai"):
@@ -552,7 +587,11 @@ def set_status(vault, mid, status, turn_id, by="ai"):
     """cancel（cancelled）／reopen（open）。回筆。"""
     if status not in STATUSES:
         raise ValueError(status)
+    return _mutate(vault, turn_id, _status_fn(mid, status, turn_id, by), check="write")
 
+
+def _status_fn(mid, status, turn_id, by):
+    """set_status 在鎖裡改資料的那一段；帳頁手改套用（刪掉一行＝取消）也用它。"""
     def fn(data):
         it = _find(data, mid)
         old = it.get("status")
@@ -567,7 +606,7 @@ def set_status(vault, mid, status, turn_id, by="ai"):
         it["status"] = want
         _log(it, f"status {old} → {want}", by, turn_id)
         return it, True
-    return _mutate(vault, turn_id, fn, check="write")
+    return fn
 
 
 def attach(vault, mid, card, turn_id, by="ai"):
@@ -1112,3 +1151,561 @@ def drop_cards(data, ids):
         keep.append(it)
     data["items"] = keep
     return n
+
+
+# ---------- 帳頁（記帳 3，D-283、D-284、D-342、D-280） ----------
+
+MD_POSIX = "系統/帳.md"
+YEAR_DIR = "系統/帳"
+PAGE_NOTE = "（程式產生，改了下一句話會照你改的更新；報表與庫存的數字是算的，改了不算）"
+YEAR_NOTE = "（程式產生，改了下一句話會照你改的更新；報表的數字是算的，改了不算）"
+OPEN_TITLE = "還沒收付的"
+STOCK_TITLE = "庫存"
+QUARTER_TITLE = "每季（淨）"
+YEARS_TITLE = "每年"
+FULL_YEAR = "全年"
+QUARTERS = ("第一季", "第二季", "第三季", "第四季")
+TOTAL_PREFIX = "合計："
+DETAIL_HEAD = "> [!note]- 明細（{n} 筆）"
+NOTHING = "（沒有）"
+EMPTY_YEAR = "（這年沒有收付的帳）"
+UNKNOWN_AMOUNT = "（金額未知）"
+INFERRED_MARK = "〔推測〕"
+HAND_BY = "hand"
+WEEK = "一二三四五六日"
+OVERVIEW_IGNORE = (STOCK_TITLE, QUARTER_TITLE, YEARS_TITLE)  # 手改比對不看的段（數字是算的）
+YEAR_IGNORE = (FULL_YEAR,)
+_YEAR_REL = re.compile(r"^系統/帳/(\d{4})\.md$")
+_MD = re.compile(r"(?<![0-9/])(\d{1,2})/(\d{1,2})(?![0-9/])")
+_ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
+_WDAY = re.compile(r"（週?[一二三四五六日]）")
+_LATE = re.compile(r"\s*已過 \d+ 天\s*$")
+_AMT = re.compile(r"(?<=[收付] )[0-9][0-9,]*(?:\.[0-9]+)?")
+
+
+def year_rel(year):
+    return f"{YEAR_DIR}/{year}.md"
+
+
+def is_page(rel):
+    """帳的頁：總覽或「系統/帳/ 底下」的年頁（不一頁一頁列，D-284）。"""
+    rel = str(rel or "").replace("\\", "/")
+    return rel == MD_POSIX or bool(_YEAR_REL.match(rel))
+
+
+def page_rels(vault):
+    """磁碟上現有的帳頁（總覽在前、年頁照年）。"""
+    out = [MD_POSIX] if (Path(vault) / MD_POSIX).is_file() else []
+    folder = Path(vault) / YEAR_DIR
+    if folder.is_dir():
+        out += sorted(f"{YEAR_DIR}/{f.name}" for f in folder.glob("*.md") if _YEAR_REL.match(f"{YEAR_DIR}/{f.name}"))
+    return out
+
+
+def _wd(day):
+    d = dt.date.fromisoformat(day)
+    return f"{d.month}/{d.day}（{WEEK[d.weekday()]}）"
+
+
+def agenda_md(day):
+    d = dt.date.fromisoformat(day)
+    return f"{d.month}/{d.day}"
+
+
+def _amt_text(it):
+    from kb._lib import numbers
+    return numbers.show(it["amount"]) if it.get("amount") is not None else None
+
+
+def _who(it, link):
+    return "、".join(link(n) for n in it.get("entities") or [])
+
+
+def _items_text(it, prof, ents, times=False):
+    """品項：「精華液 −2 瓶、膠囊 −1 瓶，北店」（times：卡底下那段寫「精華液 ×2」）。"""
+    from kb._lib import entities, numbers
+    lines = it.get("lines") or []
+    if not lines:
+        return ""
+    places = {ln.get("place") for ln in lines}
+    one = len(places) == 1 and None not in places
+    shown = []
+    for ln in lines:
+        if times:
+            q = f"{ln['entity']} ×{numbers.show(abs(Decimal(str(ln.get('qty') or 0))))}"
+        else:
+            e = entities.find(ents, ln.get("entity"))[0]
+            q = f"{ln['entity']} {_qty_text(ln.get('qty') or 0, base_unit(prof, e.get('type')) if e else '')}"
+        shown.append(q + (f"（{ln['place']}）" if ln.get("place") and not one else ""))
+    return "、".join(shown) + (f"，{lines[0]['place']}" if one else "")
+
+
+def late_days(it, today):
+    due = it.get("due")
+    if it.get("status") != "open" or not due or not today or due >= today:
+        return 0
+    return (dt.date.fromisoformat(today) - dt.date.fromisoformat(due)).days
+
+
+def open_line(it, link, today):
+    """總覽「還沒收付的」一行：「- 11/20（五）收 50,000 [[…|信義王]] 第二期　已過 3 天」；報帳「- 付 3,200 文具（小王墊）」；
+    金額未知「- （金額未知）收 [[…|王先生]] 尾款　到期 12/31」。"""
+    d = DIR_TEXT.get(it.get("dir"), "")
+    tail = " ".join(x for x in (_who(it, link), it.get("text") or "") if x)
+    adv = f"（{it['advanced_by']}墊）" if it.get("advanced_by") else ""
+    amt = _amt_text(it)
+    if amt is None:
+        due = f"　到期 {agenda_md(it['due'])}" if it.get("due") else ""
+        return f"- {UNKNOWN_AMOUNT}{d}" + (f" {tail}" if tail else "") + adv + due
+    late = late_days(it, today)
+    return (f"- {_wd(it['due']) if it.get('due') else ''}{d} {amt}" + (f" {tail}" if tail else "") + adv
+            + (f"　已過 {late} 天" if late else ""))
+
+
+def agenda_line(it, link):
+    """日程頁上帳的到期件（D-273（2））：「- 2026-11-20（週五）收 50,000 [[…|信義王]] 第二期」，跟日程那行同一個寫法。"""
+    from kb._lib import agenda
+    d = DIR_TEXT.get(it.get("dir"), "")
+    amt = _amt_text(it) or "金額未知"
+    tail = " ".join(x for x in (_who(it, link), it.get("text") or "") if x)
+    adv = f"（{it['advanced_by']}墊）" if it.get("advanced_by") else ""
+    return f"- {agenda.with_weekday(it['due'])}{d} {amt}" + (f" {tail}" if tail else "") + adv
+
+
+def detail_line(it, link, prof, ents, by_id=None):
+    """年頁明細一行（callout 裡）：「> - 11/5（四）收 5,000 [[…|李小姐]] 賣出（精華液 −2 瓶，北店；小王墊；拆自 10/30 那筆）」。"""
+    by_id = by_id or {}
+    if it.get("dir") == "none":
+        body = it.get("text") or "數量"
+    else:
+        body = f"{DIR_TEXT.get(it.get('dir'), '')} {_amt_text(it) or '金額未知'}"
+        who = _who(it, link)
+        body += (f" {who}" if who else "") + (f" {it['text']}" if it.get("text") else "")
+    inside = [x for x in (_items_text(it, prof, ents),) if x]
+    if it.get("advanced_by"):
+        inside.append(f"{it['advanced_by']}墊")
+    src = by_id.get(it.get("split_from")) if it.get("split_from") else None
+    if src is not None and _ref_day(src):
+        day = _ref_day(src)
+        same = (it.get("date") or "")[:4] == day[:4]
+        inside.append(f"拆自 {agenda_md(day)} 那筆" + ("" if same else f"（[[{year_rel(day[:4])[:-3]}|{day[:4]}]]）"))
+    mark = ""
+    if it.get("source") == "inferred":
+        card = (it.get("origin") or {}).get("card")
+        mark = INFERRED_MARK + (f"〔{card}〕" if card else "")
+    return f"> - {_wd(it['date'])}{body}" + (f"（{'；'.join(inside)}）" if inside else "") + mark
+
+
+def _skip(line):
+    """帳頁上算出來的行（表、合計、明細的標題）：她改了不算，下次照帳重算。"""
+    s = line[2:] if line.startswith("> ") else line
+    return s.startswith(("|", TOTAL_PREFIX, "[!note]"))
+
+
+def _total_line(got):
+    from kb._lib import numbers
+    return TOTAL_PREFIX + "｜".join([f"收 {numbers.show(got['in'])}", f"付 {numbers.show(got['out'])}",
+                                     f"淨 {numbers.show(got['net'])}"])
+
+
+def _type_tables(items, ents, link, rank_n):
+    """照型別的小表：每個型別前 rank_n 名，其他合成一行；沒掛實體的錢歸「其他」（D-283）。"""
+    from kb._lib import entities, numbers
+    by_type = {}
+    for it in items:
+        if it.get("status") != "done" or it.get("dir") not in ("in", "out"):
+            continue
+        first = (it.get("entities") or [None])[0]
+        e = entities.find(ents, first)[0] if first else None
+        typ = e.get("type") if e else OTHER
+        rec = by_type.setdefault(typ, {}).setdefault(first or OTHER, {"in": Decimal(0), "out": Decimal(0)})
+        rec[it["dir"]] += Decimal(str(it.get("amount") or 0))
+    out = []
+    for typ in sorted(by_type, key=lambda t: (t == OTHER, t)):
+        rows = sorted(by_type[typ].items(), key=lambda kv: (-(kv[1]["in"] + kv[1]["out"]), kv[0]))
+        top, rest = rows[:rank_n], rows[rank_n:]
+        lines = [f"### {typ}", f"| {typ} | 收 | 付 |", "|---|---|---|"]
+        for name, r in top:
+            label = name if name == OTHER else link(name)
+            lines.append(f"| {label} | {numbers.show(r['in'])} | {numbers.show(r['out'])} |")
+        if rest:
+            lines.append(f"| 其他（{len(rest)}） | {numbers.show(sum((r['in'] for _n, r in rest), Decimal(0)))} | "
+                         f"{numbers.show(sum((r['out'] for _n, r in rest), Decimal(0)))} |")
+        out.append("\n".join(lines))
+    return out
+
+
+def _product_table(products, link):
+    """商品賣出：數量、金額（多品項沒單價的標「估」）、毛利（估）；整月都沒有毛利就不出那欄（D-284 (3)）。"""
+    from kb._lib import numbers
+    if not products:
+        return ""
+    margin = any(p.get("margin") is not None for p in products)
+    head = "| 商品 | 賣出 | 金額 |" + (" 毛利（估） |" if margin else "")
+    lines = ["### 商品", head, "|---|---|---|" + ("---|" if margin else "")]
+    for p in products:
+        amt = "" if p.get("amount") is None else numbers.show(p["amount"]) + ("（估）" if p.get("estimated") else "")
+        row = f"| {link(p['name'])} | {numbers.show(p['qty'])} | {amt} |"
+        if margin:
+            row += f" {'' if p.get('margin') is None else numbers.show(p['margin'])} |"
+        lines.append(row)
+    return "\n".join(lines)
+
+
+def _stock_table(data, prof, ents, link):
+    """庫存表：商品 × 地點，最後一欄合計；沒有地點型別的只有合計；地點一筆都沒有也列 0（D-342）。"""
+    from kb._lib import numbers
+    rows = stock(None, data=data, prof=prof, ents=ents)["products"]
+    if not rows:
+        return NOTHING
+    names = _place_names(prof, ents)
+    lines = ["| 商品 | " + "".join(f"{n} | " for n in names) + "合計 |", "|---|" + "---|" * (len(names) + 1)]
+    for r in rows:
+        unit = f" {r['unit']}" if r.get("unit") else ""
+        cells = "".join(f"{numbers.show(r['places'].get(n, 0))}{unit} | " for n in names)
+        lines.append(f"| {link(r['name'])} | {cells}{numbers.show(r['total'])}{unit} |")
+    return "\n".join(lines)
+
+
+def _quarter_of(day):
+    return (int(day[5:7]) - 1) // 3
+
+
+def _quarter_table(live, today):
+    """每季（淨）：最近三年（今年與前兩年）；同一季同一列，加全年；今年全年那格標「到 <最後一筆的日期>」。"""
+    from kb._lib import numbers
+    this = int(today[:4])
+    years = [this - 2, this - 1, this]
+    net = {}
+    last = None
+    for it in live:
+        day = it.get("date")
+        if it.get("status") != "done" or it.get("dir") not in ("in", "out") or not day or int(day[:4]) not in years:
+            continue
+        sign = 1 if it["dir"] == "in" else -1
+        for key in ((int(day[:4]), _quarter_of(day)), (int(day[:4]), None)):
+            net[key] = net.get(key, Decimal(0)) + sign * Decimal(str(it.get("amount") or 0))
+        if int(day[:4]) == this and (last is None or day > last):
+            last = day
+    lines = ["| 季 | " + " | ".join(str(y) for y in years) + " |", "|---|" + "---|" * len(years)]
+    for q, label in list(enumerate(QUARTERS)) + [(None, FULL_YEAR)]:
+        cells = []
+        for y in years:
+            v = net.get((y, q))
+            cell = "" if v is None else numbers.show(v)
+            if q is None and y == this and v is not None and last:
+                cell += f"（到 {agenda_md(last)}）"
+            cells.append(cell)
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _years(vault, data):
+    """要畫的年：帳裡有收付日的年（含取消的，取消光了那頁要換成空的）、加上磁碟上已有的年頁；新的在前。"""
+    have = {i["date"][:4] for i in data["items"] if isinstance(i.get("date"), str) and re.match(r"\d{4}-", i["date"])}
+    have |= {_YEAR_REL.match(r).group(1) for r in page_rels(vault) if _YEAR_REL.match(r)}
+    return sorted(have, reverse=True)
+
+
+def _month_end(month):
+    first = dt.date.fromisoformat(month + "-01")
+    return ((first + dt.timedelta(days=31)).replace(day=1) - dt.timedelta(days=1)).isoformat()
+
+
+def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
+    """{頁: (文字, [(條目那行, 編號)])}：總覽與每一年。只用帶進來的 data（purge 照舊版重畫也用），不讀磁碟上的帳。"""
+    from kb._lib import agenda, numbers, renders
+    today = today or _today()
+    prof = _profile(vault) if prof is None else prof
+    ents = _ents(vault) if ents is None else ents
+    link = agenda.linker(vault, ents) if link is None else link
+    live = _live(data)
+    by_id = {i.get("id"): i for i in data["items"]}
+    years = _years(vault, data)
+    pages = {}
+    opens = open_items(vault, {"items": live})
+    open_rows = [(open_line(i, link, today), i.get("id")) for i in opens if i.get("dir") in ("in", "out")]
+    year_lines = []
+    for y in years:
+        got, _r, _rows = _sums(vault, live, f"{y}-01-01", f"{y}-12-31", ents)
+        year_lines.append(f"- [[{year_rel(y)[:-3]}|{y}]]　收 {numbers.show(got['in'])}｜付 {numbers.show(got['out'])}｜"
+                          f"淨 {numbers.show(got['net'])}")
+    text = (f"# 帳\n{PAGE_NOTE}\n\n## {OPEN_TITLE}\n" + ("\n".join(r for r, _i in open_rows) or NOTHING)
+            + f"\n\n## {STOCK_TITLE}\n" + _stock_table(data, prof, ents, link)
+            + f"\n\n## {QUARTER_TITLE}\n" + _quarter_table(live, today)
+            + f"\n\n## {YEARS_TITLE}\n" + ("\n".join(year_lines) or NOTHING) + "\n")
+    pages[MD_POSIX] = (text + renders.carried_section(vault, MD_POSIX), open_rows)
+    n = config.get(vault, "money_rank_n")
+    for y in years:
+        rel = year_rel(y)
+        frm, to = f"{y}-01-01", f"{y}-12-31"
+        done = sorted((i for i in live if i.get("status") == "done" and _in_range(i.get("date"), frm, to)),
+                      key=lambda i: (i.get("date") or "", i.get("id", "")))
+        rows = []
+        parts = [f"# 帳 {y}\n{YEAR_NOTE}\n"]
+        if not done:
+            parts.append(EMPTY_YEAR + "\n")
+        else:
+            got, _r, _rows = _sums(vault, done, frm, to, ents)
+            block = [f"## {FULL_YEAR}\n{_total_line(got)}"] + _type_tables(done, ents, link, n)
+            prod = _product_table(_products(done, ents), link)
+            if prod:
+                block.append(prod)
+            parts.append("\n\n".join(block) + "\n")
+            for month in sorted({i["date"][:7] for i in done}, reverse=True):
+                mine = [i for i in done if i["date"][:7] == month]
+                mgot, _r, _rows = _sums(vault, mine, month + "-01", _month_end(month), ents)
+                block = [f"## {int(month[5:])} 月\n{_total_line(mgot)}"] + _type_tables(mine, ents, link, n)
+                prod = _product_table(_products(mine, ents), link)
+                if prod:
+                    block.append(prod)
+                lines = [detail_line(i, link, prof, ents, by_id) for i in mine]
+                rows += [(ln, i.get("id")) for ln, i in zip(lines, mine)]
+                block.append(DETAIL_HEAD.format(n=len(mine)) + "\n" + "\n".join(lines))
+                parts.append("\n\n".join(block) + "\n")
+        pages[rel] = ("\n".join(parts) + renders.carried_section(vault, rel), rows)
+    return pages
+
+
+def render_text(vault, data, today=None):
+    """總覽的文字（purge 照舊版重畫用）。"""
+    return render_pages(vault, data, today)[MD_POSIX][0]
+
+
+def render(vault, turn_id=None, data=None, today=None, hand=None, skip=()):
+    """寫帳頁：只寫內容變了的頁（舊年份的頁只有那年的帳變了才寫）；有 turn_id 先備進回合；寫完記指紋與條目。回寫了哪幾頁。
+    手改已經由呼叫端處理過就帶 hand（_mutate 在鎖裡）；沒帶先照 apply_hand 處理一遍。skip 是這次不重寫的頁（她那份沒存成）。"""
+    from kb._lib import hand as hand_lib, renders
+    from kb._lib.io import write_text_atomic
+    if hand is None:
+        if apply_hand(vault, turn_id) == hand_lib.KEEP_FAILED:
+            return []
+        data = None  # 手改套用可能改了資料：重讀
+    data = load(vault) if data is None else data
+    today = today or _today()
+    written = []
+    for rel, (text, lines) in render_pages(vault, data, today).items():
+        if rel in set(skip):
+            continue
+        target = Path(vault) / rel
+        try:
+            if target.is_file() and target.read_text(encoding="utf-8") == text:
+                renders.record(vault, rel, text, day=today, lines=lines)
+                continue
+        except (OSError, UnicodeDecodeError):
+            pass
+        if turn_id:
+            from kb._lib import turn
+            turn.backup(vault, rel, turn_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_text_atomic(target, text)
+        renders.record(vault, rel, text, day=today, lines=lines)
+        written.append(rel)
+    return written
+
+
+def apply_hand(vault, turn_id):
+    """kb renders apply 系統/帳.md（或年頁）：照她在帳頁上改的做（所有帳頁一起）。回報告、None 或 hand.KEEP_FAILED。"""
+    out = []
+    _mutate(vault, turn_id, lambda data: (None, False), hand_out=out)
+    return out[0] if out else None
+
+
+def _norm(line):
+    return _LATE.sub("", _WDAY.sub("", line))
+
+
+def _shape(line):
+    return _AMT.sub("$", _MD.sub("#", _ISO.sub("#", line)))
+
+
+def hand_change(orig, body):
+    """她改了某行的字：只改了日期或金額就回 {"date": 她寫的新日期或 None, "amount": 新金額或 None}，否則 None。"""
+    a, b = _norm(orig), _norm(body)
+    if a == b or _shape(a) != _shape(b):
+        return None
+    da = _ISO.findall(a) + ["/".join(x) for x in _MD.findall(_ISO.sub("#", a))]
+    db = _ISO.findall(b) + ["/".join(x) for x in _MD.findall(_ISO.sub("#", b))]
+    ma, mb = _AMT.findall(a), _AMT.findall(b)
+    out = {"date": db[0] if da != db and db else None, "amount": mb[0] if ma != mb and mb else None}
+    return out if out["date"] or out["amount"] else None
+
+
+def _hand_day(text, it):
+    """她寫的日期（YYYY-MM-DD 或 M/D、M-D：沒寫年用那筆原本的年）→ ISO。"""
+    from kb._lib import agenda
+    try:
+        return agenda._hand_date(text, {"date": it.get("date") or it.get("due") or _today()})
+    except agenda.AgendaRefused as e:
+        raise MoneyRefused(str(e)) from None
+
+
+def short(it):
+    """工作日誌與回報裡說的那筆：「11/5 收 5,000 李小姐 賣出」。"""
+    day = it.get("date") or it.get("due")
+    parts = [agenda_md(day) if day else "", DIR_TEXT.get(it.get("dir"), ""), _amt_text(it) or "",
+             "、".join(it.get("entities") or []), it.get("text") or ""]
+    return " ".join(x for x in parts if x)
+
+
+def _strip(line):
+    return line[2:] if line.startswith("- ") else line
+
+
+def _apply_page(data, got, lines, turn_id):
+    """帳頁的手改在資料上做（歷程 by hand）：刪掉一行＝取消、改日期（已收付的改收付日、還沒的改到期日）、改金額（新定 1）。
+    做不了的記成認不出的（交給 AI，D-299）；改了字的認得出就從 got["add"] 拿掉。回 (做了什麼, 認不出的)。"""
+    from kb._lib import renders
+    by_id = {i.get("id"): i for i in data["items"]}
+    by_line = {_strip(renders.unlink(ln)): pid for ln, pid in lines}
+    applied, extra = [], []
+
+    def edit(it, change):
+        new = {}
+        if change.get("date"):
+            new["due" if it.get("status") == "open" else "date"] = _hand_day(change["date"], it)
+        if change.get("amount"):
+            new["amount"] = _amount(change["amount"])
+        _edit_fn(it["id"], new, turn_id, HAND_BY)(data)
+        applied.append(f"改了『{short(it)}』")
+
+    for c in got["checked"]:
+        extra.append({"kind": "changed", "text": f"{_strip(c['line'])}（你打了勾）", "orig": _strip(c["line"])})
+    for c in got["removed"]:
+        it = by_id.get(c["id"])
+        if it is not None and it.get("status") != "cancelled":
+            _status_fn(it["id"], "cancelled", turn_id, HAND_BY)(data)
+            applied.append(f"取消『{short(it)}』")
+    for c in got["changed_date"]:
+        it = by_id.get(c["id"])
+        if it is None or it.get("status") == "cancelled":
+            continue
+        try:
+            edit(it, {"date": c["to"]})
+        except (MoneyRefused, ValueError):
+            extra.append({"kind": "changed", "text": f"{_strip(c['line'])}（你改的日期：{c['to']}）", "orig": _strip(c["line"])})
+    keep = []
+    for a in got["add"]:
+        it = by_id.get(by_line.get(a.get("orig"))) if a.get("kind") == "changed" else None
+        change = hand_change(a["orig"], a["text"]) if it is not None and it.get("status") != "cancelled" else None
+        if change is None:
+            keep.append(a)
+            continue
+        try:
+            edit(it, change)
+        except (MoneyRefused, ValueError):
+            keep.append(a)
+    got["add"] = keep
+    return applied, extra
+
+
+def _merge_reports(reports):
+    from kb._lib import hand as hand_lib
+    dicts = [r for r in reports if isinstance(r, dict)]
+    if dicts:
+        return {"applied": [x for r in dicts for x in r["applied"]], "carried": [x for r in dicts for x in r["carried"]],
+                "dropped": sum(r["dropped"] for r in dicts), "saved": dicts[0]["saved"]}
+    for word in (hand_lib.UNRECOGNIZED, hand_lib.KEEP_FAILED):
+        if word in reports:
+            return word
+    return None
+
+
+def _consume_hand(vault, data, turn_id):
+    """帳頁跟程式上次寫的不一樣：一頁一頁比出她改了什麼（照 agenda._consume_hand；比的是上次真的寫進去的那份），
+    認得出的做在 data 上。回 (合起來的報告, 她那份沒存成、這次不重寫的頁)。"""
+    from kb._lib import hand, pending, renders
+    reports, failed = [], set()
+    ids = {i.get("id") for i in data["items"]}
+    for rel in page_rels(vault):
+        hers = renders.check(vault, rel)
+        if hers is None:
+            continue
+        base_text, lines = renders.base(vault, rel) or ("", [])
+        ignore = OVERVIEW_IGNORE if rel == MD_POSIX else YEAR_IGNORE
+
+        def run(st, rel=rel, hers=hers, base_text=base_text, lines=lines, ignore=ignore):
+            return hand.consume(vault, rel, hers, base_text, lines, ids, lambda g: _apply_page(data, g, lines, turn_id),
+                                ignore_sections=ignore, state=st, skip=_skip)
+        got = hand.guarded(vault, rel, hers, data, run,
+                           lambda saved, diff, rel=rel: pending.add_handedit(vault, rel, saved, diff, turn_id))
+        if got == hand.KEEP_FAILED:
+            failed.add(rel)
+        reports.append(got)
+    return _merge_reports(reports), failed
+
+
+def agenda_items(vault, data=None):
+    """日程頁、首頁、每句開頭讀的帳（D-273（2））：還沒收付、有到期日的收與付（帳全隊看得到，D-339）。讀不到回空的。"""
+    try:
+        data = load(vault) if data is None else data
+    except ValueError:
+        return []
+    return [i for i in data["items"] if i.get("status") == "open" and i.get("dir") in ("in", "out") and i.get("due")]
+
+
+# ---------- 卡底下「日程與帳」的帳那半（記帳 3，D-340；外掛只畫，字由這裡排好） ----------
+
+def _qty_unit(q, unit):
+    from kb._lib import numbers
+    return f"{numbers.show(q)}" + (f" {unit}" if unit else "")
+
+
+def panel_open_line(it, today):
+    """「未收 1,800 月底付另一半（到期 11/30，已過 3 天）」。"""
+    head = ("未收" if it.get("dir") == "in" else "未付") + " " + (_amt_text(it) or "（金額未知）")
+    if it.get("text"):
+        head += f" {it['text']}"
+    inside = []
+    if it.get("advanced_by"):
+        inside.append(f"{it['advanced_by']}墊")
+    if it.get("due"):
+        inside.append(f"到期 {agenda_md(it['due'])}")
+    late = late_days(it, today)
+    if late:
+        inside.append(f"已過 {late} 天")
+    return head + (f"（{'，'.join(inside)}）" if inside else "")
+
+
+def panel_done_line(it, prof, ents):
+    """「10/30（五）收 5,000 精華液 ×2、膠囊 ×1」。"""
+    body = it.get("text") or "數量" if it.get("dir") == "none" else f"{DIR_TEXT.get(it.get('dir'), '')} {_amt_text(it) or ''}"
+    parts = [x for x in (it.get("text") if it.get("dir") != "none" else "", _items_text(it, prof, ents, times=True)) if x]
+    return f"{_wd(it['date'])}{body}" + (f" {' '.join(parts)}" if parts else "")
+
+
+def panel(vault, name, today=None):
+    """{"money": {...}|None, "stock": {...}|None}：合計一行、未收付全部、最近 money_recent_n 筆已收付（各帶 line 與要開的頁、那一行）；
+    商品的合計那行換成庫存（各店）與賣出累計，地點型別的實體給那裡的各商品庫存。沒有任何筆、沒有庫存的回兩個 None。"""
+    from kb._lib import agenda, numbers
+    today = today or _today()
+    ents, prof = _ents(vault), _profile(vault)
+    got = for_entity(vault, name)
+    link = agenda.linker(vault, ents)
+    data = load(vault)
+    by_id = {i.get("id"): i for i in data["items"]}
+    stock_ = got.get("stock")
+    stock_out = None
+    if isinstance(stock_, list):
+        if stock_:
+            stock_out = {"products": stock_, "line": "庫存：" + "、".join(
+                f"{p['name']} {_qty_unit(next(iter(p['places'].values()), 0), p['unit'])}" for p in stock_)}
+    elif stock_:
+        places = "、".join(f"{k} {numbers.show(v)}" for k, v in stock_["places"].items())
+        stock_out = dict(stock_, line=f"庫存 {_qty_unit(stock_['total'], stock_['unit'])}" + (f"（{places}）" if places else ""))
+    if not got["items"]:
+        return {"money": None, "stock": stock_out}
+    parts = [(f"累計收 {numbers.show(got['in'])}", got["in"]), (f"累計付 {numbers.show(got['out'])}", got["out"]),
+             (f"未收 {numbers.show(got['open_in'])}", got["open_in"]), (f"未付 {numbers.show(got['open_out'])}", got["open_out"])]
+    head = "｜".join(t for t, v in parts if v) or "累計收 0"
+    if stock_out is not None and "total" in stock_out:
+        sold = [p for p in _products(_live(data), ents) if _key(p["name"]) == _key(stock_out["name"])]
+        head = stock_out["line"] + (f"｜賣出累計 {_qty_unit(sold[0]['qty'], stock_out['unit'])}" if sold else "")
+    money_out = {
+        "in": got["in"], "out": got["out"], "open_in": got["open_in"], "open_out": got["open_out"], "head": head,
+        "open": [{"id": i.get("id"), "due": i.get("due"), "late": late_days(i, today) > 0, "line": panel_open_line(i, today),
+                  "page": MD_POSIX, "match": open_line(i, link, today)} for i in got["open"] if i.get("dir") in ("in", "out")],
+        "recent": [{"id": i.get("id"), "date": i.get("date"), "line": panel_done_line(i, prof, ents),
+                    "page": year_rel(i["date"][:4]), "match": detail_line(i, link, prof, ents, by_id)} for i in got["recent"]],
+        "total_n": got["total_done"], "page": MD_POSIX}
+    return {"money": money_out, "stock": stock_out}

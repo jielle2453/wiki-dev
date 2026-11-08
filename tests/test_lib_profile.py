@@ -423,7 +423,7 @@ class SchemaTwo(unittest.TestCase):
         d["synthesis_sections"] = profile.default_sections(d["types"], DAY)
         d["about"] = [{"name": "林小姐室內設計", "kind": "company", "aliases": ["林小姐"], "source": "interview", "date": DAY}]
         text = profile.render_text(d)
-        self.assertIn("| 案子 | 時程 |  | 開始、重要日期、預計結束 | 推測 | 2026-10-19 |", text)
+        self.assertIn("| 案子 | 時程 |  | 工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳 | 推測 | 2026-10-19 |", text)
         self.assertIn("| 林小姐室內設計 | 公司 | 林小姐 | 訪談 | 2026-10-19 |", text)
         self.assertEqual(profile.parse_md(text), {k: d[k] for k in profile.LISTS})
 
@@ -500,14 +500,29 @@ class SchemaTwo(unittest.TestCase):
         got = profile.card_types_for_todo(d)
         self.assertEqual(got["types"], [{"name": "案子", "category": "matter"}])
         self.assertEqual(got["synthesis_sections"], [{"type": "案子", "sections": [
-            {"name": "時程", "required": False, "hint": "開始、重要日期、預計結束"},
-            {"name": "金額", "required": False, "hint": "報價、合約總價、付款期別與已付"}]}])
+            {"name": "時程", "required": False, "hint": "工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳"},
+            {"name": "金額", "required": False, "hint": "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳"}]}])
         self.assertEqual(got["about"], [{"name": "林小姐室內設計", "kind": "company", "aliases": ["林小姐"]}])
 
     def test_category_sections(self):
         self.assertEqual({k: [n for n, _h in v] for k, v in profile.CATEGORY_SECTIONS.items()},
                          {"party": ["聯絡與往來", "偏好與禁忌"], "matter": ["時程", "金額"], "asset": ["規格", "期限"],
                           "topic": []})
+
+    def test_category_hints_money_3(self):
+        """記帳 3（D-279）：時程、金額寫說明不寫會變的日期與已付；規格的數量改包裝。帳關著時給製卡的金額提示換回舊的。"""
+        from kb._lib import synthesis
+        hints = {n: h for v in profile.CATEGORY_SECTIONS.values() for n, h in v}
+        self.assertEqual((hints["時程"], hints["金額"], hints["規格"]), ("工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳", "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳", "型號、尺寸、包裝（一盒幾顆、一箱幾瓶）"))
+        d = profile.defaults(DAY)
+        d["types"] = [{"name": "案子", "category": "matter", "note": "", "source": "inferred", "date": DAY}]
+        d["synthesis_sections"] = profile.default_sections(d["types"], DAY)
+        money_hint = lambda prof: next(x["hint"] for x in synthesis.sections_for(prof, "案子") if x["name"] == "金額")  # noqa: E731
+        self.assertEqual(money_hint(d), "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳", "沒有第十節讀成只記我講的：新提示")
+        d["money"] = [{"mode": "off", "places": [], "source": "confirmed", "date": DAY}]
+        self.assertEqual(money_hint(d), "報價、合約總價、付款期別與已付")
+        d["synthesis_sections"][0]["sections"][1]["hint"] = "她自己寫的"
+        self.assertEqual(money_hint(d), "她自己寫的", "她改過的提示不換")
 
 
 class SchemaOneMigration(unittest.TestCase):

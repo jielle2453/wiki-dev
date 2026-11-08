@@ -516,6 +516,25 @@ def line_agenda(vault):
     return "日程：" + "、".join(parts) if parts else None
 
 
+OWED_LINE = "公司還欠你 {n} 筆共 {total}（{names}）"
+OWED_NAMES_SHOWN = 3
+
+
+def line_owed(vault):
+    """報帳（D-338，記帳 3）：這台的人是墊的人、公司還沒還的；照 D-289「我的」只給他看。單人、沒有就不印。只讀。"""
+    from kb._lib import money, numbers, people
+
+    me = people.me(vault)
+    if not me or not money.exists(vault):
+        return None
+    got = money.owed_to(vault, me)
+    if not got["items"]:
+        return None
+    names = [i.get("text") or "沒寫是什麼" for i in got["items"]]
+    shown = "、".join(names[:OWED_NAMES_SHOWN]) + ("…" if len(names) > OWED_NAMES_SHOWN else "")
+    return OWED_LINE.format(n=len(names), total=numbers.show(got["total"]), names=shown)
+
+
 def start_background_lint(vault):
     """背景健檢的觸發（D-221、D-227）：kb.lint.runner.opening 判斷要不要開、開了不等。出錯只記 log。
     要先補位置或先 kb upgrade --finish 時不開。"""
@@ -562,7 +581,7 @@ def line_wip(vault):
 
 
 def daily_lines(vault):
-    """這台每天第一句（開場或第一句，先到先做）：版本、搬家、日程、製作中四行，順便背景開健檢；做完記今天。
+    """這台每天第一句（開場或第一句，先到先做）：版本、搬家、日程、公司還欠你（記帳 3）、製作中，順便背景開健檢；做完記今天。
     每行各自 try，出錯那行不印、其他照做。"""
     out = []
     try:
@@ -571,7 +590,7 @@ def daily_lines(vault):
         env.set_daily_done(vault, _today())  # 先記：中途出錯也不重做一整天
     except Exception as e:  # noqa: BLE001
         log_vault(vault, e)
-    for fn in (line_version, line_moved, line_agenda, line_wip):
+    for fn in (line_version, line_moved, line_agenda, line_owed, line_wip):
         try:
             line = fn(vault)
         except Exception as e:  # noqa: BLE001

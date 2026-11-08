@@ -560,6 +560,8 @@ def _lint_files(vault, ids, words, turn_id, counts, plain=None, derived=(), gone
                     agenda.render(vault, turn_id, hand={})
                 elif rel == rulings.MD_POSIX:
                     rulings.render(vault, turn_id, hand={})
+                elif money.is_page(rel):  # 帳頁（記帳 3）
+                    money.render(vault, turn_id, hand={})
 
     def obsidian():
         _obsidian_traces(vault, ids, folder, counts)
@@ -1077,7 +1079,7 @@ def _scrub_row(row, rel, f, ids, prefix, counts, shorts, datas, state, mask=None
             write_text_atomic(f, "".join(kept))
             counts["backups"] += 1
     elif mask is not None and rel != sources_lib.SOURCES_REL and f.suffix.casefold() in TEXT_SUFFIXES \
-            and not any(rel == md for _j, md, _r in MD_RENDERS):
+            and not any(rel == md for _j, md, _r in MD_RENDERS) and not money.is_page(rel):
         # 別的檔的舊版（其他文字檔）：文字裡那夾的路徑換掉；字詞（編號、標題）只套工作日誌（第六輪）
         _mask_file(f, mask, counts)
     if gone:
@@ -1090,12 +1092,18 @@ def _scrub_row(row, rel, f, ids, prefix, counts, shorts, datas, state, mask=None
 MD_RENDERS = ((pending.PENDING_POSIX, pending.MD_POSIX, lambda vault, data: _pending_md(data)),
               (agenda.AGENDA_POSIX, agenda.MD_POSIX, lambda vault, data: agenda.render_text(vault, data)),
               (rulings.RULINGS_POSIX, rulings.MD_POSIX,
-               lambda vault, data: rulings.render_text(data, agenda.card_titles(vault))))
+               lambda vault, data: rulings.render_text(data, agenda.card_titles(vault))),
+              (money.MONEY_POSIX, money.MD_POSIX, lambda vault, data: money.render_text(vault, data)))  # 帳頁（記帳 3）
 
 
 def _scrub_md(vault, files, rows, mask, counts, datas, state):
     """待處理.md、日程.md、裁示.md 的舊版：同一回合有 JSON 舊版就照改過的重渲染，沒有而內容指到那夾就刪掉、標 purged。"""
-    for json_rel, md_rel, render in MD_RENDERS:
+    year_dir = files / money.YEAR_DIR  # 帳的年頁：照「系統/帳/ 底下」認，跟總覽同一份帳（記帳 3）
+    years = [(money.MONEY_POSIX, f"{money.YEAR_DIR}/{f.name}",
+              lambda vault, data, rel=f"{money.YEAR_DIR}/{f.name}": money.render_pages(vault, data)[rel][0])
+             for f in sorted(year_dir.glob("*.md")) if money.is_page(f"{money.YEAR_DIR}/{f.name}")] \
+        if _under_files(files, year_dir) and year_dir.is_dir() else []
+    for json_rel, md_rel, render in tuple(MD_RENDERS) + tuple(years):
         md = files / md_rel
         if not _under_files(files, md) or not md.is_file():
             continue  # files/ 底下巢狀的 junction 不跟（第三輪修）

@@ -55,14 +55,25 @@ def category_text(prof, type_name):
     return profile._REVERSED[0].get(row.get("category"), "") if row else ""
 
 
+MONEY_HINT_OFF = "報價、合約總價、付款期別與已付"  # 帳關著時事的「金額」照舊提示（D-279）
+
+
+def _money_hint(prof, name, hint):
+    """金額段的提示是新的預設、帳關著（第十節 off）→ 換回舊提示（帳關著已付只在卡上，D-274）；她改過的不換。"""
+    new = dict(profile.CATEGORY_SECTIONS["matter"]).get("金額")
+    if name == "金額" and hint == new and profile.money_mode(prof or {}) == "off":
+        return MONEY_HINT_OFF
+    return hint
+
+
 def sections_for(prof, type_):
     """綜合卡要寫的段 [{"name","required","hint"}]：現況、設定檔第四節那個型別的列、推算、紀事（D-523）。"""
     base = [{"name": n, "required": False, "hint": BASE_HINTS[n]} for n in BASE_SECTIONS]
     out = base[:1]
     for s in (prof or {}).get("synthesis_sections") or []:
         if entities.key(s.get("type")) == entities.key(type_):
-            out += [{"name": x["name"], "required": bool(x.get("required")), "hint": x.get("hint", "")}
-                    for x in s.get("sections") or []]
+            out += [{"name": x["name"], "required": bool(x.get("required")),
+                     "hint": _money_hint(prof, x["name"], x.get("hint", ""))} for x in s.get("sections") or []]
     return out + base[1:]
 
 

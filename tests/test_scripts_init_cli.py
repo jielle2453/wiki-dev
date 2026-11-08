@@ -15,7 +15,7 @@ from tests._guard_fixture import KB, ROOT, make_vault
 SKELETON = ROOT / "skeleton"
 EXPECTED_DIRS = ["暫存區", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
 EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", ".system/sources.json", ".system/profile.json",
-                  "系統/客戶設定檔.md", "系統/日程.md"]
+                  "系統/客戶設定檔.md", "系統/日程.md", "系統/帳.md"]
 SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep"}
 
@@ -524,6 +524,15 @@ class AgendaMd(unittest.TestCase):
         self.assertEqual((self.V / "系統" / "日程.md").read_text(encoding="utf-8"),
                          agenda.HEADER + "\n日程是空的；說「9/25 下午有個會」我就記下來。\n")
         self.assertFalse((self.V / ".system" / "agenda.json").exists())
+
+    def test_money_md_blank_page(self):
+        """記帳 3：帳.md 也是程式產生的頁，init 建一份空白的總覽，不建 money.json、不建年頁。"""
+        self.init()
+        text = (self.V / "系統" / "帳.md").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("# 帳\n（程式產生"))
+        self.assertIn("## 還沒收付的\n（沒有）", text)
+        self.assertFalse((self.V / ".system" / "money.json").exists())
+        self.assertFalse((self.V / "系統" / "帳").exists())
 
     def test_check_lists_it(self):
         r = run_kb("init", str(self.V), "--check", cwd=self.tmp)

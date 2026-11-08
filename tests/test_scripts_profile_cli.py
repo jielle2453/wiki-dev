@@ -337,7 +337,7 @@ class SchemaTwoApply(Base):
         rows = [(s["type"], x["name"], s["source"]) for s in self.data()["synthesis_sections"] for x in s["sections"]]
         self.assertIn(("工地", "時程", "inferred"), rows)
         self.assertIn(("工地", "金額", "inferred"), rows)
-        self.assertIn("| 工地 | 時程 |  | 開始、重要日期、預計結束 | 推測 |", self.md_text())
+        self.assertIn("| 工地 | 時程 |  | 工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳 | 推測 |", self.md_text())  # 記帳 3（D-279）的新提示
         self.drop_line("| 案子 | 時程 |")
         self.drop_line("| 案子 | 金額 |")
         self.apply()

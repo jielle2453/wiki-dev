@@ -32,7 +32,19 @@ DERIVED = {  # 由別的東西重算的檔：不單獨改回（改完它的來�
     "系統/日程.md": ".system/agenda.json",
     "系統/待處理.md": ".system/pending.json",
     "系統/裁示.md": ".system/rulings.json",
+    "系統/帳.md": ".system/money.json",  # 帳的年頁 系統/帳/<YYYY>.md 照 derived_from 的「系統/帳/ 底下」認（記帳 3）
 }
+DERIVED_PREFIXES = (("系統/帳/", ".system/money.json"),)
+
+
+def derived_from(path):
+    """這個檔是不是由別的東西重算的（DERIVED，加上「系統/帳/ 底下」的年頁）：是回來源（可能是 None），不是回 False。"""
+    if path in DERIVED:
+        return DERIVED[path]
+    for prefix, src in DERIVED_PREFIXES:
+        if str(path or "").startswith(prefix) and str(path).endswith(".md"):
+            return src
+    return False
 LOCATION_OPS = ("move", "rename", "make", "remove", "trash")  # 工作日誌 actions 只抄這些加 set
 _ORDER = {"manifest": 0, "folders": 1, "moves": 2, "detected": 3}
 
@@ -175,7 +187,7 @@ class Ledger:
             it["undoable"], it["why"] = False, "purged"
         elif action in ("modify", "delete") and not has_copy:
             it["undoable"], it["why"] = False, "expired"
-        elif path in DERIVED:
+        elif derived_from(path) is not False:
             it["undoable"], it["why"] = False, "derived"
         return it
 
