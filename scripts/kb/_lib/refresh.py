@@ -166,7 +166,7 @@ def check_big(vault):
     cloud = _cloud_alias(vault)
     big = []
     for st, rel in git.status_untracked_and_modified(vault):
-        if st.strip() != "??" or rel.startswith(SYSTEM_PREFIXES) or rel.startswith("暫存區/") or rel.startswith("_個人/"):
+        if st.strip() != "??" or rel.startswith(SYSTEM_PREFIXES) or rel.startswith("暫存區/"):
             continue
         try:
             size = (Path(vault) / rel).stat().st_size

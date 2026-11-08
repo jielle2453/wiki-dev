@@ -29,7 +29,7 @@ class Content(unittest.TestCase):
 
     def test_area_constants_aligned(self):
         self.assertIn(areas.HOLD_DIR + "/", IGNORE)
-        self.assertIn(areas.FREE_DIR + "/", IGNORE)
+        self.assertNotIn("_個人/", IGNORE)  # #51：一般夾，跟型別夾一樣進 git
 
     def test_local_and_derived_aligned(self):
         for line in (".system/local/", ".system/legacy/", "系統/*", "/總目錄.md", ".system/asks_seen.json",
@@ -67,12 +67,12 @@ class RealGit(unittest.TestCase):
         self.git(v, "init", "-b", "main")
         shutil.copy(ROOT / "skeleton" / ".gitignore", v / ".gitignore")
         for rel in (".system/journal/a.jsonl", ".system/versions/t/x", "系統/日程.md", "總目錄.md", "暫存區/草稿.docx",
-                    "_個人/筆記.md", ".system/local/textcache/f.txt", ".system/agenda.json", ".system/asks_seen.json"):
+                    ".system/local/textcache/f.txt", ".system/agenda.json", ".system/asks_seen.json"):
             self.put(v, rel)
         for rel in ("檔案索引/客戶/報價-1234.md", ".system/streams/agenda/m-1.jsonl", "檔案索引/總目錄.md"):
             self.put(v, rel)
         out = self.git(v, "-c", "core.quotepath=false", "status", "--porcelain", "-uall")
-        for hidden in ("journal", "versions", "系統", "暫存區", "_個人", "textcache", "agenda.json", "asks_seen"):
+        for hidden in ("journal", "versions", "系統", "暫存區", "textcache", "agenda.json", "asks_seen"):
             self.assertNotIn(hidden, out, hidden)
         self.assertNotIn("?? 總目錄.md", out)
         self.assertIn("檔案索引/客戶/報價-1234.md", out)

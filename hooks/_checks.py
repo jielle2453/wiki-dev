@@ -596,10 +596,10 @@ _NOT_CARD_DIRS = {".system", ".git", ".obsidian", ".claude", ".trash", "系統"}
 
 
 def cards_mtime(vault):
-    """卡可能被改的最近修改時間：第一層（不含系統夾、暫存區、_個人）底下所有 .md，加 entities.json。"""
-    from kb._lib.areas import FREE_DIR, HOLD_DIR
+    """卡可能被改的最近修改時間：第一層（不含系統夾、暫存區）底下所有 .md，加 entities.json。"""
+    from kb._lib.areas import HOLD_DIR
 
-    skip = {s.casefold() for s in _NOT_CARD_DIRS | {FREE_DIR, HOLD_DIR}}
+    skip = {s.casefold() for s in _NOT_CARD_DIRS | {HOLD_DIR}}
     best = _newest_mtime([os.path.join(str(vault), ".system", "entities.json")])
     stack = [str(vault)]
     top = True

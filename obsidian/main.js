@@ -903,10 +903,10 @@ function cleanFill(fill, raw) {
   return v;
 }
 
-// ---- 隨手記便條（D-267 修訂、裁定 37、39）：首頁右上角一張便條，內容就是彈性區「隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
+// ---- 隨手記便條（D-267 修訂、裁定 37、39）：首頁右上角一張便條，內容就是「系統/隨手記.md」整頁，她打字直接改那一頁；Claude 不讀 ----
 const OPEN_ACTION = 'wiki-with-willy-open'; // 卡的開原檔連結 obsidian://wiki-with-willy-open?id=…（kb 的 cards.OPEN_PROTOCOL 對齊）
-const FREE_DIR = '_個人'; // kb 的 areas.FREE_DIR；改名時這裡也要改（tests/test_scripts_home_cli.py 對齊）
-const NOTE_REL = `${FREE_DIR}/隨手記.md`;
+const NOTE_DIR = '系統';
+const NOTE_REL = `${NOTE_DIR}/隨手記.md`; // #51 起放 系統/，舊的由 kb upgrade 搬過來
 const NOTE_DELAY_MS = 1500; // 停手這麼久就存回那一頁
 
 function defaultNote() {
@@ -3319,7 +3319,7 @@ class WikiWithWillyPlugin extends Plugin {
     const text = note.text;
     const adapter = this.app && this.app.vault && this.app.vault.adapter;
     try {
-      if (!(await adapter.exists(FREE_DIR))) await adapter.mkdir(FREE_DIR);
+      if (!(await adapter.exists(NOTE_DIR))) await adapter.mkdir(NOTE_DIR);
       await adapter.write(NOTE_REL, text);
       note.saved = text;
       note.dirty = note.text !== text; // 存的時候她又打了字就還沒完
@@ -3949,7 +3949,6 @@ module.exports.lib = {
   icon,
   RECENT_MAX,
   MONTH_COLORS,
-  FREE_DIR,
   OPEN_ACTION,
   NOTE_REL,
   NOTE_DELAY_MS,

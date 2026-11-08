@@ -21,7 +21,7 @@ from pathlib import Path
 
 from kb._lib import credentials, ledger, turn
 from kb._lib import ledger as ledger_mod
-from kb._lib.areas import FREE_DIR, HOLD_DIR
+from kb._lib.areas import HOLD_DIR
 from kb._lib import io as kio
 from kb._lib.io import FileLock, write_text_atomic
 
@@ -506,7 +506,7 @@ SYSTEM_WORDS = {
 }
 SYSTEM_PREFIXES = ((".system/handedits/", "你手改的那份"), ("系統/健檢報告/", "健檢報告"))
 NAMES_SHOWN = 3
-_TOP_RESERVED = ("檔案索引", "系統", ".system", HOLD_DIR, FREE_DIR)
+_TOP_RESERVED = ("檔案索引", "系統", ".system", HOLD_DIR)
 
 
 def _named(names, unit):
@@ -516,8 +516,8 @@ def _named(names, unit):
 
 
 def changed_text(changed):
-    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_個人 1 份；日程；其他 2 個檔」；沒有回空字串。"""
-    synth, cards, outputs, free, words, files, other = [], 0, 0, 0, [], [], 0
+    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；日程；其他 2 個檔」；沒有回空字串。"""
+    synth, cards, outputs, words, files, other = [], 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
         parts = rel.split("/")
@@ -529,8 +529,6 @@ def changed_text(changed):
             cards += 1
         elif parts[0] == HOLD_DIR:
             outputs += 1
-        elif parts[0].casefold() == FREE_DIR.casefold():
-            free += 1
         elif parts[0] in ("系統", ".system"):
             stem = parts[-1].rsplit(".", 1)[0]
             if stem not in files:
@@ -548,8 +546,6 @@ def changed_text(changed):
         out.append(f"檔案卡 {cards} 張")
     if outputs:
         out.append(f"{HOLD_DIR} {outputs} 份")
-    if free:
-        out.append(f"{FREE_DIR} {free} 份")
     out += words
     if files:
         out.append(_named(files, "個"))
