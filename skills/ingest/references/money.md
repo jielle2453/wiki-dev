@@ -1,6 +1,6 @@
 # 錢與數字欄（寫給做卡的）
 
-批次的 `read` 有這份才照做（材料的 `profile.money_mode` 是 `on`，或 `profile.fields` 有欄；子代理與主對話自己做卡都一樣）。每寫完一張卡（日程批次的每張 `agenda_unscanned`）、抽完日期後接著做。帳的寫入只經 `kb money`、數字欄只經 `kb entity field`；她口述的錢走 note，不是這裡。
+批次的 `read` 有這份才照做（材料的 `profile.money_mode` 是 `on`，或 `profile.fields` 有欄；子代理與主對話自己做卡都一樣）。每寫完一張卡（日程批次的每張 `agenda_unscanned`）、抽完日期後接著做。帳的寫入只經 `kb money`、數字欄只經 `kb entity field`，`add`、`settle`、`attach` 一律帶 `--card`（沒帶會被擋）；她口述的錢走 note，不是這裡。
 
 ## 一、數字欄（不管帳開不開都做）
 
@@ -48,7 +48,7 @@ kb money add --card <卡編號> --dir 付 --amount 36000 --date 2026-10-02 --ent
 `add` 回 exit 3、`refused: candidates`：
 
 - 明顯是同一筆（她講過的那筆，現在讀到收據）：`kb money attach <那筆的編號> --card <卡編號>` 補出處，不另記。
-- 是一筆還沒收付的（`open: true`）這次收付了（合約的第二期，讀到匯款單）：`kb money settle <編號> --date <那天>`，金額不夠加 `--amount`（程式拆）。
+- 是一筆還沒收付的（`open: true`）這次收付了（合約的第二期，讀到匯款單）：`kb money settle <編號> --date <那天> --card <卡編號>`，金額不夠加 `--amount`（程式拆）。
 - 明顯是另一筆：原指令加 `--new`。
 - 看不出：加 `--new --unsure <那筆的編號>`，程式會問她。
 

@@ -539,13 +539,19 @@ def _edit_fn(mid, new, turn_id, by):
     return fn
 
 
-def settle(vault, mid, turn_id, amount=None, date=None, due=None, by="ai"):
+def settle(vault, mid, turn_id, amount=None, date=None, due=None, by="ai", card=None):
     """收付了（D-275）：金額少於原額就拆——原筆改已收付那部分（品項留在這筆），另生一筆還沒收付的差額（split_from 指回）；
     有 repeat 的另生一筆已收付（repeat_of）、原筆的到期移到下一次（D-501 那套）。回 (原筆, 拆出的或 None, 重複生的或 None)。"""
     from kb._lib import agenda
     paid = _amount(amount)
     day = _date(date) if date else _today()
     due_ = _date(due) if due else None
+    if card:  # 製卡讀到匯款單、收據：出處記在收付的那筆（拆出的還沒收付那筆不帶）
+        agenda._card(vault, card, no_card="這份還沒有檔案卡，先寫卡再記帳")
+
+    def _cite(row):
+        if card and card not in (row.get("cards") or []) and (row.get("origin") or {}).get("card") != card:
+            row["cards"] = list(row.get("cards") or []) + [card]
 
     def fn(data):
         it = _find(data, mid)
@@ -561,6 +567,7 @@ def settle(vault, mid, turn_id, amount=None, date=None, due=None, by="ai"):
             done = copy.deepcopy(it)
             done.update({"id": _new_id(data), "status": "done", "date": day, "amount": got, "repeat": None, "repeat_of": mid,
                          "created_turn": turn_id, "history": []})
+            _cite(done)
             _log(done, f"記下（{mid} 那次收付了）", by, turn_id)
             data["items"].append(done)
             was = it.get("due") or day
@@ -576,11 +583,12 @@ def settle(vault, mid, turn_id, amount=None, date=None, due=None, by="ai"):
             _log(rest, f"拆自 {mid}（原 {whole}，收付了 {got}）", by, turn_id)
             data["items"].append(rest)
         it["status"], it["date"] = "done", day
+        _cite(it)
         if got != whole:
             it["amount"] = got
         _log(it, f"status open → done（{day}，{got}）", by, turn_id)
         return (it, rest, None), True
-    return _mutate(vault, turn_id, fn, check="write")
+    return _mutate(vault, turn_id, fn, check="card" if card else "write")
 
 
 def set_status(vault, mid, status, turn_id, by="ai"):
@@ -982,6 +990,18 @@ def _qty_text(q, unit):
     return f"{sign}{numbers.show(abs(d))}" + (f" {unit}" if unit else "")
 
 
+REMOVED_MARK = "（已拿掉）"
+
+
+def _label(ents, name):
+    """帳裡的名字；那個實體拿掉了加註「（已拿掉）」（記帳 2 要做的事 1：名字留著、錢不刪）。"""
+    from kb._lib import entities
+    e = entities.find(ents, name)[0] if name else None
+    if e is not None and e.get("status") == "removed" and _key(e.get("name")) == _key(name):
+        return f"{name}{REMOVED_MARK}"
+    return name
+
+
 def describe(vault, it, prof=None, ents=None):
     """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」；列很多筆的呼叫端把 prof、ents 讀一次帶進來。"""
     from kb._lib import agenda, entities, numbers
@@ -997,7 +1017,7 @@ def describe(vault, it, prof=None, ents=None):
             head += f" {it['text']}"
     else:
         head = f"{agenda.md_of(it['date'])} {DIR_TEXT[d]} {amt}" + (f" {it['text']}" if it.get("text") else "")
-    parts = list(it.get("entities") or [])
+    parts = [_label(ents, n) for n in it.get("entities") or []]
     lines = it.get("lines") or []
     places = {ln.get("place") for ln in lines}
     one = len(places) == 1 and None not in places
@@ -1005,8 +1025,9 @@ def describe(vault, it, prof=None, ents=None):
     for ln in lines:
         e = entities.find(ents, ln.get("entity"))[0]
         unit = base_unit(prof, e.get("type")) if e else ""
-        shown.append(f"{ln['entity']} {_qty_text(ln['qty'], unit)}" + (f"（{ln['place']}）" if ln.get("place") and not one else ""))
-    inside = "；".join(x for x in ["、".join(parts), "、".join(shown) + (f"，{lines[0]['place']}" if one else "")] if x)
+        shown.append(f"{_label(ents, ln['entity'])} {_qty_text(ln['qty'], unit)}"
+                     + (f"（{_label(ents, ln['place'])}）" if ln.get("place") and not one else ""))
+    inside = "；".join(x for x in ["、".join(parts), "、".join(shown) + (f"，{_label(ents, lines[0]['place'])}" if one else "")] if x)
     if it.get("advanced_by"):
         inside += f"{'；' if inside else ''}{it['advanced_by']}墊的"
     return head + (f"（{inside}）" if inside else "")

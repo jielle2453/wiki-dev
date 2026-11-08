@@ -48,6 +48,7 @@ def add_arguments(sub):
     se.add_argument("--amount", help="這次收付的金額；沒給＝整筆")
     se.add_argument("--date", help="收付那天；沒給＝今天")
     se.add_argument("--due", help="拆出來那筆的到期日")
+    se.add_argument("--card", help="從這張檔案卡讀到收付了（f-…，匯款單、收據）：出處記在收付的那筆")
     ed = subs.add_parser("edit", help="改一筆帳", description="改金額、日期、到期、實體、品項、墊的人、說明、備註。")
     ed.add_argument("id", help="帳的編號（m-…）")
     ed.add_argument("--amount")
@@ -147,7 +148,8 @@ def _add(vault, args, as_json, conversation, turn_id):
 
 
 def _settle(vault, args, as_json, conversation, turn_id):
-    it, rest, rep = money.settle(vault, args.id, turn_id, amount=args.amount, date=args.date, due=args.due, by=_by(conversation))
+    it, rest, rep = money.settle(vault, args.id, turn_id, amount=args.amount, date=args.date, due=args.due, by=_by(conversation),
+                                 card=args.card)
     shown = rep or it
     line = "收付了：" + money.describe(vault, shown)
     if rest:

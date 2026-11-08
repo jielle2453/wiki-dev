@@ -244,3 +244,17 @@ class ReviewFixes(MoneyBase):
         t = turn.current(self.V)["turn"]
         pending.add_money(self.V, "money_dupe", "x", t, data={"keep": b, "other": a})
         self.assertEqual(len([i for i in pending.load(self.V)["items"] if i["kind"] == "money_dupe"]), 1)
+
+
+class SettleCard(MoneyBase):
+    """測試報告中 #1：製卡助手 settle 一定帶 --card（讀到匯款單），出處記在收付的那筆。"""
+
+    def test_settle_with_card(self):
+        from tests import _entities as E
+        from kb._lib import cards
+        path = E.write_card(self.V, E.QUOTE, "信義王匯款單", ["信義王"])
+        fid = cards.parse_front((self.V / path).read_text(encoding="utf-8"))["編號"]
+        mid = self.add("--due", "2026-11-30", "--dir", "收", "--amount", "120000", "--entity", "信義王")["item"]["id"]
+        out = self.kbj("money", "settle", mid, "--amount", "100000", "--card", fid)
+        self.assertEqual(out["item"]["cards"], [fid])
+        self.assertEqual(out["split"]["cards"], [])

@@ -57,6 +57,10 @@ class Body(unittest.TestCase):
         self.assertLessEqual(len(self.body.splitlines()), BODY_MAX_LINES)
         self.assertLessEqual(len(self.body), BODY_TARGET_CHARS)
 
+    def test_fields_reachable(self):
+        """記帳 2 測試報告中 #2：本文走得到數字欄與平常在哪那份。"""
+        self.assertIn("references/fields.md", self.body)
+
     def test_calls_kb_through_plugin_root(self):
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/kb.py", self.body)
 
