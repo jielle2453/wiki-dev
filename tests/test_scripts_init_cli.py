@@ -208,7 +208,9 @@ class InitProfile(unittest.TestCase):
         self.init()
         today = date.today().isoformat()
         want_md = (ROOT / "tests" / "fixtures" / "profile" / "客戶設定檔.md").read_text(encoding="utf-8")
-        self.assertEqual(self.md().read_text(encoding="utf-8"), want_md.replace("2026-10-19", today))
+        text = self.md().read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(want_md.replace("2026-10-19", today)))  # fixture 是記帳 1b 之前的八節
+        self.assertEqual(text, profile.render_text(profile.defaults(today)))  # 新庫多九、十節（記帳 1b）
         data = self.json()
         want = profile.defaults(today)
         want["md_sha256"] = profile.md_sha256(self.V)
@@ -411,7 +413,8 @@ class InitProfile(unittest.TestCase):
         text = self.md().read_text(encoding="utf-8")
         self.assertIn("| 偏好 | 用在哪 | 來源 | 日期 |", text)
         cut = lambda t: t[:t.index("\n## 六、")] + t[t.index("\n## 七、"):]  # noqa: E731
-        self.assertEqual(cut(text), cut(old_md))
+        self.assertEqual(cut(text).split("\n## 九、")[0], cut(old_md))  # 重畫多了九、十節（記帳 1b，等遷移補第十節）
+        self.assertIn("\n## 十、記帳\n", text)
         self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
         self.assertEqual(self.init().strip(), f"{self.V} 已是知識庫，沒有缺的", "升過就不再印")
 

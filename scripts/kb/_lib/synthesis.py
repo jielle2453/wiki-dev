@@ -976,11 +976,13 @@ def _synced_card(vault, e, data, mounts, prof, know):
     return rel, text, (bad[0] if bad else None)
 
 
-def mark_synced(vault, names, turn_id, keep_crlf=False):
+def mark_synced(vault, names, turn_id, keep_crlf=False, absorbed=None):
     """AI 用 Edit 改完內文之後（D-518）：合法綜合卡（只差整理到也算）的 整理到（header_for 同一算法）、更新日（今天）、
     檔案卡、相關實體 換成現行的，其他檔頭行與內文不動；內容沒變不寫；寫前 turn.backup(by="program")。
     名稱可以是別名。回 (寫了的相對路徑, skipped [{"name","reason"}])；找不到、沒卡、卡有別的錯的不寫、列進 skipped。
-    keep_crlf：原檔是 CRLF 就照 CRLF 寫回（entity log 用，裁定 16）。"""
+    keep_crlf：原檔是 CRLF 就照 CRLF 寫回（entity log 用，裁定 16）。
+    數字行換回正本之前，她在屬性欄改過、還沒抄回的先照 --from-card 抄回（entities.absorb_field_edits，記帳 1b 測試報告中 #2）；
+    absorbed 給了清單就把 {"name","fields": {欄: 值}} 放進去（給成功句）。"""
     from kb._lib import turn
     data = entities.load(vault)
     mounts = entities.mounts(vault, data)
@@ -1002,6 +1004,11 @@ def mark_synced(vault, names, turn_id, keep_crlf=False):
             skipped.append({"name": name, "reason": reason})
             continue
         p = Path(vault) / rel
+        took = entities.absorb_field_edits(vault, e["id"], turn_id)
+        if took:
+            e = next((x for x in entities.load(vault)["entities"] if x.get("id") == e.get("id")), e)
+            if absorbed is not None:
+                absorbed.append({"name": e["name"], "fields": took})
         ms = mounts.get(e["name"], [])
         stmts, ruls, finds = basis(know, e["name"], mounts)
         new = replace_front(text, {"整理到": synced_lines(ms, stmts, ruls, redo_ids(vault, know, ms), finds),

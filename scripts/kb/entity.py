@@ -504,6 +504,19 @@ FIELD_KEPT = {"said": "（{fields}是你說過的，照你說的留著）", "old
 FIELD_CONFLICT_LINE = "{field}兩份檔寫的不一樣、分不出哪份比較新，記了一件待處理問你：{old}／{new}"
 
 
+ABSORBED = "卡上你在屬性欄改的數字先照你改的記下了：{what}"
+
+
+def _took_text(prof, entry, took):
+    """抄回的那幾欄：「售價 2,000 元、進價 沒有」。"""
+    from kb._lib import numbers
+    parts = []
+    for f, v in took.items():
+        unit = _unit(prof, entry.get("type"), f)
+        parts.append(f"{f} 沒有" if v is None else f"{f} {numbers.show(v)}" + (f" {unit}" if unit else ""))
+    return "、".join(parts)
+
+
 def _field_pairs(raw):
     """欄=數字 → {欄: 字}；欄= 後面空著是清掉（""）。寫法不對丟 EntityRefused。"""
     out = {}
@@ -536,15 +549,19 @@ def _field(vault, args, as_json, conversation, turn_id):
         return _from_card(vault, args, as_json, conversation, turn_id)
     if not args.ref or not args.pairs:
         raise entities.EntityRefused(FIELD_FORMAT)
-    got = entities.set_fields(vault, args.ref, _field_pairs(args.pairs), turn_id, said=args.said, card=args.card)
+    pairs = _field_pairs(args.pairs)
+    took = entities.absorb_field_edits(vault, args.ref, turn_id)  # 卡上她改過還沒抄回的數字先抄回（測試報告中 #2）
+    got = entities.set_fields(vault, args.ref, pairs, turn_id, said=args.said, card=args.card)
     e = got["entity"]
     prof = entities._profile(vault)
-    changed = [{"path": entities.ENTITIES_POSIX, "action": "modify"}] if got["changed"] else []
+    changed = [{"path": entities.ENTITIES_POSIX, "action": "modify"}] if got["changed"] or took else []
     rel = synthesis.rewrite_field_lines(vault, e, turn_id) if got["changed"] else None
     if rel:
         changed.append({"path": rel, "action": "modify"})
     line = f"{e['name']}：{_field_text(prof, e, list(got['changed']))}" if got["changed"] else f"{e['name']}：沒有要改的"
     lines = [line]
+    if took:
+        lines.append(ABSORBED.format(what=f"{e['name']} {_took_text(prof, e, took)}"))
     for why, text in FIELD_KEPT.items():
         names = [k["field"] for k in got["kept"] if k["why"] == why]
         if names:
@@ -555,7 +572,8 @@ def _field(vault, args, as_json, conversation, turn_id):
     if changed:
         journal_cli.record_program_or_warn(vault, line, changed, "entity field", conversation)
     _out(as_json, lines, {"entity": e["name"], "changed": got["changed"], "kept": got["kept"],
-                          "conflicts": got["conflicts"], "card": got["card"]})
+                          "conflicts": got["conflicts"], "card": got["card"],
+                          **({"absorbed": took} if took else {})})
     return 0
 
 
@@ -612,15 +630,23 @@ SYNCED_NEEDS_NAME = "--synced 要給至少一個實體名稱"
 
 def _render(vault, args, as_json, conversation, turn_id):
     names = list(getattr(args, "names", None) or [])
+    absorbed = []
     if getattr(args, "synced", False):
-        written, skipped = synthesis.mark_synced(vault, names, turn_id)
+        written, skipped = synthesis.mark_synced(vault, names, turn_id, absorbed=absorbed)
     else:
         written, skipped = synthesis.render_cache(vault, names or None, turn_id), []
     line = f"重寫了 {len(written)} 張綜合卡的檔頭"
-    if written:
-        journal_cli.record_program_or_warn(vault, line, [{"path": rel, "action": "modify"} for rel in written],
-                                           "entity render", conversation)
-    _out(as_json, [line] + [f"沒寫 {s['name']}：{s['reason']}" for s in skipped], {"written": written, "skipped": skipped})
+    changed = [{"path": rel, "action": "modify"} for rel in written]
+    if absorbed:
+        changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
+    if written or absorbed:
+        journal_cli.record_program_or_warn(vault, line, changed, "entity render", conversation)
+    prof = entities._profile(vault) if absorbed else None
+    took = [ABSORBED.format(what="；".join(
+        f"{a['name']} {_took_text(prof, entities.find(entities.load(vault), a['name'])[0] or {}, a['fields'])}" for a in absorbed))] \
+        if absorbed else []
+    _out(as_json, [line] + took + [f"沒寫 {s['name']}：{s['reason']}" for s in skipped],
+         dict({"written": written, "skipped": skipped}, **({"absorbed": absorbed} if absorbed else {})))
     return 1 if skipped else 0
 
 

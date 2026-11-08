@@ -628,6 +628,7 @@ FIELD_NO_FIELD = "第九節沒有「{field}」這個數字欄；{type}有：{hav
 FIELD_NEED_HOW = "要說是她說的（--said）還是哪張卡讀到的（--card f-…）"
 FIELD_BOTH_HOW = "--said 跟 --card 只能給一個"
 FIELD_CARD_ID = "--card 要給檔案卡編號（f- 加 8 碼）：{card}"
+FIELD_CARD_MISSING = "清冊裡找不到這張卡：{card}"
 FIELD_CARD_EMPTY = "卡上讀到的「{field}」要給數字（清掉只有她說的才算）"
 FIELD_CONFLICT = "{name} 的 {field}：〔{old_card}〕寫 {old}、〔{new_card}〕寫 {new}，不知道哪份比較新"
 _CARD_ID = re.compile(r"^f-[0-9a-f]{8}$")
@@ -666,6 +667,33 @@ def _number(raw):
 def _same_number(a, b):
     from decimal import Decimal
     return a is not None and b is not None and Decimal(str(a)) == Decimal(str(b))
+
+
+def _in_inventory(vault, card):
+    """這張卡的編號在清冊裡（製卡助手給的 --card 要是真的卡，測試報告低 #4）。"""
+    from kb._lib import inventory
+    return any(e.get("id") == card for e in inventory.load(vault)["entries"])
+
+
+def absorb_field_edits(vault, ref, turn_id, by=None):
+    """要重寫綜合卡檔頭的數字行之前（kb entity field、mark_synced）：卡上她在屬性欄改過、還沒 --from-card 的數字行
+    （卡比那欄的 at 新、值跟正本不同，field_diffs）先照她改的抄回、算她說的（from hand），免得被正本蓋掉（測試報告中 #2）。
+    回抄回的 {欄: 值（清掉是 None）}；沒有卡、沒得抄回 {}。不是數字的不抄（照舊由 --from-card 問她）。"""
+    try:
+        data = load(vault)
+    except ValueError:
+        return {}
+    e, _hit = find(data, ref)
+    if e is None or is_self(e) or not e.get("type") or not e.get("card") or e.get("status") != "active":
+        return {}
+    rel = locate(vault, e, data)
+    if not rel:
+        return {}
+    good, _bad = field_diffs(vault, e, _profile(vault), rel=rel)
+    if not good:
+        return {}
+    set_fields(vault, e["id"], {f: ("" if v is None else v) for f, v in good.items()}, turn_id, hand=True, by=by)
+    return good
 
 
 def _card_doc_date(vault, card):
@@ -711,6 +739,8 @@ def set_fields(vault, ref, updates, turn_id, said=False, card=None, by=None, han
         raise EntityRefused(FIELD_BOTH_HOW if card else FIELD_NEED_HOW)
     if card and not _CARD_ID.match(str(card)):
         raise EntityRefused(FIELD_CARD_ID.format(card=card))
+    if card and not _in_inventory(vault, card):
+        raise EntityRefused(FIELD_CARD_MISSING.format(card=card))
     prof = _profile(vault)
     how = "said" if said else "hand" if hand else "card"
     doc_date = _card_doc_date(vault, card) if card else None
@@ -853,6 +883,7 @@ def field_newer(vault, rel, stamp):
 
 FIELD_EDIT_BAD = "{name}的卡上「{field}」寫了「{raw}」，不是數字：要記成多少？"
 FIELD_EDIT_GONE = "{name}的卡上「{field}」寫了 {raw}，可是{type}的第九節沒有這一欄：要加一欄嗎？"
+FIELD_EDIT_NEW = "{name}的卡上多了「{field}: {raw}」，可是{type}的第九節沒有這一欄：要加一欄嗎？"
 
 
 def field_diffs(vault, entry, prof, text=None, rel=None):
@@ -902,6 +933,17 @@ def field_diffs(vault, entry, prof, text=None, rel=None):
         raw = have[key(f)]
         if field_newer(vault, rel, cur.get("at")) and not (isinstance(raw, str) and _numeric_same(raw, cur.get("value"))):
             bad.append((f, raw, FIELD_EDIT_GONE.format(name=entry["name"], field=f, raw=raw, type=entry.get("type") or "")))
+    # 她自己加的一行、是數字、欄名不在第九節（「會員價: 12」）：照標籤 bad 那條問她，不寫（測試報告低 #3）；
+    # 不是數字的鍵照舊算她自加的屬性（標籤裁定 13）
+    known = names | {key(f) for f in mine} | {key(t["field"]) for t in profile.tags_for(prof, entry.get("type"))}
+    for k, raw in front.items():
+        if k in synthesis.KEYS or key(k) in known or not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            _number(raw)
+        except EntityRefused:
+            continue
+        bad.append((k, raw, FIELD_EDIT_NEW.format(name=entry["name"], field=k, raw=raw.strip(), type=entry.get("type") or "")))
     return good, bad
 
 
