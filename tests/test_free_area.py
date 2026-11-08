@@ -315,6 +315,38 @@ class Upgrade(UpgradeBase):
         self.assertTrue((self.F / "隨手記.md").is_file())
         self.assertTrue(any(n.startswith("_個人/隨手記.md 沒搬到 系統/") for n in got["migrate_notes"]), got["migrate_notes"])
 
+    def linked_not_moved(self, got):
+        self.assertTrue(any(n.startswith("_個人/隨手記.md 沒搬到 系統/") for n in got["migrate_notes"]), got["migrate_notes"])
+
+    def test_note_is_link_not_moved(self):
+        """security-review (1)：隨手記.md 本身是連結 → 不搬（連結不跟），說沒搬。"""
+        outside = self.tmp / "外面.md"
+        outside.write_text("外面\n", encoding="utf-8")
+        try:
+            os.symlink(outside, self.F / "隨手記.md")
+        except (OSError, NotImplementedError):
+            self.skipTest("這台建不了 symlink")
+        got = self.finish()
+        self.assertTrue((self.F / "隨手記.md").is_symlink())
+        self.assertFalse(self.note.exists())
+        self.linked_not_moved(got)
+
+    def test_system_is_junction_not_moved(self):
+        """security-review (1)：系統/ 是 junction（可能在知識庫外）→ 不搬，說沒搬。"""
+        (self.F / "隨手記.md").write_text("便條\n", encoding="utf-8")
+        outside = self.tmp / "外面系統"
+        if (self.V / "系統").exists():
+            shutil.move(str(self.V / "系統"), str(outside))
+        else:
+            outside.mkdir()
+        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(self.V / "系統"), str(outside)], capture_output=True)
+        if r.returncode != 0:
+            self.skipTest("這台建不了 junction")
+        got = self.finish()
+        self.assertTrue((self.F / "隨手記.md").is_file())
+        self.assertFalse((outside / "隨手記.md").exists())
+        self.linked_not_moved(got)
+
     def test_newer_vault_not_touched(self):
         (self.F / ".gitkeep").write_text("", encoding="utf-8")
         self.PLUGIN = "0.34.1"

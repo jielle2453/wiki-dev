@@ -832,12 +832,13 @@ def _pending_snapshot(vault, hist, plugin):
 UPGRADE_LINE = "第一層的「_個人」現在跟其他夾一樣：你說整理我才整理；裡面有不想讓我讀的，跟我說一句設成不讀。"
 NOTE_BOTH = "系統/隨手記.md 已經有了，_個人/隨手記.md 沒有搬過去；首頁便條現在用 系統/隨手記.md"
 NOTE_NOT_MOVED = "_個人/隨手記.md 沒搬到 系統/（{why}）；首頁便條現在用 系統/隨手記.md，要留舊的請自己搬過去"
+LINKED = "它或 系統/ 是連結"
 OLD_AREA_UNTIL = "0.33.0"  # 這一版（含）以前第一層的 _個人 是彈性區（#51 撤回，D-532）
 
 
 def _old_area(vault, cur):
     """D-532：從 OLD_AREA_UNTIL（含）以前升上來、第一層有 _個人 時收尾，回 notes：隨手記.md 搬到 系統/隨手記.md
-    （那裡已有就兩份都不動、回 NOTE_BOTH；搬不成回 NOTE_NOT_MOVED）；還有別的東西回 UPGRADE_LINE，只剩 .gitkeep 就刪它、拿掉夾。
+    （那裡已有就兩份都不動、回 NOTE_BOTH；它或 系統/ 是連結、搬不成都回 NOTE_NOT_MOVED）；還有別的東西回 UPGRADE_LINE，只剩 .gitkeep 就刪它、拿掉夾。
     她放的檔不動；升級前的版本看不懂、是連結、是型別夾（舊庫的 dir 叫它）都不動（寧可少做）。"""
     from kb._lib import inventory, profile
     was = parse_version(cur)
@@ -851,8 +852,10 @@ def _old_area(vault, cur):
         return []
     notes = []
     note, dest = root / "隨手記.md", Path(vault) / "系統" / "隨手記.md"
-    if note.is_file():
-        if dest.exists():
+    if note.is_file() or inventory._is_link(note):
+        if inventory._is_link(note) or inventory._is_link(dest.parent):
+            notes.append(NOTE_NOT_MOVED.format(why=LINKED))  # 連結不跟：搬過去可能落在知識庫外（security-review）
+        elif dest.exists():
             notes.append(NOTE_BOTH)
         else:
             try:
