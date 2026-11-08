@@ -91,21 +91,26 @@ def _card_resolver(vault, ent_data):
     return resolve
 
 
-def _money_mark(m, today, card=None, link=None):
-    """帳的到期件 → 跟日程那件同形狀的 mark（到期種類），多 source money、dir、amount、settle_ok；page／match 是點標題要開的帳頁那一行。"""
+def _money_mark(m, today, card=None, link=None, ents=None):
+    """帳的到期件 → 跟日程那件同形狀的 mark（到期種類），多 source money、dir、amount、settle_ok；page／match 是點標題要開的帳頁那一行。
+    拿掉的實體不放 entities（點不開），名字加註「（已拿掉）」寫進 text（記帳 2）。"""
     from kb._lib import money
+    ents = ents or {"entities": []}
+    names = list(m.get("entities") or [])
+    gone = [money._label(ents, n) for n in names if money._label(ents, n) != n]
     it = {"id": m.get("id"), "kind": "deadline", "date": m.get("due"), "status": "open", "text": "",
-          "entities": m.get("entities") or [], "source": m.get("source")}
+          "entities": [n for n in names if money._label(ents, n) == n], "source": m.get("source")}
     out = _mark(it, today, card)
     amt = money._amt_text(m)
-    out.update(text=" ".join(x for x in (money.DIR_TEXT.get(m.get("dir"), ""), amt or "（金額未知）", m.get("text") or "") if x)
+    out.update(text=" ".join(x for x in (money.DIR_TEXT.get(m.get("dir"), ""), amt or "（金額未知）", "、".join(gone),
+                                         m.get("text") or "") if x)
                + (f"（{m['advanced_by']}墊）" if m.get("advanced_by") else ""),
                source="money", dir=m.get("dir"), amount=m.get("amount"), settle_ok=m.get("amount") is not None,
                page=money.MD_POSIX, match=money.open_line(m, link or (lambda n: n), today))
     return out
 
 
-def _todo(vault, items, today, card_of=None, money_items=(), link=None):
+def _todo(vault, items, today, card_of=None, money_items=(), link=None, ents=None):
     """待辦三組：已經過了（TRACKED 逾期）、今天、這週（今天之後 lead_days 天內）；條件跟 agenda.counts 一樣。
     帳的到期件（money_items）照到期種類排進去（記帳 3）。"""
     now = dt.date.fromisoformat(today)
@@ -116,7 +121,7 @@ def _todo(vault, items, today, card_of=None, money_items=(), link=None):
         if it.get("status") != "open" or it.get("kind") == "period" or d is None:
             continue
         card = card_of(it.get("money") or it) if card_of else None
-        mark = _money_mark(it["money"], today, card, link) if "money" in it else _mark(it, today, card)
+        mark = _money_mark(it["money"], today, card, link, ents) if "money" in it else _mark(it, today, card)
         if d < now:
             if it.get("kind") in agenda.TRACKED:
                 groups["overdue"].append(mark)
@@ -136,7 +141,7 @@ def _stock_todo(vault, ent_data):
             continue
         e = entities.find(ent_data, p["name"])[0]
         card = entities.locate(vault, e, ent_data) if e is not None and e.get("type") else None
-        out.append({"entity": p["name"], "stock": p["total"], "min": p["min"], "unit": p["unit"], "places": p["places"],
+        out.append({"entity": money._label(ent_data, p["name"]), "stock": p["total"], "min": p["min"], "unit": p["unit"], "places": p["places"],
                     "card": card})
     return out
 
@@ -206,7 +211,7 @@ def _timeline(vault, items, ent_data, today, card_of=None, lo=None, hi=None, mon
 
     def mark_of(i):
         card = card_of(i.get("money") or i) if card_of else None
-        return _money_mark(i["money"], today, card, link) if "money" in i else _mark(i, today, card)
+        return _money_mark(i["money"], today, card, link, ent_data) if "money" in i else _mark(i, today, card)
     for key, (owner, its) in buckets.items():
         marks = [mark_of(i) for i in sorted(its, key=lambda i: (i.get("date", ""), i.get("time") or "", i.get("text") or "",
                                                                   i.get("id", "")))]
@@ -477,8 +482,8 @@ def _build(vault, opened, today, hour, lo=None, hi=None):
     got = agenda.counts(vault, {"items": items}, today)
     card_of = safe("卡", lambda: _card_resolver(vault, ent_data), None)  # 讀不到只是點下去開不了卡，外掛退回開日程.md
     money_items = agenda.money_due(vault)  # 讀不到當沒有（記帳 3）
-    link = agenda.linker(vault, ent_data)
-    todo = _todo(vault, items, today, card_of, money_items, link)
+    link = agenda.linker(vault, ent_data, mark_removed=True)  # 帳頁上的寫法（點了找那一行用）
+    todo = _todo(vault, items, today, card_of, money_items, link, ent_data)
     todo["stock"] = safe("庫存", lambda: _stock_todo(vault, ent_data), [])
     todo["owed"] = safe("報帳", lambda: _owed_todo(vault, link), [])
     asks = safe("要問你的事", lambda: _asks(vault), [])

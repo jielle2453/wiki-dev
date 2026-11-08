@@ -74,9 +74,9 @@ def holding(vault):
     return str(vault) in _HOLDING
 
 
-def linker(vault, ents=None):
+def linker(vault, ents=None, mark_removed=False):
     """實體名字 → 程式頁上的寫法（D-280）：有綜合卡寫 [[<卡的實際位置去掉 .md>|<名稱>]]（卡搬過夾也對，entities.locate），
-    沒有卡的、不在清單的照寫名字。同一頁查過的名字記住，不重複找卡。"""
+    沒有卡的、不在清單的照寫名字。同一頁查過的名字記住，不重複找卡。mark_removed：拿掉的實體加註「（已拿掉）」（帳頁、首頁的帳，記帳 2）。"""
     from kb._lib import entities
     try:
         data = entities.load(vault) if ents is None else ents
@@ -90,7 +90,10 @@ def linker(vault, ents=None):
         out = name
         try:
             e = entities.find(data, name)[0]
-            if e is not None and e.get("status") == "active" and e.get("type") and not entities.is_self(e):
+            if mark_removed and e is not None and e.get("status") == "removed" and entities.key(e.get("name")) == entities.key(name):
+                from kb._lib import money
+                out = f"{name}{money.REMOVED_MARK}"
+            elif e is not None and e.get("status") == "active" and e.get("type") and not entities.is_self(e):
                 where = entities.locate(vault, e, data)
                 if where:
                     out = f"[[{where[:-3] if where.endswith('.md') else where}|{name}]]"

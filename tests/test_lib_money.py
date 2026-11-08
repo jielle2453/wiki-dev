@@ -355,6 +355,24 @@ class Pages(PageBase):
         self.assertIn("| 膠囊 | 0 瓶 | 0 瓶 | 3 瓶 |", top, "地點一筆都沒有也列 0；沒指定地點的只進合計")
 
 
+class PagesRemoved(PageBase):
+    def test_removed_entity_marked_on_pages_and_home(self):
+        """記帳 2 的「（已拿掉）」：帳頁、首頁上拿掉的實體名字照加註（名字留著、錢不刪）。"""
+        from kb._lib import home
+        self.put("收", "50000", due="2026-11-20", entities=["王先生"], text="第二期")
+        self.put("收", "5000", date="2026-10-30", entities=["王先生"], items=["精華液 -2"])
+        self.kb("entity", "remove", "王先生")
+        self.kb("entity", "remove", "精華液")
+        self.put("付", "1", date="2026-11-01", text="觸發重畫")
+        self.assertIn("- 11/20（五）收 50,000 王先生（已拿掉） 第二期", self.page())
+        year = self.page(money.year_rel("2026"))
+        self.assertIn("收 5,000 王先生（已拿掉）（精華液（已拿掉） −2 瓶）", year)
+        late = home.build(self.V, today=TODAY3)["todo"]["overdue"][0]
+        self.assertIn("王先生（已拿掉）", late["text"])
+        self.assertEqual(late["entities"], [])
+        self.assertTrue(late["match"].startswith("- 11/20（五）收 50,000 王先生（已拿掉）"))
+
+
 class PagesNoPlace(PageBase):
     def test_04b_no_place_type_only_total(self):
         self.put("付", "1000", items=["精華液 +20"])

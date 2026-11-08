@@ -1252,13 +1252,14 @@ def _items_text(it, prof, ents, times=False):
     one = len(places) == 1 and None not in places
     shown = []
     for ln in lines:
+        name = _label(ents, ln.get("entity"))
         if times:
-            q = f"{ln['entity']} ×{numbers.show(abs(Decimal(str(ln.get('qty') or 0))))}"
+            q = f"{name} ×{numbers.show(abs(Decimal(str(ln.get('qty') or 0))))}"
         else:
             e = entities.find(ents, ln.get("entity"))[0]
-            q = f"{ln['entity']} {_qty_text(ln.get('qty') or 0, base_unit(prof, e.get('type')) if e else '')}"
-        shown.append(q + (f"（{ln['place']}）" if ln.get("place") and not one else ""))
-    return "、".join(shown) + (f"，{lines[0]['place']}" if one else "")
+            q = f"{name} {_qty_text(ln.get('qty') or 0, base_unit(prof, e.get('type')) if e else '')}"
+        shown.append(q + (f"（{_label(ents, ln['place'])}）" if ln.get("place") and not one else ""))
+    return "、".join(shown) + (f"，{_label(ents, lines[0]['place'])}" if one else "")
 
 
 def late_days(it, today):
@@ -1439,7 +1440,7 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
     today = today or _today()
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
-    link = agenda.linker(vault, ents) if link is None else link
+    link = agenda.linker(vault, ents, mark_removed=True) if link is None else link
     live = _live(data)
     by_id = {i.get("id"): i for i in data["items"]}
     years = _years(vault, data)
@@ -1702,7 +1703,7 @@ def panel(vault, name, today=None):
     today = today or _today()
     ents, prof = _ents(vault), _profile(vault)
     got = for_entity(vault, name)
-    link = agenda.linker(vault, ents)
+    link = agenda.linker(vault, ents, mark_removed=True)
     data = load(vault)
     by_id = {i.get("id"): i for i in data["items"]}
     stock_ = got.get("stock")
