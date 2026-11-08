@@ -165,7 +165,7 @@ class CardMakerSkeleton(unittest.TestCase):
         self.assertEqual(pos, sorted(pos), marks)
 
     def test_three_new_principles(self):
-        for lead, code in (("製卡交給製卡助手", "D-196"), ("派工照程式給的 prompt", "D-197"), ("子代理的回報不轉述檔案內容", "D-022")):
+        for lead, code in (("一次最多寫 10 份卡", "D-196"), ("派工照程式給的 prompt", "D-197"), ("子代理的回報不轉述檔案內容", "D-022")):  # codex 分支：第一條改了
             with self.subTest(principle=lead):
                 line = next((ln for ln in self.body.splitlines() if lead in ln), "")
                 self.assertIn(code, line)

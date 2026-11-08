@@ -130,7 +130,7 @@ class TurnHook(unittest.TestCase):
         cmds = [h["command"] for g in groups for h in g["hooks"]]
         self.assertEqual(len(cmds), 1, cmds)
         self.assertIn("${PLUGIN_ROOT}/hooks/turn.py", cmds[0])  # codex 分支
-        self.assertEqual(groups[0]["hooks"][0]["timeout"], 5)
+        self.assertEqual(groups[0]["hooks"][0]["timeout"], 30)  # codex 分支：冷啟動 7 秒會被 Codex 靜默放過（實機測）
         self.assertEqual(len(cfg["hooks"]["PreToolUse"]), 1)  # PreToolUse 不動
 
     def journal_rows(self):
