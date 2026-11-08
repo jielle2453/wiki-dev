@@ -144,6 +144,15 @@ class Floor(Base):
             turn.backup(self.V, f".claude/skills/{name}/SKILL.md", self.TID)
         self.assertEqual(journal.floor_note(self.V, self.TID), "改了 2 個 skill")
 
+    def test_deleted_skill_counted(self):
+        turn.backup(self.V, ".claude/skills/a/SKILL.md", self.TID, "delete")
+        self.assertEqual(journal.floor_note(self.V, self.TID), "刪了 1 個 skill")
+
+    def test_file_directly_in_skills_is_not_a_skill(self):
+        turn.backup(self.V, ".claude/skills/a.md", self.TID)
+        self.assertEqual(journal.floor_note(self.V, self.TID), "改了 1 個檔")
+        self.assertEqual(journal.changed_text([{"path": ".claude/skills/a.md"}]), "其他 1 個檔")
+
     def test_changed_text_names_skill(self):
         got = journal.changed_text([{"path": ".claude/skills/查報價/SKILL.md"}, {"path": ".claude/skills/查報價/x.md"}])
         self.assertEqual(got, "skill 查報價")

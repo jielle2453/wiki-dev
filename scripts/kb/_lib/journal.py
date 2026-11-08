@@ -59,7 +59,7 @@ _FLOOR_COUNTED = (
     ("Z1", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張綜合卡"),
     ("Z5", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張檔案卡"),
     ("Z4", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份 " + HOLD_DIR),
-    ("Z13", (("create", "新增"), ("modify", "改了")), "個 skill"),  # D-533：數 skill 夾
+    ("Z13", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "個 skill"),  # D-533：數 skill 夾
 )
 _FLOOR_SETTINGS = "改了設定與狀態檔"
 
@@ -396,8 +396,8 @@ def _floor(vault, rows):
         elif zone in ("Z1", "Z4", "Z5"):
             key = (zone, e.get("action"))
             counts[key] = counts.get(key, 0) + 1
-        elif zone == "Z13":  # skill 數夾不數檔（一個 skill 可以有好幾個檔）
-            skills.setdefault(e.get("action"), set()).add(e["path"].replace("\\", "/").split("/")[2].casefold())
+        elif zone == "Z13" and len(parts := e["path"].replace("\\", "/").split("/")) > 3:  # skill 數夾不數檔；skills 底下直接放的檔不算 skill
+            skills.setdefault(e.get("action"), set()).add(parts[2].casefold())
         else:
             other += 1
     for action, names in skills.items():
