@@ -318,7 +318,8 @@ class FieldCommand(Base):
         cases = [(("會員價=1600", "--said"), "第九節沒有「會員價」這個數字欄；產品有：售價、進價、每箱"),
                  (("售價=一千八", "--said"), "看不懂這個數字：一千八"),
                  (("售價=-5", "--said"), "不能是負數：-5"),
-                 (("售價=1800",), "要說是她說的（--said）還是哪張卡讀到的（--card f-…）")]
+                 (("售價=1800",), "要說是她說的（--said）還是哪張卡讀到的（--card f-…）"),
+                 (("售價=1800", "--card", "f-00000000"), "清冊裡找不到這張卡：f-00000000")]  # 測試報告低 #4
         for args, want in cases:
             with self.subTest(args=args):
                 r = self.kb("entity", "field", "精華液", *args)
@@ -370,6 +371,7 @@ class FieldCommand(Base):
             text = self.card()
             text = text.replace("售價: 1800", broken) if broken else text.replace("售價: 1800\n", "")
             (self.V / ESS_REL).write_text(text, encoding="utf-8", newline="\n")
+            synthesis.copy_tags(self.V, ESS_REL, self.t)  # AI 用 Edit 寫卡：PostToolUse 照正本寫回數字行
             written, skipped = synthesis.mark_synced(self.V, ["精華液"], self.t)
             self.assertEqual(skipped, [])
             self.assertIn("售價: 1800", self.card())
@@ -418,6 +420,46 @@ class HandEdit(Base):
         r = self.kb("entity", "field", "精華液", "--from-card")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, got["problem"]))
         self.assertEqual(entry(self.V, ESS)["欄:售價"]["value"], 1800)
+
+    def test_review2_field_said_keeps_her_number(self):
+        """測試報告中 #2：她在屬性欄改了售價、還沒 --from-card，AI 記別的欄：她改的先抄回（hand）、成功句講。"""
+        self.kb("entity", "field", "精華液", "售價=1800", "--said")
+        self.edit("售價: 1800", "售價: 2,000")
+        r = self.kb("entity", "field", "精華液", "進價=1200", "--said")
+        self.assertEqual(r.stdout.strip().splitlines(),
+                         ["精華液：進價 1,200 元", "卡上你在屬性欄改的數字先照你改的記下了：精華液 售價 2,000 元"])
+        cur = entry(self.V, ESS)["欄:售價"]
+        self.assertEqual((cur["value"], cur["from"]), (2000, "hand"))
+        self.assertIn("售價: 2000", self.card())
+        self.assertIn("進價: 1200", self.card())
+
+    def test_review2_card_does_not_overwrite_her_number(self):
+        self.kb("entity", "field", "精華液", "售價=1800", "--card", self.card_id(E.QUOTE, "精華液報價", "2026-09-01"))
+        self.edit("售價: 1800", "售價: 2000")
+        r = self.kb("entity", "field", "精華液", "售價=1500", "--card", self.card_id(E.ESTIMATE, "精華液估價", "2026-10-01"),
+                    "--json")
+        got = json.loads(r.stdout)
+        self.assertEqual((got["kept"], got["absorbed"]), ([{"field": "售價", "why": "said"}], {"售價": 2000}))
+        self.assertEqual(entry(self.V, ESS)["欄:售價"]["value"], 2000)
+
+    def test_review2_mark_synced_keeps_her_number(self):
+        self.kb("entity", "field", "精華液", "售價=1800", "--said")
+        self.edit("售價: 1800", "售價: 2000")
+        r = self.kb("entity", "render", "精華液", "--synced")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("卡上你在屬性欄改的數字先照你改的記下了：精華液 售價 2,000 元", r.stdout)
+        self.assertEqual(entry(self.V, ESS)["欄:售價"]["value"], 2000)
+        self.assertIn("售價: 2000", self.card())
+
+    def test_review3_own_number_line_asks(self):
+        """測試報告低 #3：她自己加的一行是數字、欄名不在第九節 → 照標籤 bad 那條問她、不寫；不是數字的照舊算她的屬性。"""
+        self.kb("entity", "field", "精華液", "售價=1800", "--said")
+        self.edit("售價: 1800", "售價: 1800\n會員價: 12\n備註: 限量")
+        want = "精華液的卡上多了「會員價: 12」，可是產品的第九節沒有這一欄：要加一欄嗎？"
+        self.assertEqual(entities.tag_edits(self.V), [{"name": "精華液", "fields": ["會員價"], "ok": False, "problem": want}])
+        r = self.kb("entity", "field", "精華液", "--from-card")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, want))
+        self.assertNotIn("欄:會員價", entry(self.V, ESS))
 
     def test_11_line_deleted_is_clear(self):
         self.kb("entity", "field", "精華液", "售價=1800", "--said")
