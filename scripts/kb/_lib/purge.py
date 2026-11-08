@@ -354,7 +354,7 @@ def drop_entity_fields(data, ids):
             old = [o for o in v.get("old") or [] if not (isinstance(o, dict) and o.get("card") in ids)]
             new = dict(v, old=old)
             if v.get("card") in ids:
-                new.update(value=None, card=None, doc_date=None)
+                new.update(value=None, card=None, doc_date=None, at=entities._now_stamp())
             if new != v:
                 e[k] = new
                 changed = True
@@ -365,8 +365,14 @@ def _entity_fields(vault, ids, turn_id):
     """目前的實體清單：數字欄的出處卡在那夾的清掉（entities 的鎖、先備進這一回合）。"""
     with entities.lock(vault):
         data = entities.load(vault)
-        if drop_entity_fields(data, ids):
-            entities._save(vault, data, turn_id)
+        before = {e.get("id"): {k: (v or {}).get("value") for k, v in entities.fields_of(e).items()} for e in data["entities"]}
+        if not drop_entity_fields(data, ids):
+            return
+        entities._save(vault, data, turn_id)
+    for e in data["entities"]:  # 卡上那幾行跟著拿掉，不然下一句會當成她在屬性欄寫的
+        now = {k: (v or {}).get("value") for k, v in entities.fields_of(e).items()}
+        if now != before.get(e.get("id")):
+            synthesis.rewrite_field_lines(vault, e, turn_id)
 
 
 def _pending_md(data):

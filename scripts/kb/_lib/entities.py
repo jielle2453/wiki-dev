@@ -500,9 +500,8 @@ def tag_edit_problem(entry, row, v):
 
 
 def _fields_newer(vault, rel, entry, prof):
-    """數字行可能被她改了：第九節這個型別的欄（還沒有值的也算）或實體上留著的欄，有一欄的 at 比卡舊（只看修改時間）。"""
-    stamps = [(entry.get(_field_key(entry, f["field"]) or "") or {}).get("at") for f in profile.fields_for(prof, entry.get("type"))]
-    stamps += [v.get("at") for v in fields_of(entry).values()]
+    """數字行可能被她改了：實體上記過的數字欄，有一欄的 at 比卡舊（只看修改時間）。"""
+    stamps = [v.get("at") for v in fields_of(entry).values()]  # 還沒記過的欄不算（不然每句開頭都要讀那幾張卡）
     return any(field_newer(vault, rel, s) for s in stamps)
 
 
@@ -514,7 +513,7 @@ def _edited(vault, data, prof):
         if not e.get("card") or e.get("status") != "active" or is_self(e) or not e.get("type"):
             continue
         tagged = bool(profile.tags_for(prof, e.get("type")))
-        numbered = bool(profile.fields_for(prof, e.get("type"))) or bool(fields_of(e))
+        numbered = bool(fields_of(e))
         if not tagged and not numbered:
             continue
         rel = locate(vault, e)
@@ -558,7 +557,8 @@ def copy_card_edits(vault, refs, turn_id, by=None):
             pairs.append((e, rel))
     out = []
     for e, rel in pairs:
-        good, bad = card_diffs(vault, e, prof, rel=rel)
+        # 全部（refs None）時標籤行照 tag_edits 那道關：卡比 tags_at 新才算她改的（只因數字行被挑進來的不動標籤）
+        good, bad = card_diffs(vault, e, prof, rel=rel) if refs is not None or card_newer(vault, rel, e) else ({}, [])
         nums, nbad = field_diffs(vault, e, prof, rel=rel)
         if not good and not bad and not nums and not nbad:
             continue
@@ -569,6 +569,8 @@ def copy_card_edits(vault, refs, turn_id, by=None):
         if nums:  # 她在屬性欄改的數字：算她說的（from hand，記帳 1b 第 6 點）；整行刪掉是清掉
             entry = set_fields(vault, e["id"], {f: ("" if v is None else v) for f, v in nums.items()}, turn_id,
                                hand=True, by=by)["entity"]
+            from kb._lib import synthesis
+            synthesis.rewrite_field_lines(vault, entry, turn_id)  # 她寫的 1,800、3萬 換成純數字，屬性欄才認得（D-272）
         out.append({"entity": entry, "written": list(good), "bad": bad,
                     "problems": [tag_edit_problem(entry, row, v) for row, v in bad],
                     "numbers": list(nums), "number_bad": [(f, raw) for f, raw, _q in nbad],
@@ -701,7 +703,7 @@ def set_fields(vault, ref, updates, turn_id, said=False, card=None, by=None, han
     """寫數字欄（kb entity field，D-281、D-336）。updates {欄名: 數字字串或數}：欄要是這個型別在第九節的欄，數字照 parse_number
     （收千分位、小數、萬，不收負數），錯了丟 EntityRefused。said=True 她說的（"" 是清掉）、hand=True 她在卡的屬性欄改的（同她說的）；
     card="f-…" 製卡從那張卡讀的：那欄是她說的（said、hand）不改（kept，why said）、值一樣不改、兩張卡都有文件日期而新卡比較舊不改
-    （why older）、有一張沒有文件日期而值不同不改並開一條待處理 conflict，其他照設。值沒變不寫。
+    （why older）、有一張沒有文件日期或兩張同一天而值不同不改並開一條待處理 conflict（D-281 分不出新舊），其他照設。值沒變不寫。
     回 {"entity","changed": {欄: [舊, 新]},"kept": [{"field","why"}],"conflicts": [{"field","old","new","old_card","new_card"}],
     "card": 綜合卡在哪或 None}。"""
     from kb._lib import people
@@ -746,7 +748,7 @@ def set_fields(vault, ref, updates, turn_id, said=False, card=None, by=None, han
                 if was and doc_date and doc_date < was:
                     kept.append({"field": field, "why": "older"})
                     continue
-                if not (was and doc_date):
+                if not (was and doc_date) or was == doc_date:  # 分不出哪份新（沒有文件日期、同一天）：問她（D-281）
                     conflicts.append({"field": field, "old": have, "new": value, "old_card": cur.get("card"),
                                       "new_card": card})
                     continue
@@ -785,8 +787,8 @@ def drop_field(vault, type_, field, turn_id, undo=None):
             if not k or (e.get(k) or {}).get("value") is None:
                 continue
             cur = e[k]
-            e[k] = dict(cur, value=None, card=None, doc_date=None, at=_now_stamp(),
-                        old=list(cur.get("old") or []) + [_snapshot(cur)])
+            e[k] = dict(cur, value=None, card=None, doc_date=None, at=_now_stamp(), **{"from": None},
+                        old=list(cur.get("old") or []) + [_snapshot(cur)])  # 欄拿掉不是她說清掉：之後加回來檔案照樣填得進
             names.append(e["name"])
         if names:
             _save(vault, data, turn_id, undo, by="program")

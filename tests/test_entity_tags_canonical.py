@@ -19,8 +19,9 @@ from kb.lint import state  # noqa: E402
 from kb.lint.checks import tag_edits  # noqa: E402
 
 LI, LI_REL = "e-aaaa0001", "案子/內湖李/內湖李.md"
-OPENING_ONE = ("你在卡的屬性欄改了標籤或數字：1 張綜合卡（信義王）；跑 kb entity tag --from-card 記進去（數字一起記，"
-               "同 kb entity field --from-card），說一聲記了什麼；不在字典的詞直接加進字典，不是數字的問客戶要記成多少。")  # 記帳 1b 第 6 點
+OPENING_ONE = ("客戶在 Obsidian 卡的屬性欄改了 1 張綜合卡的標籤或數字（信義王）：跑 kb entity tag --from-card 記進去"
+               "（數字一起記，同 kb entity field --from-card），跟她說「你在卡的屬性欄改了標籤或數字：…（記了什麼）」；"
+               "不在字典的詞直接加進字典，不是數字的問她要記成多少。")  # 記帳 1b 第 6 點
 SID = "test-sid"
 
 
@@ -236,7 +237,7 @@ class HandEdit(Base):
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "照你在卡上改的記下了：信義王 階段 完工"))
         self.assertEqual(entry(self.V, E.XINYI)["tags"]["階段"], "完工")
         self.assertEqual(entry(self.V, E.XINYI)["tags_said"], ["階段"])
-        self.assertFalse([x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")])
+        self.assertFalse([x for x in self.opening() if x.startswith("客戶在 Obsidian 卡的屬性欄改了")])
         self.assertEqual(self.kb("entity", "tag", "--from-card", "信義王").stdout.strip(), "卡上的標籤跟實體清單一樣，沒有要記的")
 
     def test_from_card_outside_dictionary_not_written(self):
@@ -274,8 +275,8 @@ class HandEdit(Base):
             p.write_text(p.read_text(encoding="utf-8").replace("階段: 施工", "階段: 完工"), encoding="utf-8", newline="\n")
             os.utime(p, (time.time() + 30, time.time() + 30))
         self.edit("階段: 施工", "階段: 完工")
-        (line,) = [x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")]
-        self.assertTrue(line.startswith("你在卡的屬性欄改了標籤或數字：5 張綜合卡（"), line)
+        (line,) = [x for x in self.opening() if x.startswith("客戶在 Obsidian 卡的屬性欄改了")]
+        self.assertTrue(line.startswith("客戶在 Obsidian 卡的屬性欄改了 5 張綜合卡的標籤或數字（"), line)
         self.assertEqual(line.split("（")[1].split("）")[0].count("、"), 2)
         self.assertIn("…）", line)
 
@@ -382,7 +383,7 @@ class Absorb(Base):
         e = entry(self.V, E.XINYI)
         self.assertEqual((e["tags"]["階段"], e["tags_said"]), ("", ["階段"]))
         self.assertIn("階段: []\n", (self.V / T.XINYI_REL).read_text(encoding="utf-8"), "渲染照正本寫回空的")
-        self.assertFalse([x for x in self.opening() if x.startswith("你在卡的屬性欄改了標籤或數字")])
+        self.assertFalse([x for x in self.opening() if x.startswith("客戶在 Obsidian 卡的屬性欄改了")])
         self.kb("profile", "add", "標籤", "型別=案子", "欄名=預算", "詞=高、中")
         T.write_synthesis(self.V, E.XINYI, "信義王", T.XINYI_REL, ["工種: [水電, 木作]", "階段: 施工", "預算: 高"], turn_id=self.t)
         e = entry(self.V, E.XINYI)

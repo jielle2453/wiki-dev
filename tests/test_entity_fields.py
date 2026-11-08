@@ -147,7 +147,7 @@ class Errors(Base):
 
     def err(self, text):
         with self.assertRaises(profile.ProfileError) as cm:
-            profile.parse_md(text, places=profile.place_names(self.V))
+            profile.fill_missing(profile.parse_md(text), profile.load(self.V), profile.place_names(self.V))
         return cm.exception.message
 
     def test_3_messages(self):
@@ -243,6 +243,15 @@ class ProfileCli(Base):
         self.assertIn("售價: 1900", self.card())
         self.assertTrue(t2)
 
+    def test_4_removed_then_readded_card_fills(self):
+        self.kb("entity", "field", "精華液", "售價=1800", "--said")
+        self.kb("profile", "remove", "數字欄", "型別=產品", "欄名=售價")
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=售價", "單位=元")
+        fid = self.card_id(E.QUOTE, "精華液報價", "2026-09-01")
+        r = self.kb("entity", "field", "精華液", "售價=1700", "--card", fid)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(entry(self.V, ESS)["欄:售價"]["value"], 1700, "欄拿掉不是她說清掉，加回來檔案填得進")
+
     def test_4_hand_remove_asks_then_drop_fields(self):
         self.kb("entity", "field", "精華液", "售價=1800", "--said")
         md = self.V / profile.MD_POSIX
@@ -335,6 +344,10 @@ class FieldCommand(Base):
         items = [i for i in pending.load(self.V)["items"] if i.get("kind") == "conflict" and i.get("status") == "open"]
         self.assertEqual(len(items), 1)
         self.assertIn("精華液 的 售價", items[0]["text"])
+        same = self.card_id(E.DRAFT, "精華液報價同日", "2026-10-01")
+        r = self.kb("entity", "field", "精華液", "進價=1300", "--card", same, "--json")
+        self.assertEqual([c["field"] for c in json.loads(r.stdout)["conflicts"]], ["進價"], "同一天分不出新舊（D-281）")
+        self.assertEqual(entry(self.V, ESS)["欄:進價"]["value"], 1200)
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
         r = self.kb("entity", "field", "精華液", "每箱=12", "--card", new, "--json")
         self.assertEqual(json.loads(r.stdout)["kept"], [{"field": "每箱", "why": "said"}])
@@ -389,7 +402,8 @@ class HandEdit(Base):
         self.kb("entity", "field", "精華液", "售價=1800", "--said")
         self.edit("售價: 1800", "售價: 2000")
         line = self.line()
-        self.assertTrue(line.startswith("你在卡的屬性欄改了標籤或數字：1 張綜合卡（精華液）"), line)
+        self.assertTrue(line.startswith("客戶在 Obsidian 卡的屬性欄改了 1 張綜合卡的標籤或數字（精華液）"), line)
+        self.assertIn("你在卡的屬性欄改了標籤或數字：", line)
         r = self.kb("entity", "field", "精華液", "--from-card")
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "照你在卡上改的記下了：精華液 售價 2,000 元"))
         cur = entry(self.V, ESS)["欄:售價"]
@@ -561,6 +575,9 @@ class Purge(Base):
         e = entry(self.V, ESS)
         self.assertEqual((e["欄:售價"]["value"], e["欄:售價"]["old"]), (1800, []))
         self.assertEqual((e["欄:進價"]["value"], e["欄:進價"]["card"]), (None, None))
+        self.assertNotIn("進價:", self.card())
+        self.assertIn("售價: 1800", self.card())
+        self.assertEqual(entities.tag_edits(self.V), [], "清掉的值不會被當成她在屬性欄寫的")
         data = {"entities": [dict(e, **{"欄:每箱": {"value": 24, "card": fid, "old": [{"value": 12, "card": fid}]}})]}
         self.assertTrue(purge.drop_entity_fields(data, {fid}))
         self.assertEqual((data["entities"][0]["欄:每箱"]["value"], data["entities"][0]["欄:每箱"]["old"]), (None, []))

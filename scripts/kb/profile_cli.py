@@ -495,7 +495,7 @@ def _apply_from(vault, from_md, as_json, conversation):
                                               legacy=stored if stored in profile.SECTIONS_OF else False,
                                               known_types=[t["name"] for t in data["types"]], **profile.preference_limits(vault),
                                               resolve=profile.template_resolver(vault, data),
-                                              uses=profile.known_uses(vault, data), places=profile.place_names(vault)),
+                                              uses=profile.known_uses(vault, data)),
                              data, profile.place_names(vault))
     except profile.ProfileError as e:
         _refuse(as_json, st, APPLY_ERROR.format(error=e.message))
@@ -660,9 +660,8 @@ def _edit_locked(vault, op, args, as_json, conversation):
         new = profile.parse_md(profile.render_text(merged, profile.card_titles(vault, merged)),
                                config.get(vault, "card_title_max_chars"),
                                known_types=[t["name"] for t in old["types"]], **lim,
-                               resolve=profile.template_resolver(vault, merged), uses=profile.known_uses(vault, old),
-                               places=profile.place_names(vault))
-        profile.fill_missing(new, merged, profile.place_names(vault))
+                               resolve=profile.template_resolver(vault, merged), uses=profile.known_uses(vault, old))
+        profile.fill_missing(new, merged, profile.place_names(vault), old.get("about"))  # 跟舊 JSON 比：add 改的平常在哪才驗
     except profile.ProfileError as e:
         raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
     profile.carry_whose(new["preferences"], sections["preferences"])

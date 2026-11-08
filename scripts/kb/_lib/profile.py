@@ -498,13 +498,15 @@ def place_names(vault):
     return out
 
 
-def _check_places(about, money, places):
-    """第五節的平常在哪要是第十節地點型別的實體（D-342 (3)）；places 是 place_names 的結果，None 不驗。值換成登記的名稱。"""
+def _check_places(about, money, places, before=None):
+    """第五節的平常在哪要是第十節地點型別的實體（D-342 (3)）；places 是 place_names 的結果，None 不驗。值換成登記的名稱。
+    before 是 JSON 原本的第五節：平常在哪沒改的列不再驗（地點後來改名、拿掉，不擋整份設定檔）。"""
     if places is None:
         return
     kinds = {_key(t) for row in money or [] for t in row.get("places") or []}
+    was = {_key(a["name"]): a.get("place") for a in before or []}
     for m, a in enumerate(about or [], 1):
-        if not a.get("place"):
+        if not a.get("place") or (_key(a["name"]) in was and was[_key(a["name"])] == a["place"]):
             continue
         hit = places.get(_key(a["place"]))
         if hit is None or _key(hit[1]) not in kinds:
@@ -893,8 +895,7 @@ _DEFAULT_LIMITS = {"preference_max": PREFERENCE_MAX, "preference_max_chars": PRE
                    "preference_card_max": PREFERENCE_CARD_MAX, "preference_card_max_chars": PREFERENCE_CARD_MAX_CHARS}
 
 
-def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), resolve=None, uses=None, places=None,
-             **limits):
+def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), resolve=None, uses=None, **limits):
     """md → {"types", "card_types", "exclusions", "synthesis_sections", "about", "preferences"}（跟 JSON 同形，source／date
     沒填是 None）；讀不懂丟 ProfileError。各節都在但沒有任何列算成功；少任何一節就是錯（I-097：命中 0 節不回空）。
     型別名長度上限是 max_type_chars。legacy 是磁碟上 JSON 的舊 schema（True 或 1：舊 md 只有三節；2：只有五節；3：六節；4：七節）：
@@ -902,8 +903,8 @@ def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), r
     known_types：舊 JSON 第一節的型別名，第一節拿掉的型別在第四節的列丟掉不報錯（status 傳）。
     resolve：第七節「以哪份為底」換成卡編號的函式（template_resolver(vault, 舊 JSON)）；沒給只收卡編號。
     uses：第六節用在哪能填的值（known_uses）；沒給不驗。limits：偏好兩組上限（preference_limits），沒給用預設。
-    places：第五節平常在哪能填的實體（place_names）；沒給不驗。第九、十節選填（D-335，看節在不在、不靠版本號）：
-    缺了回 None；第十節沒有列也回 None（當作沒改）。回來的 None 由呼叫端用 fill_missing 換成 JSON 的值。"""
+    第九、十節選填（D-335，看節在不在、不靠版本號）：缺了回 None；第十節沒有列也回 None（當作沒改）。
+    回來的 None 由呼叫端用 fill_missing 換成 JSON 的值；第五節的平常在哪也在 fill_missing 驗（要讀實體清單）。"""
     lines = str(text).lstrip("﻿").splitlines()
     found = _sections(lines)
     have = SECTIONS_OF.get(int(legacy), REQUIRED_SECTIONS)
@@ -925,15 +926,13 @@ def parse_md(text, max_type_chars=TYPE_NAME_MAX, legacy=False, known_types=(), r
            "tags": _parse_tags(_table_rows(8, found[8]), types, known_types, max_type_chars) if 8 in found else None}
     out["fields"] = _parse_fields(_table_rows(9, found[9]), types, out["tags"], known_types) if 9 in found else None
     out["money"] = _parse_money(_table_rows(10, found[10]), types) if 10 in found else None
-    if out["about"] and out["money"] is not None:
-        _check_places(out["about"], out["money"], places)
     return out
 
 
-def fill_missing(new, data, places=None):
+def fill_missing(new, data, places=None, before=None):
     """parse_md 回 None 的節（舊 md 沒有那節、第十節沒有列）換成 JSON 的值；JSON 也沒有的選填節（舊庫的九、十節）拿掉鍵。
-    第五節的平常在哪：讀出來的列沒有 place 鍵（單人 md 不顯示這欄）照 JSON 同名那列帶過去；帶完照最後的第十節再驗一次
-    （places 是 place_names，None 不驗）。回 new。"""
+    第五節的平常在哪：讀出來的列沒有 place 鍵（單人 md 不顯示這欄）照 JSON 同名那列帶過去；改了的照最後的第十節驗
+    （places 是 place_names，None 不驗；before 是拿來比「改了沒」的第五節，沒給用 data 的；錯了丟 ProfileError 指第五節第幾列）。回 new。"""
     for key in NEW_LISTS:
         if new.get(key) is None:
             if key in data:
@@ -945,7 +944,7 @@ def fill_missing(new, data, places=None):
         if "place" not in a and (old_about.get(_key(a["name"])) or {}).get("place"):
             a["place"] = old_about[_key(a["name"])]["place"]
     if new.get("about"):
-        _check_places(new["about"], new.get("money") or [], places)
+        _check_places(new["about"], new.get("money") or [], places, data.get("about") if before is None else before)
     return new
 
 
@@ -2163,8 +2162,7 @@ def status(vault):
             new = parse_md(md.read_text(encoding="utf-8"), config.get(vault, "card_title_max_chars"),
                            legacy=stored if stored in SECTIONS_OF else False,
                            known_types=[t["name"] for t in data["types"]], **preference_limits(vault),
-                           resolve=template_resolver(vault, data), uses=known_uses(vault, data),
-                           places=place_names(vault))
+                           resolve=template_resolver(vault, data), uses=known_uses(vault, data))
             fill_missing(new, data, place_names(vault))  # 舊 md 沒有第四～十節、第十節沒有列：取 JSON 的值
         except ProfileError as e:
             out["state"], out["error"] = "error", e.message

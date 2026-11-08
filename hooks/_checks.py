@@ -52,8 +52,9 @@ PROFILE_CHANGED = "設定檔被手改了（{summary}）：跑 kb profile apply �
 PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
 PROFILE_LINE_MAX = 120
 PROFILE_ORDER = "型別順序"  # 只調了型別表的順序（型別夾會改名）：diff 沒有內容差異時的摘要
-TAGS_EDITED = ("你在卡的屬性欄改了標籤或數字：{n} 張綜合卡（{names}）；跑 kb entity tag --from-card 記進去（數字一起記，"
-               "同 kb entity field --from-card），說一聲記了什麼；不在字典的詞直接加進字典，不是數字的問客戶要記成多少。")
+TAGS_EDITED = ("客戶在 Obsidian 卡的屬性欄改了 {n} 張綜合卡的標籤或數字（{names}）：跑 kb entity tag --from-card 記進去"
+               "（數字一起記，同 kb entity field --from-card），跟她說「你在卡的屬性欄改了標籤或數字：…（記了什麼）」；"
+               "不在字典的詞直接加進字典，不是數字的問她要記成多少。")
 TAGS_EDITED_SHOWN = 3
 AGENDA_OVERDUE_HINT = "（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）"
 BACKGROUND_LINT_BUDGET = 7  # 秒，從 hook 開始算；前面用掉太多時間這次就不開
