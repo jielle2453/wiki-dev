@@ -116,5 +116,11 @@
     ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
     ".gitignore": "c4a127b1981a6110fffe375a1259006662eb1580f811bf6e4bad771dd92f8224",
     "CLAUDE.md": "bb36c8a869e0d50369a9142e63061d6de3881ce909cc4252477cac29aeab4120"
+  },
+  "0.34.0": {
+    ".claude/settings.json": "7bc059b1ebedefa4a052efe5216ae840cd3693763960a695fba8d846cccea0e3",
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    ".gitignore": "9b2b06b84a118a534536cec7849c5693bd5a469a878a3a14c83c520877fae48e",
+    "CLAUDE.md": "c3d751c81fc762a9f7887ece6c4e1bc7f7944eac20142d3ea2f30c3c3c5c8232"
   }
 }
