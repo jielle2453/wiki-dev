@@ -337,8 +337,10 @@ def conflicts_of(ledger, item, candidates=None):
             continue
         if item.get("rec") and other.get("rec"):
             hit = item["rec"] == other["rec"]
-            if hit and item.get("stream") and other.get("stream"):
-                hit = bool(set(item["stream"]["fields"]) & set(other["stream"]["fields"]))
+            if hit and item.get("stream") and other.get("stream"):  # 只往後加的欄（歷程）兩邊都加不算改了同一欄（D-337）
+                from kb._lib import streams
+                same = set(item["stream"]["fields"]) & set(other["stream"]["fields"])
+                hit = bool(same - set(streams.append_only(item["stream"]["kind"])))
         else:
             hit = any(overlaps(a, b) for a in item["keys"] for b in other["keys"])
         if hit:

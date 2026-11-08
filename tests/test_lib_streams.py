@@ -241,5 +241,129 @@ class ProfileLocalSha(StreamsTest):
         self.assertIsNone(streams.read_doc(self.V, "profile")["md_sha256"])
 
 
+class FormatVersion(StreamsTest):
+    """記帳 1a（D-335）：流水檔格式版本 2；舊版（格式 1）讀到 v2 的行照讀、要寫才擋。"""
+
+    def test_format_version_is_2_and_rows_carry_it(self):
+        self.assertEqual(streams.FORMAT_VERSION, 2)
+        streams.write(self.V, "agenda", {}, {"a-1": {"t": 1}})
+        row = json.loads(streams.own_file(self.V, "agenda").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["v"], 2)
+
+    def test_v1_rows_still_read(self):
+        self.put("m-a", "agenda", {"v": 1, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": "m-a", "set": {"t": 1}})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"], {"t": 1})
+        streams.check_writable(self.V, "agenda")  # 舊的行不擋新版寫
+
+    def test_old_program_refuses_to_write_after_v2_row(self):
+        from unittest import mock
+        streams.write(self.V, "agenda", {}, {"a-1": {"t": 1}})
+        with mock.patch.object(streams, "FORMAT_VERSION", 1):  # 0.33.0 的 check_writable：同一套、格式版本 1
+            self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 1)
+            with self.assertRaises(streams.NewerFormat) as cm:
+                streams.check_writable(self.V, "agenda")
+        self.assertEqual(cm.exception.version, 2)
+
+
+H0 = {"date": "2026-11-01", "change": "建立", "by": "ai", "turn": "t0"}
+HA = {"date": "2026-11-03", "change": "date 11-25 → 11-26", "by": "ai", "turn": "tA"}
+HB = {"date": "2026-11-02", "change": "加備註", "by": "ai", "turn": "tB"}
+
+
+class AppendOnly(StreamsTest):
+    """記帳 1a（D-337，B-530）：日程每筆的 history 只往後加；兩台各自加的行合起來都留、不算撞到，退回只拿掉自己那一行。"""
+
+    A, B = "m-aaaa0001", "m-bbbb0002"
+
+    def seed(self):
+        self.put(self.A, "agenda", {"v": 1, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": self.A,
+                                    "set": {"date": "2026-11-25", "text": "開會", "history": [H0]}})
+        self.put(self.A, "agenda", {"v": 2, "op": "set", "id": "a-1", "seq": 2, "base": 1, "by": self.A, "turn": "tA",
+                                    "set": {"date": "2026-11-26", "history": [H0, HA]}})
+        self.put(self.B, "agenda", {"v": 2, "op": "set", "id": "a-1", "seq": 2, "base": 1, "by": self.B, "turn": "tB",
+                                    "set": {"note": "帶樣品", "history": [H0, HB]}})
+
+    def test_registered(self):
+        self.assertEqual(streams.APPEND_ONLY["agenda"], ("history",))
+
+    def test_both_sides_kept_no_conflict_sorted_by_date(self):
+        self.seed()
+        st = streams.load(self.V, "agenda")
+        self.assertEqual(st.conflicts, [])
+        rec = st.records["a-1"]
+        self.assertEqual(rec["history"], [H0, HB, HA])  # 照 date 排
+        self.assertEqual((rec["date"], rec["note"]), ("2026-11-26", "帶樣品"))
+        self.assertEqual(streams.conflicts_of(self.V, "agenda"), [])
+
+    def test_same_date_then_by_version(self):
+        h1 = dict(HB, date="2026-11-03", change="第二版加的")
+        self.put(self.A, "agenda", {"op": "create", "id": "a-1", "seq": 1, "base": 0, "by": self.A, "set": {"history": [H0]}})
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B, "set": {"history": [H0, h1]}})
+        self.put(self.A, "agenda", {"op": "set", "id": "a-1", "seq": 2, "base": 1, "by": self.A, "set": {"history": [H0, HA]}})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["history"], [H0, HA, h1])
+
+    def test_same_element_only_once(self):
+        self.seed()
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B,
+                                    "set": {"history": [H0, HA, HB]}})
+        self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["history"], [H0, HB, HA])
+
+    def test_other_list_fields_still_conflict(self):
+        self.seed()
+        self.put(self.A, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.A, "set": {"entities": ["甲"]}})
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B, "set": {"entities": ["乙"]}})
+        self.assertEqual([c["field"] for c in streams.load(self.V, "agenda").conflicts], ["entities"])
+
+    def test_other_kinds_unchanged(self):
+        self.put(self.A, "entities", {"op": "create", "id": "e-1", "seq": 1, "base": 0, "by": self.A, "set": {"history": [1]}})
+        self.put(self.A, "entities", {"op": "set", "id": "e-1", "seq": 2, "base": 1, "by": self.A, "set": {"history": [2]}})
+        self.put(self.B, "entities", {"op": "set", "id": "e-1", "seq": 2, "base": 1, "by": self.B, "set": {"history": [3]}})
+        self.assertEqual([c["field"] for c in streams.load(self.V, "entities").conflicts], ["history"])
+
+    def test_line_effects_old_new_use_the_union(self):
+        self.seed()
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B,
+                                    "set": {"history": [H0, HA, HB, dict(HB, change="再加")]}})
+        eff = streams.line_effects(self.V, "agenda", "a-1", 3, self.B)
+        self.assertEqual(eff["old"]["history"], [H0, HB, HA])
+        added = [h for h in eff["new"]["history"] if h not in eff["old"]["history"]]
+        self.assertEqual([h["change"] for h in added], ["再加"])
+
+    def test_revert_removes_only_own_line_and_field(self):
+        self.seed()
+        machine(self.V, self.A)
+        eff = streams.line_effects(self.V, "agenda", "a-1", 2, self.A)
+        streams.revert_line(self.V, "agenda", "a-1", eff, "t-undo")
+        st = streams.load(self.V, "agenda")
+        rec = st.records["a-1"]
+        self.assertEqual(rec["history"], [H0, HB])
+        self.assertEqual((rec["date"], rec["note"]), ("2026-11-25", "帶樣品"))
+        self.assertEqual(st.conflicts, [])
+        # B 台還沒看到這次退回、又寫了一行帶著 A 的那行：A 那行不會回來
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B,
+                                    "set": {"history": [H0, HB, HA, dict(HB, change="再加")]}})
+        got = streams.load(self.V, "agenda").records["a-1"]["history"]
+        self.assertNotIn(HA, got)
+        self.assertEqual([h["change"] for h in got], ["建立", "加備註", "再加"])
+
+    def test_undo_of_revert_brings_line_back(self):
+        self.seed()
+        machine(self.V, self.A)
+        streams.revert_line(self.V, "agenda", "a-1", streams.line_effects(self.V, "agenda", "a-1", 2, self.A), "t-undo")
+        undo_row = json.loads(streams.own_file(self.V, "agenda").read_text(encoding="utf-8").splitlines()[-1])
+        eff = streams.line_effects(self.V, "agenda", "a-1", undo_row["seq"], self.A)
+        streams.revert_line(self.V, "agenda", "a-1", eff, "t-again")
+        rec = streams.load(self.V, "agenda").records["a-1"]
+        self.assertEqual(rec["history"], [H0, HB, HA])
+        self.assertEqual(rec["date"], "2026-11-26")
+
+    def test_later_lines_ignore_append_only(self):
+        self.seed()
+        self.put(self.B, "agenda", {"op": "set", "id": "a-1", "seq": 3, "base": 2, "by": self.B,
+                                    "set": {"note": "改", "history": [H0, HA, HB, dict(HB, change="再加")]}})
+        self.assertEqual(streams.later_lines(self.V, "agenda", "a-1", 2, ["date", "history"]), [])
+        self.assertEqual(len(streams.later_lines(self.V, "agenda", "a-1", 2, ["note", "history"])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

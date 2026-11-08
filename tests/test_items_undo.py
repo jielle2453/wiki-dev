@@ -217,6 +217,30 @@ class UndoOneItem(UndoBase):
         self.assertEqual(code, 0, got2)
         self.assertTrue((self.raw / "客戶案件" / "內湖李" / "估價單_簽約版.pdf").is_file())
 
+    def test_history_is_not_the_same_field(self):
+        """記帳 1a（D-337）：一句改日期、下一句改內容，兩次都加歷程 → 退第一句不算「之後又改過」，只拿掉那一行歷程與日期。"""
+        self.sentence("加一件")
+        aid = agenda.add(self.V, kind="提醒", entities=[], text="甲", date="2026-12-01", turn_id=self.t)[0]["id"]
+        t1 = self.sentence("改日期")
+        agenda.edit(self.V, aid, self.t, date="2026-12-09")
+        self.sentence("改內容")
+        agenda.edit(self.V, aid, self.t, text="甲改")
+        self.sentence("改回")
+        code, got = self.undo(t1)
+        self.assertEqual(code, 0, got)
+        self.assertEqual(got["conflict"], [], got)
+        self.assertTrue(got["done"], got)
+        it = self.agenda_items()[aid]
+        self.assertEqual((it["date"], it["text"]), ("2026-12-01", "甲改"))
+        self.assertEqual(len(it["history"]), 1)
+        self.assertIn("text", it["history"][0]["change"])
+        self.sentence("取消")
+        code, got2 = self.undo(got["turn"])
+        self.assertEqual(code, 0, got2)
+        it = self.agenda_items()[aid]
+        self.assertEqual(it["date"], "2026-12-09")
+        self.assertEqual(len(it["history"]), 2)
+
 
 class JournalActions(UndoBase):
     def test_5_actions_in_row_and_md_plain_language(self):

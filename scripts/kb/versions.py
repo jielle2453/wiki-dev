@@ -1856,6 +1856,7 @@ def _undo_stream_item(ctx, it):
         others = set()
         for r in _other_machine_lines(vault, it):
             others |= set(r.get("set") or {}) | set(r.get("unset") or [])
+        others -= set(streams.append_only(st["kind"]))  # 歷程照拿掉自己那一行，別人加的留著（D-337）
         eff = dict(eff, fields=[f for f in eff["fields"] if f not in others])
         if not eff["fields"]:
             return "skipped", "gone", f"{it['what']} 的欄位都被別人改過了，沒有可改回的"

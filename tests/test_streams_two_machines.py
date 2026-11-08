@@ -1,5 +1,6 @@
 """多人共用 1 驗收 2、3、5、7、15 的一部分：兩台模擬（換機器名）與真的 git（兩份 clone 各記各的、push／pull 沒有衝突）。"""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from kb._lib import env, streams  # noqa: E402
 from kb._lib.io import read_json, write_json_atomic  # noqa: E402
+from tests.test_people import Base as PeopleBase  # noqa: E402
 
 GIT = shutil.which("git")
 
@@ -160,6 +162,72 @@ class InventoryPendingSplit(unittest.TestCase):
         self.assertEqual((e["card_mode"], e["intake"]["name"], e["archived"]["reason"]), ("pointer", "價目表", "過時"))
         as_machine(self.V, "aaaa")
         self.assertEqual(read_json(inv)["entries"][0]["archived"]["reason"], "過時")
+
+
+class AgendaHistoryTwoMachines(PeopleBase):
+    """記帳 1a 驗收 1（B-530、D-337）：老闆改日期、小王同時改內容（兩台從同一版各改）→ 不算撞到、歷程兩行都在；
+    老闆退回他那次 → 只拿掉他那行歷程與日期，小王的留著、不報別人改過。"""
+
+    def setUp(self):
+        super().setUp()
+        self.multi(3)
+        for m, name in (("boss-pc", "老闆"), ("wang-laptop", "小王")):
+            with self.as_machine(m):
+                env.set_person(self.V, name)
+                env.set_vault_path(self.V, os.path.realpath(self.V).replace("\\", "/"))
+
+    def cli(self, *argv):
+        import contextlib
+        import io
+        from kb import cli
+        from kb._lib import turn
+        saved = (turn.SESSION, turn.OVERRIDE, turn.VIA)
+        self.addCleanup(lambda: (setattr(turn, "SESSION", saved[0]), setattr(turn, "OVERRIDE", saved[1]),
+                                 setattr(turn, "VIA", saved[2])))
+        buf = io.StringIO()
+        cwd = os.getcwd()
+        os.chdir(self.V)
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = cli.main(list(argv))
+        finally:
+            os.chdir(cwd)
+        return code, buf.getvalue()
+
+    def test_b530_both_history_lines_and_undo_only_own(self):
+        from kb._lib import agenda, turn
+        with self.as_machine("boss-pc"):
+            t0 = turn.start(self.V, "sid-boss", "記日程")["turn"]
+            aid = agenda.add(self.V, "meeting", "2099-01-02", "跟廠商開會", [], t0)[0]["id"]
+            boss = streams.own_file(self.V, "agenda")
+            seen_by_wang = boss.read_bytes()
+            t1 = turn.start(self.V, "sid-boss", "改日期")["turn"]
+            agenda.edit(self.V, aid, t1, date="2099-01-09")
+            boss_now = boss.read_bytes()
+        boss.write_bytes(seen_by_wang)  # 小王那台還沒同步到老闆改日期那行
+        with self.as_machine("wang-laptop"):
+            t2 = turn.start(self.V, "sid-wang", "改內容")["turn"]
+            agenda.edit(self.V, aid, t2, text="跟廠商開會帶樣品")
+        shutil.rmtree(self.V / ".system" / "versions" / t2)  # 小王的回合夾在他那台（不同步）
+        boss.write_bytes(boss_now)  # 同步：兩邊的行都在
+        r = self.kb("agenda", "list", "--json")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got["conflicts"], [])
+        it = next(i for i in got["items"] if i["id"] == aid)
+        self.assertEqual((it["date"], it["text"]), ("2099-01-09", "跟廠商開會帶樣品"))
+        self.assertEqual(sorted(h["turn"] for h in it["history"]), sorted([t1, t2]))
+        self.assertEqual([h["date"] for h in it["history"]], sorted(h["date"] for h in it["history"]))
+        with self.as_machine("boss-pc"):
+            code, out = self.cli("--session", "sid-boss", "versions", "undo", t1, "--json")
+        res = json.loads(out)
+        self.assertEqual(res["conflict"], [], out)
+        self.assertTrue(res["done"], out)
+        it = agenda.get(self.V, aid)
+        self.assertEqual((it["date"], it["text"]), ("2099-01-02", "跟廠商開會帶樣品"))
+        self.assertEqual([h["turn"] for h in it["history"]], [t2])
+        r = self.kb("agenda", "list", "--json")
+        self.assertEqual(json.loads(r.stdout)["conflicts"], [])
 
 
 @unittest.skipUnless(GIT, "沒有 git")
