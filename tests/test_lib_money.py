@@ -373,6 +373,45 @@ class PagesRemoved(PageBase):
         self.assertTrue(late["match"].startswith("- 11/20（五）收 50,000 王先生（已拿掉）"))
 
 
+class RevertRedraws(MoneyBase):
+    """測試報告中 #1：versions undo／revert 改回帳（流水檔）後，帳頁、年頁、日程頁照日程那樣重畫。"""
+
+    def setUp(self):
+        super().setUp()
+        import datetime as dt
+        from kb._lib import agenda
+        agenda.render(self.V)
+        money.render(self.V, hand={})  # 帳.md 在記帳那回合之前就有（kb init 建的）
+        self.due = (dt.date.today() + dt.timedelta(days=2)).isoformat()
+        self.year = str(dt.date.today().year)
+
+    def page(self, rel):
+        return (Path(self.V) / rel).read_text(encoding="utf-8")
+
+    def test_undo_one_item_redraws(self):
+        from kb._lib import agenda
+        mid = self.add("--dir", "收", "--amount", "50000", "--due", self.due, "--entity", "李小姐", "--text", "尾款甲")["item"]["id"]
+        self.add("--dir", "收", "--amount", "777", "--entity", "李小姐", "--text", "零售乙", "--new")
+        self.assertIn("尾款甲", self.page(agenda.MD_POSIX))
+        turn.start(self.V, None, "改回")
+        got = json.loads(self.kb("versions", "items", "--turn", self.t, "--json").stdout)["items"]
+        item = next(x for x in got if mid in json.dumps(x, ensure_ascii=False))
+        r = self.kb("versions", "undo", item["item"], "--json")
+        self.assertEqual(money.get(self.V, mid)["status"], "cancelled", r.stdout)
+        self.assertNotIn("尾款甲", self.page(money.MD_POSIX))
+        self.assertNotIn("尾款甲", self.page(agenda.MD_POSIX))
+        self.assertIn("零售乙", self.page(money.year_rel(self.year)), "沒改回的那筆照留")
+
+    def test_revert_turn_redraws(self):
+        from kb._lib import agenda
+        self.add("--dir", "收", "--amount", "50000", "--due", self.due, "--entity", "李小姐", "--text", "尾款甲")
+        r = self.kb("versions", "revert")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual({i["status"] for i in money.load(self.V)["items"]}, {"cancelled"})  # 流水檔：退回＝收回
+        self.assertNotIn("尾款甲", self.page(money.MD_POSIX))
+        self.assertNotIn("尾款甲", self.page(agenda.MD_POSIX))
+
+
 class PagesNoPlace(PageBase):
     def test_04b_no_place_type_only_total(self):
         self.put("付", "1000", items=["精華液 +20"])

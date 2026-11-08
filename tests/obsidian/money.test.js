@@ -219,3 +219,23 @@ test('商品卡：帳那行是庫存與各店；分店：畫那店的庫存', ()
   assert.strictEqual(place.stockLine, '庫存：精華液 12 瓶');
   assert.strictEqual(lib.panelModel({ agenda: [], money: null, stock: null }), null);
 });
+
+test('styles.css 有記帳 3 的樣式（測試報告中 #2）：卡底下那段、庫存不足與公司還欠你兩組、金額未知、帳連結；帳連結不用時間軸那個 .wwh-links', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'obsidian', 'styles.css'), 'utf8');
+  for (const sel of ['.wwh-panel {', '.wwh-panel-title', '.wwh-panel-line', '.wwh-panel-line:hover', '.wwh-group-head.is-stock', '.wwh-todo.is-stock', '.wwh-todo.is-owed', '.wwh-check-none', '.wwh-top-links']) {
+    assert.ok(css.includes(sel), sel);
+  }
+});
+
+test('同一分頁切閱讀模式／即時預覽（layout-change）：那段重接、不重複、不再叫 kb（測試報告中 #3）', async () => {
+  const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
+  await c.plugin.showPanel(c.file);
+  // 模擬 Obsidian 切到閱讀模式時重畫了那一邊（舊的段被清掉）
+  for (const k of [...c.preview.children]) c.preview.removeChild(k);
+  c.plugin.onLayoutChange();
+  c.plugin.onLayoutChange();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.strictEqual(byClass(c.preview, 'wwh-panel').length, 1, '閱讀模式那邊接回來');
+  assert.strictEqual(byClass(c.source, 'wwh-panel').length, 1, '即時預覽那邊沒有重複');
+  assert.strictEqual(c.calls.length, 1, '切模式不再叫 kb');
+});

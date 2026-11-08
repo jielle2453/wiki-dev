@@ -55,6 +55,7 @@ const MONEY_YEAR_RE = /^系統\/帳\/\d{4}\.md$/; // 帳的每年一頁：照「
 const PANEL_CLS = 'wwh-panel';
 const PANEL_TITLE = '日程與帳';
 const PANEL_SIZERS = ['.markdown-preview-sizer', '.cm-sizer']; // 閱讀模式、即時預覽（編輯）各接一份
+const PANEL_REDRAW_MS = 50; // 切閱讀模式／即時預覽後，等 Obsidian 畫好那一邊再接
 const GENERATED_BANNER = '這頁由程式產生；要改請在首頁改，或直接跟 Claude 說';
 const NO_KB_TEXT = '找不到 wiki-with-willy：先在 Claude 裡打開這個知識庫一次';
 const VERSION_MISMATCH_TEXT = '首頁跟 wiki-with-willy 版本不同，先在 Claude 裡打開這個知識庫一次';
@@ -1924,7 +1925,7 @@ class HomeView extends ItemView {
     const link = home.links && home.links.money; // 記帳 3：帳關著而且沒有任何筆時 kb 給 null，不出
     if (link) {
       el.appendChild(
-        h('div', { cls: 'wwh-links' }, h('a', { cls: 'wwh-link wwh-money-link', text: '帳', title: '開帳頁', on: { click: () => this.plugin.openPathInVault(link) } })),
+        h('div', { cls: 'wwh-top-links' }, h('a', { cls: 'wwh-link wwh-money-link', text: '帳', title: '開帳頁', on: { click: () => this.plugin.openPathInVault(link) } })),
       );
     }
   }
@@ -3133,6 +3134,7 @@ class WikiWithWillyPlugin extends Plugin {
     const ws = this.app.workspace;
     this.registerEvent(ws.on('file-open', (file) => this.onFileOpen(file)));
     this.registerEvent(ws.on('active-leaf-change', () => this.onActiveChange()));
+    this.registerEvent(ws.on('layout-change', () => this.onLayoutChange())); // 同一分頁切閱讀模式／即時預覽：卡底下那段重接
     this.registerEvent(ws.on('editor-change', (editor, info) => this.onEditorChange(editor, info)));
     this.registerEvent(this.app.vault.on('modify', (file) => this.onVaultModify(file)));
     this.registerDomEvent(document, 'selectionchange', () => this.onSelection());
@@ -3156,6 +3158,7 @@ class WikiWithWillyPlugin extends Plugin {
     }
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.gitTimer) clearTimeout(this.gitTimer);
+    if (this.panelTimer) clearTimeout(this.panelTimer);
     if (this.gitWatcher) {
       try {
         this.gitWatcher.close();
@@ -3781,6 +3784,16 @@ class WikiWithWillyPlugin extends Plugin {
         if (model) sizer.appendChild(this.buildPanel(model));
       }
     }
+  }
+
+  /** 版面變了（同一分頁切閱讀模式與即時預覽、分頁搬動）：已經算好的那段照接回去，不再叫 kb；drawPanels 先拿掉舊的，不會重複。 */
+  onLayoutChange() {
+    if (!this.panels || !this.panels.size) return;
+    if (this.panelTimer) clearTimeout(this.panelTimer);
+    this.panelTimer = softTimeout(() => {
+      this.panelTimer = null;
+      for (const p of this.panels.keys()) this.drawPanels(p);
+    }, PANEL_REDRAW_MS);
   }
 
   /** 首頁資料重讀時（日程或帳變了），開著的綜合卡底下那段跟著重算。 */
