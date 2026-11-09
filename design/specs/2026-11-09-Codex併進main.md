@@ -198,6 +198,18 @@ Codex 版現在放在 wiki-dev 的長期分支 `codex`，main 每發一版都要
      - (10) 不是 bug。
      - 驗收 6 裡 `dispatch_adopt` 的 Codex prompt 沒有另外測：它跟 `dispatch` 用同一個 `_prompt`。
 
+4. review 第二輪（只審修正的 diff，Sonnet、0.19 美元）7 條。
+   - **修了**：
+     - (1) 公開 clone 裡沒追蹤、跟 Codex 版同名的檔，會被切分支蓋掉、收尾時刪掉。改成先停、不碰它。
+     - (2) 切回 main 失敗時，原本的錯誤被蓋掉，收尾也沒跑。改成照樣收尾、丟原本的錯誤。
+     - (3) 檔名有 `[ ] * ?` 會被當萬用字元。改用 `--literal-pathspecs`。
+     - (4) 停在 codex 分支時，錯誤句要講 `checkout -f`。補上了。
+     - 補測試：同名檔先停而且保留、檔名有 `[ ]` 照字面推。
+   - **不修**：
+     - (5) 公開 repo 寫死 main：spec 定的就是 main。
+     - (6) 沒有 `turn_id` 的 Codex payload 會走 Claude 那條：Codex 版 spec 定「有 `turn_id` 就是 Codex」，跟 `_codex.is_codex` 同一條。
+     - (7) 已經被 (1) 涵蓋。
+
 ## 紀錄（設計 session 結案時填）
 - 實作 commit：
 - 測試報告：

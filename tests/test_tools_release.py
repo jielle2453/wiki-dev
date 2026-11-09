@@ -889,6 +889,22 @@ class CodexPublish(PublishFixture):
         self.publish()
         self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
 
+    def test_untracked_file_with_same_name_stops_and_is_kept(self):
+        """公開 clone 裡沒追蹤、跟 Codex 版同名的檔：不蓋、不刪，先停（review 二輪 1）。"""
+        write(self.public, "hooks/codex.json", "我自己的\n")
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("同名", str(cm.exception))
+        self.assertEqual((self.public / "hooks" / "codex.json").read_text(encoding="utf-8"), "我自己的\n")
+        self.assertEqual(git(self.bare, "branch", "--list", "codex").strip(), "")
+
+    def test_bracket_file_name_is_pushed_literally(self):
+        """檔名有 [ ] 不當萬用字元（review 二輪 3）。"""
+        write(self.repo, "skills/manage/[範例].md", "x\n")
+        self.commit("bracket", tag="v0.21.0")
+        self.publish()
+        self.assertIn("skills/manage/[範例].md", git(self.bare, "ls-tree", "-r", "--name-only", "-z", "codex").split("\0"))
+
     def test_public_clone_not_on_main_stops(self):
         """上一次被中斷停在 codex 分支：不把清單推進 codex（review 5）。"""
         git(self.public, "checkout", "-q", "-b", "codex")

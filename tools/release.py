@@ -460,7 +460,8 @@ def _require_clean(public):
     沒加進 git 的檔不算（git add 只加清單與名單）。本機還沒推的 commit 不算（上一次推失敗留下的，這次一起推）。"""
     branch = _git(public, "rev-parse", "--abbrev-ref", "HEAD").strip()
     if branch != PUBLIC_BRANCH:  # 清單與名單只推 main（#56 review 5：上一次被中斷停在 codex 分支時，不把清單推進 codex）
-        raise ReleaseError(f"公開 repo 的 clone 現在在 {branch}，不是 {PUBLIC_BRANCH}；先 git checkout {PUBLIC_BRANCH} 再跑")
+        raise ReleaseError(f"公開 repo 的 clone 現在在 {branch}，不是 {PUBLIC_BRANCH}；先 git checkout {PUBLIC_BRANCH} 再跑"
+                           f"（上一次推 codex 分支中途被中斷、切不回去時用 git checkout -f {PUBLIC_BRANCH}）")
     dirty = _git(public, "status", "--porcelain", "--untracked-files=no").strip()
     if dirty:
         raise ReleaseError(f"公開 repo 的 clone 有沒 commit 的改動，先清乾淨再跑：\n{dirty}")
@@ -599,35 +600,67 @@ def _push_codex(public, version, files):
     if CODEX_README in out:
         out["README.md"] = out[CODEX_README]
     out[".gitattributes"] = b"* text=auto eol=lf\n"
+    main_tracked = _tracked(public)
+    clash = sorted(rel for rel in out if rel not in main_tracked and Path(public, rel).exists())
+    if clash:  # 沒追蹤的檔跟 Codex 版同名：切分支會蓋掉、收尾會刪掉（#56 review 二輪 1），先停
+        raise ReleaseError("公開 repo 的 clone 裡有沒追蹤的檔跟 Codex 版同名，推 codex 分支會蓋掉它們，先移走再跑："
+                           + "、".join(clash[:5]) + ("…" if len(clash) > 5 else ""))
     try:
-        if has_remote:
-            _git(public, "fetch", "-q", remote, CODEX_BRANCH)
-            _git(public, "checkout", "-q", "-f", "-B", CODEX_BRANCH, "FETCH_HEAD")
-        elif has_local:
-            _git(public, "checkout", "-q", "-f", CODEX_BRANCH)
-        else:
-            _git(public, "checkout", "-q", "-f", "--orphan", CODEX_BRANCH)
-        tracked = [x for x in _git(public, "ls-files", "-z").split(chr(0)) if x]
-        if tracked:
-            _git(public, "rm", "-q", "-r", "--cached", "--", ".")
-            for rel in tracked:
-                Path(public, rel).unlink(missing_ok=True)
-        for rel, data in out.items():
-            dest = Path(public) / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-        # 路徑從 stdin 給（review 8：檔多、中文路徑長時不撞 Windows 指令列上限）；只加這批，clone 裡別的沒追蹤的檔不帶進去
-        _run(["git", "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"], cwd=public, input=chr(0).join(sorted(out)))
-        if _git(public, "status", "--porcelain", "--untracked-files=no").strip():
-            _git(public, "commit", "-q", "-m", f"codex: {version}")
-        _git(public, "push", "-q", "origin", f"HEAD:refs/heads/{CODEX_BRANCH}")
-        return _git(public, "rev-parse", "HEAD").strip()
-    finally:
+        sha = _codex_commit(public, version, out, remote, has_remote, has_local)
+    except BaseException:
+        _back_to_main(public, out, quiet=True)  # 原本的錯誤照丟，切回去失敗不蓋掉它（review 二輪 2）
+        raise
+    _back_to_main(public, out)
+    return sha
+
+
+def _tracked(public):
+    return {x for x in _git(public, "ls-files", "-z").split(chr(0)) if x}
+
+
+def _codex_commit(public, version, out, remote, has_remote, has_local):
+    """切到 codex 分支、換成這一版的檔、有變才 commit、推（不 force）；回 commit。"""
+    if has_remote:
+        _git(public, "fetch", "-q", remote, CODEX_BRANCH)
+        _git(public, "checkout", "-q", "-f", "-B", CODEX_BRANCH, "FETCH_HEAD")
+    elif has_local:
+        _git(public, "checkout", "-q", "-f", CODEX_BRANCH)
+    else:
+        _git(public, "checkout", "-q", "-f", "--orphan", CODEX_BRANCH)
+    tracked = [x for x in _git(public, "ls-files", "-z").split(chr(0)) if x]
+    if tracked:
+        _git(public, "rm", "-q", "-r", "--cached", "--", ".")
+        for rel in tracked:
+            Path(public, rel).unlink(missing_ok=True)
+    for rel, data in out.items():
+        dest = Path(public) / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+    # 路徑從 stdin 給（review 8：檔多、中文路徑長時不撞 Windows 指令列上限）；只加這批，clone 裡別的沒追蹤的檔不帶進去
+    _run(["git", "--literal-pathspecs", "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"], cwd=public,
+         input=chr(0).join(sorted(out)))  # 檔名照字面，[ ] * ? 不當萬用字元（review 二輪 3）
+    if _git(public, "status", "--porcelain", "--untracked-files=no").strip():
+        _git(public, "commit", "-q", "-m", f"codex: {version}")
+    _git(public, "push", "-q", "origin", f"HEAD:refs/heads/{CODEX_BRANCH}")
+    return _git(public, "rev-parse", "HEAD").strip()
+
+
+def _back_to_main(public, written, quiet=False):
+    """切回 main，這次寫出來、main 沒有的檔刪掉（review 6）。切回去失敗也照樣清，quiet 時不丟（不蓋掉原本的錯誤）。"""
+    err = None
+    try:
         _git(public, "checkout", "-q", "-f", PUBLIC_BRANCH)
-        keep = {x for x in _git(public, "ls-files", "-z").split(chr(0)) if x}
-        for rel in out:
+    except ReleaseError as e:
+        err = e
+    try:
+        keep = _tracked(public)
+        for rel in written:
             if rel not in keep:
                 Path(public, rel).unlink(missing_ok=True)
+    except (ReleaseError, OSError):
+        pass
+    if err is not None and not quiet:
+        raise err
 
 
 def publish(repo, tag, public, who, wait=15):
