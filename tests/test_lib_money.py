@@ -638,5 +638,119 @@ class Panel(PageBase):
         self.kb("entity", "panel", "沒有這個人", "--json", code=3)
 
 
+class UnitsBase(MoneyBase):
+    def live(self):
+        return [i for i in money.load(self.V)["items"] if i["status"] != "cancelled"]
+
+    def lines_of(self, name):
+        return [(ln["qty"], ln.get("unit")) for i in self.live() for ln in i["lines"] if ln["entity"] == name]
+
+    def buy(self, item, code=0):
+        args = ("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", item, "--new")
+        if code:
+            return self.kb("money", "add", *args, code=code)
+        return self.add(*args)
+
+
+class Units6(UnitsBase):
+    """驗收 6（D-344）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項記 unit；換算不了的退回、不寫。"""
+
+    def test_6_pack_field_multiplies_and_tell_says_both(self):
+        out = self.buy("益生菌 +2箱")
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (48, "瓶"))
+        self.assertIn("益生菌 +48 瓶（2 箱）", out["tell"])
+        out = self.buy("益生菌 +3瓶")
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (3, "瓶"))
+        self.assertNotIn("（3 瓶）", out["tell"])
+        out = self.buy("益生菌 +3")
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (3, "瓶"))
+
+    def test_6_base_from_section9_other_unit_without_value_refused(self):
+        r = self.buy("膠囊 +2箱", code=3)
+        self.assertIn("kb entity field 膠囊 每箱=", r.stdout)
+        r = self.buy("膠囊 +2盒", code=3)
+        self.assertIn("kb entity field 膠囊 每盒=", r.stdout)
+        self.assertIn("kb profile add 數字欄", r.stdout)
+        self.assertEqual(self.live(), [])
+        out = self.buy("膠囊 +2瓶")
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (2, "瓶"))
+
+    def test_6_count_actual_same_rules(self):
+        self.buy("益生菌 +50")
+        out = self.kbj("money", "count", "益生菌", "--actual", "2箱")
+        self.assertEqual((out["diff"], out["item"]["lines"][0]["unit"]), (-2, "瓶"))
+        self.kb("money", "count", "膠囊", "--actual", "2箱", code=3)
+
+
+class Units6NoSection9(UnitsBase):
+    """驗收 6（D-344 (2)）：第九節什麼都沒設的店，照她講的單位記，那就成了這個商品的基本單位。"""
+
+    def setUp(self):
+        super().setUp()
+        write_profile(self.V, fields=[], money=money_row("on"))
+
+    def test_6_first_said_unit_becomes_base(self):
+        self.buy("精華液 +2瓶")
+        self.buy("精華液 +2瓶")
+        self.buy("精華液 +3")
+        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (2, "瓶"), (3, "瓶")])
+        r = self.buy("精華液 +2箱", code=3)
+        self.assertIn("kb entity field 精華液 每箱=", r.stdout)
+        self.assertIn("單位=瓶", r.stdout)
+        self.assertEqual(len(self.live()), 3)  # 不寫
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (7, "瓶"))
+        self.assertIn("庫存 7 瓶", self.kb("lookup", "精華液").stdout)
+        self.assertIn("精華液 7 瓶", self.kb("money", "stock", "精華液").stdout)
+        self.assertIn("精華液 +3 瓶", self.kb("money", "list").stdout)
+
+    def test_6_no_unit_first_then_unit_said(self):
+        self.buy("精華液 +3")
+        self.buy("精華液 +2盒")
+        self.assertEqual(self.lines_of("精華液"), [(3, ""), (2, "盒")])
+        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["unit"], "盒")
+
+    def test_6_box_first_then_box_ok_bottle_asks(self):
+        self.buy("膠囊 +2箱")
+        self.buy("膠囊 -1箱")
+        self.assertEqual(self.lines_of("膠囊"), [(2, "箱"), (-1, "箱")])
+        self.buy("膠囊 -3瓶", code=3)
+
+    def test_6_two_units_in_one_add_refused(self):
+        self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2瓶",
+                "--item", "精華液 +1箱", code=3)
+        self.assertEqual(self.live(), [])
+
+    def test_6_pack_value_set_later_converts_to_product_base(self):
+        self.buy("精華液 +2瓶")
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
+        out = self.buy("精華液 +2箱")
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (48, "瓶"))
+        self.assertIn("精華液 +48 瓶（2 箱）", out["tell"])
+
+    def test_6_count_actual_unknown_base_takes_said(self):
+        out = self.kbj("money", "count", "精華液", "--actual", "4瓶")
+        self.assertEqual((out["diff"], out["item"]["lines"][0]["unit"]), (4, "瓶"))
+        self.kb("money", "count", "精華液", "--actual", "1箱", code=3)
+
+
+class Units6Pages(UnitsBase):
+    """驗收 6（D-344）接記帳 3：第九節沒設時，帳頁的庫存、年頁明細、卡底下那段用商品自己的單位。"""
+
+    def setUp(self):
+        super().setUp()
+        write_profile(self.V, fields=[], money=money_row("on"))
+
+    def test_6_pages_and_panel_use_product_unit(self):
+        self.buy("精華液 +3")  # 沒講單位、那時還不知道基本單位：品項 unit 空，顯示用後來講出的
+        self.buy("精華液 +2瓶")
+        top = (Path(self.V) / money.MD_POSIX).read_text(encoding="utf-8")
+        self.assertIn("5 瓶 |", top.split("## 庫存")[1])
+        year = (Path(self.V) / money.year_rel(money._today()[:4])).read_text(encoding="utf-8")
+        self.assertIn("精華液 +3 瓶", year)
+        self.assertEqual(self.kbj("entity", "panel", "精華液")["stock"]["line"], "庫存 5 瓶")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,8 +3,8 @@
 正本在流水檔 .system/streams/money/（streams.KINDS 登記 money，收回欄 status cancelled，history 只往後加，D-337、D-339）；
 .system/money.json 是合起來的衍生副本，照日程那樣整份讀進、整份交回（io.read_json／write_json_atomic 認得檔名）。
 一筆：id（m- 加 8 碼 hex）、dir（in｜out｜none 只動數量）、amount（none 一律 0；None 是金額未知，只准 open）、status（open｜done｜
-cancelled）、date（收付那天，open 是 None）、due（到期日）、entities、lines（[{"entity","qty","unit_price","place"}]，qty 已換成
-基本單位）、advanced_by（墊的人，D-338）、text、note、split_from、repeat（{every, from}）、repeat_of、source（confirmed｜inferred｜
+cancelled）、date（收付那天，open 是 None）、due（到期日）、entities、lines（[{"entity","qty","unit","unit_price","place"}]，qty 已換成
+基本單位、unit 是那個基本單位，D-344；舊筆沒有 unit 當沒寫）、advanced_by（墊的人，D-338）、text、note、split_from、repeat（{every, from}）、repeat_of、source（confirmed｜inferred｜
 corrected）、origin（{"card","fp"}｜{"statement"}｜None）、cards（補的出處卡）、created_turn、history。帳全隊看得到、不分誰的，
 不另存記的人（D-339：誰改的照流水檔每行的「是誰」答）。
 寫都經 _mutate：鎖、讀、先吃她對帳頁的手改、fn、有變才備進回合再寫、after_write 重畫帳頁；放開鎖之後重畫 系統/日程.md
@@ -44,7 +44,7 @@ SETTLE_UNKNOWN = "這筆金額未知，收付了要給 --amount"
 NOT_OPEN = "這筆不是還沒收付的"
 ITEM_MSG = "品項要寫「<商品> <±數量>[單位][@單價][在<地點>]」，例：精華液 -2瓶@1800在北店"
 UNIT_MSG = ("「{name}」沒有「每{unit}」，不知道一{unit}是多少；先問她，答了 kb entity field {name} 每{unit}=<數> --said"
-            "（第九節沒有「每{unit}」先 kb profile add 數字欄 型別={type} 欄名=每{unit} 單位=<基本單位>）")
+            "（第九節沒有「每{unit}」先 kb profile add 數字欄 型別={type} 欄名=每{unit} 單位={base}）")
 PLACE_MSG = "「{name}」不是地點（地點的型別：{types}）"
 NO_ENTITY = "實體清單沒有「{}」，先 kb entity add"
 ADV_SINGLE = "單人知識庫沒有墊的人"
@@ -283,23 +283,41 @@ def base_unit(prof, type_name):
     return next((f["unit"] for f in rows if str(f.get("field", "")).startswith("每") and f.get("unit")), "")
 
 
-def _qty(prof, entry, qty, unit):
-    """數量換成基本單位：實體有「每<單位>」的值就乘；第九節有「每<單位>」但這個實體沒值、或單位是包裝單位卻沒欄 → 拒絕；
-    其他（基本單位、沒寫單位）照原數。"""
+def said_unit(data, name, exclude=None):
+    """這個商品以前的筆裡第一個講出的單位（D-344；沒取消的、照記的順序；exclude 是正在改的那筆）；都沒講過回 ""。"""
+    k = _key(name)
+    for it in _live(data):
+        if it.get("id") == exclude:
+            continue
+        for ln in it.get("lines") or []:
+            if _key(ln.get("entity") or "") == k and ln.get("unit"):
+                return ln["unit"]
+    return ""
+
+
+def product_unit(prof, entry, data, exclude=None):
+    """一個商品的基本單位（D-344）：第九節有就用那個，沒有就用這個商品以前第一個講出的單位；都沒有回 ""。"""
+    if not entry:
+        return ""
+    return base_unit(prof, entry.get("type")) or said_unit(data, entry["name"], exclude)
+
+
+def _qty(prof, entry, qty, unit, base):
+    """數量換成基本單位（D-344），回 (數, 記的單位)。base 是這個商品現在的基本單位（"" 是還不知道）：沒寫單位或寫基本單位照原數；
+    還不知道基本單位照講的記（那就成了基本單位）；實體有「每<單位>」的值就乘；其他退回（UNIT_MSG），不寫。"""
     from kb._lib import entities, numbers
     try:
         n = numbers.parse_number(qty.lstrip("+"))
     except numbers.NumberRefused as e:
         raise MoneyRefused(str(e)) from None
-    if not unit:
-        return n
+    if not unit or unit == base:
+        return n, base
+    if not base:
+        return n, unit
     pack = entities.field_value(entry, "每" + unit)
     if pack is not None:
-        return n * Decimal(str(pack))
-    rows = _type_fields(prof, entry.get("type"))
-    if any(f.get("field") == "每" + unit for f in rows):
-        raise MoneyRefused(UNIT_MSG.format(name=entry["name"], unit=unit, type=entry.get("type")))
-    return n
+        return n * Decimal(str(pack)), base
+    raise MoneyRefused(UNIT_MSG.format(name=entry["name"], unit=unit, type=entry.get("type"), base=base))
 
 
 def _place(vault, prof, ents, name, place_types):
@@ -316,27 +334,43 @@ def _place(vault, prof, ents, name, place_types):
     return profile.usual_place(prof, me) if me else None
 
 
-def _lines(vault, raw_items, prof=None, ents=None):
+def _lines(vault, raw_items, prof=None, ents=None, exclude=None):
+    """品項換成 lines；基本單位照 product_unit，同一筆前面的品項講出的單位也算（D-344）。exclude 是正在改的那筆。"""
     from kb._lib import numbers, profile
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
     place_types = profile.place_types(prof)
+    data = load(vault) if raw_items else None
+    known = {}
     out = []
     for raw in raw_items or []:
         name, qty, unit, price, place = parse_item(raw)
         e = _entity(ents, name)
-        n = _qty(prof, e, qty, unit)
+        k = _key(e["name"])
+        if k not in known:
+            known[k] = product_unit(prof, e, data, exclude)
+        n, unit_ = _qty(prof, e, qty, unit, known[k])
+        known[k] = known[k] or unit_
         unit_price = None
         if price is not None:
             try:
                 unit_price = numbers.plain(numbers.parse_number(price, negative=False))
-                if unit and n != 0:  # 單價跟著數量換成基本單位的
-                    n0 = numbers.parse_number(qty.lstrip("+"))
+                n0 = numbers.parse_number(qty.lstrip("+"))
+                if n != n0 and n != 0:  # 單價跟著數量換成基本單位的
                     unit_price = numbers.plain(Decimal(str(unit_price)) * abs(n0) / abs(n))
             except numbers.NumberRefused as e2:
                 raise MoneyRefused(str(e2)) from None
-        out.append({"entity": e["name"], "qty": numbers.plain(n), "unit_price": unit_price,
+        out.append({"entity": e["name"], "qty": numbers.plain(n), "unit": unit_, "unit_price": unit_price,
                     "place": _place(vault, prof, ents, place, place_types)})
+    return out
+
+
+def said_text(raw_items):
+    """她原本的說法，跟 lines 同順序：[(數量字串, 單位或 None)]；成功句「精華液 +48 瓶（2 箱）」用（D-344）。"""
+    out = []
+    for raw in raw_items or []:
+        _name, qty, unit, _price, _where = parse_item(raw)
+        out.append((qty.lstrip("+-"), unit))
     return out
 
 
@@ -500,7 +534,7 @@ def edit(vault, mid, turn_id, by="ai", amount=None, date=None, due=None, entitie
     if entities:
         new["entities"] = _names(_ents(vault), entities)
     if items:
-        new["lines"] = _lines(vault, items)
+        new["lines"] = _lines(vault, items, exclude=mid)
     if advanced_by is not None:
         new["advanced_by"] = _advanced(vault, advanced_by)
     if text is not None:
@@ -664,7 +698,7 @@ def count(vault, product, actual, turn_id, place=None, by="ai"):
     m = re.match(r"^\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(\S*)\s*$", str(actual))
     if not m:
         raise MoneyRefused(numbers.BAD_NUMBER.format(actual))
-    real = _qty(prof, e, m.group(1), m.group(2) or None)
+    real, unit = _qty(prof, e, m.group(1), m.group(2) or None, product_unit(prof, e, load(vault)))
     where = _place(vault, prof, ents, place, profile.place_types(prof)) if place else None
 
     def fn(data):
@@ -676,7 +710,8 @@ def count(vault, product, actual, turn_id, place=None, by="ai"):
         if diff == 0:
             return (None, 0), False
         it = {"id": _new_id(data), "dir": "none", "amount": 0, "status": "done", "date": _today(), "due": None, "entities": [],
-              "lines": [{"entity": e["name"], "qty": numbers.plain(diff), "unit_price": None, "place": where}],
+              "lines": [{"entity": e["name"], "qty": numbers.plain(diff), "unit": unit, "unit_price": None,
+                         "place": where}],
               "advanced_by": None, "text": "盤點", "note": "", "split_from": None, "repeat": None, "repeat_of": None,
               "source": "confirmed", "origin": None, "cards": [], "created_turn": turn_id, "history": []}
         _log(it, f"盤點：{numbers.show(now)} → {numbers.show(real)}", by, turn_id)
@@ -730,7 +765,7 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
             places = {n: Decimal(0) for n in names}
             places.update(rec["places"])
         e, _hit = entities.find(ents, name)
-        unit = base_unit(prof, e.get("type")) if e else ""
+        unit = product_unit(prof, e, data) if e else said_unit(data, name)
         low = entities.field_value(e, "安全庫存") if e else None
         out.append({"name": name, "unit": unit, "total": numbers.plain(rec["total"]),
                     "places": {k: numbers.plain(v) for k, v in places.items()}, "min": low})
@@ -1002,8 +1037,10 @@ def _label(ents, name):
     return name
 
 
-def describe(vault, it, prof=None, ents=None):
-    """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」；列很多筆的呼叫端把 prof、ents 讀一次帶進來。"""
+def describe(vault, it, prof=None, ents=None, said=None, data=None):
+    """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」；列很多筆的呼叫端把 prof、ents、data 讀一次帶進來。
+    單位：品項記的 unit，沒有（舊筆、沒寫）用這個商品的基本單位（D-344）。said 是 said_text 的結果，換算過的品項括號講她原本的說法
+    （「精華液 +48 瓶（2 箱）」）。"""
     from kb._lib import agenda, entities, numbers
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
@@ -1022,10 +1059,16 @@ def describe(vault, it, prof=None, ents=None):
     places = {ln.get("place") for ln in lines}
     one = len(places) == 1 and None not in places
     shown = []
-    for ln in lines:
-        e = entities.find(ents, ln.get("entity"))[0]
-        unit = base_unit(prof, e.get("type")) if e else ""
-        shown.append(f"{_label(ents, ln['entity'])} {_qty_text(ln['qty'], unit)}"
+    for i, ln in enumerate(lines):
+        unit = ln.get("unit")
+        if not unit:
+            if data is None:
+                data = load(vault)
+            e = entities.find(ents, ln.get("entity"))[0]
+            unit = product_unit(prof, e, data) if e else said_unit(data, ln.get("entity"))
+        orig = said[i] if said and i < len(said) else None
+        conv = f"（{orig[0]} {orig[1]}）" if orig and orig[1] and orig[1] != unit else ""
+        shown.append(f"{_label(ents, ln['entity'])} {_qty_text(ln['qty'], unit)}{conv}"
                      + (f"（{_label(ents, ln['place'])}）" if ln.get("place") and not one else ""))
     inside = "；".join(x for x in ["、".join(parts), "、".join(shown) + (f"，{_label(ents, lines[0]['place'])}" if one else "")] if x)
     if it.get("advanced_by"):
@@ -1242,8 +1285,9 @@ def _who(it, link):
     return "、".join(link(n) for n in it.get("entities") or [])
 
 
-def _items_text(it, prof, ents, times=False):
-    """品項：「精華液 −2 瓶、膠囊 −1 瓶，北店」（times：卡底下那段寫「精華液 ×2」）。"""
+def _items_text(it, prof, ents, times=False, data=None):
+    """品項：「精華液 −2 瓶、膠囊 −1 瓶，北店」（times：卡底下那段寫「精華液 ×2」）。單位照品項記的，沒有用商品自己的（D-344；
+    data 是整份帳，沒給只看第九節）。"""
     from kb._lib import entities, numbers
     lines = it.get("lines") or []
     if not lines:
@@ -1256,8 +1300,11 @@ def _items_text(it, prof, ents, times=False):
         if times:
             q = f"{name} ×{numbers.show(abs(Decimal(str(ln.get('qty') or 0))))}"
         else:
-            e = entities.find(ents, ln.get("entity"))[0]
-            q = f"{name} {_qty_text(ln.get('qty') or 0, base_unit(prof, e.get('type')) if e else '')}"
+            unit = ln.get("unit")
+            if not unit:
+                e = entities.find(ents, ln.get("entity"))[0]
+                unit = product_unit(prof, e, data or {"items": []}) if e else ""
+            q = f"{name} {_qty_text(ln.get('qty') or 0, unit)}"
         shown.append(q + (f"（{_label(ents, ln['place'])}）" if ln.get("place") and not one else ""))
     return "、".join(shown) + (f"，{_label(ents, lines[0]['place'])}" if one else "")
 
@@ -1303,7 +1350,7 @@ def detail_line(it, link, prof, ents, by_id=None):
         body = f"{DIR_TEXT.get(it.get('dir'), '')} {_amt_text(it) or '金額未知'}"
         who = _who(it, link)
         body += (f" {who}" if who else "") + (f" {it['text']}" if it.get("text") else "")
-    inside = [x for x in (_items_text(it, prof, ents),) if x]
+    inside = [x for x in (_items_text(it, prof, ents, data={"items": list(by_id.values())}),) if x]
     if it.get("advanced_by"):
         inside.append(f"{it['advanced_by']}墊")
     src = by_id.get(it.get("split_from")) if it.get("split_from") else None
