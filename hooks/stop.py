@@ -17,6 +17,8 @@ import json
 import os
 import sys
 
+CODEX = False
+
 sys.dont_write_bytecode = True
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -37,6 +39,8 @@ def main():
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
+        global CODEX
+        CODEX = "turn_id" in payload  # Codex 的 Stop 要 exit 0 時有 JSON
         from kb import guard
 
         vault = guard.find_vault(payload.get("cwd") or os.getcwd())
@@ -169,4 +173,10 @@ def _log(e, payload):
 
 if __name__ == "__main__":
     main()
+    if CODEX:
+        try:
+            sys.stdout.write("{}\n")
+            sys.stdout.flush()
+        except BaseException:  # noqa: BLE001
+            pass
     sys.exit(0)

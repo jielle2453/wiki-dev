@@ -46,7 +46,7 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 FILE_TOOLS = READ_TOOLS + WRITE_TOOLS
 GLOB_HITS_MAX = 5000
 
-RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".obsidian": "Z7"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
+RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".codex": "Z7", ".obsidian": "Z7"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
 if os.name != "nt":
     RESERVED[HOLD_DIR] = "Z4"
 

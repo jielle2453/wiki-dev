@@ -29,6 +29,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)  # 共用的 _checks.py 在同一夾
 
 import _checks  # noqa: E402
+try:
+    import _codex  # noqa: E402  Codex 轉接：密碼動作的同意
+except BaseException:  # noqa: BLE001  載不進來：Claude 的 payload 照舊，Codex 的當成不認得（review 二輪 4）
+    _codex = None
 
 _checks.SOURCE = "turn"
 
@@ -69,6 +73,15 @@ def main():
             except BaseException as e:  # noqa: BLE001  讀不到上一句只少補記，回合照開
                 _log(e, payload)
         data = turn.start(vault, sid, prompt, transcript=payload.get("transcript_path"))  # kb intake --pasted 從紀錄取貼的東西
+        if _codex is not None and _codex.is_codex(payload):
+            try:
+                turn.mark_session(vault, sid, "codex")  # 派工給 Codex 的 prompt（#56 決策 2）
+            except BaseException as e:  # noqa: BLE001  沒標到只是派工照 Claude 的 prompt
+                _log(e, payload)
+            try:
+                _codex.grant(vault, sid, previous, prompt)  # 上一句擋下的密碼動作，客戶這句說同意就記下（只看客戶原話）
+            except BaseException as e:  # noqa: BLE001  記不到只是要再問一次
+                _log(e, payload)
         try:
             journal.begin_turn(vault, previous, data)  # 補記上一句的中斷與這一句開口，同月一把鎖（L1）
         except BaseException as e:  # noqa: BLE001  日誌失敗不影響開回合
