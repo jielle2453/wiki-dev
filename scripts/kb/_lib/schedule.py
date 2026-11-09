@@ -19,7 +19,7 @@ WINDOWS = os.name == "nt"
 FOLDER = "wiki-with-willy"
 PENDING_KEY = "schedule_failed"
 PENDING_TEXT = "背景比對的排程設不起來（{reason}）；新放的檔要等 AI 當場比才看得到，請服務人員看一下"
-SCHTASKS_TIMEOUT = 20
+SCHTASKS_TIMEOUT = 2  # 秒，一次 schtasks；每天第一句的 turn.py 上限 5 秒（review 1）
 _QUOT = {"&quot;": '"', "&apos;": "'"}
 _QUOT_REV = {'"': "&quot;"}
 

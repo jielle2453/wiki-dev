@@ -5,12 +5,14 @@ kb changes --background（電腦排程）寫、kb changes 與 kb inventory scan�
 report 是 inventory.public(report) 去掉 entries，多 ids（變動那幾份的 uri → 清冊編號，給 detected_rows 用）。
 讀不懂、schema_version 不是 1 → 當沒有清單（不記 log：排程還沒跑過是正常的）。
 """
+import json
 import os
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 
-from kb._lib.io import read_json, write_json_atomic
+from kb._lib.io import read_json
 
 LIST_REL = ".system/local/changes.json"
 LOCK_REL = ".system/local/changes.lock"
@@ -62,8 +64,24 @@ def write(vault, report, via, seconds, wip=None, cards_mtime=None):
             "via": via, "report": body, "wip": wip, "cards_mtime": cards_mtime}
     p = path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(p, data)
+    fd, tmp = tempfile.mkstemp(prefix="changes-", suffix=".tmp", dir=str(p.parent))  # 各寫各的暫存檔：背景與 AI 當場跑的可能同時寫（review 2）
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, p)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return data
+
+
+def newer_than(vault, at):
+    """清單是不是在 at（ISO 字串）之後別人寫的：背景比到一半 AI 跑了 kb changes 或 inventory scan，舊結果不蓋過去（review 3）。"""
+    data = read(vault)
+    return bool(data and str(data.get("at") or "") > at)
 
 
 def write_carried(vault, report, via, seconds):
@@ -114,8 +132,10 @@ def acquire(vault):
             except FileNotFoundError:
                 pass
             continue
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
+        try:
+            os.write(fd, str(os.getpid()).encode())
+        finally:
+            os.close(fd)
         return True
     return False
 
@@ -123,7 +143,7 @@ def acquire(vault):
 def release(vault):
     try:
         (Path(vault) / LOCK_REL).unlink()
-    except FileNotFoundError:
+    except OSError:  # 已經不在、防毒暫時佔著：30 分鐘後算殘留
         pass
 
 

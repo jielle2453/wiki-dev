@@ -78,6 +78,15 @@ class Background(Base):
         self.assertTrue(changes_list.path(self.V).exists())
         self.assertFalse(lock.exists(), "跑完放掉鎖")
 
+    def test_newer_list_is_not_overwritten(self):
+        """review 3：比的期間 AI 當場比過或套用了（清單比背景開始時新），背景的舊結果不蓋過去。"""
+        self.assertEqual(kb(self.V, "changes").returncode, 0)
+        d = self.listed()
+        d["at"] = "2999-01-01T00:00:00"
+        changes_list.path(self.V).write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        self.background()
+        self.assertEqual(self.listed()["via"], "changes")
+
     def test_error_logged_as_scan_exit_0(self):
         (self.V / ".system" / "sources.json").write_text("{壞", encoding="utf-8")
         self.background()

@@ -79,12 +79,14 @@ def _background(args):
         if vault is None or not changes_list.acquire(vault):
             return 0
         try:
+            from datetime import datetime
             from kb._lib import cards
-            start = time.monotonic()
+            start, began = time.monotonic(), datetime.now().isoformat(timespec="seconds")
             sources = sources_lib.load(vault)
             report = inventory.scan(vault, sources)
             wip = changes_list.wip_summary(cards.wip(vault, sources))
-            changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault))
+            if not changes_list.newer_than(vault, began):  # 比的期間 AI 當場比過或套用了：這份已經舊了，等下一次
+                changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault))
         finally:
             changes_list.release(vault)
     except Exception as e:  # noqa: BLE001  背景跑的，沒人看得到輸出

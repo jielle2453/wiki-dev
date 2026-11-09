@@ -57,6 +57,7 @@ TAGS_EDITED = ("客戶在 Obsidian 卡的屬性欄改了 {n} 張綜合卡的標�
 TAGS_EDITED_SHOWN = 3
 AGENDA_OVERDUE_HINT = "（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）"
 BACKGROUND_LINT_BUDGET = 7  # 秒，從 hook 開始算；前面用掉太多時間這次就不開
+SCHEDULE_BUDGET = 2.5  # 秒，從 hook 開始算；過了就不查排程（schtasks 最多叫兩次各 2 秒，turn.py 上限 5 秒），明天再查
 TOLD_KEEP = 30  # checks.told 最多留幾條
 FILES_KEEP = 1000  # checks.told_files（變動行講過的檔，「wip|uri」等）最多留幾條：一次放很多份也不會每句重講
 
@@ -563,7 +564,7 @@ def line_wip(vault):
 def line_schedule(vault):
     """背景比對的排程（D-536）：查在不在、對不對，不對就重設；第一次設或重設回一行給 AI，其他回 None。
     測試環境變數 WIKI_WITH_WILLY_NO_BACKGROUND 有值時不碰排程。"""
-    if os.environ.get("WIKI_WITH_WILLY_NO_BACKGROUND"):
+    if os.environ.get("WIKI_WITH_WILLY_NO_BACKGROUND") or over_budget(SCHEDULE_BUDGET):
         return None
     from kb._lib import config, schedule
 

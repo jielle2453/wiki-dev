@@ -139,6 +139,14 @@ class DailyLine(unittest.TestCase):
             with mock.patch.object(schedule, "ensure", lambda v: "created"):
                 self.assertEqual(self.m.line_schedule(self.V), self.m.SCHEDULE_LINE.format(n=10))
 
+    def test_over_budget_does_not_touch(self):
+        """review 1：每天第一句前面用掉太多時間就不查排程（turn.py 上限 5 秒），明天再查。"""
+        import time
+        self.m.START = time.monotonic() - 1000
+        with mock.patch.dict(os.environ, {"WIKI_WITH_WILLY_NO_BACKGROUND": ""}), \
+                mock.patch.object(schedule, "ensure", side_effect=AssertionError("不該碰排程")):
+            self.assertIsNone(self.m.line_schedule(self.V))
+
     def test_no_background_env_does_not_touch(self):
         with mock.patch.dict(os.environ, {"WIKI_WITH_WILLY_NO_BACKGROUND": "1"}), \
                 mock.patch.object(schedule, "ensure", side_effect=AssertionError("不該碰排程")):
