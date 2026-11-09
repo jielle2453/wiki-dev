@@ -720,6 +720,9 @@ PENDING_ONLY = ("handedit", "tag_edit", "lint", "unreadable", "script_touched", 
 _ORDER = ("batch", "drift", "missing", "credential_same_kind", "ruling_recheck", "overdue", "agenda_conflict", "close", "draft",
           "inbox_place", "name") + tuple(f"pending_{k}" for k in PENDING_ONLY) + ("carried",)
 PENDING_HOW = "{客戶的話}"
+MONEY_FILL = "帳的欄"
+MONEY_FILL_RULE = ("照那張卡與她的話寫 --amount、--date（收付那天）或 --due（到期日）、--entity、--item、--text，沒有的不寫；"
+                   "字有 $ 這類符號用單引號包")
 
 
 def _digest(text):
@@ -912,10 +915,12 @@ def _pending_results(item):
     if kind == "money_dupe":  # 記帳 2：D-276 看不出是不是同一筆
         return [_result("是同一筆", [cmd("money", "merge", data.get("keep", ""), data.get("other", ""))]),  # merge 自己關這件
                 _result("不是", [cmd("pending", "resolve", pid, "--how", "不是同一筆，兩筆都留")])]
-    if kind == "money_unsure":  # 記帳 2：D-274 看不出流向
+    if kind == "money_unsure":  # 記帳 2：D-274 看不出流向；do 帶 --resolves，記完程式就關這件（確認報告 #6）
         card = data.get("card", "")
-        how = "照檔案記：kb money add --card " + card + " --dir {} …（金額、實體、品項照那張卡），記完 kb pending resolve " + pid
-        return [_result("她收的", note=how.format("收")), _result("她付的", note=how.format("付")),
+        fill = [_fill(MONEY_FILL, MONEY_FILL_RULE)]
+        adds = [(label, cmd("money", "add", "--card", card, "--dir", d, "--resolves", pid)) for label, d in (("她收的", "收"), ("她付的", "付"))]
+        return [_result(label, [c and c + " {" + MONEY_FILL + "}"], fill=fill, argv=None)  # 首頁不直接跑（帳的欄要 AI 填）
+                for label, c in adds] + [
                 _result("不是她的錢", [cmd("pending", "resolve", pid, "--how", "不是她的錢，不記")])]
     return [resolve, drop]
 

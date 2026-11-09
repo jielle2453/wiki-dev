@@ -66,7 +66,8 @@ class MoneyBase(unittest.TestCase):
         write_profile(self.V, people=3, money=money_row("on", ["分店"]),
                       about=[{"name": "小王", "kind": "person", "aliases": [], "place": place, "source": "said", "date": DAY},
                              {"name": "老闆", "kind": "person", "aliases": [], "source": "said", "date": DAY}])
-        env.set_person(self.V, me)
+        if me:  # None：這台還沒記是誰
+            env.set_person(self.V, me)
 
 
 class Stock(MoneyBase):
@@ -350,9 +351,9 @@ class Pages(PageBase):
         self.put("無", items=["益生菌 -5 在北店", "益生菌 +5 在南店"], text="調貨")
         self.put("付", "100", items=["膠囊 +3"])
         top = self.page()
-        self.assertIn("| 商品 | 北店 | 南店 | 合計 |", top)
-        self.assertIn("| 益生菌 | 15 瓶 | 5 瓶 | 20 瓶 |", top)
-        self.assertIn("| 膠囊 | 0 瓶 | 0 瓶 | 3 瓶 |", top, "地點一筆都沒有也列 0；沒指定地點的只進合計")
+        self.assertIn("| 商品 | 北店 | 南店 | 未指定 | 合計 |", top)
+        self.assertIn("| 益生菌 | 15 瓶 | 5 瓶 | 0 瓶 | 20 瓶 |", top)
+        self.assertIn("| 膠囊 | 0 瓶 | 0 瓶 | 3 瓶 | 3 瓶 |", top, "地點一筆都沒有也列 0；沒指定地點的進「未指定」（確認報告 #10）")
 
 
 class PagesRemoved(PageBase):
@@ -1050,10 +1051,10 @@ class Units4thRound(UnitsBase):
         self.buy("膠囊 +2箱")  # 沒指定地點
         st = money.stock(self.V, "膠囊")["products"][0]
         self.assertEqual(st["text"], "2 箱（不知道一箱幾瓶）")
-        self.assertEqual(st["places_text"], {"北店": "0 瓶", "南店": "0 瓶"})
+        self.assertEqual(st["places_text"], {"北店": "0 瓶", "南店": "0 瓶", "未指定": "2 箱（不知道一箱幾瓶）"})  # 確認報告 #10
         self.buy("膠囊 +1箱 在北店")
         st = money.stock(self.V, "膠囊")["products"][0]
-        self.assertEqual(st["places_text"], {"北店": "1 箱（不知道一箱幾瓶）", "南店": "0 瓶"})
+        self.assertEqual(st["places_text"], {"北店": "1 箱（不知道一箱幾瓶）", "南店": "0 瓶", "未指定": "2 箱（不知道一箱幾瓶）"})
 
     def test_23b_pack_value_kept_when_section9_field_removed(self):
         self.buy("益生菌 +2箱 在北店")
@@ -1083,7 +1084,7 @@ class Units5thRound(UnitsBase):
         self.assertEqual((p["qty"], p["unit"], p["amount"], p["margin"]), (2, "箱", 3600, None))  # 不拿瓶價乘箱數
         self.add("--dir", "收", "--amount", "5000", "--entity", "李小姐", "--item", "精華液 -1箱", "--item", "膠囊 -1箱")
         got = self.products()
-        self.assertEqual((got["精華液"]["amount"], got["膠囊"]["amount"]), (None, None))  # 估不出就不估
+        self.assertEqual((got["精華液"]["amount"], got["精華液"]["missing"], got["膠囊"]["amount"]), (3600, 1, None))  # 估不出的那筆不估、其他照算（確認報告 #7）
         self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
         self.kb("entity", "field", "精華液", "每箱=10", "--said")
         self.assertEqual(self.products()["精華液"]["margin"], 3 * 10 * 600)  # 換得了：一箱 10 瓶的價

@@ -54,6 +54,7 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" money add --dir 收 --amount 5000 -
 - 每月房租、年繳保費：`add … --due <下一次> --repeat 每月`；付了 `settle`，程式另記一筆已付、原筆移到下一次。
 - 改：`kb money edit <編號> --amount／--date／--due／--entity／--item／--text／--note`；記錯了不要：`kb money cancel <編號>`。
 - 兩筆是同一筆：`kb money merge <留的> <併掉的>`。
+- 她的話回答了 lookup、asks 帶的待處理（「這是你收的、你付的…」「是不是同一筆」）：照那題結果的 `do` 做（`--json` 才看得到）；記帳那條帶 `--resolves <p-…>`，程式記完就關那題，不另外 resolve。
 
 ### 單位、盤點
 
@@ -70,8 +71,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" money add --dir 收 --amount 5000 -
 
 ### 報帳（D-338，多人才有）
 
-- 「我墊了文具 3,200」：`add --dir 付 --amount 3200 --advanced-by <說話的人> --entity 文具店 --text 文具`，記成未付。
-- 還他了：`settle <編號> --date <還錢那天>`。「還欠小王多少」：`kb money sum --from <很早> --to <今天> --advanced-by 小王 --json` 的 `open_out`，或 `kb lookup 小王`。
+- 「我墊了文具 3,200」：`add --dir 付 --amount 3200 --advanced-by 我 --entity 文具店 --text 文具`，記成未付；「我」程式填這台的人，不問、不猜。講別人墊的才寫那人的名字。
+- 還他了：`settle <編號> --date <還錢那天>`。「還欠小王多少」：`kb money list --open --advanced-by 小王 --json`（「公司還欠我」用 `--advanced-by 我`），或 `kb lookup 小王`。
 - 單人知識庫沒有墊的人（程式擋），照一般付款記。
 
 ### 改日期問另一邊（D-273）
@@ -101,4 +102,4 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" statement add --text "幫公司收�
 
 ## 五、問帳
 
-照 answer 的 `references/find.md`「錢與庫存」：欠多少、收多少、庫存都叫 `kb money` 或 `kb lookup`，不心算。
+照 answer 的 `references/find.md`「錢與庫存」：欠多少、收多少、庫存都叫 `kb money` 或 `kb lookup`，不心算。欠多少、還沒收的用 `kb money list --open --json`，不帶 `--from --to`（以後到期的也要算）。

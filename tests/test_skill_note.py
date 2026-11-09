@@ -318,5 +318,26 @@ class MoneyUnits(unittest.TestCase):
                 self.assertNotIn(gone, self.text)
 
 
+class MoneyConfirm(unittest.TestCase):
+    """記帳確認報告 #1、#2、#6：欠多少走 money list --open（不帶區間）；「我墊了」用 --advanced-by 我、程式填這台的人，
+    不問不猜；她的話回答了待處理照 do 做、--resolves 由程式關。"""
+
+    def setUp(self):
+        self.text = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
+
+    def test_1_owed_uses_open_list(self):
+        self.assertIn("kb money list --open --json", self.text)
+        self.assertIn("不帶 `--from --to`", self.text)
+
+    def test_2_me_filled_by_program(self):
+        self.assertIn("--advanced-by 我", self.text)
+        self.assertIn("程式填這台的人", self.text)
+        self.assertNotIn("<說話的人>", self.text)
+
+    def test_6_resolves(self):
+        self.assertIn("--resolves", self.text)
+        self.assertIn("`do`", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

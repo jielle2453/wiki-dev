@@ -5,6 +5,7 @@
 拒絕的第一行就是原因、exit 3（--json 時印 {"refused", …}）；帳關著、只記我講的擋帶卡的也是 exit 3，句子給 AI 不給她（D-343）。
 寫入成功的輸出帶 tell（成功句），有低於安全庫存的帶 low_stock（D-282），edit 改了到期日帶 related_agenda（D-273）；
 add、edit 品項有換不了的單位照記、帶 unit_ask 教 AI 問一次（D-344 再補，不因單位擋）。
+--advanced-by 我（或不給值）＝這台的人（確認報告 #2）；寫入的子命令帶 --resolves <p-…> 寫完關那件待處理（#6，編號錯了不寫）。
 終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合；歷程的 by 在對話裡是 ai、終端機是 program。
 人讀輸出不印內部編號（m-…、f-…）：要編號的取 --json。
 """
@@ -22,6 +23,10 @@ CHANGED = [{"path": money.MONEY_POSIX, "action": "modify"}]
 PENDING_CHANGED = [{"path": pending.PENDING_POSIX, "action": "modify"}, {"path": pending.MD_POSIX, "action": "modify"}]
 
 
+ADV_HELP = "墊錢的成員（報帳，多人才有）；我或不給值＝這台的人"
+NO_PENDING = "沒有這件待處理：{}（看 kb asks --json 的 do），沒有寫入"
+
+
 def _common(p):
     p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     p.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
@@ -33,10 +38,10 @@ def add_arguments(sub):
     ad.add_argument("--dir", required=True, help="收、付、無（只動數量：調貨、送人、壞掉）")
     ad.add_argument("--amount", help="金額（可省＝未知，只准還沒收付的）")
     ad.add_argument("--date", help="收付那天 YYYY-MM-DD")
-    ad.add_argument("--due", help="到期日 YYYY-MM-DD（還沒收付）；--date 與 --due 都沒給＝今天已收付")
+    ad.add_argument("--due", help="到期日 YYYY-MM-DD（還沒收付）；--date 與 --due 都沒給＝今天已收付（帶 --card 的＝還沒收付、沒到期日）")
     ad.add_argument("--entity", action="append", default=[], help="掛的實體，可以重複；沒掛的歸「其他」")
     ad.add_argument("--item", action="append", default=[], help="品項「<商品> <±數量>[單位][@單價][在<地點>]」，可以重複")
-    ad.add_argument("--advanced-by", help="墊錢的成員（報帳，多人才有）")
+    ad.add_argument("--advanced-by", nargs="?", const="我", help=ADV_HELP)
     ad.add_argument("--text", default="", help="一句說明")
     ad.add_argument("--note", default="", help="備註")
     ad.add_argument("--repeat", help="每年、每月、每週")
@@ -57,7 +62,7 @@ def add_arguments(sub):
     ed.add_argument("--due")
     ed.add_argument("--entity", action="append", default=None)
     ed.add_argument("--item", action="append", default=None)
-    ed.add_argument("--advanced-by")
+    ed.add_argument("--advanced-by", nargs="?", const="我", help=ADV_HELP)
     ed.add_argument("--text")
     ed.add_argument("--note")
     status = [subs.add_parser(n, help=h, description=f"把一筆帳{h}。") for n, h in (("cancel", "取消"), ("reopen", "重開"))]
@@ -83,24 +88,26 @@ def add_arguments(sub):
     ls.add_argument("--entity", help="只列跟這個實體有關的")
     ls.add_argument("--from", dest="date_from")
     ls.add_argument("--to", dest="date_to")
-    ls.add_argument("--advanced-by", help="只列這個成員墊的")
+    ls.add_argument("--advanced-by", nargs="?", const="我", help="只列這個成員墊的（我＝這台的人）")
     ca = subs.add_parser("candidates", help="列可能同一筆的", description="記之前先看（D-276）：只列不寫。")
     ca.add_argument("--dir", required=True)
     ca.add_argument("--amount")
     ca.add_argument("--date")
     ca.add_argument("--due")
     ca.add_argument("--entity", action="append", default=[])
-    sm = subs.add_parser("sum", help="區間加總", description="照收付日算收、付、淨、未收付；帳關著時照標過錢的口述。")
+    sm = subs.add_parser("sum", help="區間加總", description="照收付日算收、付、淨；未收付是現在還沒收付的全部（不限區間）；帳關著時照標過錢的口述。")
     sm.add_argument("--from", dest="date_from", required=True)
     sm.add_argument("--to", dest="date_to", required=True)
     sm.add_argument("--entity")
-    sm.add_argument("--advanced-by")
+    sm.add_argument("--advanced-by", nargs="?", const="我", help="只算這個成員墊的（我＝這台的人）")
     sm.add_argument("--vs-from")
     sm.add_argument("--vs-to")
     st = subs.add_parser("stock", help="庫存", description="商品 × 地點與合計。")
     st.add_argument("product", nargs="?", help="商品；沒給全部")
     st.add_argument("--place", help="只看這個地點")
     bf = subs.add_parser("backfill", help="還沒補進帳的口述", description="帳關著時標過錢、還沒進帳的口述（改開時問她要不要補）。")
+    for p in [ad, se, ed, *status, at, mg]:
+        p.add_argument("--resolves", help="這筆是照她對這件待處理（p-…）的回答做的：寫完程式關那件")
     for p in [ad, se, ed, *status, at, mg, ct, un, sc, ls, ca, sm, st, bf]:
         _common(p)
 
@@ -254,6 +261,22 @@ def _scanned(vault, args, as_json, conversation, turn_id):
     return 0
 
 
+def _pending_item(vault, pid):
+    try:
+        return next((i for i in pending.load(vault)["items"] if i.get("id") == pid), None)
+    except ValueError:
+        return None
+
+
+def _resolve(vault, pid, command, conversation, turn_id):
+    """--resolves（確認報告 #6）：照她的回答記完帳，那件待處理還開著就關掉；已經關了不動。"""
+    if (_pending_item(vault, pid) or {}).get("status") != "open":
+        return
+    how = f"照她的回答記帳（money {command}）"
+    pending.resolve(vault, pid, how, turn_id)
+    journal_cli.record_program_or_warn(vault, f"待處理 {pid}：{how}", PENDING_CHANGED, "pending resolve", conversation)
+
+
 WRITERS = {"add": _add, "settle": _settle, "edit": _edit, "cancel": _status, "reopen": _status, "attach": _attach,
            "merge": _merge, "count": _count, "unsure": _unsure, "scanned": _scanned}
 
@@ -285,8 +308,9 @@ def _list(vault, args, as_json):
     frm, to = _day(args.date_from), _day(args.date_to)
     if frm or to:
         items = [i for i in items if money._in_range(money._ref_day(i), frm, to)]
-    if args.advanced_by:
-        items = [i for i in items if money._key(i.get("advanced_by") or "") == money._key(args.advanced_by)]
+    if args.advanced_by is not None:
+        who = money.member(vault, args.advanced_by)
+        items = [i for i in items if money._key(i.get("advanced_by") or "") == money._key(who)]
     items = sorted(items, key=lambda i: (money._ref_day(i) or "", i.get("id", "")))
     if as_json:
         print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "money")}, ensure_ascii=False))
@@ -304,17 +328,19 @@ def _candidates(vault, args, as_json):
 
 def _sum(vault, args, as_json):
     vs = (money._date(args.vs_from), money._date(args.vs_to)) if args.vs_from and args.vs_to else None
+    who = money.member(vault, args.advanced_by) if args.advanced_by is not None else None
     got = money.summary(vault, money._date(args.date_from), money._date(args.date_to), entity=args.entity, vs=vs,
-                        advanced_by=args.advanced_by)
+                        advanced_by=who)
     lines = [f"{args.date_from}～{args.date_to}：收 {numbers.show(got['in'])}、付 {numbers.show(got['out'])}、淨 {numbers.show(got['net'])}"
-             + (f"；未收 {numbers.show(got['open_in'])}、未付 {numbers.show(got['open_out'])}" if got["source"] == "money" else "")
+             + (f"；現在未收 {numbers.show(got['open_in'])}、未付 {numbers.show(got['open_out'])}（全部還沒收付的，不限區間）"
+                if got["source"] == "money" else "")
              + ("（照你說過的加）" if got["source"] == "statements" else "")]
     if got["diff"]:
         d = got["diff"]["in"]
         lines.append(f"比 {args.vs_from}～{args.vs_to}：收 {numbers.show(got['vs']['in'])}，差 {numbers.show(d['diff'])}"
                      + (f"（{d['pct']}%）" if d["pct"] is not None else ""))
     for p in got["products"]:
-        amt = "" if p["amount"] is None else f"、{numbers.show(p['amount'])}{'（估）' if p['estimated'] else ''}"
+        amt = "" if p["amount"] is None else f"、{numbers.show(p['amount'])}{'（估）' if p['estimated'] else ''}{money.missing_text(p)}"
         lines.append(f"- {p['name']} 賣出 {p['text']}{amt}")
     _out(as_json, lines, got)
     return 0
@@ -357,7 +383,13 @@ def run(args):
             return _backfill(vault, as_json)
         conversation = journal_cli.in_conversation(vault)
         turn_id = turn.current(vault)["turn"]
-        return WRITERS[command](vault, args, as_json, conversation, turn_id)
+        resolves = getattr(args, "resolves", None)
+        if resolves and _pending_item(vault, resolves) is None:
+            raise money.MoneyRefused(NO_PENDING.format(resolves))
+        code = WRITERS[command](vault, args, as_json, conversation, turn_id)
+        if code == 0 and resolves:
+            _resolve(vault, resolves, command, conversation, turn_id)
+        return code
     except money.MoneyRefused as e:
         if as_json and e.payload:
             print(json.dumps(dict(e.payload, message=str(e)), ensure_ascii=False))

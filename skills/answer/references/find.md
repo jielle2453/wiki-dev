@@ -126,8 +126,9 @@ lookup 回 `entity: null` 時，`mentions` 列標題或正文出現這個詞的�
 「李小姐還欠多少」「這個月收多少」「今年第三季跟去年比」「各店精華液還有幾瓶」「公司還欠小王多少」：數字一律叫程式算，照它給的答，不心算、不從卡上的字加（D-271、D-284）。
 
 - 一個人或一件事的帳：`kb lookup <名稱> --json` 的 `money`（`in` 累計收、`out` 累計付、`open_in` 未收、`open_out` 未付、`open` 未收付逐筆、`recent` 最近幾筆、`stock` 庫存）；商品的 `stock` 是各地點與合計，分店這類地點的 `stock` 是那裡的各商品。問成員名字時有 `owed_to`（墊了還沒還的）。
-- 任何區間：`kb money sum --from <YYYY-MM-DD> --to <YYYY-MM-DD> --json`，可加 `--entity <名>`、`--advanced-by <成員>`、比較另一段 `--vs-from … --vs-to …`（`diff` 給差與百分比）。照收付那天算；「這個月」「第三季」先換成日期、回答裡複述。`products` 是賣出數量與金額，`estimated: true` 的金額是照售價分的（說「估的」），`margin` 是估的毛利（沒進價是空的，不講）。
+- 任何區間：`kb money sum --from <YYYY-MM-DD> --to <YYYY-MM-DD> --json`，可加 `--entity <名>`、`--advanced-by <成員>`、比較另一段 `--vs-from … --vs-to …`（`diff` 給差與百分比）。照收付那天算；「這個月」「第三季」先換成日期、回答裡複述。`open_in`、`open_out` 是現在還沒收付的全部，不限區間。`products` 是賣出數量與金額，`estimated: true` 的金額是照售價分的（說「估的」），`missing` 是幾筆分不出金額、沒算進去（有就說一聲），`margin` 是估的毛利（沒進價是空的，不講）。
 - 列逐筆：`kb money list --json`（`--open` 只看還沒收付、`--entity`、`--from --to`、`--advanced-by`）；庫存：`kb money stock [商品] [--place <地點>] --json`。
+- 「還欠我多少」「誰還欠錢」「還沒收的」：`kb money list --open --json`，不帶 `--from --to`（逾期、沒到期日、以後才到期的都要算），分收、付講。多人時「公司還欠我」先加 `--advanced-by 我`（程式填這台的人）。
 - 答法：先給數字，再附逐筆或一張小表；未收付的帶到期日。
 - 出處：帳的金額是她說的（`origin` 空、或 `{"statement"}`）就說「你 10/30 說的」，不用回原檔找；出處是卡（`origin.card`、`cards`）照 R-03 回原檔核對再答（`verify.md`）。
 - `sum` 回 `source: statements`：帳關著，這是照她講過、標了錢的話加的；照數字答、附逐筆，不提帳沒開。

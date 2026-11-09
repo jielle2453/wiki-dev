@@ -219,7 +219,7 @@ class Asks(MoneyBase):
         yes = dupe["results"][0]
         self.assertTrue(any(f"money merge {a} {b['item']['id']}" in d for d in yes["do"]))
         unsure = next(x for x in asks if x["kind"] == "pending_money_unsure")
-        self.assertTrue(any(fid in (r.get("note") or "") for r in unsure["results"]))
+        self.assertTrue(any(fid in "".join(r["do"]) for r in unsure["results"]))
 
 
 class ReviewFixes(MoneyBase):
@@ -262,3 +262,105 @@ class SettleCard(MoneyBase):
         out = self.kbj("money", "settle", mid, "--amount", "100000", "--card", fid)
         self.assertEqual(out["item"]["cards"], [fid])
         self.assertEqual(out["split"]["cards"], [])
+
+
+class ConfirmReport(MoneyBase):
+    """記帳確認報告（design/reports/記帳-確認.md）發現 #1、#2、#5、#6、#7：未收付不受區間限制、「我」由程式填這台的人、
+    製卡沒日期記未收、照 do 記帳就關那題、算不出金額的那幾筆另外標。"""
+
+    def card(self, title="信義王合約"):
+        from tests import _entities as E
+        from kb._lib import cards
+        path = E.write_card(self.V, E.QUOTE, title, ["信義王"])
+        return cards.parse_front((self.V / path).read_text(encoding="utf-8"))["編號"]
+
+    def test_1_open_not_limited_by_range(self):
+        self.add("--dir", "收", "--amount", "100000", "--due", "2026-10-01", "--entity", "信義王", "--text", "第二期")
+        self.add("--dir", "收", "--amount", "20000", "--due", "2027-01-30", "--entity", "王先生", "--text", "尾款", "--new")
+        self.add("--dir", "付", "--amount", "102000", "--due", "2027-02-05", "--entity", "文具店", "--text", "進貨")
+        self.add("--dir", "收", "--amount", "5000", "--date", "2026-11-05", "--entity", "李小姐")
+        got = self.kbj("money", "sum", "--from", "2026-11-01", "--to", "2026-11-09")
+        self.assertEqual((got["in"], got["open_in"], got["open_out"]), (5000, 120000, 102000))
+        old = self.kbj("money", "sum", "--from", "2000-01-01", "--to", "2026-09-30")
+        self.assertEqual(old["open_in"], 120000, "問欠多少用很早到以前也看得到以後到期的")
+        self.assertIn("不限區間", self.kb("money", "sum", "--from", "2026-11-01", "--to", "2026-11-09").stdout)
+
+    def test_2_advanced_by_me(self):
+        self.team(me="小王")
+        out = self.add("--dir", "付", "--amount", "3200", "--advanced-by", "我", "--entity", "文具店", "--text", "文具")
+        self.assertEqual(out["item"]["advanced_by"], "小王")
+        bare = self.add("--dir", "付", "--amount", "500", "--advanced-by", "--entity", "文具店", "--text", "郵票", "--new")
+        self.assertEqual(bare["item"]["advanced_by"], "小王")
+        self.assertEqual(len(self.kbj("money", "list", "--open", "--advanced-by", "我")["items"]), 2)
+        self.assertEqual(self.kbj("money", "sum", "--from", "2026-01-01", "--to", "2026-01-31", "--advanced-by", "我")["open_out"],
+                         3700)
+        edited = self.kbj("money", "edit", out["item"]["id"], "--advanced-by", "老闆")["item"]
+        self.assertEqual(edited["advanced_by"], "老闆")
+        self.assertEqual(self.kbj("money", "edit", out["item"]["id"], "--advanced-by", "我")["item"]["advanced_by"], "小王")
+
+    def test_2_me_not_set_or_single(self):
+        r = self.kb("money", "add", "--dir", "付", "--amount", "1", "--advanced-by", "我", code=3)
+        self.assertIn("單人", r.stdout)
+        self.team(me=None)
+        r = self.kb("money", "add", "--dir", "付", "--amount", "1", "--advanced-by", "我", code=3)
+        self.assertIn("kb who set", r.stdout)
+        self.assertEqual(money.load(self.V)["items"], [])
+
+    def test_5_card_without_date_is_open(self):
+        fid = self.card()
+        it = self.add("--card", fid, "--dir", "收", "--amount", "80000", "--entity", "信義王", "--text", "簽約款")["item"]
+        self.assertEqual((it["status"], it["date"], it["due"]), ("open", None, None))
+        paid = self.add("--card", fid, "--dir", "收", "--amount", "3000", "--date", "2026-10-01", "--entity", "信義王", "--new")["item"]
+        self.assertEqual(paid["status"], "done")
+        said = self.add("--dir", "收", "--amount", "700", "--entity", "李小姐")["item"]
+        self.assertEqual((said["status"], said["date"]), ("done", TODAY), "她講的沒給日期照舊是今天")
+
+    def test_6_do_with_resolves_closes_pending(self):
+        fid = self.card("影印紙收據")
+        pid = self.kbj("money", "unsure", "--card", fid, "--text", "收據 3,500，看不出誰付誰")["pending"]["id"]
+        ask = next(x for x in self.kbj("asks", "--all")["asks"] if x["kind"] == "pending_money_unsure")
+        paid = next(r for r in ask["results"] if r["label"] == "她付的")
+        self.assertTrue(paid["do"] and f"--resolves {pid}" in paid["do"][0])
+        self.assertIsNone(paid["argv"], "帳的欄要 AI 填，首頁不直接跑")
+        r = self.kb("money", "add", "--card", fid, "--dir", "付", "--amount", "1", "--resolves", "p-00000000", code=3)
+        self.assertIn("p-00000000", r.stdout)
+        self.assertEqual(money.load(self.V)["items"], [], "編號錯了不寫")
+        self.add("--card", fid, "--dir", "付", "--amount", "3500", "--date", "2026-11-01", "--entity", "文具店",
+                 "--resolves", pid)
+        item = next(i for i in pending.load(self.V)["items"] if i["id"] == pid)
+        self.assertEqual(item["status"], "done")
+        mid = self.add("--dir", "收", "--amount", "5000", "--due", "2026-12-01", "--entity", "李小姐")["item"]["id"]
+        pid2 = self.kbj("money", "unsure", "--card", fid, "--text", "另一筆看不出")["pending"]["id"]
+        self.kbj("money", "settle", mid, "--resolves", pid2)
+        self.assertEqual(next(i for i in pending.load(self.V)["items"] if i["id"] == pid2)["status"], "done")
+
+    def test_7_one_line_unknown_rest_counted(self):
+        self.add("--dir", "收", "--amount", "5000", "--date", "2026-10-30", "--entity", "李小姐", "--item", "精華液 -2",
+                 "--item", "益生菌 -1", "--text", "賣出")  # 益生菌沒有售價：這筆分不出
+        self.add("--dir", "收", "--amount", "5400", "--date", "2026-10-20", "--entity", "王先生", "--item", "精華液 -3@1800")
+        got = self.kbj("money", "sum", "--from", "2026-10-01", "--to", "2026-10-31")
+        ess = next(p for p in got["products"] if p["name"] == "精華液")
+        self.assertEqual((ess["qty"], ess["amount"], ess["missing"]), (5, 5400, 1))
+        pro = next(p for p in got["products"] if p["name"] == "益生菌")
+        self.assertEqual((pro["amount"], pro["missing"]), (None, 1))
+        self.assertIn("1 筆沒算進去", self.kb("money", "sum", "--from", "2026-10-01", "--to", "2026-10-31").stdout)
+        year = (self.V / money.year_rel("2026")).read_text(encoding="utf-8")
+        self.assertIn("| 5,400（1 筆沒算進去） |", year)
+
+
+class ConfirmPlaces(MoneyBase):
+    """確認報告發現 #10：沒講地點的進出另成「未指定」，各店加未指定等於合計。"""
+    places = True
+
+    def test_10_unplaced_column(self):
+        self.add("--dir", "付", "--amount", "1000", "--entity", "文具店", "--item", "益生菌 +20 在北店")
+        top = (self.V / money.MD_POSIX).read_text(encoding="utf-8")
+        self.assertIn("| 商品 | 北店 | 南店 | 合計 |", top, "都有地點就不出未指定")
+        self.add("--dir", "收", "--amount", "500", "--entity", "李小姐", "--item", "益生菌 -2")
+        st = self.kbj("money", "stock", "益生菌")["products"][0]
+        self.assertEqual((st["total"], st["places"]), (18, {"北店": 20, "南店": 0, "未指定": -2}))
+        self.assertIn("未指定 -2", self.kb("money", "stock", "益生菌").stdout)
+        top = (self.V / money.MD_POSIX).read_text(encoding="utf-8")
+        self.assertIn("| 商品 | 北店 | 南店 | 未指定 | 合計 |", top)
+        self.assertIn("| 益生菌 | 20 瓶 | 0 瓶 | -2 瓶 | 18 瓶 |", top)
+        self.assertEqual([p["places"] for p in money.stock(self.V, place="北店")["products"]], [{"北店": 20}])

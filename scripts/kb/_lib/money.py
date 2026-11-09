@@ -48,6 +48,9 @@ PLACE_MSG = "「{name}」不是地點（地點的型別：{types}）"
 NO_ENTITY = "實體清單沒有「{}」，先 kb entity add"
 ADV_SINGLE = "單人知識庫沒有墊的人"
 ADV_MEMBER = "「{}」不是成員名單上的人（設定檔第五節）"
+ADV_NO_ME = "這台還沒記是誰：先問他叫什麼、kb who set <名字>，再記"
+ME_WORDS = ("我", "me", "自己")
+UNPLACED = "未指定"
 REPEAT_MSG = "重複要是 每年、每月、每週、不重複 之一"
 REPEAT_PARTIAL = "重複的那筆要整筆收付；少收付的部分另記一筆"
 REPEAT_NEEDS_DUE = "重複的要給 --due（下一次的到期日）"
@@ -551,14 +554,30 @@ def _lines(vault, raw_items, prof=None, ents=None):
     return out
 
 
+def member(vault, name):
+    """「我」（或空字）換成這台的人（people.me，確認報告 #2）；其他照給的。單人或這台還沒記是誰 → MoneyRefused。"""
+    if str(name).strip() not in ME_WORDS + ("",):
+        return name
+    from kb._lib import people
+    if not people.multi(vault):
+        raise MoneyRefused(ADV_SINGLE)
+    me = people.me(vault)
+    if not me:
+        raise MoneyRefused(ADV_NO_ME)
+    return me
+
+
 def _advanced(vault, name):
     if name is None:
         return None
     from kb._lib import people
     if not people.multi(vault):
         raise MoneyRefused(ADV_SINGLE)
+    name = member(vault, name)
     members = people.members(vault)
     hit = next((m for m in members if _key(m) == _key(name)), None)
+    if hit is None and people.me(vault) == name:
+        return name  # 這台的人（kb who set 記的）就算第五節還沒那列也認
     if hit is None:
         raise MoneyRefused(ADV_MEMBER.format(name))
     return hit
@@ -640,8 +659,8 @@ def add(vault, turn_id, dir_, amount=None, date=None, due=None, entities=(), ite
         status, day = "done", day or _today()
     elif day:
         status = "done"
-    elif due_ or adv:
-        status = "open"
+    elif due_ or adv or card:
+        status = "open"  # 製卡讀到沒寫日期的款項：記還沒收付、沒到期日，不當今天收了（確認報告 #5）
     else:
         status, day = "done", _today()
     if amt is None and status != "open":
@@ -942,8 +961,8 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
     """{"products": [{"name","unit","total","places": {地點: 數},"min","base","apart","text","places_text"}]}：所有沒取消的筆
     （不管收付了沒，新定 5）；每個品項照 Units 換成基本單位（D-344 補），換得了的加在 total、places（單位 unit），換不了的分開放
     apart（[{"unit","qty","places"}]），text 是「12 瓶＋2 箱（不知道一箱幾瓶）」、places_text 是各地點的同一套字；只有換不了的
-    一組時 unit 就是那組的單位。places 列每個地點型別的實體（沒動靜的是 0）；entity 給了只列那個商品，place 給了只列在那裡有進出的、
-    places 只留那一格。"""
+    一組時 unit 就是那組的單位。places 列每個地點型別的實體（沒動靜的是 0），有沒講地點的進出多一格「未指定」（確認報告 #10）；
+    entity 給了只列那個商品，place 給了只列在那裡有進出的、places 只留那一格。"""
     from kb._lib import entities
     data = load(vault) if data is None else data
     prof = _profile(vault) if prof is None else prof
@@ -973,6 +992,12 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
         order = [main] + [g for g in rec if g != main]
         where = [at] if at else list(dict.fromkeys(names + [p for g in rec.values() for p in g["places"]]))
         cells = {g: {p: rec[g]["places"].get(p, Fraction(0)) if g in rec else Fraction(0) for p in where} for g in order}
+        if names and not at:  # 沒講地點的進出另成「未指定」，各地點加起來才等於合計（確認報告 #10）
+            off = {g: rec[g]["total"] - sum(rec[g]["places"].values(), Fraction(0)) if g in rec else Fraction(0) for g in order}
+            if any(off.values()):
+                where.append(UNPLACED)
+                for g in order:
+                    cells[g][UNPLACED] = off[g]
         total = rec[main]["total"] if main in rec else Fraction(0)
         e = entities.find(ents, name)[0]
         typ = (e or {}).get("type")
@@ -1040,7 +1065,7 @@ def _unit_price(prof, ents, units, name, field, calc):
 
 def _products(items, ents, prof=None):
     """賣出（收的那筆、數量是負的）：數量、金額（有單價照單價；一個品項的整筆就是它；多品項沒單價照售價分、標估的；沒售價只報數量）、
-    毛利（估）＝賣出數量 ×（售價 − 進價），沒進價不算。數量照 Units 換成基本單位（D-344 補）：單價是她講那個單位的價（金額＝單價 ×
+    毛利（估）＝賣出數量 ×（售價 − 進價），沒進價不算。分不出的那幾筆不算進金額、筆數放 missing（一筆都算不出 amount 才是 None）。數量照 Units 換成基本單位（D-344 補）：單價是她講那個單位的價（金額＝單價 ×
     她講的數），售價、進價照 _unit_price 換成基本單位的價（第 5 輪 #24，換不了不算）；換不了的數量分開放 apart、不算毛利、不拿來分金額。"""
     prof = prof or {}
     cache, agg, seen = {}, {}, {}
@@ -1073,9 +1098,10 @@ def _products(items, ents, prof=None):
             weights[id(ln)] = None if p is None or g != base else p * q
         known = sum((w for w in weights.values() if w is not None), Fraction(0))
         for ln in sold:
-            rec = agg.setdefault(ln["entity"], {"groups": {}, "amount": Fraction(0), "estimated": False, "unknown": False})
+            rec = agg.setdefault(ln["entity"], {"groups": {}, "amount": Fraction(0), "estimated": False, "missing": 0, "counted": 0})
             q, g, _base = base_qty(ln)
             rec["groups"][g] = rec["groups"].get(g, Fraction(0)) + q
+            rec["counted"] += 1
             if ln.get("unit_price") is not None:
                 rec["amount"] += _frac(ln["unit_price"]) * -_frac(ln["qty"])
             elif len(sold) == 1:
@@ -1083,8 +1109,9 @@ def _products(items, ents, prof=None):
             elif weights.get(id(ln)) is not None and known and len(rest) == sum(1 for w in weights.values() if w is not None):
                 rec["amount"] += (total - priced) * weights[id(ln)] / known
                 rec["estimated"] = True
-            else:
-                rec["unknown"] = True
+            else:  # 分不出這個品項的錢：只這筆不算，其他照算（確認報告 #7）
+                rec["counted"] -= 1
+                rec["missing"] += 1
     out = []
     for name, rec in sorted(agg.items()):
         base, calc = _units(prof, ents, name, cache).base, calc_base(name)
@@ -1094,11 +1121,11 @@ def _products(items, ents, prof=None):
         sell, cost = (_unit_price(prof, ents, units, name, f, calc) for f in ("售價", "進價"))
         margin = (_num(rec["groups"][calc] * (sell - cost))
                   if sell is not None and cost is not None and calc in rec["groups"] else None)
-        amount = None if rec["unknown"] else (_num(Fraction(round(rec["amount"]))) if rec["estimated"] else _num(rec["amount"]))
+        amount = None if not rec["counted"] else (_num(Fraction(round(rec["amount"]))) if rec["estimated"] else _num(rec["amount"]))
         out.append({"name": name, "qty": _num(rec["groups"].get(main, Fraction(0))), "unit": main, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec["groups"][g])} for g in order[1:]],
                     "text": groups_text([(g, rec["groups"][g]) for g in order], base, prof, (units.entry or {}).get("type")),
-                    "amount": amount, "estimated": rec["estimated"], "margin": margin})
+                    "amount": amount, "estimated": rec["estimated"], "missing": rec["missing"], "margin": margin})
     return out
 
 
@@ -1125,7 +1152,7 @@ def _sums(vault, items, frm, to, ents):
             typ = e.get("type") if e else OTHER
             rec = by_type.setdefault(typ, {}).setdefault(first or OTHER, {"name": first or OTHER, "in": Decimal(0), "out": Decimal(0)})
             rec[it["dir"]] += Decimal(str(amt or 0))
-        elif it.get("status") == "open" and it.get("dir") in ("in", "out") and (to is None or not it.get("due") or it["due"] <= to):
+        elif it.get("status") == "open" and it.get("dir") in ("in", "out"):  # 未收付不管到期日在不在區間（確認報告 #1）
             tot["open_" + it["dir"]] += Decimal(str(amt or 0))
             rows.append(it)
     n = config.get(vault, "money_rank_n")
@@ -1146,7 +1173,8 @@ def _diff(a, b):
 
 
 def summary(vault, frm, to, entity=None, vs=None, advanced_by=None):
-    """kb money sum（D-284 (4)）：照收付日算收、付、淨；未收、未付是到 to 為止到期（或沒到期日）還沒收付的；照型別前幾名；
+    """kb money sum（D-284 (4)）：照收付日算收、付、淨；未收、未付是現在還沒收付的全部（不限區間，逾期、沒到期日、以後到期的
+    都算，確認報告 #1）；照型別前幾名；
     商品賣出；vs=(frm, to) 另算一段給差與百分比。帳關著時照標過的口述算（statements_summary）。"""
     if mode(vault) == "off":
         return statements_summary(vault, frm, to, entity=entity, vs=vs)
@@ -1650,8 +1678,12 @@ def _type_tables(items, ents, link, rank_n):
     return out
 
 
+def missing_text(p):
+    return f"（{p['missing']} 筆沒算進去）" if p.get("missing") and p.get("amount") is not None else ""
+
+
 def _product_table(products, link):
-    """商品賣出：數量、金額（多品項沒單價的標「估」）、毛利（估）；整月都沒有毛利就不出那欄（D-284 (3)）。"""
+    """商品賣出：數量、金額（多品項沒單價的標「估」，有分不出的標「N 筆沒算進去」）、毛利（估）；整月都沒有毛利就不出那欄（D-284 (3)）。"""
     from kb._lib import numbers
     if not products:
         return ""
@@ -1659,7 +1691,7 @@ def _product_table(products, link):
     head = "| 商品 | 賣出 | 金額 |" + (" 毛利（估） |" if margin else "")
     lines = ["### 商品", head, "|---|---|---|" + ("---|" if margin else "")]
     for p in products:
-        amt = "" if p.get("amount") is None else numbers.show(p["amount"]) + ("（估）" if p.get("estimated") else "")
+        amt = "" if p.get("amount") is None else numbers.show(p["amount"]) + ("（估）" if p.get("estimated") else "") + missing_text(p)
         plain = not p.get("apart") and p.get("unit") == p.get("base")  # D-344 補：基本單位的照舊只寫數，其他寫單位
         row = f"| {link(p['name'])} | {numbers.show(p['qty']) if plain else p['text']} | {amt} |"
         if margin:
@@ -1675,6 +1707,8 @@ def _stock_table(data, prof, ents, link):
     if not rows:
         return NOTHING
     names = _place_names(prof, ents)
+    if any(UNPLACED in r["places"] for r in rows):
+        names.append(UNPLACED)
     lines = ["| 商品 | " + "".join(f"{n} | " for n in names) + "合計 |", "|---|" + "---|" * (len(names) + 1)]
     for r in rows:
         zero = _show_q(Fraction(0), r.get("unit") or "")
