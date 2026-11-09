@@ -10,6 +10,7 @@
 |---|---|---|
 | Windows 上的 Codex 桌面 App 或 Codex CLI | 打得開、登入得了 | 兩種都會跑外掛的 hook（CLI 2026-11-08 實測）；IDE 擴充不支援外掛 |
 | **Python 3**（3.10 以上） | 命令列跑 `python --version` 有版本號；在 Codex 裡問「跑 python --version」也要有 | 🔴 **沒有 Python 就完全沒有守門**：Codex 的 hook 起不來時會照樣讓 AI 改檔（Claude 版會擋下，Codex 不會） |
+| **Git**（從 GitHub 裝才要） | 命令列跑 `git --version` 有版本號；沒有就裝 Git for Windows | Codex 從 GitHub 加市集是呼叫 git clone，沒有 git 會報「failed to run git clone … program not found」（2026-11-09 用空的 CODEX_HOME、PATH 拿掉 git 實測）；沒網路或不想裝 git 就用第二節第 1 步的 zip 備用 |
 | 建議裝 OpenAI 的文件技能 | 在 Codex 打 `$skill-installer`，裝 Word、Excel、PowerPoint 的技能 | 做文件時 AI 才有現成的技能可用；沒裝也能做，只是比較慢 |
 
 ## 二、安裝
