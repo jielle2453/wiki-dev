@@ -96,6 +96,8 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" statement add --text "幫公司收�
 
 ## 四、改成開或只記我講的：補帳
 
+這版只在服務人員或她明確要改成開時才走這節，不主動提（#59）。
+
 `kb profile add 記帳 狀態=開` 的輸出有 `backfill`（之前記成口述的錢幾句、要抽錢的舊檔案幾份）：問她一次「之前記下的 N 筆錢要補進帳嗎？」
 
 - 要：`kb money backfill --json` 列出那幾句，每句 `kb money add --from-statement <s-…> --dir … --amount … --entity …`（程式照那天記、標出處）。被 `candidates` 擋就照第二節判斷，已經在帳裡的不補。
