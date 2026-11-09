@@ -289,8 +289,8 @@ class Evals(unittest.TestCase):
 
 
 class MoneyUnits(unittest.TestCase):
-    """references/money.md 的單位（D-344 補，記帳2 測試第 4 輪 #17、#19）：退回時問大的裝幾個小的、設 每<大的>=整數，不設小數；
-    成功句或庫存有「（不知道一箱幾瓶）」問一次，她不知道就算了。"""
+    """references/money.md 的單位（D-344 補、再補，記帳2 測試第 4 輪 #17、#19、#20）：照講的記、不會被擋；成功句或庫存有
+    「（不知道一箱幾瓶）」問一次大的裝幾個小的、設 每<大的>=整數，不設小數，她不知道就算了；盤點換不了會退回、照樣問。"""
 
     def setUp(self):
         self.text = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
@@ -308,6 +308,14 @@ class MoneyUnits(unittest.TestCase):
         for want in ("成功句或庫存出現「（不知道一箱幾瓶）」", "她不知道就算了", "不再追問"):
             with self.subTest(want=want):
                 self.assertIn(want, self.text)
+
+    def test_20_not_blocked_count_refused(self):
+        for want in ("不會被擋", "盤點", "會退回"):
+            with self.subTest(want=want):
+                self.assertIn(want, self.text)
+        for gone in ("換不成同一個單位", "再照原句記"):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, self.text)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@
 
 帳只准這裡寫（經 _lib/money）：每次在 money.json 的鎖裡讀改寫（CLI 等 30 秒，等不到「等不到鎖，沒有寫入」exit 3），寫前備進回合。
 拒絕的第一行就是原因、exit 3（--json 時印 {"refused", …}）；帳關著、只記我講的擋帶卡的也是 exit 3，句子給 AI 不給她（D-343）。
-寫入成功的輸出帶 tell（成功句），有低於安全庫存的帶 low_stock（D-282），edit 改了到期日帶 related_agenda（D-273）。
+寫入成功的輸出帶 tell（成功句），有低於安全庫存的帶 low_stock（D-282），edit 改了到期日帶 related_agenda（D-273）；
+add、edit 品項有換不了的單位照記、帶 unit_ask 教 AI 問一次（D-344 再補，不因單位擋）。
 終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合；歷程的 by 在對話裡是 ai、終端機是 program。
 人讀輸出不印內部編號（m-…、f-…）：要編號的取 --json。
 """
@@ -115,6 +116,21 @@ def _by(conversation):
     return "ai" if conversation else "program"
 
 
+def _unit_ask(vault, it, payload, lines):
+    """記帳不因單位擋（D-344 再補）：換不了的單位照記、分開列；成功句帶「（不知道一箱幾瓶）」（有基本單位的品項字已帶），
+    unit_ask（有才有）教 AI 問她一次，她不知道就放著。"""
+    asks = money.unit_asks(vault, it)
+    extra = "".join(f"；{a['entity']}分開算{a['mark']}" for a in asks if not a["shown"])
+    if extra:
+        payload["tell"] += extra
+        if lines:
+            lines[0] += extra
+    if asks:
+        payload["unit_ask"] = list(dict.fromkeys(a["ask"] for a in asks))
+        lines += payload["unit_ask"]
+    return payload, lines
+
+
 def _with_extras(vault, it, payload, lines):
     """寫入成功：帶 tell 與 low_stock（有才有）；品項換算過的成功句會講出來（「精華液 +2 箱（48 瓶）」，D-344 補）。"""
     payload["tell"] = "記下：" + money.describe(vault, it)
@@ -135,6 +151,7 @@ def _add(vault, args, as_json, conversation, turn_id):
         return 0
     payload, lines = _with_extras(vault, it, {"item": it, "created": True}, [])
     lines.insert(0, payload["tell"])
+    _unit_ask(vault, it, payload, lines)
     changed = list(CHANGED)
     if args.unsure:
         got, _new = pending.add_money(vault, "money_dupe", f"這兩筆是不是同一筆：{money.describe(vault, money.get(vault, args.unsure))}"
@@ -165,6 +182,8 @@ def _edit(vault, args, as_json, conversation, turn_id):
                                entities=args.entity, items=args.item, advanced_by=args.advanced_by, text=args.text, note=args.note)
     payload = {"item": after, "changed": before != after, "tell": "已改：" + money.describe(vault, after)}
     lines = [payload["tell"] if payload["changed"] else "沒有要改的：" + money.describe(vault, after)]
+    if payload["changed"] and args.item:
+        _unit_ask(vault, after, payload, lines)
     if args.due and before.get("due") and before.get("due") != after.get("due"):
         rel = money.related_agenda(vault, after.get("entities"), before["due"])
         payload["related_agenda"] = rel

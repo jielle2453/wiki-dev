@@ -428,43 +428,71 @@ def _unit_msg(prof, units, name, prior, new_units, bad):
     return head + "；".join(steps) + tail
 
 
-def _check_units(prof, ents, data, lines, exclude=None, strict=False):
-    """寫入前（D-344 補；記帳2 測試第 4 輪 #20、#21 放寬）：這筆帶進一個這個商品沒用過、又換不到以前那些筆任何一組的新單位才退回；
-    基本單位（第九節）當作用過（沒寫單位的就是它）。已經分開列的再記它用過的單位照記（只會繼續分開列、不會加錯），同一筆的收款
-    也不擋。strict（盤點要對得上合計）：以前的筆加上這次換不到同一組就退回。exclude 是正在改的那筆。"""
-    mine = {}
-    for ln in lines:
-        mine.setdefault(_key(ln["entity"]), []).append(ln)
-    if not mine:
-        return
-    prior = {k: [] for k in mine}
-    for it in _live(data):
-        if exclude is not None and it.get("id") == exclude:
-            continue
-        for ln in it.get("lines") or []:
+def _check_count(prof, ents, data, line):
+    """盤點寫入前（D-344 再補：盤點例外）：要對得上合計，以前的筆加上這次換不到同一組就退回、教 AI 問一次。記帳、改帳不因單位擋
+    （換不了的照記、分開列，成功句帶 unit_asks）。"""
+    k = _key(line["entity"])
+    prior = [(ln.get("unit") or "", it.get("id")) for it in _live(data) for ln in it.get("lines") or []
+             if _key(ln.get("entity") or "") == k]
+    units = _units(prof, ents, line["entity"])
+    said = [line.get("unit") or ""]
+    groups = {units.to_base(1, u)[1] for u, _m in prior}
+    if len(groups | {units.to_base(1, u)[1] for u in said}) > 1:
+        bad = [u for u in said if units.to_base(1, u)[1] not in groups] or [u for u, _m in prior]
+        raise MoneyRefused(_unit_msg(prof, units, line["entity"], prior, said, bad))
+
+
+def _big_small(prof, typ, u, r):
+    """u、r 哪個大：第九節「每r」的單位是 u 就是 r 大；其餘照 u 大（有基本單位時 r 是基本單位，跟庫存的「一箱幾瓶」同一套）。"""
+    return (r, u) if _field_unit(prof, typ, "每" + r) == u else (u, r)
+
+
+def _dunno(prof, typ, u, r):
+    """換不了的那句：「（不知道一箱幾瓶）」；第九節沒有基本單位又看不出哪個大，不猜：「（不知道箱跟瓶怎麼換）」（第 4 輪 #17）。"""
+    if _field_unit(prof, typ, "每" + u) is None and _field_unit(prof, typ, "每" + r) is None and not base_unit(prof, typ):
+        return f"（不知道{u}跟{r}怎麼換）"
+    big, small = _big_small(prof, typ, u, r)
+    return f"（不知道一{big}幾{small}）"
+
+
+ASK_TAIL = "；她不知道就放著，之後不再問（只會分開列，不會加錯）"
+
+
+def unit_asks(vault, it, prof=None, ents=None, data=None):
+    """記好、改好之後（D-344 再補：記帳不因單位擋）：這筆的品項有換不到同一組的單位 → [{"entity","unit","with","mark","shown","ask"}]，
+    一個商品一個單位一條。有基本單位：換不到基本單位的（成功句的品項已帶 mark，shown 是 True）；沒有：換不到這個商品最早那組的
+    （只講過一種單位不問）。ask 教 AI 問她一次（設 每<大的>=<整數>、欄的單位是小的；之前沒寫單位的教 kb money edit 補）。"""
+    prof = _profile(vault) if prof is None else prof
+    ents = _ents(vault) if ents is None else ents
+    data = load(vault) if data is None else data
+    first, blank = {}, {}
+    for x in _live(data):
+        for ln in x.get("lines") or []:
             k = _key(ln.get("entity") or "")
-            if k in prior:
-                prior[k].append((ln.get("unit") or "", it.get("id")))
-    cache = {}
-    for k, new in mine.items():
-        units = _units(prof, ents, new[0]["entity"], cache)
-        said = [ln.get("unit") or "" for ln in new]
-        groups = {units.to_base(1, u)[1] for u, _m in prior[k]}
-        if strict:
-            bad = []
-            if len(groups | {units.to_base(1, u)[1] for u in said}) > 1:
-                bad = [u for u in said if units.to_base(1, u)[1] not in groups] or [u for u, _m in prior[k]]
+            first.setdefault(k, ln.get("unit") or "")
+            if not ln.get("unit") and x.get("id") != it.get("id"):
+                blank.setdefault(k, []).append(x.get("id"))
+    out, seen, cache = [], set(), {}
+    for ln in it.get("lines") or []:
+        name, u, k = ln["entity"], ln.get("unit") or "", _key(ln["entity"])
+        units = _units(prof, ents, name, cache)
+        g = units.to_base(1, u)[1]
+        ref = units.base or units.to_base(1, first.get(k, u))[1]
+        if g == ref or (k, g) in seen:
+            continue
+        seen.add((k, g))
+        typ = (units.entry or {}).get("type")
+        if u and ref:
+            mark, ask = _dunno(prof, typ, u, ref), _ask_pack(prof, typ, name, u, ref)
+        elif u:
+            ids = "、".join(dict.fromkeys(blank.get(k, [])))
+            mark = "（之前有沒寫單位的）"
+            ask = f"之前沒寫單位的（{ids}）問她是什麼單位，kb money edit <編號> --item \"<那筆全部的品項，補上單位>\""
         else:
-            used, bad = {u for u, _m in prior[k]} | ({units.base, ""} if units.base else set()), []
-            for u in said:
-                g = units.to_base(1, u)[1]
-                if u in used or g in groups or not groups:
-                    used.add(u)
-                    groups.add(g)
-                else:
-                    bad.append(u)
-        if bad:
-            raise MoneyRefused(_unit_msg(prof, units, new[0]["entity"], prior[k], said, bad))
+            mark = f"（沒寫單位，不知道是不是{ref}）"
+            ask = f"這筆{name}沒寫單位：問她是不是{ref}，是的話 kb money edit {it.get('id')} --item \"<這筆全部的品項，補上單位>\""
+        out.append({"entity": name, "unit": u, "with": ref, "mark": mark, "shown": bool(units.base), "ask": ask + ASK_TAIL})
+    return out
 
 
 def line_text(prof, ents, ln, cache=None):
@@ -477,7 +505,7 @@ def line_text(prof, ents, ln, cache=None):
     got, group = units.to_base(q, unit)
     if group == base and base:
         return f"{_qty_text(q, unit)}（{_show_q(abs(got), base)}）"
-    return _qty_text(q, unit) + (f"（不知道一{unit}幾{base}）" if base else "")
+    return _qty_text(q, unit) + (_dunno(prof, (units.entry or {}).get("type"), unit, base) if base else "")
 
 
 def _place(vault, prof, ents, name, place_types):
@@ -494,9 +522,9 @@ def _place(vault, prof, ents, name, place_types):
     return profile.usual_place(prof, me) if me else None
 
 
-def _lines(vault, raw_items, prof=None, ents=None, exclude=None):
+def _lines(vault, raw_items, prof=None, ents=None):
     """品項換成 lines：照她講的原樣存 qty、unit（沒講是 ""），單價是她講那個單位的價（D-344 補，寫入不換算）；
-    寫之前照 _check_units 看單位換不換得到同一組。exclude 是正在改的那筆。"""
+    不因單位擋（D-344 再補），換不了的寫完由 unit_asks 教 AI 問一次。"""
     from kb._lib import numbers, profile
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
@@ -512,8 +540,6 @@ def _lines(vault, raw_items, prof=None, ents=None, exclude=None):
             raise MoneyRefused(str(e2)) from None
         out.append({"entity": e["name"], "qty": numbers.plain(n), "unit": unit or "", "unit_price": unit_price,
                     "place": _place(vault, prof, ents, place, place_types)})
-    if out:
-        _check_units(prof, ents, load(vault), out, exclude)
     return out
 
 
@@ -677,7 +703,7 @@ def edit(vault, mid, turn_id, by="ai", amount=None, date=None, due=None, entitie
     if entities:
         new["entities"] = _names(_ents(vault), entities)
     if items:
-        new["lines"] = _lines(vault, items, exclude=mid)
+        new["lines"] = _lines(vault, items)
     if advanced_by is not None:
         new["advanced_by"] = _advanced(vault, advanced_by)
     if text is not None:
@@ -862,7 +888,7 @@ def count(vault, product, actual, turn_id, place=None, by="ai"):
     k = _key(e["name"])
 
     def fn(data):
-        _check_units(prof, ents, data, [{"entity": e["name"], "qty": numbers.plain(n), "unit": said}], strict=True)
+        _check_count(prof, ents, data, {"entity": e["name"], "unit": said})
         now, used = Fraction(0), []
         for it in _live(data):
             for ln in it.get("lines") or []:
