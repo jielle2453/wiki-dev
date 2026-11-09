@@ -47,6 +47,7 @@ class Guard(unittest.TestCase):
 
     def turns(self, *days):
         """換掉工作日誌：每天一段對話（按月分檔）。"""
+        (self.V / ".system" / "journal").mkdir(parents=True, exist_ok=True)
         for p in (self.V / ".system" / "journal").glob("*.jsonl"):
             p.unlink()
         for d in days:
@@ -89,14 +90,28 @@ class OpeningCloses(unittest.TestCase):
         (i,) = [i for i in pending.load(self.V)["items"] if i.get("key") == "guard_stale"]
         return i
 
-    def test_closes_once_guard_has_record(self):
-        runner.opening(self.V)
-        self.assertEqual(self.item()["status"], "open", "守門還沒紀錄不關")
+    def status(self, day):
         d = self.V / ledger.STATUS_DIR_REL
         d.mkdir(parents=True, exist_ok=True)
-        (d / "PC.json").write_text(json.dumps({"date": TODAY}), encoding="utf-8")
-        runner.opening(self.V)
+        (d / "PC.json").write_text(json.dumps({"date": day}), encoding="utf-8")
+
+    def turns(self, *days):
+        Guard.turns(self, *days)
+
+    def test_closes_once_guard_has_record(self):
+        self.turns("2026-10-01", TODAY)
+        runner.opening(self.V, today=TODAY)
+        self.assertEqual(self.item()["status"], "open", "守門還沒紀錄、對話很久了不關")
+        self.status(TODAY)
+        runner.opening(self.V, today=TODAY)
         self.assertEqual((self.item()["status"], self.item()["how"]), ("done", pending.LINT_GONE_HOW))
+
+    def test_stale_record_stays_open(self):
+        """守門有紀錄但比最近的對話舊 STALE_DAYS 天以上：條件還成立，開場不關（review 1）。"""
+        self.turns(TODAY)
+        self.status("2026-10-20")
+        runner.opening(self.V, today=TODAY)
+        self.assertEqual(self.item()["status"], "open")
 
     def test_unreadable_pending_does_not_break_opening(self):
         with mock.patch.object(pending, "load", side_effect=ValueError("待處理不是物件")):

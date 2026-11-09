@@ -90,7 +90,8 @@ def run(ctx):
     out = [runner.finding("guard", "number", "guard", "", data={"denied_week": week, "denied_prev": prev, "last": last})]
     talk = _last_conversation(ctx.vault, last)
     if talk and last is None:  # 守門還沒紀錄：最早的對話離今天不到 STALE_DAYS 天不算（新庫第一次開場，#63）
-        stale = date.fromisoformat(ctx.today) - date.fromisoformat(_first_conversation(ctx.vault)) >= timedelta(days=STALE_DAYS)
+        first = _first_conversation(ctx.vault) or talk
+        stale = date.fromisoformat(ctx.today) - date.fromisoformat(first) >= timedelta(days=STALE_DAYS)
     else:
         stale = bool(talk) and date.fromisoformat(talk) - date.fromisoformat(last) >= timedelta(days=STALE_DAYS)
     if stale:

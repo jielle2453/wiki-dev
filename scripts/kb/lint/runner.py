@@ -473,15 +473,15 @@ def _spawn(vault):
     _popen(argv, **kw)
 
 
-def _close_guard_stale(vault):
-    """守門已經有紀錄、待處理還開著「守門好像沒在跑」：開場就關，不等下週的背景健檢（#63）。出錯只記 log，不擋開場。"""
+def _close_guard_stale(vault, today=None):
+    """待處理還開著「守門好像沒在跑」、守門那項重判已經不成立：開場就關，不等下週的背景健檢（#63）。出錯只記 log，不擋開場。"""
     try:
         from kb.lint.checks import guard
         if not any(i.get("key") == "guard_stale" and i.get("status") == "open" for i in pending.load(vault)["items"]):
             return
-        if guard._last_guard(vault) is None:
-            return
-        pending.close_lint_gone(vault, _owner, {"guard"}, set(), _program_turn(vault))
+        keys = {f["key"] for f in guard.run(Context(vault, today=today)) if f["kind"] != "number"}
+        if "guard_stale" not in keys:
+            pending.close_lint_gone(vault, _owner, {"guard"}, keys, _program_turn(vault))
     except Exception as e:  # noqa: BLE001
         ledger.log_error(vault, f"開場關「守門好像沒在跑」出錯：{type(e).__name__}: {e}", source="lint")
 
@@ -489,7 +489,7 @@ def _close_guard_stale(vault):
 def opening(vault, today=None):
     """開場叫：先關掉已經不成立的「守門好像沒在跑」（#63）。沒跑過或距上次超過 lint_background_days 天、今天還沒開過，就先記今天再背景開 kb lint --background。不等它。
     回有沒有開。環境變數 WIKI_WITH_WILLY_NO_BACKGROUND 有值時不開（測試）。"""
-    _close_guard_stale(vault)
+    _close_guard_stale(vault, today)
     if os.environ.get(NO_BACKGROUND_ENV):
         return False
     today = today or date.today().isoformat()
