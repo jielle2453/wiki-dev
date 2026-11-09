@@ -327,6 +327,80 @@ class EditFolder(Base):
         self.assertEqual(src.read_bytes(), before)
         self.assertEqual(list(src.parent.glob("*（版本*")), [])
 
+    def outside_xlsx(self, name="報價.xlsx"):
+        """工作區外（像 AppData 的 Temp）做好的、有公式的 Excel。"""
+        out = Path(self.tmp) / "外面的暫存"
+        out.mkdir(exist_ok=True)
+        f = out / name
+        _ooxml.xlsx(f, [("工作表", [[("n", "5"), ("f", "A1*2", None)]])])
+        return f
+
+    def save_file(self, src, recalc, to="暫存區/報價/報價.xlsx"):
+        from unittest import mock
+        from kb._lib import output
+        with mock.patch.object(office, "recalc", side_effect=recalc) as fake:
+            try:
+                return output.save(self.V, str(src), to, self.t, str(self.V)), fake
+            except output.Refused as e:
+                return e, fake
+
+    def test_file_xlsx_recalculated_in_workspace(self):
+        """#47：存單一檔的 xlsx 也由程式重算；工作區外的先複製進工作區算，原來那份不動。"""
+        src = self.outside_xlsx()
+        before = src.read_bytes()
+        seen = []
+
+        def ok(_vault, path):
+            seen.append(Path(path))
+            return {"used": "Excel", "formulas": 1, "errors": []}
+        res, _fake = self.save_file(src, ok)
+        self.assertEqual(res["checked"]["recalc"]["formulas"], 1)
+        self.assertTrue(office.in_temp(self.V, seen[0]), seen)
+        self.assertEqual(src.read_bytes(), before, "原來那份不動")
+        self.assertTrue((self.V / "暫存區/報價/報價.xlsx").is_file())
+
+    def test_file_xlsx_errors_refused_nothing_written(self):
+        src = self.outside_xlsx()
+        res, _fake = self.save_file(src, lambda *_a: {"used": "Excel", "formulas": 1, "errors": [("sheet1.xml", "B1", "#REF!")]})
+        self.assertEqual(str(res), "重算後有 1 格是錯誤值，沒放：B1（#REF!）")
+        self.assertFalse((self.V / "暫存區/報價/報價.xlsx").exists())
+        self.assertEqual([p for p in self.ws.glob("報價*.xlsx")], [], "算壞的那份不留在工作區")
+
+    def test_file_xlsx_no_tool_and_xlsm(self):
+        def none(_vault, _path):
+            raise office.Unavailable("這台沒有 Excel 也沒有 LibreOffice\n公式要她打開檔案才會更新")
+        res, _fake = self.save_file(self.outside_xlsx(), none)
+        self.assertEqual(res["checked"]["recalc_note"], "公式要她打開檔案才會更新")
+        res, fake = self.save_file(self.outside_xlsx("巨集.xlsm"), lambda *_a: self.fail("xlsm 不該重算"),
+                                   to="暫存區/報價/巨集.xlsm")
+        fake.assert_not_called()
+        self.assertEqual(res["checked"]["recalc_note"], office.MACRO_NO_RECALC)
+
+    def test_file_replace_keeps_version_like_folder(self):
+        """#47：output save "<檔>" --replace 蓋回原檔也同夾留（版本一），跟存夾同一套；items 一項、退回換回、版本檔拿掉。"""
+        src = self.raw / _cards.MEETING
+        before = src.read_bytes()
+        copy = Path(self.ok("copy", str(src))[0][len("副本："):])
+        with zipfile.ZipFile(copy) as z, zipfile.ZipFile(copy.with_name("新.docx"), "w") as w:
+            for i in z.infolist():
+                data = z.read(i.filename)
+                if i.filename == "word/document.xml":
+                    data = data.decode("utf-8").replace("討論廚房動線", "討論浴室動線").encode("utf-8")
+                w.writestr(i, data)
+        r = run_kb("output", "save", str(copy.with_name("新.docx")), "--to", str(src), "--replace", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("改之前那份存成「會議紀錄_1（版本一）.docx」", r.stdout)
+        v1 = src.with_name("會議紀錄_1（版本一）.docx")
+        self.assertEqual(v1.read_bytes(), before)
+        backup, _row = self.linked_backup(self.t)
+        self.assertTrue(backup.samefile(v1))
+        got = self.office_items(self.t)
+        self.assertEqual(len(got), 1, got)
+        r = run_kb("versions", "undo", got[0]["item"], cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(src.read_bytes(), before)
+        self.assertFalse(v1.exists())
+
     def test_version_number_continues_after_gap(self):
         from kb._lib import output
         src = self.raw / _cards.MEETING

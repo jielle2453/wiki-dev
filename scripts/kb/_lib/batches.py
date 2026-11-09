@@ -72,6 +72,7 @@ SYNTHESIS_BUCKETS = ("synthesis_broken", "synthesis_stale", "synthesis_new")
 LOCKED_HEAD = "有密碼"
 # 還沒解開（open），或主對話用密碼打開了（done、how 是 convert 的那句）；客戶交代過的（resolve）、說先跳過的（dismissed）不算（第一輪修）
 STOPPED = "這批已經停了或做完了"
+NOT_SELF = "這批是交給製卡助手的，不用標做完"
 NO_SOURCE = "沒有登記這個來源：{}"
 APPROVAL_QUESTION = "這次要更新 {n} 張綜合卡，比平常多；要繼續嗎？"
 # codex 分支（spec 裁定 8）：Codex 沒有子代理定義檔，prompt 自己指到 card-maker.md 並交代收尾（甲乙共用 --done）
@@ -646,7 +647,7 @@ def _collect(vault):
 
 def _settings(vault):
     return {k: config.get(vault, k) for k in ("card_batch_size", "card_parallel", "synthesis_batch_size",
-                                               "card_batch_expire_minutes", "card_batch_idle_minutes")}
+                                               "card_batch_expire_minutes", "card_batch_idle_minutes", "card_self_max")}
 
 
 def prefix():
@@ -819,6 +820,11 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
         claimed = _claimed(data, now, st["card_batch_expire_minutes"], st["card_batch_idle_minutes"],
                            session_id)  # 任何對話認領中的都扣掉（兩個視窗同時整理不切到同一份）；別的對話沒動靜的不算
         left = {k: [x for x in parts[k] if (k, x[1]) not in claimed and x[1] not in failed] for k in KINDS}
+        if fresh and 0 < len(left["cards"]) <= st["card_self_max"]:
+            job["self"] = True  # 只改一兩份：主對話照批次材料自己做，做完 cards batch --done（#48，D-531）
+        elif job.get("self") and len(left["cards"]) > st["card_self_max"]:
+            job.pop("self")  # 沿用的 job 後來多了一大批：改回派製卡助手（審查 2）
+            changed = True
         slots = max(0, st["card_parallel"] - len(run))
         made, approval = [], None
         for kind in KINDS:
@@ -872,12 +878,17 @@ def dispatch(vault, session_id, turn_id, source=None, ids=None):
     pre = prefix()
     first = fresh and bool(made)
     say = None if (fresh and not made) else _say(first, done, approval, made, run, _done_count(data, job, out), len(failed))
+    if job.get("self") and not done:
+        say = None  # 自己當句做完，不說「交給製卡助手在背景」
     if not made and not run and others and approval is None:
         say = OTHER_SESSION.format(n=others)  # 別的對話認領著：不說整理完了
     n0 = sum(1 for b in data["batches"] if b.get("job") == job["job"]) - len(made)
     shown = [{"batch": b["batch"], "kind": b["kind"], "items": len(b["items"]), "agent": AGENT,
               "description": DESCRIPTION.format(n=n0 + i + 1, what=_what(b["kind"], len(b["items"]))),
               "prompt": PROMPT.format(batch=b["batch"], what=_what(b["kind"], len(b["items"])), prefix=pre, maker=maker())}
+             if not job.get("self") else
+             {"batch": b["batch"], "kind": b["kind"], "items": len(b["items"]), "self": True,
+              "do": [f"kb cards batch {b['batch']} --json", f"kb cards batch {b['batch']} --done"]}
              for i, b in enumerate(made)]
     has_job = not (fresh and not (made or approval))
     return {"job": job["job"] if has_job else None, "turn": jt, "batches": shown, "running": len(run), "left": counts,
@@ -1318,27 +1329,55 @@ def agent_stop(vault, session_id, agent_id, message=None):
 
 
 def batch_done(vault, batch_id, failed=()):
-    """codex 分支（spec 裁定 8）：子代理或主對話自己把一批記成做完，取代 SubagentStop 的 agent_stop。
-    認領中（跟 batch_view 同一個 live 判斷）就改 done、`failed`（「<編號>：<原因>」）只收這批的編號、做完的卡收認領標籤，
-    回那批（多 `ignored`：不是這批的編號，不存）；不在、停了、做完了、放掉了、過期了回 None、不改（過期的照舊放回去重派；
+    """codex 分支（spec 裁定 8）：交給製卡者（子代理，或沒有子代理時主對話）的批次由它自己記成做完，取代 SubagentStop 的
+    agent_stop；self 的 job（#48）走 self_done，這裡不收。認領中（跟 batch_view 同一個 live 判斷）就改 done、`failed`
+    （「<編號>：<原因>」）只收這批的編號、做完的卡收認領標籤，回那批（多 `ignored`：不是這批的編號，不存；`turn`：job 的回合，
+    給工作日誌補「改了」）；self 的批次丟 Refused（照 #48）；不在、停了、做完了、放掉了、過期了回 None、不改（過期的照舊放回去重派；
     review：記成 done 會把沒做的當沒做成、不再派）。不驗產物：這批還在待做清單的，下次 dispatch 記成沒做成（預設原因）。"""
     reasons = report_failures("\n".join(f"- {x}" for x in failed or ()))
     minutes = _settings(vault)["card_batch_expire_minutes"]
     with lock(vault):
         data = load(vault)
         b = next((x for x in data["batches"] if x.get("batch") == batch_id), None)
+        job = (_job_of(data, b) if b is not None else None) or {}
+        if b is not None and job.get("self"):
+            raise Refused(NOT_SELF if b.get("status") == "open" else STOPPED)  # self 的批次：別的對話來收，照 #48 的話拒絕
         if b is None or not live(b, _now(), minutes, _agents(data)):
             return None
         b["status"] = "done"
         b["failed"] = {k: v for k, v in reasons.items() if k in (b.get("items") or [])}
-        save(vault, data, (_job_of(data, b) or {}).get("turn") or turn.current(vault)["turn"])
+        tid = job.get("turn") or turn.current(vault)["turn"]
+        save(vault, data, tid)
     if b["kind"] == "cards":
         try:
             release_claims(vault, [k for k in b.get("items") or [] if k not in b["failed"]])
         except Exception as e:  # noqa: BLE001  同 agent_stop：收不掉的留給健檢清
             from kb._lib import ledger
             ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
-    return dict(b, ignored=[k for k in reasons if k not in (b.get("items") or [])])
+    return dict(b, ignored=[k for k in reasons if k not in (b.get("items") or [])], turn=tid)
+
+
+def self_done(vault, session_id, batch_id):
+    """主對話自己做的批次（job 記 self，#48）做完：跟 agent_stop 同一段，open 改 done、做完的卡收認領標籤。
+    只收這個對話、self 的 job、還開著的批次，其他丟 Refused。回 job 的回合。"""
+    with lock(vault):
+        data = load(vault)
+        b = next((x for x in data["batches"] if x.get("batch") == batch_id), None)
+        job = _job_of(data, b) if b is not None else None
+        if b is None or b.get("status") != "open":
+            raise Refused(STOPPED)
+        if not job or not job.get("self") or job.get("session_id") != session_id:
+            raise Refused(NOT_SELF)
+        b["status"] = "done"
+        b["failed"] = {}
+        save(vault, data, job["turn"])
+    if b["kind"] == "cards":
+        try:
+            release_claims(vault, list(b.get("items") or []))
+        except Exception as e:  # noqa: BLE001
+            from kb._lib import ledger
+            ledger.log_error(vault, f"認領標籤沒收掉：{type(e).__name__}: {str(e)[:100]}", source="batches")
+    return job["turn"]
 
 
 def _release_orphans(data, session_id, now, minutes):
@@ -1347,7 +1386,7 @@ def _release_orphans(data, session_id, now, minutes):
     holders = {b.get("agent_id") for b in mine if b.get("agent_id")}
     waiting_agents = [a for a in data["agents"] if a.get("session_id") == session_id and not a.get("stopped")
                       and a.get("agent_id") not in holders]
-    unclaimed = [b for b in mine if not b.get("agent_id")]
+    unclaimed = [b for b in mine if not b.get("agent_id") and not (_job_of(data, b) or {}).get("self")]  # self 的是主對話在做（#48）
     extra = len(unclaimed) - len(waiting_agents)
     for b in reversed(unclaimed):
         if extra <= 0:

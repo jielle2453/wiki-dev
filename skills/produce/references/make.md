@@ -28,15 +28,14 @@
 - 文件技能說的「已預先裝好」在這台不成立：套件裝在工具夾，只有經 `kb office run` 跑才找得到（程式會設 NODE_PATH、PYTHONPATH）。
 - 腳本用檔案工具寫在工作區，輸出檔也寫在工作區（環境變數 OUT_DIR，`kb office run` 第一行也印工作區）；腳本裡不要寫死成品的路徑。
 - 工作區每一句話換一個夾，舊的過一天會清掉：用程式印出來的完整路徑；跨了幾句話的副本找不到了就重新 `kb office copy`。
-- 文件技能附的 soffice.py、recalc.py、thumbnail.py、accept_changes.py 在 Windows 跑不起來，unzip、zip、pdftoppm 也沒有：轉 PDF 用 `kb office pdf`、重算用 `kb office recalc`、看版面用 `kb office render`、解開打包用 `kb office unpack`／`pack`。
-- 中文字型：東亞字型用「微軟正黑體」、語言 zh-TW；不寫的話 Word 會用新細明體，還可能標成簡體。
-- 放進來之前先驗（`recalc` 只收工作區的檔，要在 output save 之前做）：Word、簡報 `kb office render` 轉圖看版面；Excel 有公式的 `kb office recalc`，錯誤數要是 0，再把重算後的數字跟草稿比。
-- 放進知識庫：`kb output save "<工作區的檔>" --to "<夾>/<檔名>"`，放到相關的檔旁邊；不屬於任何案子的才放 `暫存區/<型別>/`。有草稿加 `--draft`，改自原檔或範本加 `--from`。同名（`conflict`）：每月同名的報表，日期或期間不同就是另一份，檔名帶期間另存；同一期間改過才算新版，加 `--replace`（舊的先留一份），說一聲。
+- 這台轉 PDF、重算、解開打包用 `kb office`（pdf、recalc、unpack／pack）。
+- Excel 有公式的，`kb output save` 會重算、錯誤值不是 0 就不放，照它列的格修好再存。
+- 放進知識庫：`kb output save "<工作區的檔>" --to "<夾>/<檔名>"`，放到相關的檔旁邊；不屬於任何案子的才放 `暫存區/<型別>/`。有草稿加 `--draft`，改自原檔或範本加 `--from`。同名（`conflict`）：每月同名的報表，日期或期間不同就是另一份，檔名帶期間另存；同一期間改過才算新版，加 `--replace`（舊的留成同夾版本檔），說一聲。
 
 ## 套範本、照舊檔寫新的
 
 - 範本在設定檔第七節：`kb profile show --json` 的 `範本` 那節，每列的「底」是卡編號；同種文件只有一份直接用，多份才問。
-- `kb office copy <範本或舊檔的卡編號>` 拿副本，加 `--unpack`，照下面「改她原本的檔」改夾裡的字把內容換成新的，抬頭、表格、頁尾照留。
+- `kb office copy <範本或舊檔的卡編號>` 拿副本，加 `--unpack`，在夾裡把內容換成新的，抬頭、表格、頁尾照留。
 - `kb output save "<解開的夾>" --to <放哪個夾>/<新檔名>` 另存（不蓋回範本，自動記改自哪份）；檔名用新內容的（`2026-10-22 大安陳 合約.docx`）。
 
 ## 改她原本的檔
@@ -44,16 +43,11 @@
 - **先看開著沒**（她說開著、或你看到視窗）：開著照知識庫 CLAUDE.md 直接改她視窗裡那份，不備份、不另存；要退靠 Office 的復原或版本記錄，這要跟她講清楚。
 - **關著**（D-529）：
   - `kb office copy <原檔> --unpack`：給副本並解開，印「解開到：<夾>」。
-  - 看內容、改字都在那個夾：Grep 找、Read 看、Edit 改 XML（`word/document.xml`、`xl/worksheets/sheetN.xml`、`ppt/slides/slideN.xml`）；python、PowerShell 讀寫會被守門擋，不要試。Word 直接改字，不用修訂標記、不標作者。
-  - `kb output save "<夾>"`：程式打包（沒改的部件逐位元相同，巨集照留）、驗 XML，Excel 有公式自己重算、有錯誤值就不放；過了才把原檔現在那份存成同夾「<主檔名>（版本一、二…）」再蓋回原檔，檔名不變。
+  - 在那個夾改（怎麼改由你判斷）。
+  - `kb output save "<夾>"`：程式打包、驗，過了才把原檔現在那份存成同夾「<主檔名>（版本一、二…）」再蓋回原檔，檔名不變。
   - 回「檔案正開著，改視窗裡那份」：原檔沒動，改走上面開著那條。
   - 回答照念它印的那句，列出改了哪些字、哪幾格、哪幾頁，最後問她一句要不要刪掉之前的版本；她說好才 `kb source-edit trash <那幾份>`。
-- **Excel**：只改輸入格，公式格不動；不要用 openpyxl 存檔，可能弄掉圖表與圖片。
-- **PowerPoint** 分三級：
-  - 改幾個字、字數差不多：直接改 `ppt/slides/slideN.xml` 的字，照上面 `kb output save "<夾>"`。
-  - 字變多、改版面：save 前先 `kb office pack "<夾>" --to 看版面.pptx --like "<副本>"`、`kb office render "<那份>" --pages <那幾頁>` 轉圖看；這台畫法跟 PowerPoint 不一定一樣，看得出字太多、看不準會超出多少，回答提醒她打開確認那幾頁。
-  - 大改（換結構、很多頁）：推薦照內容重做一份新的，比修補穩。
-- **轉格式**（「這份轉成 PDF」）：`kb office copy` → `kb office pdf "<副本>"` → `kb output save "<PDF>" --to … --from <原檔>`。
+- **轉格式、匯出、另存**（「這份轉成 PDF」）：`kb office copy` → `kb office pdf "<副本>"` → `kb output save "<PDF>" --to … --from <原檔>`；不直接寫進知識庫或原檔。
 
 ## 沒有工具時怎麼說
 

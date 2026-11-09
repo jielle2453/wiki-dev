@@ -24,8 +24,6 @@ produce（第 3 點、實作回報裁定 1、3）：Z2、Z9 擋寫的理由句�
 - 「可以讀」裁示（D-183、D-184）：憑證命中時才查 rulings.json 與清冊，命中的那一份是有效裁示掛的條目就放讀；寫照各區；
   排除最優先；資料夾範圍裡的密碼檔全部有裁示才放行。
 - 工具夾與 plugin 夾不比憑證樣式（B-088、B-093 (a)，credentials.exempt）。
-彈性區（D-510）：Z12 是第一層的 areas.FREE_DIR，讀放行、檔案工具寫放行（hook 先備份）、指令寫照 SHELL_WRITE 擋；
-內部豁免不套這一區：第一道從彈性區根以下比段，讀取範圍是彈性區或含它的夾（含整個知識庫）時另走訪彈性區找密碼檔。
 開檔（D-514）：Start-Process、Invoke-Item、start、explorer 開的是文件、資料夾或網址（cmdparse.open_stage）→ 目標照讀判、不算碰 AI 產出，
 開一個夾不走第三道也不算 Z10b；-RedirectStandardOutput／Error 照寫判；開的是程式 → 程式檔在知識庫或來源裡擋 run_file，
 其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態；附著時 AI 產出的路徑只拿來比對（-eq、-like、==）照讀（裁定 29）。
@@ -37,7 +35,7 @@ from collections import namedtuple
 from pathlib import Path
 
 from kb._lib import cmdparse, config, credentials, sources as sources_lib
-from kb._lib.areas import FREE_DIR, HOLD_DIR
+from kb._lib.areas import HOLD_DIR
 from kb._lib.paths import inside, normalize, plugin_root
 
 Decision = namedtuple("Decision", "decision zone reason_code reason ledger_rows vault")
@@ -48,17 +46,15 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 FILE_TOOLS = READ_TOOLS + WRITE_TOOLS
 GLOB_HITS_MAX = 5000
 
-RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".codex": "Z7", ".obsidian": "Z7",
-            FREE_DIR.casefold(): "Z12"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
+RESERVED = {HOLD_DIR.casefold(): "Z4", "檔案索引": "Z5", "系統": "Z6", ".system": "Z7", ".claude": "Z7", ".codex": "Z7", ".obsidian": "Z7"}  # 暫存區（原收件匣與 AI 產出，D-324）是 Z4；Z3 不再出現
 if os.name != "nt":
     RESERVED[HOLD_DIR] = "Z4"
-    RESERVED[FREE_DIR] = "Z12"
 
 # 區 -> {"name", "read": (decision, reason_code, reason), "write": (...)}。理由全中文、一句、說為什麼與可以怎麼做。
 # 放寬甲：理由寫給 AI（不是使用者看的），每句以 AI_TAIL 結尾；使用者的區（USER_ZONES）指令寫照「使用者區規則」
 # （_user_rules）：建、搬、改名放行，只有救不回來的（刪、蓋掉同名檔、改既有檔內容）才擋，並教 AI 改用的做法。
 AI_TAIL = "不用跟使用者提這一步。"
-USER_ZONES = ("Z2", "Z4", "Z8", "Z9", "Z12")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
+USER_ZONES = ("Z2", "Z4", "Z8", "Z9")  # 使用者的檔所在的區：指令寫照使用者區規則、檔案工具寫放行（hook 先備份）
 WILLY_ZONES = ("Z1", "Z5", "Z6", "Z7")  # willy 自己的檔：指令寫一律 willy；檔案工具寫只有 Z1、Z5、客戶設定檔放行
 PROFILE_MD = "系統/客戶設定檔.md"
 INDEX_MD = "總目錄.md"
@@ -115,9 +111,8 @@ ZONES = {
     "Z10b": {"name": "範圍含排除夾", "read": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON),
              "write": ("deny", "excluded_inside", EXCLUDED_INSIDE_REASON)},
     "Z11": {"name": "其他", "read": ("pass", "", ""), "write": ("pass", "", "")},
-    "Z12": _zone(FREE_DIR),
 }
-VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8", "Z12")
+VAULT_ZONES = ("Z1", "Z2", "Z4", "Z5", "Z6", "Z7", "Z8")
 SOURCE_ZONES = ("Z9", "Z10", "Z10b")
 CREDENTIAL_REASON = "檔名像密碼或金鑰（{seg}），使用者沒說過這份可以讀，不讀也不寫。"
 CREDENTIAL_INSIDE_REASON = "這個範圍裡有檔名像密碼或金鑰的檔（{rel}），使用者沒說過可以讀；縮到不含它的子資料夾或指定單一檔。"
@@ -126,9 +121,7 @@ CREDENTIAL_LIMIT_REASON = "範圍太大，守門來不及檢查有沒有密碼�
 
 def _credential_base(path, zone, vault_n, sources):
     """第一道的比對起點：路徑最深的來源根；Z11 回 None（只比最後一段）；Z10b 在來源根之上回 ""（沒有段可比）。
-    總資料夾內部（Z1～Z8）也回 ""：D-081 內部豁免，不比；彈性區（Z12）不豁免，回彈性區根（D-510）。"""
-    if zone == "Z12":
-        return free_root(vault_n)
+    總資料夾內部（Z1～Z8）也回 ""：D-081 內部豁免，不比。"""
     if zone in VAULT_ZONES:
         return ""
     if zone in SOURCE_ZONES:
@@ -211,34 +204,8 @@ def folder_scan(vault, path, sources):
     return None, None
 
 
-def free_root(vault_n):
-    """normalize 過的彈性區根（D-509）：大小寫跟 normalize 一致（Windows 上小寫）。"""
-    return vault_n.rstrip("/") + "/" + (FREE_DIR.lower() if os.name == "nt" else FREE_DIR)
-
-
-def free_scan(vault, path, sources):
-    """第三道補（D-510）：讀取範圍 path 是彈性區或它底下的夾 → 走訪 path；path 含彈性區根（知識庫根、知識庫的上層）→ 只走訪彈性區；
-    其他回 (None, None)。總資料夾其他地方照 D-081 不走訪。彈性區不在清冊，沒有「可以讀」這條路，命中一律擋。"""
-    root = free_root(normalize(str(vault), None))
-    if path == root or inside(path, root):
-        start = path
-    elif inside(root, path) and os.path.isdir(root):
-        start = root
-    else:
-        return None, None
-    hits, _files, truncated, _m = credentials._scan(start, config.get(vault, "credential_scan_max_entries"), False, None,
-                                                    _excluded_roots(sources) + credentials.exempt_roots())
-    if hits:
-        rel = start[len(root):].lstrip("/")
-        return "credential_inside", CREDENTIAL_INSIDE_REASON.format(rel=FREE_DIR + "/" + (rel + "/" if rel else "") + hits[0])
-    if truncated:
-        return "credential_scan_limit", CREDENTIAL_LIMIT_REASON
-    return None, None
-
-
 def _scan_zone(path, zone, vault_n, sources):
-    """第三道要不要走訪這個夾：總資料夾內部不走訪（D-081）；來源裡用它的區；Z11 但底下含來源根或總資料夾也走訪（N2）；其他回 None。
-    彈性區另由 free_scan 走訪（D-510）。"""
+    """第三道要不要走訪這個夾：總資料夾內部不走訪（D-081）；來源裡用它的區；Z11 但底下含來源根或總資料夾也走訪（N2）；其他回 None。"""
     if zone in VAULT_ZONES:
         return None
     if zone != "Z11":
@@ -582,7 +549,6 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
     read_dirs：要走訪的夾（`.`／`..`、效用 cwd 底下存在的裸夾名、裸萬用字元的效用 cwd、
       cwd 在總資料夾外且該管線段有搜尋動詞又沒有存在的讀取路徑時的效用 cwd）；
     implicit_dirs：read_dirs 裡不是指令點名、是隱含的範圍（grep -r 的效用 cwd、cat * 的效用 cwd、. 與 ..），要另外過 Z10／Z10b；
-    free_dirs：總資料夾裡範圍搜尋的效用 cwd（grep -r、rg 沒給路徑），只給 free_scan 看彈性區（D-510）；
     read_paths：存在的讀取路徑（檔或夾）；
     write_targets：真正被寫的路徑（D-186）：導向目標、寫入那一段的路徑；寫入那段沒有自己的路徑（| xargs rm、| Remove-Item）
       就是同一個子指令裡所有的路徑；
@@ -595,7 +561,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
     效用 cwd 跨管線段、跨子指令延續。"""
     cleaned = cmdparse.DISCARD_OUTPUT.sub(" ", command)
     base = normalize(cwd, None)
-    out = {"read_dirs": [], "implicit_dirs": [], "free_dirs": [], "read_paths": set(), "write_targets": set(), "write_globs": [],
+    out = {"read_dirs": [], "implicit_dirs": [], "read_paths": set(), "write_targets": set(), "write_globs": [],
            "globs": [], "cd_dirs": [], "cd_targets": set(), "token": None, "unparsed": False, "has_write": False,
            "list_only": False, "body_reads": [], "stages": [], "open_exempt": set()}
     open_targets, other_paths = set(), set()
@@ -788,7 +754,6 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             out["implicit_dirs"].append(base)
         elif search and not has_read_path and not write_verb and base is not None:
             out["implicit_dirs"].append(base)  # 總資料夾裡的隱含範圍：不走訪（D-081），但 Z10／Z10b 照判
-            out["free_dirs"].append(base)  # 彈性區不套內部豁免：範圍是它或含它就走訪它（D-510）
         if not search and not has_read_path and base is not None and (verb in LIST_VERBS or verb == "tree"):
             out["implicit_dirs"].append(base)  # cd 之後的 ls、gci：列的是效用 cwd，跟 ls <那個夾> 一樣過 Z10／Z10b（只列檔名不走訪）
         if stage_write and uncertain:
@@ -824,7 +789,7 @@ def _analyze(command, cwd, vault_n, tool="Bash", bodies=()):
             out["unparsed"] = True
     out["cd_targets"] -= cd_written
     # 開夾的豁免只給同一句沒有別段讀到的夾：別段的讀取範圍含這個夾或在它底下，照一般規則走訪（測試第 1 輪裁定 9）
-    others = other_paths | out["write_targets"] | out["cd_targets"] | set(out["read_dirs"] + out["implicit_dirs"] + out["free_dirs"])
+    others = other_paths | out["write_targets"] | out["cd_targets"] | set(out["read_dirs"] + out["implicit_dirs"])
     out["open_exempt"] = {t for t in open_targets if not any(inside(o, t) or inside(t, o) for o in others)}
     out["final_base"] = base  # 這段指令跑完時的效用 cwd（指令替換遞迴用）
     return out
@@ -1018,9 +983,6 @@ def _file_tool(tool, target, cwd, vault, sources):
             code, reason = folder_scan(vault, path, sources)
             if code:
                 return Decision("deny", scan_zone, code, reason, [_row(tool, "deny", scan_zone, code, target)], vault)
-        code, reason = free_scan(vault, path, sources)
-        if code:
-            return Decision("deny", "Z12", code, reason, [_row(tool, "deny", "Z12", code, target)], vault)
     decision, code, reason = _verdict(zone, column, alias)
     if column == "write" and is_willy_file(zone, path, vault_n):
         decision, code, reason = "deny", "willy", willy_reason(zone, path, vault_n, target)
@@ -1855,15 +1817,11 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     if not info["list_only"]:
         extra = [(p, *classify(p, vault_n, sources)) for p in info["read_dirs"]]
         scanned = []
-        extra += [(p, *classify(p, vault_n, sources)) for p in info["free_dirs"]]
         for p, zone, _alias in classified + head_classified + extra:
             if p in scanned or p in writes or p in body_only or zone == "Z10" or not os.path.isdir(p) or (
                     p in info["open_exempt"] and p not in info["read_dirs"]):
                 continue  # 真正的磁碟根照走訪，撞上限就「範圍太大」（W2）；/c 這種開關 cmdparse 已不當路徑（V5）；開一個夾不走訪（D-514）
             scanned.append(p)
-            code, reason = free_scan(vault, p, sources)
-            if code:
-                return deny("Z12", code, reason)
             scan_zone = _scan_zone(p, zone, vault_n, sources)
             if not scan_zone:
                 continue
@@ -1976,7 +1934,16 @@ def secret_action(command, tool, vault, cwd=None):
     """D-212：單一 kb 呼叫是不是四種開新口子的密碼動作（kb unlock get、kb ruling add --kind 可以讀、kb unlock authorize、
     kb convert --saved … --explicit）。是回理由句，不是回 None。參數照 kb 自己的 argparse 認（縮寫、--x=值、順序都一樣）；
     子命令那個字、或 unlock／ruling／convert 的參數裡有看不出實際值的字（變數、萬用字元），認不出來，照 ask。
-    argparse 拆不過的不問：守門用的就是 kb.py 跑的那一份 argparse，拆不過 kb 就什麼都不做。"""
+    argparse 拆不過的不問：守門用的就是 kb.py 跑的那一份 argparse，拆不過 kb 就什麼都不做。
+    #50：後面接 # 註解時殼不會把註解傳給 kb：每個可能的註解開頭都截掉再認一次，任何一種是密碼動作就問。"""
+    for cut in [None] + cmdparse.comment_cuts(command, tool):
+        ask = _secret_action_one(command if cut is None else command[:cut].rstrip(), tool, vault, cwd)
+        if ask is not None:
+            return ask
+    return None
+
+
+def _secret_action_one(command, tool, vault, cwd=None):
     parsed = cmdparse.kb_argv(command, tool)
     if parsed is None:
         return ASK_UNKNOWN
@@ -2030,6 +1997,49 @@ def secret_action(command, tool, vault, cwd=None):
     return None
 
 
+def secret_in(command, tool, vault, cwd, root):
+    """#50：串在一起的句子裡任何一段是密碼動作就回理由句（整句沒有 kb.py 不看，舊設計）。
+    主判斷不拿註解：照串接、換行、管線切段（引號沒成對又有這三個字照問）。有 kb.py 的段是單一 kb 呼叫就照 secret_action 認；
+    不是單一呼叫的段，有 unlock／ruling／convert（拆字接回去比）、或 kb.py 後面第一個字認不出，照 ASK_UNKNOWN
+    （包在 bash -c、env、變數前綴、路徑放變數、夾了導向都算）。另一種切法照殼拿掉註解，只用來找出是哪個動作講理由，
+    不會讓本來要問的變成不問。工具不知道時兩種殼都看。"""
+    from kb import cli
+    name = cmdparse.KB_SCRIPT.rsplit("/", 1)[-1]
+    words = set(SECRET_COMMANDS)
+
+    def plain(text):  # 殼會接回去的拆字（unl\ock、"un""lock"、unl`ock）先接回去再比（第二輪審查 1）
+        return re.sub(r"[\\`'\"{}]", "", text.casefold())
+
+    def has_word(text):
+        return bool(words & set(re.findall(r"[a-z]+", plain(text))))
+
+    def unclear_sub(seg):  # 每個 kb.py 後面的第一個字：- 開頭（全域選項會吃值，猜不準子命令）、或不是認得的非密碼子命令，算認不出
+        text = plain(seg)
+        for m in re.finditer(re.escape(name), text):
+            rest = text[m.end():].split()
+            if rest and (rest[0].startswith("-") or rest[0] not in cli.COMMANDS or rest[0] in words):
+                return True
+        return False
+    if name not in command.casefold():
+        return None
+    unknown = False
+    for powershell in ((False,) if tool == "Bash" else (True,) if tool == "PowerShell" else (False, True)):
+        for comments in (True, False):
+            segs = cmdparse.segments(command, powershell, comments)
+            if segs is None:
+                unknown = unknown or (not comments and has_word(command))
+                continue
+            for seg in segs:
+                single = name in seg.casefold() and cmdparse.is_single_plugin_call(seg, root, cwd, tool)
+                if single:
+                    ask = secret_action(seg, tool, vault, cwd)
+                    if ask is not None:
+                        return ask
+                elif not comments and (has_word(seg) or (name in seg.casefold() and unclear_sub(seg))):
+                    unknown = True  # 不是乾淨的單一呼叫卻有這三個字（路徑放變數也算）、或 kb.py 後面認不出：寧可問
+    return ASK_UNKNOWN if unknown else None
+
+
 def decide(payload):
     """照 tool_name 分流。回 Decision(decision, zone, reason_code, reason, ledger_rows, vault)。"""
     tool = payload.get("tool_name", "") or ""
@@ -2045,15 +2055,17 @@ def decide(payload):
                 and cmdparse.KB_SCRIPT.rsplit("/", 1)[-1] in command.casefold()):
             # PowerShell 把彎引號當引號：任何子命令的文字參數都拆得開、能夾帶別的陳述式，直接擋；Bash 裡是普通字，照常認（第四輪）
             return Decision("deny", "", "curly_quote", CURLY_REASON, [_row(tool, "deny", "", "curly_quote", command)], vault)
-        if cmdparse.is_single_plugin_call(command, root, cwd, tool):
-            try:
-                ask = secret_action(command, tool, vault, cwd)
+        single = cmdparse.is_single_plugin_call(command, root, cwd, tool)
+        if single or cmdparse.KB_SCRIPT.rsplit("/", 1)[-1] in command.casefold():
+            try:  # 單一呼叫照 secret_action（含後面接註解，#50）；串在一起的照 secret_in 逐段看
+                ask = secret_action(command, tool, vault, cwd) if single else secret_in(command, tool, vault, cwd, root)
             except NoSuchFile:
                 return Decision("deny", "", NO_SUCH_FILE, NO_SUCH_FILE_REASON,
                                 [_row(tool, "deny", "", NO_SUCH_FILE, command)], vault)
             if ask is not None:  # D-212：開新口子的密碼動作要客戶按允許；前綴讓 AI 知道要停下來請客戶按（第五輪 S1）
                 reason = ASK_PREFIX + ask  # 代入的名稱在 secret_action 裡遮過（B-424 (1)）
                 return Decision("ask", "", SECRET_ACTION, reason, [_row(tool, "ask", "", SECRET_ACTION, command)], vault)
+        if single:
             return Decision("allow", "", "", KB_CALL_REASON, [], vault)
         if vault is None:
             return Decision("pass", "", "", "", [], None)

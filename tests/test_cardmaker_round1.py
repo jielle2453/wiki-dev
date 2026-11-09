@@ -329,6 +329,29 @@ class TwoWindows(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.strip()), (3, "沒有登記這個來源：報價單"))
 
 
+class SelfBatchCli(unittest.TestCase):
+    """#48（D-531）：dispatch 回 self 的人讀行、cards batch --done 只收自己對話的。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = _cards.make_card_vault()
+        (self.V / ".system" / "config.json").write_text(json.dumps({"card_self_max": 999}), encoding="utf-8")
+        turn.start(self.V, SID, "好，現在做")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_self_line_and_done(self):
+        r = run_kb("--session", SID, "cards", "dispatch", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("我自己做（做卡）：先跑 kb cards batch b-", r.stdout)
+        bid = batches.load(self.V)["batches"][0]["batch"]
+        r = run_kb("--session", "sid-別的", "cards", "batch", bid, "--done", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, batches.NOT_SELF))
+        r = run_kb("--session", SID, "cards", "batch", bid, "--done", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, f"批次 {bid} 做完了；接著跑 kb cards dispatch --json"))
+        self.assertEqual(batches.load(self.V)["batches"][0]["status"], "done")
+
+
 class InConversationAfterStop(unittest.TestCase):
     def setUp(self):
         self.tmp, self.V, self.raw = _cards.make_card_vault()

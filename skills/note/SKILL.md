@@ -54,7 +54,6 @@ python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令> …
 - 別名用 `kb entity alias`；裁示 `kb ruling add`（`references/ruling.md`）。
 - 拒絕時帶了問題與結果清單（別名撞名）：先講猜測，沒回就照猜的做；設定檔有手改就先 `kb profile apply`。
 - 回答：講做了什麼合成一行、照成功句複述（日期帶星期；改名合併拿掉講影響），改規則與改知識加一句「不對說一聲可以退回」；再跑 `kb asks --about 實體 --json`，照 `references/agenda.md` 第五節。
-- 這句改了知識庫，送出最終回答前最後跑 `turn note "<白話一句>"`（D-084）。
 
 ## 共通
 

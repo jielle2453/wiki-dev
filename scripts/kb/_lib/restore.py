@@ -8,8 +8,7 @@ apply：先拍快照（現在是知識庫才拍，reason restore）→ 解到 .s
 保留、不還原的（PRESERVED）：vault.json、env.json（現在有就留；空資料夾還原用備份的）、turns/、snapshots/、temp/、guard-status/、
 ledger.tsv、hook-errors.log、鎖檔。之後：跑 kb init 同一支補骨架與遷移、現在有而那份沒有的 hidden 排除寫回並重清、
 清冊快速比一次回「還原後有 N 份要重新整理」、記一段工作日誌（程式段，對話裡叫的併進回合）。
-check 用 tempfile 解需要的檔到系統暫存，不寫知識庫。彈性區（D-512）另比：備份與現在在 FREE_DIR 底下不同的檔（多、少、內容不同），
-直接讀 zip 算指紋，回 free {count, examples}。
+check 用 tempfile 解需要的檔到系統暫存，不寫知識庫。
 測試後修正（design/reports/備份還原與換電腦-測試.md）：重清 hidden 走跟 kb folders exclude --kind hidden 同一條路（T-1、T-4：對帳、拿卡、
 重寫總目錄與綜合卡快取、purge），kind 不同（備份裡是 unused）也換成 hidden；purge 刪快照跳過這次的還原前快照（拍的時候現在的 hidden 都清完了才留，
 使用者定）；換入任何例外（含中斷）都倒回，倒不回就留著 restore-old 並說放哪（T-3）；來源是快照時輪替不刪它、失敗就拿掉這次拍的快照、
@@ -19,7 +18,6 @@ import argparse
 import contextlib
 import io
 import json
-import hashlib
 import os
 import re
 import shutil
@@ -31,11 +29,11 @@ from pathlib import Path
 from kb._lib import backup, env, paths
 from kb._lib import io as kio
 from kb._lib import vault as vault_lib
-from kb._lib.areas import FREE_DIR, HOLD_DIR, OLD_INBOX, OLD_OUTPUT
+from kb._lib.areas import HOLD_DIR, OLD_INBOX, OLD_OUTPUT
 
 EXAMPLES_MAX = 3
 SYSTEM = ".system"
-RESERVED_TOP = {s.casefold() for s in (".system", ".claude", "系統", HOLD_DIR, OLD_INBOX, "檔案索引", OLD_OUTPUT, FREE_DIR)}  # 不分大小寫（spec 裁定 5）
+RESERVED_TOP = {s.casefold() for s in (".system", ".claude", "系統", HOLD_DIR, OLD_INBOX, "檔案索引", OLD_OUTPUT)}  # 不分大小寫（spec 裁定 5）
 # 保留、不還原的 .system 底下的項目（名字；鎖檔另判）
 PRESERVED = {"vault.json", "env.json", "turns", "snapshots", "temp", "guard-status", "ledger.tsv", "hook-errors.log"}
 # 現在有就留、空資料夾還原才用備份的
@@ -222,75 +220,6 @@ def _skeleton_diff(target, extracted):
     return out
 
 
-def _free_digests_zip(zip_path):
-    """備份裡彈性區的檔：{zip 內路徑的 casefold: (路徑, sha256)}；.gitkeep 不算。"""
-    out = {}
-    head = FREE_DIR.casefold() + "/"
-    with zipfile.ZipFile(str(zip_path)) as z:
-        for info in z.infolist():
-            n = info.filename
-            if info.is_dir() or not n.casefold().startswith(head) or n.rsplit("/", 1)[-1] == ".gitkeep":
-                continue
-            h = hashlib.sha256()
-            try:
-                with z.open(info) as src:
-                    for chunk in iter(lambda: src.read(1 << 20), b""):
-                        h.update(chunk)
-                digest = h.hexdigest()
-            except Exception:  # noqa: BLE001  壞的壓縮流、不支援的壓縮法、加密的成員都一樣：那一份算內容不同（裁定 9）
-                digest = None
-            out[n.casefold()] = (n, digest)
-    return out
-
-
-def _free_digests_vault(target):
-    """知識庫現在彈性區的檔，同上；連結不跟、讀不到的當內容不同。"""
-    out = {}
-    try:  # 不分大小寫找（spec 裁定 5）：_Extras 也是它
-        root = next((p for p in Path(target).iterdir() if p.name.casefold() == FREE_DIR.casefold() and p.is_dir()), None)
-    except OSError:
-        root = None
-    if root is None:
-        return out
-    if _is_link(root):
-        return out
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not _is_link(Path(dirpath) / d)]
-        for name in filenames:
-            p = Path(dirpath) / name
-            if name == ".gitkeep" or _is_link(p):
-                continue
-            rel = p.relative_to(target).as_posix()
-            out[rel.casefold()] = (rel, _file_sha256(p))
-    return out
-
-
-def _is_link(p):
-    """連結與 junction 不跟（spec 裁定 9）：跟清冊走訪同一套判斷（inventory._is_link，長路徑、看不了的照一般檔）。"""
-    from kb._lib import inventory
-    return inventory._is_link(p)
-
-
-def _file_sha256(p):
-    """照清冊的分段讀（inventory.sha256_of，HASH_CHUNK、長路徑）；讀不了（OSError、MemoryError）回 None，
-    算成內容不同、不讓 check 掛掉（spec 裁定 9）。"""
-    from kb._lib import inventory
-    try:
-        return inventory.sha256_of(p)
-    except (OSError, MemoryError):
-        return None
-
-
-def _free_diff(vault, target, zip_path):
-    """彈性區會變回備份那時的樣子的檔（D-512）：{count, examples}（examples 是檔名，最多 EXAMPLES_MAX 個）。"""
-    theirs = _free_digests_zip(zip_path)
-    mine = _free_digests_vault(target) if vault is not None else {}
-    keys = sorted(k for k in set(theirs) | set(mine)
-                  if k not in mine or k not in theirs or mine[k][1] is None or mine[k][1] != theirs[k][1])
-    names = [(mine.get(k) or theirs[k])[0].rsplit("/", 1)[-1] for k in keys]
-    return {"count": len(keys), "examples": names[:EXAMPLES_MAX]}
-
-
 def _compare(vault, target, zip_path):
     tmp = Path(tempfile.mkdtemp(prefix="wwb-check-"))
     try:
@@ -326,16 +255,16 @@ def _compare(vault, target, zip_path):
         if came and key != "journal_turns":
             examples_back[key] = [other[k] for k in sorted(came)[:EXAMPLES_MAX]]
     reapply = sorted(f"{a}/{s}" for a, s in hidden_now - hidden_theirs)
-    return lose, back, examples, examples_back, reapply, build_step, skeleton, _free_diff(vault, target, zip_path)
+    return lose, back, examples, examples_back, reapply, build_step, skeleton
 
 
 def check(cwd, source):
     """演練：回 {"created","machine","kind","lose","back","examples","examples_back","hidden_reapply","build_step",
-    "skeleton_changed","free","other_vault","refuse"}。
+    "skeleton_changed","other_vault","refuse"}。
     只讀。擋的原因放 refuse（其他欄位盡量算、算不出來給空的）。"""
     vault, target = target_of(cwd)
     got = {"created": None, "machine": None, "kind": None, "lose": {}, "back": {}, "examples": {}, "examples_back": {},
-           "hidden_reapply": [], "build_step": None, "skeleton_changed": [], "free": {"count": 0, "examples": []},
+           "hidden_reapply": [], "build_step": None, "skeleton_changed": [],
            "other_vault": False, "refuse": None}
     try:
         zip_path = find_source(source, vault, cwd)
@@ -345,9 +274,9 @@ def check(cwd, source):
         _guard_target(vault, target)
         if vault is not None and backup.batch_running(vault):
             raise backup.Refused(backup.BATCH_RUNNING.format(what="還原"))
-        lose, back, ex, exb, reapply, step, skeleton, free = _compare(vault, target, zip_path)
+        lose, back, ex, exb, reapply, step, skeleton = _compare(vault, target, zip_path)
         got.update(lose=lose, back=back, examples=ex, examples_back=exb, hidden_reapply=reapply, build_step=step,
-                   skeleton_changed=skeleton, free=free)
+                   skeleton_changed=skeleton)
     except backup.Refused as e:
         got["refuse"] = str(e)
     return got
@@ -394,13 +323,7 @@ def lines(result):
             out.append(f"{word}：" + "；".join(parts))
     if result.get("skeleton_changed"):
         out.append("這幾個知識庫自己的設定檔會變回那份的樣子（之後改的會不見）：" + "、".join(result["skeleton_changed"]))
-    free = result.get("free") or {}
-    if free.get("count"):
-        names = "、".join(free.get("examples") or [])
-        more = f"等 {free['count']} 份" if free["count"] > len(free.get("examples") or []) else ""
-        out.append(f"{FREE_DIR}會變回備份那時的樣子：{names}{more}")
-    if (not any(result["lose"].values()) and not any(result["back"].values()) and not result.get("skeleton_changed")
-            and not free.get("count")):
+    if not any(result["lose"].values()) and not any(result["back"].values()) and not result.get("skeleton_changed"):
         out.append("跟現在幾乎一樣，沒有會不見或回來的")
     for name in result.get("hidden_reapply") or []:
         out.append(f"你設成不想讓 AI 看到的「{name}」會留著，還原後再清一次")

@@ -133,7 +133,7 @@ llm-wiki-j/
 | 平台 | Windows 優先；`pathlib`；長路徑與 Git Bash 路徑都要認 |
 | 腳本入口 | 唯一入口 `scripts/kb.py <子命令>`，呼叫寫 `python "${CLAUDE_PLUGIN_ROOT}/scripts/kb.py" <子命令>`。統一 `--json`、`--help`。不用 `python -m`。模型用 Bash 工具呼叫、一次一個指令、路徑加引號、不 cd |
 | 門檻 | 全在 `config/defaults.json`；客戶端 `.system/config.json` 覆寫 |
-| 狀態檔 | `.system/*.json` 每個帶 `schema_version`；升級含遷移 |
+| 狀態檔 | `.system/*.json` 每個帶 `schema_version`，**凍結在現值、不再升**；新欄、新節一律選填，遷移照「庫裡缺什麼」判斷；遷移表有新列的發行就是大升級，流水檔格式版本（`streams.FORMAT_VERSION`）跟著 +1（D-335） |
 | 真相模式 | JSON 為真，`系統/*.md` 是渲染視圖，頂端三行：這是什麼、怎麼用、由程式產生改了會被覆蓋（D-067）；格式住程式，範例在 `tests/fixtures/` |
 | 測試 | 用 `unittest` 寫，`tests/test_<模組>.py`。全套用 `python -m pytest -n auto -q tests` 平行跑（2026-10-26 實測 32 核心約 100 秒，原本 11～13 分鐘；issue #11），沒裝 pytest 的照舊 `python -m unittest discover tests`，結果一樣。一律只跑跟改動有關的測試檔，不跑全套（jacky 2026-10-30 定、jielle2453 同意）：開發中、實作 commit 之後、測試、發行改版號後都一樣；挑法是 spec「相關測試」列的檔，加 `grep -l` 找引用改動檔、版號、CHANGELOG 的測試，加 `test_repo_hygiene`。全綠才算改完 |
 | 預算 | 常駐字數、`rules/core.md` 行數、每個 `SKILL.md` 行數各有上限，`tests/test_budget.py` 守。初始值見 D-070 |

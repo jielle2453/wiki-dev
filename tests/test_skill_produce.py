@@ -98,10 +98,12 @@ class Body(unittest.TestCase):
     def test_skeleton_points_to_programs_and_references(self):
         part = self.section("## 骨架", "## 共通")
         for want in ("kb office check", "kb office setup", "kb office copy", "kb office run", "kb office recalc",
-                     "kb office render", "kb output save", "kb output link", "kb lookup", "kb cards list",
-                     "kb agenda list", "kb asks", "turn note", "references/draft.md", "references/make.md"):
+                     "kb output save", "kb output link", "kb lookup", "kb cards list",
+                     "kb agenda list", "references/draft.md", "references/make.md"):
             with self.subTest(want=want):
                 self.assertIn(want, self.body if want.startswith(("kb office run", "kb office recalc")) else part)
+        for gone in ("kb asks", "turn note"):  # #47：跟 #46 一致，程式自己記、lookup 順帶回
+            self.assertNotIn(gone, part)
 
     def test_references_exist_short_no_abs_paths(self):
         for p in [SKILL, *REFS.values()]:
@@ -114,8 +116,8 @@ class Body(unittest.TestCase):
 
     def test_make_covers_spec_points(self):
         make = REFS["make.md"].read_text(encoding="utf-8")
-        for want in ("claude.ai 帳號", "只有她看得到", "按下載", "微軟正黑體", "zh-TW", "kb office run",
-                     "kb office recalc", "kb office render", "--link", "LibreOffice", "Node.js"):
+        for want in ("claude.ai 帳號", "只有她看得到", "按下載", "kb office run",
+                     "kb office", "--link", "LibreOffice", "Node.js"):
             with self.subTest(want=want):
                 self.assertIn(want, make)
         draft = REFS["draft.md"].read_text(encoding="utf-8")
@@ -149,7 +151,6 @@ class Round2(unittest.TestCase):
         """D-529 拿掉 Word 修訂與作者「AI 助理」；看夾用 Grep。"""
         self.assertNotIn("AI 助理", self.make)
         self.assertNotIn("<w:ins", self.make)
-        self.assertIn("Grep", self.make)
 
     def test_tally_row_format(self):
         self.assertIn('--row "<卡編號> <數字> [位置]"', self.draft)
@@ -177,14 +178,29 @@ class Round2(unittest.TestCase):
         edit = self.make[self.make.index("## 改她原本的檔"):self.make.index("## 沒有工具時怎麼說")]
         for name, text in (("骨架", part), ("make.md", edit)):
             with self.subTest(where=name):
-                for want in ("kb office copy <原檔> --unpack", "Grep", "kb output save \"<夾>\"", "知識庫 CLAUDE.md",
+                for want in ("kb office copy <原檔> --unpack", "kb output save \"<夾>\"", "知識庫 CLAUDE.md",
                              "改視窗裡那份", "不備份", "版本", "要不要刪"):
                     self.assertIn(want, text)
-                for gone in ("anthropic-skills:docx", "AI 助理", "（AI 修改）", "w:ins"):
-                    self.assertNotIn(gone, text)
-        self.assertIn("不用 python", part)
+                for gone in ("anthropic-skills:docx", "AI 助理", "（AI 修改）", "w:ins", "Grep", "openpyxl"):
+                    self.assertNotIn(gone, text)  # #47：中間怎麼改交給 AI
         self.assertIn("kb source-edit trash", edit)
-        self.assertIn("不要用 openpyxl 存檔", edit)  # xlsx 技能預設 openpyxl，會弄掉圖表
+
+    def test_only_protection_not_method(self):
+        """#47（D-530）：只規定保護；做法（render 原則、字型、PowerPoint 三級、Excel 改法）交給 AI 與內建技能。"""
+        for name, text in (("SKILL.md", self.body), ("make.md", self.make)):
+            with self.subTest(file=name):
+                for gone in ("微軟正黑體", "zh-TW", "分三級", "openpyxl", "轉圖看", "soffice.py"):
+                    self.assertNotIn(gone, text)
+                for want in ("kb output save", "kb office", "工作區"):
+                    self.assertIn(want, text)
+        for want in ("kb tally", "不附出處", "不替她寄", "OUT_DIR", "建之前"):
+            self.assertIn(want, self.body)
+        self.assertIn("不直接寫進知識庫或原檔", self.make)
+        skel = (ROOT / "skeleton" / "CLAUDE.md").read_text(encoding="utf-8")
+        for want in ("匯出、另存也是", "--unpack", "kb output save"):
+            self.assertIn(want, skel)
+        for gone in ("Grep", "Edit 改"):
+            self.assertNotIn(gone, skel)
 
     def test_answer_says_excel_file(self):
         answer = (ROOT / "skills" / "answer" / "SKILL.md").read_text(encoding="utf-8")

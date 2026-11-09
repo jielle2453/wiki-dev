@@ -36,7 +36,7 @@ from kb import guard, journal_cli
 from kb._lib import card_base, credentials, inventory, items, ledger, turn
 from kb._lib import io as kio
 from kb._lib import sources as sources_lib
-from kb._lib.areas import FREE_DIR, HOLD_DIR
+from kb._lib.areas import HOLD_DIR
 from kb._lib.io import read_json, write_json_atomic, write_text_atomic
 
 ENTRY_LINES_MAX = 15
@@ -79,7 +79,7 @@ SIDE_WORDS = {"other": "另一個對話", "none": "對話外", "self": "這個�
 OTHER_LINE = "另一個對話還有 {n} 次改動，不在這裡退"
 _DRIVE = re.compile(r"^[A-Za-z]:")
 # 帳裡的路徑不能是這些保留區的根本身（測試第二輪後裁定 26）：資料夾帳只動型別夾、實體夾與 AI 產出底下的子夾
-RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", HOLD_DIR, "檔案索引", FREE_DIR)}
+RESERVED_ROOTS = {s.casefold() for s in (".system", "系統", HOLD_DIR, "檔案索引")}
 
 
 def add_arguments(sub):
@@ -373,6 +373,18 @@ def _copy_back(vault, src, dst):
                 from kb._lib import ledger
                 rel = Path(dst).relative_to(Path(vault)).as_posix() if Path(dst).is_relative_to(Path(vault)) else Path(dst).name
                 ledger.log_error(vault, f"退回後「{rel}」設回隱藏沒成：{e.strerror or type(e).__name__}", source="versions")
+    _remirror(vault, dst)
+
+
+def _remirror(vault, path):
+    """#49：本機那一半（.system/local/<種類>.json）換回或拿掉後，流水檔的副本要重寫（流水檔那一半先退時副本接的還是新的）。
+    副本是衍生的，重寫不成只記一行 log，不中斷退回。"""
+    try:
+        from kb._lib import streams
+        streams.remirror_local(vault, path)
+    except Exception as e:  # noqa: BLE001
+        from kb._lib import ledger
+        ledger.log_error(vault, f"退回後副本沒重寫：{type(e).__name__}: {str(e)[:100]}", source="versions")
 
 
 def _output_keys(vault):
@@ -814,6 +826,7 @@ def _remove(vault, rel, acting_turn):
     turn.backup(vault, rel, acting_turn, action="delete")
     os.remove(Path(vault) / rel)
     _prune_dirs(vault, rel)
+    _remirror(vault, Path(vault) / rel)  # #49 審查：那一回合才建的本機那一半被拿掉，副本也要跟著換
 
 
 def _rels_of(entries_):

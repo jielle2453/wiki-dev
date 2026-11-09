@@ -218,6 +218,46 @@ def _write_key(vault, key, question, turn_id, by="customer"):
         kio.write_json_atomic(p, {"schema_version": 1, "keys": keys})
 
 
+def _load(vault):
+    """全部題（先放著的與到期的拿掉）：(asks, 藏了幾題, tell, 現在的 key, asks_seen, 這次關掉的 key)。"""
+    asks, hidden, tell = _collect(vault)
+    current_keys = {a["key"] for a in asks}
+    seen = _read_seen(vault)
+    asks, expired = _expire(vault, asks, seen)
+    asks, more_aside = _drop_aside_overdue(asks, vault)
+    return asks, hidden + more_aside, tell, current_keys, seen, expired
+
+
+def about(vault, names):
+    """沒帶 --all 的那一路（kb asks --about，與 kb lookup 順帶的，#46）：{"asks","later","others","tell"}（有關掉的多 expired）；
+    回過的題記進 asks_seen（同 session 不再回）。"""
+    asks, _hidden, tell, current_keys, seen, expired = _load(vault)
+    sid = turn.SESSION or ""
+    ents, files = _scope(vault, names)
+    told = {a["key"] for a in asks if sid and sid in (seen.get(a["key"]) or {}).get("sessions", [])}
+    chosen, later, others = _pick([a for a in asks if a["key"] not in told], ents, files)
+    shown = chosen + ([later] if later else [])
+    plan.renumber(shown)
+    _record_seen(vault, shown, current_keys - set(expired), sid)
+    out = {"asks": chosen, "later": later, "others": others, "tell": tell}
+    if expired:
+        out["expired"] = expired
+    return out
+
+
+def end_lines(out):
+    """kb lookup 人讀末尾那段（#46）：有要問、要說的才印，沒有回 []。"""
+    lines = []
+    for ask in out["asks"]:
+        lines.append(ask["question"])
+        lines.extend(f"  {r['n']}. {r['label']}" for r in ask["results"])
+    lines = (["回答末尾要問："] + lines) if lines else []
+    if out.get("later"):
+        lines.append(f"一段事說完再問：{out['later']['question']}")
+    if out["tell"]:
+        lines += ["回答末尾要說："] + list(out["tell"])
+    return lines
+
 def _print(asks, tail):
     lines = []
     for ask in asks:
@@ -238,28 +278,15 @@ def run(args):
     try:
         if args.action == "set-aside":
             return _set_aside(vault, args.key, as_json)
-        asks, hidden, tell = _collect(vault)
-        current_keys = {a["key"] for a in asks}
-        seen = _read_seen(vault)
-        asks, expired = _expire(vault, asks, seen)
-        asks, more_aside = _drop_aside_overdue(asks, vault)
-        hidden += more_aside
-        sid = turn.SESSION or ""
         if args.all:
+            asks, hidden, tell, _keys, _seen, expired = _load(vault)
             plan.renumber(asks)
             out = {"asks": asks, "set_aside": hidden, "tell": tell}
             tail = [SET_ASIDE_COUNT.format(n=hidden)] if hidden else []
+            if expired:
+                out["expired"] = expired
         else:
-            ents, files = _scope(vault, args.about)
-            told = {a["key"] for a in asks if sid and sid in (seen.get(a["key"]) or {}).get("sessions", [])}
-            chosen, later, others = _pick([a for a in asks if a["key"] not in told], ents, files)
-            shown = chosen + ([later] if later else [])
-            plan.renumber(shown)
-            _record_seen(vault, shown, current_keys - set(expired), sid)
-            out = {"asks": chosen, "later": later, "others": others, "tell": tell}
-            tail = []
-        if expired:
-            out["expired"] = expired
+            out, tail = about(vault, args.about), []
     except ValueError as e:
         print(f"狀態檔讀不到：{e}")
         return 3

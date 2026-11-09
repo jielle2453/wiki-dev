@@ -10,7 +10,7 @@ mount <編號> --entity <名>…：卡掛錯實體，重設檔頭的 實體 欄�
 list：列卡（answer 第 2 點，D-153、D-157），按卡型、年、實體、來源篩，窮舉不挑；另回庫裡實際有的卡型與份數，只讀、不開回合。
 todo 在對話裡跑時在目前回合記 ingest（turn.mark，回合狀態不是知識）：主對話自己整理時被按停止，下一句的 UserPromptSubmit 認得出來（D-156）。
 整批製卡（card-maker，D-195～D-200）：dispatch 開或沿用 job、切批、回每批給 Agent 工具的 prompt（終端機跑拒絕）；
-batch <批次> 給 card-maker 自己那批的材料（只讀，帶 --agent 記上 agent_id；codex 分支加 --done [--failed …] 自己收尾）；status 看進度（只讀）；
+batch <批次> 給 card-maker 自己那批的材料（只讀，帶 --agent 記上 agent_id；--done 標主對話自己做的批次做完，#48；codex 分支：製卡者也自己 --done [--failed …] 收尾）；status 看進度（只讀）；
 stop 放掉這個 session 的批次、關 job、目前回合記 ingest_stopped（背景整理要停：說一聲，D-200）。
 mode <編號> full|pointer [--track yes|no]：會一直改的檔記成指路卡或完整卡（放寬丙 11，D-331）：只記清冊 card_mode、track（記進回合），
 指路卡且記過程時現在的抽字存本機 .system/local/textcache/<編號>.txt；seen <編號>：AI 看完指路卡的檔改了什麼，卡檔頭指紋與 textcache 換成現在的。
@@ -86,7 +86,7 @@ def add_arguments(sub):
     dp.add_argument("--adopt", action="store_true", help="讀舊 wiki 切好的段（建置收舊 wiki 用）")
     bt = subs.add_parser("batch", help="card-maker 拿自己那批的材料（只讀）", description="列這一批要做的項目與要讀的規則。")
     bt.add_argument("batch", help="批次編號（b-…）")
-    bt.add_argument("--done", action="store_true", help="這批做完了（codex 分支：子代理或主對話自己收尾）")
+    bt.add_argument("--done", action="store_true", help="這批做完了：主對話自己做的（dispatch 回 self）；codex 分支：製卡者自己收尾")
     bt.add_argument("--failed", action="append", default=[], help="跟 --done 一起：沒做成的一份「<編號>：<原因>」，可重複")
     st = subs.add_parser("status", help="背景整理到哪了（只讀）", description="還在跑幾批、這次做好幾份、還剩幾份。")
     sp = subs.add_parser("stop", help="停背景整理", description="放掉這個對話的批次；回要停的子代理。")
@@ -657,6 +657,10 @@ def _dispatch(vault, args, as_json):
               "整理完了" + (f"；沒做成 {len(got['failed'])} 份" if got["failed"] else ""))
         return 0
     made = got["batches"]
+    if made and made[0].get("self"):
+        for b in made:
+            print(f"這 {b['items']} 項我自己做（{batches.KIND_TEXT[b['kind']]}）：先跑 {b['do'][0]}，做完跑 {b['do'][1]}")
+        return 0
     head = (f"派了 {len(made)} 批（{batches.KIND_TEXT[made[0]['kind']]} " + "、".join(str(b["items"]) for b in made) + "）"
             if made else "沒有新派的")
     print(f"{head}；還在跑 {got['running']} 批；{_left_text(got['left'])}"
@@ -666,24 +670,7 @@ def _dispatch(vault, args, as_json):
     return 0
 
 
-def _batch(vault, batch_id, agent, as_json, done=False, failed=()):
-    if failed and not done:
-        print('--failed 要跟 --done 一起用：kb cards batch <批次> --done --failed "<編號>：<原因>"')
-        return 2
-    if done:  # codex 分支（spec 裁定 8）
-        b = batches.batch_done(vault, batch_id, failed)
-        if b is None:
-            print(batches.STOPPED)
-            return 0
-        n = len(b.get("items") or [])
-        if as_json:
-            print(json.dumps({"batch": batch_id, "done": n - len(b["failed"]), "failed": b["failed"],
-                              "ignored": b["ignored"]}, ensure_ascii=False))
-        else:
-            print(f"批次 {batch_id} 記成做完：做好 {n - len(b['failed'])}、沒做成 {len(b['failed'])}"
-                  + (f"（不是這批的編號沒記：{'、'.join(b['ignored'])}）" if b["ignored"] else "")
-                  + "；接著跑 kb cards dispatch --json")
-        return 0
+def _batch(vault, batch_id, agent, as_json):
     try:
         got = batches.batch_view(vault, batch_id, agent)
     except batches.Refused as e:
@@ -695,6 +682,41 @@ def _batch(vault, batch_id, agent, as_json, done=False, failed=()):
         print(f"批次 {batch_id}：{batches.KIND_TEXT[got['kind']]} {len(got['items'])} 項；先讀 " + batches.read_text(got["read"]))
     return 0
 
+
+def _batch_done(vault, args, as_json):
+    """#48：dispatch 回 self 的批次，主對話做完標 done（跟製卡助手停下時同一段），再 dispatch 拿下一步。
+    codex 分支（spec 裁定 8）：不是 self 的（交給製卡者的）由製卡者自己 --done 收（Codex 沒有 SubagentStop），可帶 --failed。"""
+    from kb._lib import journal
+    sid = _session(vault, args, strict=True)
+    try:
+        if not sid:
+            raise batches.Refused(batches.NOT_SELF)  # 沒有對話編號：不會是這個對話 self 的批次，照製卡者的收
+        tid = batches.self_done(vault, sid, args.batch)
+    except batches.Refused as e:
+        if str(e) != batches.NOT_SELF:
+            print(str(e))
+            return 3
+        try:
+            b = batches.batch_done(vault, args.batch, args.failed)
+        except batches.Refused as e2:
+            print(str(e2))
+            return 3
+        if b is None:
+            print(batches.STOPPED)
+            return 3
+        journal.refresh_changed(vault, b["turn"])
+        n = len(b.get("items") or [])
+        if as_json:
+            print(json.dumps({"batch": args.batch, "done": n - len(b["failed"]), "failed": b["failed"],
+                              "ignored": b["ignored"]}, ensure_ascii=False))
+        else:
+            print(f"批次 {args.batch} 記成做完：做好 {n - len(b['failed'])}、沒做成 {len(b['failed'])}"
+                  + (f"（不是這批的編號沒記：{'、'.join(b['ignored'])}）" if b["ignored"] else "")
+                  + "；接著跑 kb cards dispatch --json")
+        return 0
+    journal.refresh_changed(vault, tid)
+    print(f"批次 {args.batch} 做完了；接著跑 kb cards dispatch --json")
+    return 0
 
 def _status(vault, args, as_json):
     got = batches.status(vault, _session(vault, args))
@@ -776,7 +798,12 @@ def run(args):
         if command == "dispatch":
             return _dispatch(vault, args, as_json)
         if command == "batch":
-            return _batch(vault, args.batch, getattr(args, "agent", None), as_json, args.done, args.failed)
+            if args.failed and not args.done:
+                print('--failed 要跟 --done 一起用：kb cards batch <批次> --done --failed "<編號>：<原因>"')
+                return 2
+            if args.done:
+                return _batch_done(vault, args, as_json)
+            return _batch(vault, args.batch, getattr(args, "agent", None), as_json)
         if command == "status":
             return _status(vault, args, as_json)
         if command == "stop":

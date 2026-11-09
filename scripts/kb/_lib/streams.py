@@ -338,6 +338,22 @@ def _mirror(vault, kind, st):
         pass
 
 
+def remirror_local(vault, path):
+    """path 是 .system/local/<種類>.json（有本機那一半的種類）：從流水檔加這一半重寫副本（#49，退回換回本機那一半之後）。
+    不是就什麼都不做；讀不了照 _mirror 的規矩不中斷。"""
+    try:
+        rel = Path(path).resolve().relative_to((Path(vault) / LOCAL_REL).resolve()).as_posix()
+    except (ValueError, OSError):
+        return
+    kind = rel[:-len(".json")] if rel.endswith(".json") and "/" not in rel else None
+    if kind not in SPLIT or not exists(vault, kind):
+        return
+    try:
+        _mirror(vault, kind, load(vault, kind))
+    except (OSError, ValueError):
+        pass
+
+
 def _sha(raw):
     return hashlib.sha256(raw).hexdigest()
 

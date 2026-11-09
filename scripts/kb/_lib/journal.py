@@ -21,7 +21,7 @@ from pathlib import Path
 
 from kb._lib import credentials, ledger, turn
 from kb._lib import ledger as ledger_mod
-from kb._lib.areas import FREE_DIR, HOLD_DIR
+from kb._lib.areas import HOLD_DIR
 from kb._lib import io as kio
 from kb._lib.io import FileLock, write_text_atomic
 
@@ -259,7 +259,8 @@ def complete_turn(vault, turn_data, result, note, note_by, changed, interrupted,
 
 
 def finish_fields(vault, turn_data):
-    """Stop 與中斷補記共用（D-084）：(做了, note_by, 改了)。模型叫過 turn note 就用它（ai），沒有才地板句（program）。
+    """Stop 與中斷補記共用（D-084）：(做了, note_by, 改了)。模型叫過 turn note 就用它（ai），其次是對話裡 kb 寫入指令自帶的那句
+    （program_notes，#46），都沒有才地板句（後兩種都是 program）。
     改了取 journal_turn 與目前回合兩份 manifest 的聯集，同路徑取後者的 action，地板句照聯集算（第二輪 R2-M2）。
     整批製卡的派工帳（.system/batches.json）是程式的記帳，不算改了（card-maker）。"""
     merged = {}
@@ -271,7 +272,13 @@ def finish_fields(vault, turn_data):
     note = turn_data.get("note") or ""
     if note:
         return note, "ai", changed
+    said = [str(x) for x in turn_data.get("program_notes") or [] if x]
+    if said:  # 對話裡叫的 kb 寫入指令自帶的那句（#46），已遮過
+        return "；".join(said[:COMMAND_NOTES_MAX]) + (f"…等 {len(said)} 件" if len(said) > COMMAND_NOTES_MAX else ""), "program", changed
     return _floor(vault, changed), "program", changed
+
+
+COMMAND_NOTES_MAX = 3  # 「做了」最多接幾句指令自帶的白話，其餘寫「…等 N 件」
 
 
 NOT_CHANGES = ".system/batches.json"  # batches.BATCHES_POSIX（不 import：batches 會 import turn）
@@ -499,7 +506,7 @@ SYSTEM_WORDS = {
 }
 SYSTEM_PREFIXES = ((".system/handedits/", "你手改的那份"), ("系統/健檢報告/", "健檢報告"))
 NAMES_SHOWN = 3
-_TOP_RESERVED = ("檔案索引", "系統", ".system", HOLD_DIR, FREE_DIR)
+_TOP_RESERVED = ("檔案索引", "系統", ".system", HOLD_DIR)
 
 
 def _named(names, unit):
@@ -509,8 +516,8 @@ def _named(names, unit):
 
 
 def changed_text(changed):
-    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；_個人 1 份；日程；其他 2 個檔」；沒有回空字串。"""
-    synth, cards, outputs, free, words, files, other = [], 0, 0, 0, [], [], 0
+    """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；日程；其他 2 個檔」；沒有回空字串。"""
+    synth, cards, outputs, words, files, other = [], 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
         parts = rel.split("/")
@@ -522,8 +529,6 @@ def changed_text(changed):
             cards += 1
         elif parts[0] == HOLD_DIR:
             outputs += 1
-        elif parts[0].casefold() == FREE_DIR.casefold():
-            free += 1
         elif parts[0] in ("系統", ".system"):
             stem = parts[-1].rsplit(".", 1)[0]
             if stem not in files:
@@ -541,8 +546,6 @@ def changed_text(changed):
         out.append(f"檔案卡 {cards} 張")
     if outputs:
         out.append(f"{HOLD_DIR} {outputs} 份")
-    if free:
-        out.append(f"{FREE_DIR} {free} 份")
     out += words
     if files:
         out.append(_named(files, "個"))

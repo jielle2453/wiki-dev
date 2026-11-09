@@ -13,6 +13,7 @@ drop-draft：草稿要在暫存區底下、檔名是（草稿）.md。拒絕一�
 import os
 import re
 import shutil
+import zipfile
 from pathlib import Path
 
 from kb._lib import cards, credentials, inventory, turn
@@ -203,6 +204,8 @@ def _keep_version(vault, sources, place, turn_id):
 def _register_version(vault, vplace, turn_id):
     """版本檔記進清冊、標不整理（skip_kind，D-113 現有欄位），整理不做卡、lookup 不當成現行那份。"""
     from kb._lib import cards
+    if vplace["kind"] == "outside":
+        return  # 沒登記的地方清冊不管，版本檔照留
     entry = inventory.register_output(vault, vplace["rel"] or vplace["bkey"], turn_id, uri=vplace["uri"],
                                       target=vplace["target"] if vplace["kind"] == "source" else None,
                                       backup_key=vplace["bkey"])
@@ -299,7 +302,7 @@ def _drop(vault, rel, turn_id):
 
 def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replace=False):
     """回 {"path", "id", "mode", "from", "from_label", "draft", "link", "in_vault"}。驗完才動檔。
-    --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 先備份再覆蓋。"""
+    --to 是 <夾>/<檔名>：收任何准許的位置（放寬甲），放在暫存區以外照樣登記、出處類別 AI 產出；同名回 Conflict，--replace 舊的存成同夾（版本 N）再覆蓋（D-529、#47）；xlsx 有公式先重算、驗。"""
     from kb._lib import sources as sources_lib
     sources = sources_lib.load(vault)
     checked = None
@@ -337,7 +340,9 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
     if existing and not replace:
         raise conflict(place, target.is_file() and inventory.sha256_of(target) == inventory.sha256_of(src),
                        rename="改 --to 的檔名")
-    overwrite = bool(checked and checked["overwrite"] and existing)
+    if checked is None:  # 單一檔的 Excel：一樣重算＋驗（#47）；放在會拒絕的檢查之後、第一次寫入之前
+        src, mode, checked = _excel_checked(vault, src, mode, turn_id)
+    overwrite = existing and target.is_file()  # 蓋過既有的檔：存夾、存檔 --replace 都同夾留版本檔（D-529、#47）
     vplace = None
     if overwrite:
         vtarget = target.with_name(version_name(target))
@@ -389,6 +394,39 @@ def save(vault, src, to, turn_id, cwd, from_=None, draft=None, link=None, replac
             "from": source["id"] if source else None, "from_label": label_of(vault, source) if source else None,
             "draft": draft_rel, "link": link, "in_vault": place["kind"] == "vault", "checked": checked,
             "version": shown_path(vplace) if vplace else None}
+
+
+def _excel_checked(vault, src, mode, turn_id):
+    """存單一檔是 xlsx／xlsm：交 office.check_excel（重算、錯誤值擋、沒工具照放、xlsm 不算）。有公式要重算、檔又不在工作區：
+    先複製一份進這一句的工作區算、放那一份（原來那份不動）。回 (src, mode, checked 或 None)。"""
+    from kb._lib import office
+    low = src.suffix.lower()
+    if low not in (".xlsx", ".xlsm"):
+        return src, mode, None
+    try:
+        copy = mode != "move" and low == ".xlsx" and office.formula_report(src)[0]
+    except (zipfile.BadZipFile, OSError):  # 不是 zip、讀不到：不驗照放（跟存夾前不擋一樣）
+        return src, mode, None
+    made = None
+    try:
+        if copy:
+            ws = office.workspace(vault, turn_id)
+            made, n = ws / src.name, 2
+            while made.exists():
+                made, n = ws / f"{src.stem} ({n}){src.suffix}", n + 1
+            shutil.copy2(str(src), str(made))
+            src, mode = made, "move"
+        info = office.check_excel(vault, src)
+    except BaseException as e:  # 驗不過、複製或重算出錯：拿掉複製的那份，不放
+        if made is not None:
+            try:
+                os.unlink(str(made))
+            except OSError:
+                pass
+        if isinstance(e, office.Refused):
+            raise Refused(str(e)) from None
+        raise
+    return src, mode, dict(info, overwrite=False)
 
 
 def _pack_folder(vault, folder, to, from_):

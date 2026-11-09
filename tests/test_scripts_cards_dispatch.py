@@ -37,6 +37,11 @@ class Base(unittest.TestCase):
             args = ("--session", SID) + args
         return run_kb(*args, cwd=self.V)
 
+    def stopped(self, *args):
+        """「這批已經停了或做完了」：exit 3（併 main 後跟 #48 self 批次一致）。"""
+        r = self.kb(*args)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, batches.STOPPED), r.stderr)
+
     def ok(self, *args):
         r = self.kb(*args)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -76,11 +81,11 @@ class Dispatch(Base):
         self.assertEqual(r, f"批次 {first} 記成做完：做好 19、沒做成 1（不是這批的編號沒記：f-別批）；接著跑 kb cards dispatch --json")
         b = next(x for x in batches.load(self.V)["batches"] if x["batch"] == first)
         self.assertEqual((b["status"], b["failed"]), ("done", {items[0]: "讀不到"}))
-        self.assertEqual(self.ok("cards", "batch", first, "--done"), batches.STOPPED)  # 重複收：不改、不報錯
-        self.assertEqual(self.ok("cards", "batch", "b-沒有這批", "--done"), batches.STOPPED)
+        self.stopped("cards", "batch", first, "--done")  # 重複收：不改
+        self.stopped("cards", "batch", "b-沒有這批", "--done")
         self.assertEqual(self.js("cards", "dispatch")["running"], 2)
         self.ok("cards", "stop")
-        self.assertEqual(self.ok("cards", "batch", second, "--done"), batches.STOPPED)  # 停掉（放掉）的不收
+        self.stopped("cards", "batch", second, "--done")  # 停掉（放掉）的不收
 
     def test_codex_done_refuses_expired_and_failed_alone(self):
         """review：過期的批次 --done 不收（放回去重派，不把沒做的記成沒做成）；--failed 沒帶 --done 報錯。"""
@@ -90,7 +95,7 @@ class Dispatch(Base):
         data = batches.load(self.V)
         data["batches"][0]["created"] = "2026-01-01T00:00:00"
         (self.V / ".system" / "batches.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        self.assertEqual(self.ok("cards", "batch", b, "--done"), batches.STOPPED)
+        self.stopped("cards", "batch", b, "--done")
         self.assertEqual(batches.load(self.V)["batches"][0]["status"], "open")
 
     def test_human_lines(self):
