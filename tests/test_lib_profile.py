@@ -73,7 +73,7 @@ class Defaults(unittest.TestCase):
         data = json.loads((PROFILE / "profile.json").read_text(encoding="utf-8"))
         want = profile.defaults(DAY)
         want["md_sha256"] = profile.sha256_text(fixture_md())
-        self.assertEqual((want.pop("fields"), [m["mode"] for m in want.pop("money")]), ([], ["on"]))  # 新庫是開（記帳 1b）
+        self.assertEqual((want.pop("fields"), [m["mode"] for m in want.pop("money")]), ([], ["off"]))  # 新庫是關（#59；記帳 1b 原本是開）
         self.assertEqual(data, want)
 
 
@@ -84,7 +84,7 @@ class Render(unittest.TestCase):
         self.assertTrue(text.startswith(fixture_md()))
         self.assertEqual(text[len(fixture_md()):].count("\n## "), 2)
         self.assertIn("\n## 九、數字欄\n", text)
-        self.assertTrue(text.endswith("| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| 開 |  | 推測 | 2026-10-19 |\n"))
+        self.assertTrue(text.endswith("| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| 關 |  | 推測 | 2026-10-19 |\n"))
 
     def test_round_trip(self):
         d = profile.defaults(DAY)
@@ -128,7 +128,7 @@ class Parse(unittest.TestCase):
         self.assertEqual(profile.parse_md(md_with(cards=[], exclusions=[])),
                          {"types": [], "card_types": [], "exclusions": [], "synthesis_sections": [], "about": [],
                           "preferences": [], "templates": [], "tags": [], "fields": [],
-                          "money": [{"mode": "on", "places": [], "source": "inferred", "date": DAY}]})
+                          "money": [{"mode": "off", "places": [], "source": "inferred", "date": DAY}]})
 
     def test_missing_section(self):
         text = md_with().replace("## 二、卡型與段落", "## 卡型與段落")
@@ -518,7 +518,9 @@ class SchemaTwo(unittest.TestCase):
         d["types"] = [{"name": "案子", "category": "matter", "note": "", "source": "inferred", "date": DAY}]
         d["synthesis_sections"] = profile.default_sections(d["types"], DAY)
         money_hint = lambda prof: next(x["hint"] for x in synthesis.sections_for(prof, "案子") if x["name"] == "金額")  # noqa: E731
-        self.assertEqual(money_hint(d), "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳", "沒有第十節讀成只記我講的：新提示")
+        self.assertEqual(money_hint(d), "報價、合約總價、付款期別與已付", "新庫第十節是關（#59）：舊提示")
+        d["money"] = [{"mode": "spoken", "places": [], "source": "confirmed", "date": DAY}]
+        self.assertEqual(money_hint(d), "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳")
         d["money"] = [{"mode": "off", "places": [], "source": "confirmed", "date": DAY}]
         self.assertEqual(money_hint(d), "報價、合約總價、付款期別與已付")
         d["synthesis_sections"][0]["sections"][1]["hint"] = "她自己寫的"

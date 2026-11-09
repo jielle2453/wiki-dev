@@ -95,34 +95,34 @@ class Init(unittest.TestCase):
             raw = json.loads((V / profile.PROFILE_POSIX).read_text(encoding="utf-8"))
             self.assertEqual(raw["schema_version"], 7)
             self.assertEqual(raw["fields"], [])
-            self.assertEqual([m["mode"] for m in raw["money"]], ["on"])
+            self.assertEqual([m["mode"] for m in raw["money"]], ["off"])  # 新庫是關（#59）
             md = (V / profile.MD_POSIX).read_text(encoding="utf-8")
             self.assertIn("## 九、數字欄", md)
             tenth = md.split("## 十、記帳", 1)[1]
             self.assertIn("| 狀態 | 地點的型別 | 來源 | 日期 |", tenth)
-            self.assertIn("| 開 |", tenth)
-            self.assertEqual(profile.money_mode(profile.load(V)), "on")
+            self.assertIn("| 關 |", tenth)
+            self.assertEqual(profile.money_mode(profile.load(V)), "off")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
 
 class Upgrade(Base):
-    def test_2_old_vault_gets_spoken(self):
+    def test_2_old_vault_gets_off(self):  # #59：升級補「關」（原本只記我講的）
         data = write_profile(self.V, fields=None, money=None)
         md = (self.V / profile.MD_POSIX).read_text(encoding="utf-8").split("\n## 九、")[0]  # 0.33.0 的 md 只有八節
         (self.V / profile.MD_POSIX).write_text(md, encoding="utf-8", newline="\n")
         data["md_sha256"] = profile.sha256_text(md)
         write_json_atomic(self.V / profile.PROFILE_POSIX, data)
         self.assertEqual(profile.status(self.V)["state"], "ok", "舊 md 少了九、十節不算錯")
-        self.assertEqual(profile.money_mode(profile.load(self.V)), "spoken")
+        self.assertEqual(profile.money_mode(profile.load(self.V)), "off")
         self.assertIn(profile.PROFILE_POSIX, [p["rel"] for p in migrate.pending(self.V)])
         got = migrate.apply(self.V, self.t)
         self.assertIn(profile.PROFILE_POSIX, got["migrated"])
         raw = json.loads((self.V / profile.PROFILE_POSIX).read_text(encoding="utf-8"))
-        self.assertEqual((raw["schema_version"], raw["fields"], raw["money"][0]["mode"]), (7, [], "spoken"))
+        self.assertEqual((raw["schema_version"], raw["fields"], raw["money"][0]["mode"]), (7, [], "off"))
         md = (self.V / profile.MD_POSIX).read_text(encoding="utf-8")
         self.assertIn("## 九、數字欄", md)
-        self.assertIn("| 只記我講的 |", md.split("## 十、記帳", 1)[1])
+        self.assertIn("| 關 |", md.split("## 十、記帳", 1)[1])
         self.assertEqual(profile.status(self.V)["state"], "ok")
         self.assertNotIn(profile.PROFILE_POSIX, [p["rel"] for p in migrate.pending(self.V)])
         again = migrate.apply(self.V, self.t)
