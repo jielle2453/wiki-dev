@@ -337,10 +337,12 @@ def _show_q(fr, unit=""):
     return numbers.show(_num(fr)) + (f" {unit}" if unit else "")
 
 
-def groups_text(groups, base):
-    """[(組的單位, 數)]（主要的那組在前）→「12 瓶＋2 箱（不知道一箱幾瓶）」；只有一組照那組顯示（D-344 補：換不了的分開列）。"""
+def groups_text(groups, base, prof=None, typ=None):
+    """[(組的單位, 數)]（主要的那組在前）→「12 瓶＋2 箱（不知道一箱幾瓶）」；只有一組照那組顯示（D-344 補：換不了的分開列）。
+    分開的那組淨值是 0 不寫（第 5 輪 #31）；大小看不出寫「（不知道盒跟瓶怎麼換）」不猜方向（第 5 輪 #27）。"""
     if not groups:
         return _show_q(Fraction(0), base)
+    groups = groups[:1] + [(u, q) for u, q in groups[1:] if q]
     many = len(groups) > 1
     parts = []
     for i, (u, q) in enumerate(groups):
@@ -348,7 +350,7 @@ def groups_text(groups, base):
         parts.append(text if not i else (MINUS if q < 0 else "＋") + text)
     odd = [u for u, _q in groups if u and u != base]
     if base and odd:
-        return "".join(parts) + "（不知道" + "、".join(f"一{u}幾{base}" for u in odd) + "）"
+        return "".join(parts) + "（不知道" + "、".join(_dunno_bare(prof, typ, u, base) for u in odd) + "）"
     return "".join(parts) + ("（單位不同，沒有加在一起）" if many else "")
 
 
@@ -366,13 +368,11 @@ def _unit_label(u):
 def _ask_pack(prof, typ, name, u, r):
     """問她「大的裝幾個小的」那一步（記帳2 測試第 4 輪 #17）：第九節已有「每u（單位 r）」或「每r（單位 u）」就知道哪個大、
     直接問、設那欄；都沒有就讓 AI 問她哪個大，不猜。設的一律是 每<大的>=<整數>、欄的單位是小的。"""
-    if _field_unit(prof, typ, "每" + u) == r:
-        big, small = u, r
-    elif _field_unit(prof, typ, "每" + r) == u:
-        big, small = r, u
-    else:
+    got = _order(prof, typ, u, r)
+    if got is None:
         return (f"問她一次{u}、{r}哪個大、一個大的裝幾個小的（像一箱幾瓶），答了先 kb profile add 數字欄 型別={typ} "
                 f"欄名=每<大的> 單位=<小的>，再 kb entity field {name} 每<大的>=<整數> --said")
+    big, small = got
     return f"問她一次一{big}幾{small}，答了 kb entity field {name} 每{big}=<整數> --said"
 
 
@@ -383,11 +383,13 @@ def _unit_msg(prof, units, name, prior, new_units, bad):
     old = [u for u, _mid in prior]
     head = (f"「{name}」以前記過的單位：{'、'.join(dict.fromkeys(map(_unit_label, old))) or '（沒有）'}；"
             f"這次是：{'、'.join(dict.fromkeys(map(_unit_label, new_units)))}；換不成同一個單位，沒有寫。")
-    steps, named = [], [u for u in old + list(new_units) if u]
+    steps, named, pairs = [], [u for u in old + list(new_units) if u], set()
     for u in dict.fromkeys(x for x in bad if x):
         g = units.to_base(1, u)[1]
         r = base or next((x for x in named if units.to_base(1, x)[1] != g), "")
-        if r:
+        pair = frozenset((g, units.to_base(1, r)[1]))
+        if r and len(pair) == 2 and pair not in pairs:  # 第 5 輪 #25：跟自己同一組的不問，箱瓶、瓶箱只問一次
+            pairs.add(pair)
             steps.append(_ask_pack(prof, typ, name, u, r))
     blank = list(dict.fromkeys(mid for u, mid in prior if not u))
     if not base and blank and any(new_units):
@@ -413,17 +415,23 @@ def _check_count(prof, ents, data, line):
         raise MoneyRefused(_unit_msg(prof, units, line["entity"], prior, said, bad))
 
 
-def _big_small(prof, typ, u, r):
-    """u、r 哪個大：第九節「每r」的單位是 u 就是 r 大；其餘照 u 大（有基本單位時 r 是基本單位，跟庫存的「一箱幾瓶」同一套）。"""
-    return (r, u) if _field_unit(prof, typ, "每" + r) == u else (u, r)
+def _order(prof, typ, u, r):
+    """u、r 哪個大：第九節有「每u（單位 r）」是 u 大、「每r（單位 u）」是 r 大，回 (大, 小)；看不出回 None（不猜）。"""
+    if _field_unit(prof, typ, "每" + u) == r:
+        return u, r
+    if _field_unit(prof, typ, "每" + r) == u:
+        return r, u
+    return None
+
+
+def _dunno_bare(prof, typ, u, r):
+    got = _order(prof, typ, u, r) if prof is not None else None
+    return f"一{got[0]}幾{got[1]}" if got else f"{u}跟{r}怎麼換"
 
 
 def _dunno(prof, typ, u, r):
-    """換不了的那句：「（不知道一箱幾瓶）」；第九節沒有基本單位又看不出哪個大，不猜：「（不知道箱跟瓶怎麼換）」（第 4 輪 #17）。"""
-    if _field_unit(prof, typ, "每" + u) is None and _field_unit(prof, typ, "每" + r) is None and not base_unit(prof, typ):
-        return f"（不知道{u}跟{r}怎麼換）"
-    big, small = _big_small(prof, typ, u, r)
-    return f"（不知道一{big}幾{small}）"
+    """換不了的那句：第九節看得出哪個大才寫「（不知道一箱幾瓶）」；看不出不猜：「（不知道箱跟瓶怎麼換）」（第 4 輪 #17、第 5 輪 #27）。"""
+    return f"（不知道{_dunno_bare(prof, typ, u, r)}）"
 
 
 ASK_TAIL = "；她不知道就放著，之後不再問（只會分開列，不會加錯）"
@@ -928,13 +936,15 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
         cells = {g: {p: rec[g]["places"].get(p, Fraction(0)) if g in rec else Fraction(0) for p in where} for g in order}
         total = rec[main]["total"] if main in rec else Fraction(0)
         e = entities.find(ents, name)[0]
+        typ = (e or {}).get("type")
         out.append({"name": name, "unit": main, "total": _num(total),
                     "places": {p: _num(v) for p, v in cells[main].items()},
                     "min": entities.field_value(e, "安全庫存") if e else None, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec[g]["total"]), "places": {p: _num(v) for p, v in cells[g].items()}}
                               for g in order[1:]],
-                    "text": groups_text([(g, rec[g]["total"]) for g in order if g in rec], base),
-                    "places_text": {p: groups_text([(g, cells[g][p]) for g in order if cells[g][p] or g == main == base], base)
+                    "text": groups_text([(g, rec[g]["total"]) for g in order if g in rec], base, prof, typ),
+                    "places_text": {p: groups_text([(g, cells[g][p]) for g in order if cells[g][p] or g == main == base], base,
+                                                   prof, typ)
                                     for p in where}})
     return {"products": out}
 
@@ -973,10 +983,26 @@ def _price(ents, name, field):
     return entities.field_value(e, field) if e else None
 
 
+MONEY_UNITS = ("元", "塊", "幣", "圓", "$", "NTD", "TWD", "USD")
+
+
+def _unit_price(prof, ents, units, name, field, calc):
+    """售價、進價換成一個 calc 的價（記帳2 測試第 5 輪 #24）：第九節那欄的單位是錢（元、塊、…幣；「元/瓶」看斜線後面）或沒寫，
+    就是基本單位的價（照舊）；是商品的單位（瓶）就照 factor 換到 calc，換不了回 None（寧可不算，不拿瓶價乘箱數）。"""
+    p = _price(ents, name, field)
+    if p is None:
+        return None
+    u = re.split(r"[/／]", _field_unit(prof, (units.entry or {}).get("type"), field) or "")[-1].strip()
+    if not u or u.upper().endswith(MONEY_UNITS):
+        return _frac(p)
+    f = factor(prof, units.entry, u, calc)
+    return None if f is None else _frac(p) / f
+
+
 def _products(items, ents, prof=None):
     """賣出（收的那筆、數量是負的）：數量、金額（有單價照單價；一個品項的整筆就是它；多品項沒單價照售價分、標估的；沒售價只報數量）、
     毛利（估）＝賣出數量 ×（售價 − 進價），沒進價不算。數量照 Units 換成基本單位（D-344 補）：單價是她講那個單位的價（金額＝單價 ×
-    她講的數），售價、進價是基本單位的；換不了的數量分開放 apart、不算毛利、不拿來分金額。"""
+    她講的數），售價、進價照 _unit_price 換成基本單位的價（第 5 輪 #24，換不了不算）；換不了的數量分開放 apart、不算毛利、不拿來分金額。"""
     prof = prof or {}
     cache, agg, seen = {}, {}, {}
     for it in items:
@@ -1003,9 +1029,9 @@ def _products(items, ents, prof=None):
         rest = [ln for ln in sold if ln.get("unit_price") is None]
         weights = {}
         for ln in rest:
-            p = _price(ents, ln["entity"], "售價")
             q, g, base = base_qty(ln)
-            weights[id(ln)] = None if p is None or g != base else _frac(p) * q
+            p = _unit_price(prof, ents, _units(prof, ents, ln["entity"], cache), ln["entity"], "售價", base)
+            weights[id(ln)] = None if p is None or g != base else p * q
         known = sum((w for w in weights.values() if w is not None), Fraction(0))
         for ln in sold:
             rec = agg.setdefault(ln["entity"], {"groups": {}, "amount": Fraction(0), "estimated": False, "unknown": False})
@@ -1025,13 +1051,14 @@ def _products(items, ents, prof=None):
         base, calc = _units(prof, ents, name, cache).base, calc_base(name)
         main = _pick_main(rec["groups"], calc)
         order = [main] + [g for g in rec["groups"] if g != main]
-        sell, cost = _price(ents, name, "售價"), _price(ents, name, "進價")
-        margin = (_num(rec["groups"][calc] * (_frac(sell) - _frac(cost)))
+        units = _units(prof, ents, name, cache)
+        sell, cost = (_unit_price(prof, ents, units, name, f, calc) for f in ("售價", "進價"))
+        margin = (_num(rec["groups"][calc] * (sell - cost))
                   if sell is not None and cost is not None and calc in rec["groups"] else None)
         amount = None if rec["unknown"] else (_num(Fraction(round(rec["amount"]))) if rec["estimated"] else _num(rec["amount"]))
         out.append({"name": name, "qty": _num(rec["groups"].get(main, Fraction(0))), "unit": main, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec["groups"][g])} for g in order[1:]],
-                    "text": groups_text([(g, rec["groups"][g]) for g in order], base),
+                    "text": groups_text([(g, rec["groups"][g]) for g in order], base, prof, (units.entry or {}).get("type")),
                     "amount": amount, "estimated": rec["estimated"], "margin": margin})
     return out
 
