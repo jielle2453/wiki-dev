@@ -165,13 +165,15 @@ class OpeningBudget(unittest.TestCase):
 
 
 def turn_status(prepare=None, session_id="budget-turn"):
-    """跑 hooks/turn.py（每句開頭，放寬丙 3b），回 additionalContext 的行（沒有輸出回 []）。"""
+    """先跑一次背景比對（電腦排程，D-536），再跑 hooks/turn.py（每句開頭，放寬丙 3b），回 additionalContext 的行（沒有輸出回 []）。"""
     tmp = Path(tempfile.mkdtemp(prefix="kbbudget-"))
     try:
         vault = tmp / "vault"
         shutil.copytree(FIXTURE_VAULT, vault)
         if prepare is not None:
             prepare(vault)
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "kb.py"), "changes", "--background", "--vault", str(vault)],
+                       capture_output=True, cwd=str(vault), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))  # 排程跑過（D-536）
         data = {"session_id": session_id, "cwd": str(vault), "prompt": "問", "hook_event_name": "UserPromptSubmit"}
         r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(data), capture_output=True,
                            text=True, encoding="utf-8", cwd=str(vault), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))

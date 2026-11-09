@@ -1,6 +1,6 @@
 """hooks/session.py 黑箱：subprocess 餵 SessionStart payload（D-087、D-060）。第一行 kb 指令前綴、core.md 全文接在空行後、
 compact 才有摺疊那行、不在知識庫或壞 JSON 無輸出 exit 0、stdout 純 ASCII、2 秒內、hooks.json 註冊。
-清冊題：變動行三種（無、有數字、incomplete）、找不到來源第一次印第二次不印、清冊壞掉其他行照印且 log 一行。"""
+清冊題：變動行（無、有數字；D-536 起讀背景比對的清單）、找不到來源第一次印第二次不印、清冊壞掉其他行照印且 log 一行。"""
 import json
 import os
 import re
@@ -31,9 +31,18 @@ TURN_HOOK = ROOT / "hooks" / "turn.py"
 _SID = [0]
 
 
-def turn_lines(cwd, sid=None):
+def background_scan(cwd):
+    """電腦排程跑的背景比對（D-536）：每句開頭只讀它寫的清單。"""
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "kb.py"), "changes", "--background", "--vault", str(cwd)],
+                       capture_output=True, text=True, encoding="utf-8", cwd=str(cwd), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+    assert (r.returncode, r.stdout, r.stderr) == (0, "", ""), r
+
+
+def turn_lines(cwd, sid=None, scan=True):
     """每句開頭給 AI 的行（放寬丙 3b：變動、卡、標籤、設定檔、找不到的來源、整理提示都挪到 hooks/turn.py）。
-    每次換一個 session，不被「這個對話講過了」擋掉。"""
+    每次換一個 session，不被「這個對話講過了」擋掉。scan：先跑一次背景比對（排程跑過了，D-536）。"""
+    if scan:
+        background_scan(cwd)
     _SID[0] += 1
     data = {"session_id": sid or f"t{_SID[0]}", "cwd": str(cwd), "prompt": "問", "hook_event_name": "UserPromptSubmit"}
     r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(data, ensure_ascii=False), capture_output=True,
@@ -48,6 +57,7 @@ def run_turn_ctx(data):
     """給別的測試檔用：跟 run 一樣收 payload（只用 cwd），但跑 hooks/turn.py（每句開頭，放寬丙 3b），stdout 沒東西時補一個空的
     additionalContext，呼叫端照舊 json.loads。每次換一個 session。"""
     import types
+    background_scan(data["cwd"])
     _SID[0] += 1
     turn_data = {"session_id": f"tc{_SID[0]}", "cwd": data["cwd"], "prompt": "問", "hook_event_name": "UserPromptSubmit"}
     r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(turn_data, ensure_ascii=False), capture_output=True,
@@ -169,14 +179,13 @@ class SessionHook(unittest.TestCase):
 
 
 KB = ROOT / "scripts" / "kb.py"
-CHANGES_INCOMPLETE = "變動還沒比完：下一句接著比，不用跟客戶提。"
 WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
 MISSING = "有 {} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
 MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
       "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # 裁定 15
 DRIFT = ("實體夾有變 {}：跑 kb cards todo --json，照 ingest「實體夾有變」那段處理"
          "（刪了綜合卡照 entity_drift 判斷、做完說一聲），不做卡。")  # D-525 裁定 1；刪綜合卡說一聲 第 2 點
-CHANGE_HEAD = re.compile(r"^(有 \d+ 份|實體夾有變 |變動還沒比完)")
+CHANGE_HEAD = re.compile(r"^(有 \d+ 份|實體夾有變 )")
 SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
 
@@ -194,7 +203,7 @@ def big_xlsx(path, rows, first=1):
 
 
 class OpeningBigOoxml(unittest.TestCase):
-    """審閱裁定 34、測試報告發現一：11 MB 級的 xlsx 改一格後，開場 hook 總時間在 10 秒（SessionStart 逾時）內。"""
+    """審閱裁定 34、測試報告發現一：11 MB 級的 xlsx 改一格後，每句開頭在 10 秒內（D-536 起比對在背景，開頭只讀清單）。"""
 
     def setUp(self):
         self.tmp, self.V, self.raw = make_vault()
@@ -220,11 +229,12 @@ class OpeningBigOoxml(unittest.TestCase):
         big_xlsx(p, 900_000, first=999)
         st = p.stat()
         os.utime(p, (st.st_atime, st.st_mtime + 100))
+        background_scan(self.V)  # 電腦排程跑的，不算在每句開頭
         start = time.monotonic()
-        lines = turn_lines(self.V)  # 變動比對挪到每句開頭（放寬丙 3b）
+        lines = turn_lines(self.V, scan=False)
         elapsed = time.monotonic() - start
         self.assertLess(elapsed, 10.0, f"每句開頭花了 {elapsed:.1f} 秒")
-        self.assertTrue(set(lines) & {CHANGES_INCOMPLETE, WIP.format(1)}, lines)
+        self.assertIn(WIP.format(1), lines)
         r = run(payload(self.V))  # 開場本身不比對、不印變動
         ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertTrue(ctx.endswith(CORE.read_text(encoding="utf-8")))
@@ -278,11 +288,12 @@ class OpeningInventory(unittest.TestCase):
         self.assertRegex(lines[0], r"^有 [1-9]\d* 份新放或改過（製作中）：")
         self.assertTrue(all(ln.startswith("有 ") and "不見" not in ln for ln in lines), lines)
 
-    def test_incomplete_line(self):
-        # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
-        (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")
-        (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣" + chr(10), encoding="utf-8")
-        self.assertEqual(self.change_lines(self.status()), [CHANGES_INCOMPLETE])
+    def test_no_list_no_change_line(self):
+        """D-536：排程還沒跑過（沒有清單）每句開頭不報變動、不記 log；跑過之後下一句才有。"""
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        self.assertEqual(self.change_lines(turn_lines(self.V, scan=False)), [])
+        self.assertFalse((self.V / ".system" / "hook-errors.log").exists())
+        self.assertEqual(self.change_lines(turn_lines(self.V)), [WIP.format(1)])
 
     def test_missing_source_reported_once_then_cleared(self):
         (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
@@ -332,7 +343,7 @@ class OpeningInventory(unittest.TestCase):
         self.assertFalse(any("找不到來源" in ln for ln in lines))
         log = (self.V / ".system" / "hook-errors.log").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(log), 1)
-        self.assertEqual(log[0].split("\t")[1], "turn")
+        self.assertEqual(log[0].split("\t")[1], "scan")  # 背景比對記的（D-536）；每句開頭沒有清單不記
 
     def test_opening_writes_only_env_json(self):
         (self.raw / "客戶案件").rename(self.raw / "客戶案件_舊")
@@ -528,14 +539,6 @@ class OpeningWip(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")  # 新放的（清冊沒有）照算
         self.assertIn(WIP.format(1), turn_lines(self.V, "filter-new"))
 
-    def test_incomplete_line_no_hint(self):
-        # 每句開頭的比對用自己的上限（放寬丙）：讀取上限 1 位元組，改過的檔算不了指紋就是沒比完
-        (self.V / ".system" / "config.json").write_text(json.dumps({"turn_scan_hash_budget_bytes": 1}), encoding="utf-8")
-        (self.raw / "客戶案件" / "a.txt").write_text("改過了，長度不一樣" + chr(10), encoding="utf-8")
-        lines = self.status()
-        self.assertIn(CHANGES_INCOMPLETE, lines)
-        self.assertEqual(self.hint_lines(lines), [])
-
 
 class DailyWip(unittest.TestCase):
     """D-525 第 5 點、驗收 5：每天第一句有製作中才多一行（最多 3 個檔名），沒有不印。"""
@@ -679,7 +682,7 @@ class OpeningProfile(unittest.TestCase):
             self.edit(*change)
             self.assertTrue(self.profile_lines())
             after = stamps()
-            self.assertEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/"))}
+            self.assertEqual({k for k in after if before.get(k) != after[k] and not k.startswith((".system/turns/", ".system/journal/", ".system/renders", ".system/versions/", ".system/local/"))}
                              - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertEqual(self.md.read_text(encoding="utf-8").count("| 工地 | 事 |"), 1)
 

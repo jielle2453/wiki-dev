@@ -4,12 +4,15 @@
 每類最多 10 個名字再「……等 N 份」，--all 全列；之前就不見的另一行（審閱裁定 20）。--json 印 Report 去掉 entries。
 --moved 只列搬動（整夾搬算一件，cards.moved_changes），--json 時印 {moved, incomplete}（放寬丙 5-2）。
 清冊讀不到第一行「清冊讀不到：<原因>」exit 3；找不到知識庫 exit 3。
+背景比對（D-536）：比完寫清單 .system/local/changes.json（changes_list；--quick 沒比完不寫）。--background 是電腦排程跑的：
+全比、不設時間上限、另算製作中與卡的最新修改時間；不印、任何例外寫 hook-errors.log（source scan）、exit 0；另一個在跑就結束。
 """
 import argparse
 import json
+import time
 
 from kb import inventory_cli
-from kb._lib import inventory
+from kb._lib import changes_list, inventory, ledger
 from kb._lib import sources as sources_lib
 
 SHOW = 10
@@ -23,6 +26,7 @@ def add_arguments(sub):
     sub.add_argument("--quick", action="store_true", help="快速比對（開場用的那條路）")
     sub.add_argument("--all", action="store_true", help="列出全部檔名（預設每類最多 10 個）")
     sub.add_argument("--moved", action="store_true", help="只列認出的搬動（整夾搬算一件，帶卡上的實體），給 AI 判斷要不要改掛")
+    sub.add_argument("--background", action="store_true", help="電腦排程用：比完寫清單、不印（AI 不用跑）")
     sub.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -67,7 +71,40 @@ def _moved(vault, report, as_json):
     return 0
 
 
+def _background(args):
+    """排程跑的：不印、exit 0；例外記 hook-errors.log（source scan）。"""
+    vault = None
+    try:
+        vault = inventory_cli.find_vault(args)
+        if vault is None or not changes_list.acquire(vault):
+            return 0
+        try:
+            from kb._lib import cards
+            start = time.monotonic()
+            sources = sources_lib.load(vault)
+            report = inventory.scan(vault, sources)
+            wip = changes_list.wip_summary(cards.wip(vault, sources))
+            changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault))
+        finally:
+            changes_list.release(vault)
+    except Exception as e:  # noqa: BLE001  背景跑的，沒人看得到輸出
+        ledger.log_error(vault, f"背景比對沒跑完：{type(e).__name__}: {str(e)[:200]}", source="scan")
+    return 0
+
+
+def _save(vault, report, seconds):
+    """AI 當場比的也更新清單（沒比完不寫）；寫不了只記 log，不擋這個指令。"""
+    if report["incomplete"]:
+        return
+    try:
+        changes_list.write_carried(vault, report, "changes", seconds)
+    except Exception as e:  # noqa: BLE001
+        ledger.log_error(vault, f"清單沒寫成：{type(e).__name__}: {e}", source="scan")
+
+
 def run(args):
+    if getattr(args, "background", False):
+        return _background(args)
     vault = inventory_cli.find_vault(args)
     if vault is None:
         print(inventory_cli.NOT_IN_VAULT)
@@ -77,11 +114,13 @@ def run(args):
     except ValueError as e:
         print(f"清冊讀不到：{e}")
         return 3
+    start = time.monotonic()
     try:
         report = inventory.scan(vault, sources_lib.load(vault), quick=args.quick)
     except ValueError as e:
         print(f"{sources_lib.SOURCES_REL} 讀不了，請先修好它：{type(e).__name__}: {e}")
         return 3
+    _save(vault, report, time.monotonic() - start)
     if getattr(args, "moved", False):
         return _moved(vault, report, getattr(args, "json", False))
     if getattr(args, "json", False):
