@@ -1,7 +1,7 @@
 {
-  "name": "wiki-with-willy-local",
+  "name": "wiki-with-willy",
   "interface": {
-    "displayName": "wiki-with-willy（本機）"
+    "displayName": "wiki-with-willy"
   },
   "plugins": [
     {

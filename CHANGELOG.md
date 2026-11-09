@@ -11,6 +11,7 @@ bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；�
 - **commit**：3de2108、1959321、8803800（#51）
 - **spec**：design/specs/2026-11-08-拿掉個人.md
 - **關掉的 issue**：#51
+- **Codex 版**（codex 分支，2026-11-09 第一次正式發行，jacky 裁定）：同 0.34.0 的功能，加 OpenAI Codex 的轉接（hooks 用 Codex 格式、`apply_patch`／`view_image` 照檔判、密碼動作改成客戶下一句同意才做、製卡者自己 `cards batch --done` 收批）；從 `jielle2453/wiki-with-willy` 的 `codex` 分支以 git 市集安裝，步驟在 `安裝-Codex.md`。spec：design/specs/2026-11-07-Codex版.md
 
 ## 0.33.0 — 2026-11-08
 - **給客戶的一句話**：請 willy 改你原本的 Word、Excel、PowerPoint，關著的檔改好直接蓋回去、檔名不變，改之前那份存在同一個夾叫「（版本一）」「（版本二）」，說「退回」就換回來，改完會問你要不要刪舊版本；開著的檔照舊直接改你視窗裡那份。現在也能好幾個人一起用同一個知識庫：一個人用的照常，建置時說有 2 人以上，willy 會記每台是誰、各記各的再用 git 同步，日程分全隊的和你自己的。問 willy 某個案子或人時，回答也少跑一步、快一點。
