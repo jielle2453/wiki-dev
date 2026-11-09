@@ -115,6 +115,12 @@ test('首頁：庫存不足點了開商品的卡、公司還欠你點了開帳�
   assert.strictEqual(byClass(none.view.root, 'wwh-money-link').length, 0, '帳關著而且沒有任何筆時不出');
 });
 
+test('首頁：庫存不足照 kb 給的 text 顯示，換不了的分開列（D-344 補）', () => {
+  const split = { today: '2026-11-23', todo: { stock: [{ entity: '精華液', stock: 12, min: 20, unit: '瓶', text: '12 瓶＋2 箱（不知道一箱幾瓶）', places: {} }] } };
+  const { view } = makeHomePlugin(split);
+  assert.ok(byText(view.root, '精華液剩 12 瓶＋2 箱（不知道一箱幾瓶）（安全庫存 20）').length > 0);
+});
+
 const PANEL = {
   entity: '李小姐',
   type: '顧客',

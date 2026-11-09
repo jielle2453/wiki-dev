@@ -133,15 +133,16 @@ def _todo(vault, items, today, card_of=None, money_items=(), link=None, ents=Non
 
 
 def _stock_todo(vault, ent_data):
-    """庫存不足（D-282）：合計低於安全庫存的商品，補了自動消失；card 是那個商品的綜合卡（點了開它）。"""
+    """庫存不足（D-282）：合計低於安全庫存的商品，補了自動消失；card 是那個商品的綜合卡（點了開它）。只比換得到基本單位的那組，
+    text 是「12 瓶＋2 箱（不知道一箱幾瓶）」（D-344 補，同 money.low_stock）。"""
     from kb._lib import money
     out = []
     for p in money.stock(vault)["products"]:
-        if p.get("min") is None or p["total"] >= p["min"]:
+        if p.get("min") is None or p["unit"] != p["base"] or p["total"] >= p["min"]:
             continue
         e = entities.find(ent_data, p["name"])[0]
         card = entities.locate(vault, e, ent_data) if e is not None and e.get("type") else None
-        out.append({"entity": money._label(ent_data, p["name"]), "stock": p["total"], "min": p["min"], "unit": p["unit"], "places": p["places"],
+        out.append({"entity": money._label(ent_data, p["name"]), "stock": p["total"], "min": p["min"], "unit": p["unit"], "text": p["text"], "places": p["places"],
                     "card": card})
     return out
 

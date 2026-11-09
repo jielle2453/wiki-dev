@@ -79,11 +79,12 @@ class Add(MoneyBase):
 
     def test_6_units(self):
         it = self.add("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "益生菌 +2箱")["item"]
-        self.assertEqual(it["lines"][0]["qty"], 48)
-        r = self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2箱", code=3)
+        self.assertEqual((it["lines"][0]["qty"], it["lines"][0]["unit"]), (2, "箱"))
+        self.assertEqual(self.kbj("money", "stock", "益生菌")["products"][0]["total"], 48)
+        self.add("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +3瓶", "--new")
+        r = self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2箱", "--new",
+                    code=3)
         self.assertIn("kb entity field 精華液 每箱=", r.stdout)
-        it = self.add("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +3瓶", "--new")["item"]
-        self.assertEqual(it["lines"][0]["qty"], 3)
 
     def test_8_low_stock(self):
         self.add("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +6", "--item", "膠囊 +6")

@@ -72,16 +72,16 @@ def wip_lines(got):
 
 def _money_line(m):
     """「帳：累計收 48,600｜未收 1,800；庫存 17 瓶（北店 12、南店 5）」（記帳 2 第 7 點）；什麼都沒有回 None。"""
-    from kb._lib import numbers
+    from kb._lib import money, numbers
     sums = [f"{label} {numbers.show(m[k])}" for k, label in (("in", "累計收"), ("out", "累計付"), ("open_in", "未收"),
                                                                ("open_out", "未付")) if m.get(k)]
     parts = ["｜".join(sums)] if sums else []
     st = m.get("stock")
     if isinstance(st, dict):
-        where = "、".join(f"{k} {numbers.show(v)}" for k, v in st["places"].items())
-        parts.append(f"庫存 {numbers.show(st['total'])}{(' ' + st['unit']) if st['unit'] else ''}" + (f"（{where}）" if where else ""))
+        where = money.places_line(st)
+        parts.append(f"庫存 {st['text']}" + (f"（{where}）" if where else ""))
     elif st:
-        parts.append("庫存：" + "、".join(f"{p['name']} {numbers.show(next(iter(p['places'].values()), 0))}" for p in st))
+        parts.append("庫存：" + "、".join(f"{p['name']} {next(iter(p['places_text'].values()), p['text'])}" for p in st))
     return "帳：" + "；".join(parts) if parts else None
 
 

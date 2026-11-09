@@ -115,15 +115,14 @@ def _by(conversation):
     return "ai" if conversation else "program"
 
 
-def _with_extras(vault, it, payload, lines, said=None):
-    """寫入成功：帶 tell 與 low_stock（有才有）；said 是她原本講的品項，換算過的括號講出來（D-344）。"""
-    payload["tell"] = "記下：" + money.describe(vault, it, said=money.said_text(said) if said else None)
+def _with_extras(vault, it, payload, lines):
+    """寫入成功：帶 tell 與 low_stock（有才有）；品項換算過的成功句會講出來（「精華液 +2 箱（48 瓶）」，D-344 補）。"""
+    payload["tell"] = "記下：" + money.describe(vault, it)
     names = [ln["entity"] for ln in it.get("lines") or [] if (ln.get("qty") or 0) < 0]
     low = money.low_stock(vault, names) if names else []
     if low:
         payload["low_stock"] = low
-        lines += [f"{x['entity']}剩 {numbers.show(x['stock'])}{(' ' + x['unit']) if x['unit'] else ''}，低於安全庫存 "
-                  f"{numbers.show(x['min'])}" for x in low]
+        lines += [f"{x['entity']}剩 {x['text']}，低於安全庫存 {numbers.show(x['min'])}" for x in low]
     return payload, lines
 
 
@@ -134,7 +133,7 @@ def _add(vault, args, as_json, conversation, turn_id):
     if not created:
         _out(as_json, [f"帳裡已經有這筆：{money.describe(vault, it)}"], {"item": it, "created": False})
         return 0
-    payload, lines = _with_extras(vault, it, {"item": it, "created": True}, [], said=args.item)
+    payload, lines = _with_extras(vault, it, {"item": it, "created": True}, [])
     lines.insert(0, payload["tell"])
     changed = list(CHANGED)
     if args.unsure:
@@ -164,8 +163,7 @@ def _settle(vault, args, as_json, conversation, turn_id):
 def _edit(vault, args, as_json, conversation, turn_id):
     after, before = money.edit(vault, args.id, turn_id, by=_by(conversation), amount=args.amount, date=args.date, due=args.due,
                                entities=args.entity, items=args.item, advanced_by=args.advanced_by, text=args.text, note=args.note)
-    said = money.said_text(args.item) if args.item else None
-    payload = {"item": after, "changed": before != after, "tell": "已改：" + money.describe(vault, after, said=said)}
+    payload = {"item": after, "changed": before != after, "tell": "已改：" + money.describe(vault, after)}
     lines = [payload["tell"] if payload["changed"] else "沒有要改的：" + money.describe(vault, after)]
     if args.due and before.get("due") and before.get("due") != after.get("due"):
         rel = money.related_agenda(vault, after.get("entities"), before["due"])
@@ -275,7 +273,7 @@ def _list(vault, args, as_json):
         print(json.dumps({"items": items, "conflicts": streams.conflicts_of(vault, "money")}, ensure_ascii=False))
         return 0
     prof, ents = money._profile(vault), money._ents(vault)
-    print("\n".join(f"- {money.describe(vault, i, prof, ents, data=data)}" for i in items) if items else "帳是空的")
+    print("\n".join(f"- {money.describe(vault, i, prof, ents)}" for i in items) if items else "帳是空的")
     return 0
 
 
@@ -298,7 +296,7 @@ def _sum(vault, args, as_json):
                      + (f"（{d['pct']}%）" if d["pct"] is not None else ""))
     for p in got["products"]:
         amt = "" if p["amount"] is None else f"、{numbers.show(p['amount'])}{'（估）' if p['estimated'] else ''}"
-        lines.append(f"- {p['name']} 賣出 {numbers.show(p['qty'])}{amt}")
+        lines.append(f"- {p['name']} 賣出 {p['text']}{amt}")
     _out(as_json, lines, got)
     return 0
 
@@ -307,9 +305,8 @@ def _stock(vault, args, as_json):
     got = money.stock(vault, args.product, place=args.place)
     lines = []
     for p in got["products"]:
-        unit = p["unit"] or ""
-        where = "、".join(f"{k} {numbers.show(v)}" for k, v in p["places"].items())
-        lines.append(f"- {p['name']} {numbers.show(p['total'])}{(' ' + unit) if unit else ''}" + (f"（{where}）" if where else ""))
+        where = money.places_line(p)
+        lines.append(f"- {p['name']} {p['text']}" + (f"（{where}）" if where else ""))
     _out(as_json, lines or ["還沒有庫存的紀錄"], got)
     return 0
 

@@ -2770,7 +2770,8 @@ class HomeView extends ItemView {
   /** 庫存不足（D-282）：沒有勾選框，點了開那個商品的卡；補了貨 kb 就不給了。 */
   stockRow(it) {
     const unit = it.unit ? ` ${it.unit}` : '';
-    const text = `${it.entity || ''}剩 ${money(it.stock)}${unit}（安全庫存 ${money(it.min)}）`;
+    const amount = typeof it.text === 'string' && it.text ? it.text : `${money(it.stock)}${unit}`; // D-344 補：換不了的分開列
+    const text = `${it.entity || ''}剩 ${amount}（安全庫存 ${money(it.min)}）`;
     const open = () => (it.card ? this.plugin.openPathInVault(it.card) : this.plugin.openEntity(it.entity));
     return h('div', { cls: ['wwh-todo', 'is-stock'] }, h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開這個商品的卡', text, on: { click: open } })));
   }
