@@ -283,5 +283,18 @@ class ReadRanges(unittest.TestCase):
         self.assertIn("取 `read_ranges`，照第一節的讀法讀、紀事不讀", find)  # 第九節照條件找也一樣
 
 
+class MoneyConfirm(unittest.TestCase):
+    """記帳確認報告 #1、#2、#7：欠多少、還沒收的走 money list --open 不帶區間；多人「還欠我」用 --advanced-by 我；
+    sum 的 missing 要講。"""
+
+    def setUp(self):
+        self.text = REFS["find.md"].read_text(encoding="utf-8")
+
+    def test_owed_and_me_and_missing(self):
+        for want in ("kb money list --open --json", "不帶 `--from --to`", "--advanced-by 我", "`missing`", "不限區間"):
+            with self.subTest(want=want):
+                self.assertIn(want, self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

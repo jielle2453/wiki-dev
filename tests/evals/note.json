@@ -2,7 +2,7 @@
   {"query": "9/25 下午兩點我要跟王先生去看磁磚，幫我記一下，別到時候忘了", "should_trigger": true},
   {"query": "我答應了大安陳 10/10 前給他第二版報價，這個要記", "should_trigger": true},
   {"query": "信義王的交屋日改成 12/10 了，之前記的 11/30 不對", "should_trigger": true},
-  {"query": "第二期款他們已經付了，不用再提醒我", "should_trigger": true},
+  {"query": "王先生的尾款 12 萬今天付了，幫我記一筆", "should_trigger": true},
   {"query": "信義王這案子結案了，尾款也收完", "should_trigger": true},
   {"query": "大安陳先暫停，業主出國到年底才回來", "should_trigger": true},
   {"query": "以後我出的報價單一律要附有效日期，你記住", "should_trigger": true},

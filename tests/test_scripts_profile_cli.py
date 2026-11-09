@@ -337,7 +337,7 @@ class SchemaTwoApply(Base):
         rows = [(s["type"], x["name"], s["source"]) for s in self.data()["synthesis_sections"] for x in s["sections"]]
         self.assertIn(("工地", "時程", "inferred"), rows)
         self.assertIn(("工地", "金額", "inferred"), rows)
-        self.assertIn("| 工地 | 時程 |  | 開始、重要日期、預計結束 | 推測 |", self.md_text())
+        self.assertIn("| 工地 | 時程 |  | 工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳 | 推測 |", self.md_text())  # 記帳 3（D-279）的新提示
         self.drop_line("| 案子 | 時程 |")
         self.drop_line("| 案子 | 金額 |")
         self.apply()
@@ -404,7 +404,8 @@ class Edit(Base):
         self.assertIn("## 六、偏好", lines)
         self.assertIn("| 案子 | 事 |  | 推測 | 2026-10-19 |", lines)
         data = json.loads(self.kb("show", "--json").stdout)
-        self.assertEqual([s["name"] for s in data["sections"]], ["型別", "卡型", "不整理與敏感", "每類段落", "關於你", "偏好", "範本", "標籤"])
+        self.assertEqual([s["name"] for s in data["sections"]], ["型別", "卡型", "不整理與敏感", "每類段落", "關於你", "偏好", "範本", "標籤",
+                                                                  "數字欄", "記帳"])
         self.assertIsNone(data["pending_edit"])
         self.assertEqual(data["sections"][5]["limits"],
                          {"opening": {"count": 20, "chars": 1000, "used_count": 0, "used_chars": 0},
@@ -480,7 +481,7 @@ class Edit(Base):
 
     def test_bad_section_column_and_argument(self):
         before = self.hashes()
-        self.assertEqual(self.refused("add", "偏好啦", "偏好=x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
+        self.assertEqual(self.refused("add", "偏好啦", "偏好=x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤、數字欄、記帳")
         self.assertEqual(self.refused("add", "偏好", "名稱=x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好、用在哪、序號")
         self.assertEqual(self.refused("add", "偏好", "回答先講結論"), "「回答先講結論」要寫成 欄=值")
         self.assertEqual(self.refused("remove", "卡型", "卡型=估價單"), "沒有這一列：卡型=估價單")

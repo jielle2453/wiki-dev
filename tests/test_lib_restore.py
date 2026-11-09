@@ -100,6 +100,18 @@ class Check(Base):
         (self.V / "CLAUDE.md").write_text("原本的說明\n", encoding="utf-8")
         self.assertEqual(restore.check(self.V, str(z))["skeleton_changed"], [])
 
+    def test_money_counted(self):
+        """記帳 3：帳也比（沒取消的每一筆），說法同工作日誌，不印編號。"""
+        write_json(self.V / SYSTEM / "money.json", {"schema_version": 1, "items": [
+            {"id": "m-00000001", "dir": "in", "amount": 5000, "status": "done", "date": "2026-10-30", "entities": ["李小姐"],
+             "text": "賣出", "lines": []},
+            {"id": "m-00000002", "dir": "out", "amount": 800, "status": "cancelled", "date": "2026-10-30", "entities": [],
+             "text": "取消的", "lines": []}]})
+        got = restore.check(self.V, str(self.zip))
+        self.assertEqual(got["lose"]["money"], 1)
+        self.assertEqual(got["examples"]["money"], ["10/30 收 5,000 李小姐 賣出"])
+        self.assertIn("帳：會不見 1 筆（「10/30 收 5,000 李小姐 賣出」）", restore.lines(got))
+
     def test_back_side_counts_what_comes_back(self):
         file_card(self.V, "7777", "會回來的卡")
         z = _backup.make_zip(self.V, self.B, "vault備份 2026-10-02.zip")
