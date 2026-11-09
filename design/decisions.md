@@ -3384,7 +3384,7 @@
 
 ## D-535 讓 Python 把 .pyc 寫進 plugin 自己的夾：拿掉 `dont_write_bytecode`（#62）
 - 日期：2026-11-09
-- 狀態：willy設計 提案，待 jacky 說可以。走輕流程。
+- 狀態：定案（jacky 2026-11-09 說「可以」，willy主管 轉達）。走輕流程。
 - 起因：壓力測試（2026-11-09）每次叫 kb 都重編約 77 個模組；已安裝的 plugin 幾乎沒有 .pyc。
 - 查過：`dont_write_bytecode` 從建殼 spec（2026-10-12）就在 `kb.py`，之後每支 hook 照抄，`test_repo_hygiene` 守著；decisions、incidents、backlog、commit 訊息都沒寫理由。kb 與 hook 都是 `python <plugin>/scripts/kb.py`、`python <plugin>/hooks/*.py` 跑，import 的模組全在 plugin 夾，`__pycache__` 只會落在 plugin 夾（`~\.claude\plugins\cache\…\<版本>\`，使用者可寫），不會落在知識庫或原檔夾。
 - 選了：拿掉 `kb.py` 與 `hooks/*.py` 的 `sys.dont_write_bytecode = True`；`test_repo_hygiene` 改成守「不准有」。
