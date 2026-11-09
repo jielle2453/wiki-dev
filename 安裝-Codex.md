@@ -4,6 +4,21 @@
 給誰看：替客戶安裝的服務人員。Claude Code 版的安裝看 README.md。
 什麼時候更新：實機測過、Codex 改了外掛或 hook 的做法時。
 
+## 零、請 Codex 幫你裝（最快）
+
+在 Codex 開一個對話（哪個資料夾都可以），把下面這段整段貼給它：
+
+```
+請照 https://github.com/jielle2453/wiki-dev/blob/codex/安裝-Codex.md 幫我安裝 wiki-with-willy 的 Codex 版：
+1. 先跑 python --version、git --version 確認都有（Python 要 3.10 以上），缺的告訴我怎麼裝，先不要往下。
+2. 跑 codex plugin marketplace add https://github.com/jielle2453/wiki-dev --ref codex
+3. 跑 codex plugin add wiki-with-willy@wiki-with-willy-local
+4. 告訴我第二節第 4 步的沙盒設定要怎麼改，等我說好再改。
+5. 最後提醒我：要我自己打 /hooks 信任 6 個 hook、再開新對話；這兩步你不能代做。
+```
+
+**AI 不能代做、一定要人做的**：在 `/hooks` 按信任（Codex 刻意設計成只能人按），以及裝好後開新對話。改沙盒設定是放寬隔離，AI 會先問過你。
+
 ## 一、事前確認
 
 | 項目 | 怎麼確認 | 為什麼 |
