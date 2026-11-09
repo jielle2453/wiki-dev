@@ -280,8 +280,8 @@ class UnitsBase(MoneyBase):
 
 
 class Units6(UnitsBase):
-    """驗收 6（D-344 與 11-09 補）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項照她講的存 qty、unit，算的時候才換；
-    換不到同一組的單位寫入時退回、不寫。"""
+    """驗收 6（D-344 與 11-09 補、再補）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項照她講的存 qty、unit，算的時候才換；
+    換不到同一組的單位照記、分開列，成功句帶「（不知道一箱幾瓶）」、unit_ask 教 AI 問一次；盤點換不了才退回。"""
 
     def test_6_pack_stored_as_said_stock_converts(self):
         out = self.buy("益生菌 +2箱")
@@ -296,20 +296,28 @@ class Units6(UnitsBase):
         st = money.stock(self.V, "益生菌")["products"][0]
         self.assertEqual((st["total"], st["unit"], st["apart"], st["text"]), (54, "瓶", [], "54 瓶"))
 
-    def test_6_other_unit_after_base_refused_profile_first(self):
+    def test_6_other_unit_after_base_written_with_ask(self):
         self.buy("膠囊 +2瓶")
-        r = self.buy("膠囊 +2箱", code=3)
-        self.assertIn("kb entity field 膠囊 每箱=", r.stdout)
-        self.assertNotIn("kb profile add", r.stdout)  # 第九節已有每箱
-        self.assertIn("瓶", r.stdout)
-        self.assertIn("一箱幾瓶", r.stdout)  # 第 4 輪 #17：第九節的每箱（單位瓶）看得出箱大，直接問
-        self.assertIn("kb entity field 膠囊 每箱=<整數> --said", r.stdout)
-        r = self.buy("膠囊 +2盒", code=3)
+        self.assertNotIn("unit_ask", self.buy("膠囊 +1瓶"))  # 換得了的不問
+        out = self.buy("膠囊 +2箱")  # 再補：不擋，照記、分開列
+        self.assertIn("膠囊 +2 箱（不知道一箱幾瓶）", out["tell"])
+        ask = "\n".join(out["unit_ask"])
+        self.assertNotIn("kb profile add", ask)  # 第九節已有每箱
+        self.assertIn("一箱幾瓶", ask)  # 第 4 輪 #17：第九節的每箱（單位瓶）看得出箱大，直接問
+        self.assertIn("kb entity field 膠囊 每箱=<整數> --said", ask)
+        self.assertNotIn("照原句再記", ask)
+        r = self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "膠囊 +2盒", "--new")
         add = r.stdout.index("kb profile add 數字欄 型別=產品 欄名=每<大的> 單位=<小的>")
         self.assertLess(add, r.stdout.index("kb entity field 膠囊 每<大的>=<整數> --said"))  # #16：先 profile add 再 entity field
         self.assertIn("盒、瓶哪個大", r.stdout)  # 第 4 輪 #17：大小不知道讓 AI 問她，不猜
+        self.assertIn("膠囊 +2 盒（不知道一盒幾瓶）", r.stdout)  # 有基本單位：跟庫存同一套字
         self.assertNotIn("每盒", r.stdout)
-        self.assertEqual(self.lines_of("膠囊"), [(2, "瓶")])
+        self.assertEqual(self.lines_of("膠囊"), [(2, "瓶"), (1, "瓶"), (2, "箱"), (2, "盒")])
+        st = money.stock(self.V, "膠囊")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (3, "瓶"))
+        self.assertEqual([(a["qty"], a["unit"]) for a in st["apart"]], [(2, "箱"), (2, "盒")])
+        self.kb("entity", "field", "膠囊", "每箱=12", "--said")  # 答了：舊帳照新欄算
+        self.assertEqual(money.stock(self.V, "膠囊")["products"][0]["total"], 27)
 
     def test_6_one_unit_only_written_shown_apart(self):
         self.buy("膠囊 +2箱")  # 只用一種單位：照記不問
@@ -333,7 +341,19 @@ class Units6(UnitsBase):
         self.assertEqual((ln["qty"], ln["unit"]), (1, "箱"))  # 差 24 瓶剛好一箱：存她講的單位
         self.assertEqual(money.stock(self.V, "益生菌")["products"][0]["total"], 48)
         self.buy("膠囊 +3瓶")
-        self.kb("money", "count", "膠囊", "--actual", "2箱", code=3)
+        r = self.kb("money", "count", "膠囊", "--actual", "2箱", code=3)  # 盤點例外：換不了照舊退回
+        self.assertIn("一箱幾瓶", r.stdout)
+        self.assertEqual(self.lines_of("膠囊"), [(3, "瓶")])
+
+    def test_6_count_refused_when_already_apart(self):
+        self.buy("膠囊 +3瓶")
+        self.buy("膠囊 +1箱")  # 記帳照記、分開列
+        r = self.kb("money", "count", "膠囊", "--actual", "5瓶", code=3)  # 盤點要對得上合計：換不成同一組就退回
+        self.assertIn("一箱幾瓶", r.stdout)
+        self.assertEqual(self.lines_of("膠囊"), [(3, "瓶"), (1, "箱")])
+        self.kb("entity", "field", "膠囊", "每箱=12", "--said")
+        out = self.kbj("money", "count", "膠囊", "--actual", "20瓶")
+        self.assertEqual(out["diff"], 5)
 
     def test_6_unit_price_and_margin_convert(self):
         self.kb("entity", "field", "精華液", "每箱=10", "--said")
@@ -362,55 +382,77 @@ class Units6(UnitsBase):
         self.assertIn("庫存 12 瓶＋2 箱（不知道一箱幾瓶）", self.kb("lookup", "精華液").stdout)
         self.assertIn("精華液 12 瓶＋2 箱（不知道一箱幾瓶）", self.kb("money", "stock", "精華液").stdout)
         self.assertIn("精華液 +2 箱（不知道一箱幾瓶）", self.kb("money", "list").stdout)
-        # 第 4 輪 #20、#21：已經分開列的，再記用過的單位（含基本單位）照記，同一筆的收款也不擋；只有沒用過的新單位退回
+        # 第 4 輪 #20、#21 與 D-344 再補：已經分開列的、沒用過的新單位都照記，同一筆的收款也不擋
         self.buy("精華液 -1瓶")
         self.add("--dir", "收", "--amount", "1800", "--entity", "李小姐", "--item", "精華液 -1箱")
         self.assertEqual(money.stock(self.V, "精華液")["products"][0]["text"], "11 瓶＋1 箱（不知道一箱幾瓶）")
-        self.buy("精華液 +1盒", code=3)
+        out = self.buy("精華液 +1盒")
+        self.assertTrue(out["unit_ask"])
+        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["text"],
+                         "11 瓶＋1 箱＋1 盒（不知道一箱幾瓶、一盒幾瓶）")
 
 
 class Units6NoSection9(UnitsBase):
-    """驗收 6（D-344 補）：第九節什麼都沒設的店：照她講的記；各單位分開，換不到同一組的退回。"""
+    """驗收 6（D-344 補、再補）：第九節什麼都沒設的店：照她講的記；各單位分開列，換不到同一組的照記、成功句與 unit_ask 教 AI 問一次。"""
 
     def setUp(self):
         super().setUp()
         write_profile(self.V, fields=[], money=money_row("on"))
 
-    def test_6_same_unit_ok_other_refused(self):
+    def test_6_same_unit_ok_other_written_apart(self):
         self.buy("精華液 +2瓶")
-        self.buy("精華液 +3瓶")
-        r = self.buy("精華液 +2箱", code=3)
-        add = r.stdout.index("kb profile add 數字欄 型別=產品 欄名=每<大的> 單位=<小的>")  # 第 4 輪 #17：大小讓 AI 問她
-        field = r.stdout.index("kb entity field 精華液 每<大的>=<整數> --said")
-        self.assertLess(add, field)
-        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (3, "瓶")])  # 不寫
+        out = self.buy("精華液 +3瓶")
+        self.assertNotIn("unit_ask", out)  # 只用一種單位：照記不問
+        out = self.buy("精華液 +2箱")  # 再補：不擋
+        self.assertIn("精華液 +2 箱", out["tell"])
+        self.assertIn("（不知道箱跟瓶怎麼換）", out["tell"])  # 第九節沒設：不知道哪個大，不猜（第 4 輪 #17）
+        ask = "\n".join(out["unit_ask"])
+        add = ask.index("kb profile add 數字欄 型別=產品 欄名=每<大的> 單位=<小的>")  # 第 4 輪 #17：大小讓 AI 問她
+        self.assertLess(add, ask.index("kb entity field 精華液 每<大的>=<整數> --said"))
+        self.assertIn("箱、瓶哪個大", ask)
+        self.assertIn("不知道就放著", ask)
+        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (3, "瓶"), (2, "箱")])
         st = money.stock(self.V, "精華液")["products"][0]
         self.assertEqual((st["total"], st["unit"]), (5, "瓶"))
-        self.assertIn("庫存 5 瓶", self.kb("lookup", "精華液").stdout)
-        self.assertIn("精華液 5 瓶", self.kb("money", "stock", "精華液").stdout)
-
-    def test_6_11_no_unit_first_then_box_refused(self):
-        mid = self.buy("精華液 +3")["item"]["id"]
-        r = self.buy("精華液 +2箱", code=3)
-        self.assertIn("kb money edit", r.stdout)
-        self.assertIn(mid, r.stdout)
-        self.assertEqual(self.lines_of("精華液"), [(3, "")])
-        self.kb("money", "edit", mid, "--item", "精華液 +3箱")  # 她說那 3 是箱
-        self.buy("精華液 +2箱")
+        self.assertEqual([(a["qty"], a["unit"]) for a in st["apart"]], [(2, "箱")])
+        self.assertIn("庫存 5 瓶＋2 箱", self.kb("lookup", "精華液").stdout)
+        self.assertIn("精華液 5 瓶＋2 箱", self.kb("money", "stock", "精華液").stdout)
+        # 同一筆的收款照記
+        out = self.add("--dir", "收", "--amount", "3600", "--entity", "李小姐", "--item", "精華液 -1箱")
+        self.assertEqual((out["item"]["amount"], out["item"]["lines"][0]["unit"]), (3600, "箱"))
+        self.assertTrue(out["unit_ask"])
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")  # 答了：舊帳照新欄算成一組
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
         st = money.stock(self.V, "精華液")["products"][0]
-        self.assertEqual((st["total"], st["unit"]), (5, "箱"))
+        self.assertEqual((st["total"], st["unit"], st["apart"]), (29, "瓶", []))
+        self.assertNotIn("unit_ask", self.buy("精華液 +1箱"))
 
-    def test_6_no_unit_after_unit_refused(self):
+    def test_6_11_no_unit_first_then_box_apart(self):
+        mid = self.buy("精華液 +3")["item"]["id"]
+        out = self.buy("精華液 +2箱")
+        ask = "\n".join(out["unit_ask"])
+        self.assertIn("kb money edit", ask)
+        self.assertIn(mid, ask)
+        self.assertEqual(self.lines_of("精華液"), [(3, ""), (2, "箱")])
+        self.assertIn("3（沒寫單位）＋2 箱", money.stock(self.V, "精華液")["products"][0]["text"])
+        self.kb("money", "edit", mid, "--item", "精華液 +3箱")  # 她說那 3 是箱
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"], st["apart"]), (5, "箱", []))
+
+    def test_6_no_unit_after_unit_written(self):
         self.buy("精華液 +2瓶")
-        r = self.buy("精華液 -1", code=3)
-        self.assertIn("沒寫單位", r.stdout)
+        out = self.buy("精華液 -1")
+        self.assertIn("沒寫單位", out["tell"])
+        ask = "\n".join(out["unit_ask"])
+        self.assertIn("是不是瓶", ask)
+        self.assertIn(f"kb money edit {out['item']['id']}", ask)
 
     def test_6_12_box_then_bottles_no_drift(self):
         self.buy("精華液 +2箱")
-        self.buy("精華液 -24瓶", code=3)
+        out = self.buy("精華液 -24瓶")  # 照記、分開列
+        self.assertIn("（不知道瓶跟箱怎麼換）", out["tell"])
         self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
-        self.buy("精華液 -24瓶")
         st = money.stock(self.V, "精華液")["products"][0]
         self.assertEqual((st["total"], st["unit"], st["text"]), (24, "瓶", "24 瓶"))
         self.buy("精華液 -72瓶")
@@ -434,7 +476,7 @@ class Units6NoSection9(UnitsBase):
         st = money.stock(self.V, "精華液")["products"][0]
         self.assertEqual(st["text"], "2 箱（不知道一箱幾瓶）")
         self.assertEqual(money.low_stock(self.V, ["精華液"]), [])  # 換不了的不跟安全庫存比
-        self.buy("精華液 +10瓶")  # 第 4 輪 #20：基本單位當作用過，照記；#13：不會悄悄 2+10
+        self.buy("精華液 +10瓶")  # 照記；#13：不會悄悄 2+10
         self.assertEqual(money.stock(self.V, "精華液")["products"][0]["text"], "10 瓶＋2 箱（不知道一箱幾瓶）")
         self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
@@ -444,32 +486,47 @@ class Units6NoSection9(UnitsBase):
     def test_6_14_pack_value_without_section9_not_silent(self):
         self.buy("益生菌 +2箱")  # 實體有每箱=24，第九節沒欄：沒有基本單位，照記
         self.assertEqual(money.stock(self.V, "益生菌")["products"][0]["text"], "2 箱")
-        self.buy("益生菌 +24瓶", code=3)
+        out = self.buy("益生菌 +24瓶")  # 照記、分開列，不會悄悄加成 3 箱
+        self.assertIn("kb profile add 數字欄", "\n".join(out["unit_ask"]))
+        self.assertIn("2 箱＋24 瓶", money.stock(self.V, "益生菌")["products"][0]["text"])
 
-    def test_6_two_units_in_one_add_refused(self):
-        self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2瓶",
-                "--item", "精華液 +1箱", code=3)
-        self.assertEqual(self.live(), [])
+    def test_6_two_units_in_one_add_written(self):
+        out = self.add("--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2瓶", "--item", "精華液 +1箱",
+                       "--new")
+        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (1, "箱")])
+        self.assertEqual(len(out["unit_ask"]), 1)
+        self.assertIn("（不知道箱跟瓶怎麼換）", out["tell"])
 
     def test_6_edit_ignores_itself(self):
         mid = self.buy("精華液 +2箱")["item"]["id"]
-        self.kb("money", "edit", mid, "--item", "精華液 +5瓶")
+        out = self.kbj("money", "edit", mid, "--item", "精華液 +5瓶")
         self.assertEqual(self.lines_of("精華液"), [(5, "瓶")])
+        self.assertNotIn("unit_ask", out)
+
+    def test_6_edit_to_other_unit_asks(self):
+        self.buy("精華液 +2瓶")
+        mid = self.buy("精華液 +1瓶")["item"]["id"]
+        out = self.kbj("money", "edit", mid, "--item", "精華液 +1箱")
+        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (1, "箱")])
+        self.assertIn("（不知道箱跟瓶怎麼換）", out["tell"])
+        self.assertTrue(out["unit_ask"])
 
     def test_6_cancelled_not_counted(self):
         mid = self.buy("精華液 +2箱")["item"]["id"]
         self.kb("money", "cancel", mid)
-        self.buy("精華液 +2瓶")
+        self.assertNotIn("unit_ask", self.buy("精華液 +2瓶"))
 
     def test_6_count_no_base(self):
         out = self.kbj("money", "count", "精華液", "--actual", "4瓶")
         self.assertEqual((out["diff"], out["item"]["lines"][0]["unit"]), (4, "瓶"))
-        self.kb("money", "count", "精華液", "--actual", "1箱", code=3)
+        r = self.kb("money", "count", "精華液", "--actual", "1箱", code=3)  # 盤點例外：換不了退回
+        self.assertIn("箱、瓶哪個大", r.stdout)
+        self.assertEqual(self.lines_of("精華液"), [(4, "瓶")])
 
 
 class Units4thRound(UnitsBase):
-    """記帳2 測試第 4 輪（D-344 補之後）：#17 退回句只教「一箱幾瓶」設每<大的>=整數；#18 沒基本單位只講過一種單位那組照算毛利、
-    多品項金額；#20、#21 只有沒用過又換不過去的新單位才退回；#23 地點格不吵、第九節拿掉每箱欄時實體上的值照用。"""
+    """記帳2 測試第 4 輪（D-344 補之後）：#17 問的那句只教「一箱幾瓶」設每<大的>=整數；#18 沒基本單位只講過一種單位那組照算毛利、
+    多品項金額；#20、#21 與 D-344 再補：記帳不因單位擋，換不了的照記、分開列、問一次；#23 地點格不吵、第九節拿掉每箱欄時實體上的值照用。"""
     places = True
 
     def no_section9(self, *fields):
@@ -478,25 +535,26 @@ class Units4thRound(UnitsBase):
     def test_17_no_base_box_then_bottle_asks_big_holds_small(self):
         self.no_section9()
         self.buy("精華液 +2箱")
-        r = self.buy("精華液 -24瓶", code=3)
-        self.assertIn("kb profile add 數字欄 型別=產品 欄名=每<大的> 單位=<小的>", r.stdout)
-        self.assertIn("kb entity field 精華液 每<大的>=<整數> --said", r.stdout)
-        self.assertIn("瓶、箱哪個大", r.stdout)
+        out = self.buy("精華液 -24瓶")  # 再補：照記
+        said = out["tell"] + "\n" + "\n".join(out["unit_ask"])
+        self.assertIn("kb profile add 數字欄 型別=產品 欄名=每<大的> 單位=<小的>", said)
+        self.assertIn("kb entity field 精華液 每<大的>=<整數> --said", said)
+        self.assertIn("瓶、箱哪個大", said)
         for bad in ("每瓶", "一瓶幾箱", "對調"):
-            self.assertNotIn(bad, r.stdout)
+            self.assertNotIn(bad, said)
 
     def test_17_base_is_box_asks_box_holds_bottles(self):
         self.no_section9(("安全庫存", "箱"), ("每箱", "瓶"))
         self.buy("精華液 +2箱")
-        r = self.buy("精華液 -24瓶", code=3)
-        self.assertIn("一箱幾瓶", r.stdout)
-        self.assertIn("kb entity field 精華液 每箱=<整數> --said", r.stdout)
-        self.assertNotIn("kb profile add", r.stdout)
+        out = self.buy("精華液 -24瓶")  # 再補：照記
+        said = out["tell"] + "\n" + "\n".join(out["unit_ask"])
+        self.assertIn("24 瓶（不知道一箱幾瓶）", out["tell"])  # 第九節看得出箱大
+        self.assertIn("kb entity field 精華液 每箱=<整數> --said", said)
+        self.assertNotIn("kb profile add", said)
         for bad in ("每瓶", "一瓶幾箱"):
-            self.assertNotIn(bad, r.stdout)
+            self.assertNotIn(bad, said)
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
-        self.buy("精華液 -24瓶")
-        self.buy("精華液 -24瓶")
+        self.assertNotIn("unit_ask", self.buy("精華液 -24瓶"))
         st = money.stock(self.V, "精華液")["products"][0]
         self.assertEqual((st["total"], st["unit"], st["text"]), (0, "箱", "0 箱"))  # 沒有小數漂移
 
@@ -532,16 +590,16 @@ class Units4thRound(UnitsBase):
         low = money.low_stock(self.V, ["精華液"])
         self.assertEqual([(x["stock"], x["unit"]) for x in low], [(3, "瓶")])
 
-    def test_20_new_unit_refused_used_units_and_payment_ok(self):
+    def test_20_new_unit_written_apart_payment_ok(self):
         self.buy("膠囊 +2箱")  # 第一次講：照記，分開列（#19 由 AI 問）
         self.buy("膠囊 +3瓶")  # 基本單位當作用過
         out = self.add("--dir", "收", "--amount", "900", "--entity", "李小姐", "--item", "膠囊 -1箱")  # 收款不被擋
         self.assertEqual(out["item"]["amount"], 900)
         self.assertIn("（不知道一箱幾瓶）", out["tell"])
         self.buy("膠囊 +1", )  # 沒寫單位就是基本單位
-        r = self.buy("膠囊 +1盒", code=3)  # 沒用過、又換不過去的新單位
-        self.assertIn("盒", r.stdout)
-        self.assertEqual(money.stock(self.V, "膠囊")["products"][0]["text"], "4 瓶＋1 箱（不知道一箱幾瓶）")
+        out = self.buy("膠囊 +1盒")  # 沒用過、又換不過去的新單位：再補後也照記
+        self.assertIn("盒", "\n".join(out["unit_ask"]))
+        self.assertEqual(money.stock(self.V, "膠囊")["products"][0]["text"], "4 瓶＋1 箱＋1 盒（不知道一箱幾瓶、一盒幾瓶）")
 
     def test_20_no_base_apart_records_used_units(self):
         self.no_section9()
@@ -551,9 +609,11 @@ class Units4thRound(UnitsBase):
         (Path(self.V) / money.MONEY_POSIX).write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
         self.buy("精華液 +1箱")
         self.buy("精華液 +1瓶")
-        self.buy("精華液 +1盒", code=3)
-        self.buy("精華液 +1", code=3)  # 沒寫單位、又沒有基本單位：照舊問
-        self.assertIn("3 瓶＋2 箱", money.stock(self.V, "精華液")["products"][0]["text"])
+        self.assertTrue(self.buy("精華液 +1盒")["unit_ask"])
+        self.assertTrue(self.buy("精華液 +1")["unit_ask"])  # 沒寫單位、又沒有基本單位：照記、問一次
+        text = money.stock(self.V, "精華液")["products"][0]["text"]
+        for want in ("3 瓶", "2 箱", "1 盒", "1（沒寫單位）"):
+            self.assertIn(want, text)
 
     def test_23a_unplaced_apart_not_in_every_place_cell(self):
         self.buy("膠囊 +2箱")  # 沒指定地點
