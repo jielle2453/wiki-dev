@@ -140,15 +140,28 @@ function makeCardPlugin(handler) {
   const opened = [];
   const errors = [];
   const toasts = [];
+  // 照 Obsidian 1.15 的 DOM：閱讀模式 .markdown-preview-sizer 裡最後是 .mod-footer（renderer.footer.el，反向連結也接這裡）；
+  // 即時預覽 .cm-sizer 裡是 .cm-contentContainer（內容，底部留白是它裡面 .cm-content 的 padding）、再來 .embedded-backlinks
   const preview = new FakeEl('div');
   preview.classList.add('markdown-preview-sizer');
+  const footer = new FakeEl('div');
+  footer.classList.add('mod-footer');
+  preview.appendChild(new FakeEl('div'));
+  preview.appendChild(footer);
   const source = new FakeEl('div');
   source.classList.add('cm-sizer');
+  const content = new FakeEl('div');
+  content.classList.add('cm-contentContainer');
+  const backlinks = new FakeEl('div');
+  backlinks.classList.add('embedded-backlinks');
+  source.appendChild(content);
+  source.appendChild(backlinks);
   const containerEl = new FakeEl('div');
   containerEl.appendChild(preview);
   containerEl.appendChild(source);
   const file = { path: '02 顧客/李小姐/李小姐.md' };
-  const leaves = [{ view: { file, containerEl } }];
+  const view = { file, containerEl };
+  const leaves = [{ view }];
   let writes = 0;
   const app = {
     vault: { adapter: { getBasePath: () => '/vault', read: async () => '' }, modify: async () => (writes += 1), process: async () => (writes += 1) },
@@ -170,7 +183,7 @@ function makeCardPlugin(handler) {
   plugin.toast = (t) => toasts.push(t);
   const origError = console.error;
   return {
-    plugin, file, preview, source, calls, opened, toasts, errors,
+    plugin, file, view, preview, footer, source, content, backlinks, calls, opened, toasts, errors,
     writes: () => writes,
     quiet(fn) {
       console.error = (...a) => errors.push(a.join(' '));
@@ -185,10 +198,11 @@ test('打開綜合卡：叫 kb entity panel，在閱讀與即時預覽兩邊的�
   const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
   await c.plugin.showPanel(c.file);
   assert.deepStrictEqual(c.calls, [['entity', 'panel', 'e-1234abcd', '--json']]);
+  assert.strictEqual(c.footer.children[c.footer.children.length - 1], byClass(c.preview, 'wwh-panel')[0], '閱讀模式：接在 .mod-footer 裡（renderer 重畫也留著）');
+  assert.strictEqual(c.source.children[1], byClass(c.source, 'wwh-panel')[0], '即時預覽：緊接在內容後面、反向連結前面（不在底部留白後面）');
   for (const box of [c.preview, c.source]) {
     const panel = byClass(box, 'wwh-panel');
     assert.strictEqual(panel.length, 1);
-    assert.strictEqual(box.children[box.children.length - 1], panel[0], '接在最後');
     const text = panel[0].textContent;
     for (const want of ['日程與帳', '11/5（四）會議：見李小姐', '帳：累計收 48,600｜未收 1,800', '未收 1,800 月底付另一半（到期 11/30，已過 3 天）', '10/30（五）收 5,000 精華液 ×2、膠囊 ×1', '…共 23 筆，看帳']) {
       assert.ok(text.includes(want), want);
@@ -237,11 +251,55 @@ test('同一分頁切閱讀模式／即時預覽（layout-change）：那段重�
   const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
   await c.plugin.showPanel(c.file);
   // 模擬 Obsidian 切到閱讀模式時重畫了那一邊（舊的段被清掉）
-  for (const k of [...c.preview.children]) c.preview.removeChild(k);
+  for (const k of [...c.footer.children]) c.footer.removeChild(k);
   c.plugin.onLayoutChange();
   c.plugin.onLayoutChange();
   await new Promise((r) => setTimeout(r, 80));
   assert.strictEqual(byClass(c.preview, 'wwh-panel').length, 1, '閱讀模式那邊接回來');
   assert.strictEqual(byClass(c.source, 'wwh-panel').length, 1, '即時預覽那邊沒有重複');
   assert.strictEqual(c.calls.length, 1, '切模式不再叫 kb');
+});
+
+test('閱讀模式 renderer 重排 sizer 裡的段：那段在 .mod-footer 裡跟著留著（記帳 3 確認 #1）', async () => {
+  const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
+  await c.plugin.showPanel(c.file);
+  for (const k of [...c.preview.children]) c.preview.removeChild(k); // renderer 清掉、重接每一段
+  c.preview.appendChild(new FakeEl('div'));
+  c.preview.appendChild(c.footer);
+  assert.strictEqual(byClass(c.preview, 'wwh-panel').length, 1);
+});
+
+test('有 renderer.footer 就接那裡（.mod-footer 這時不在 DOM 也接得上）', async () => {
+  const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
+  const el = new FakeEl('div');
+  let updated = 0;
+  c.view.previewMode = { renderer: { footer: { el }, updateFooter: () => (updated += 1) } };
+  c.preview.removeChild(c.footer);
+  await c.plugin.showPanel(c.file);
+  assert.strictEqual(byClass(el, 'wwh-panel').length, 1);
+  assert.ok(updated >= 1, '叫 renderer 重算 footer 的高');
+});
+
+test('同一分頁從卡換到別頁（file-open／layout-change／active-leaf-change）：卡的那段拿掉（記帳 3 確認 #3）', async () => {
+  for (const how of ['file-open', 'layout-change', 'active-leaf-change']) {
+    const c = makeCardPlugin(() => ({ code: 0, stdout: JSON.stringify(PANEL), stderr: '' }));
+    await c.plugin.showPanel(c.file);
+    assert.strictEqual(byClass(c.preview, 'wwh-panel').length + byClass(c.source, 'wwh-panel').length, 2);
+    const money = { path: '系統/帳.md' };
+    c.view.file = money; // 點那段的一行，同一分頁開帳頁
+    if (how === 'file-open') c.plugin.onFileOpen(money);
+    else if (how === 'layout-change') c.plugin.onLayoutChange();
+    else c.plugin.onActiveChange();
+    await tick();
+    assert.strictEqual(byClass(c.preview, 'wwh-panel').length, 0, `${how}：閱讀模式那邊拿掉`);
+    assert.strictEqual(byClass(c.source, 'wwh-panel').length, 0, `${how}：即時預覽那邊拿掉`);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.strictEqual(byClass(c.preview, 'wwh-panel').length + byClass(c.source, 'wwh-panel').length, 0, `${how}：之後重接也不接回帳頁`);
+  }
+});
+
+test('styles.css：即時預覽有那段時，內容底部的半頁留白收掉、留白改在那段後面（記帳 3 確認 #2）', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'obsidian', 'styles.css'), 'utf8');
+  assert.ok(css.includes('.cm-sizer:has(> .wwh-panel) .cm-content'), '有那段才收內容的底部留白');
+  assert.ok(css.includes('.cm-sizer > .wwh-panel'), '留白改在那段後面');
 });

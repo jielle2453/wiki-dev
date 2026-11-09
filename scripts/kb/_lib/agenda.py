@@ -104,6 +104,15 @@ def linker(vault, ents=None, mark_removed=False):
     return link
 
 
+_WIKILINK = re.compile(r"\[\[[^\[\]]*\]\]")
+
+
+def table_cell(text):
+    r"""md 表格的一行（或一格）：連結 [[路徑|名字]] 裡的 | 寫成 \|，不然 Obsidian 把它當欄分隔、格子錯位（記帳 3 確認 #4）。
+    已經寫成 \| 的不重複加；連結外的字不動。程式產生的表格都過這個。"""
+    return _WIKILINK.sub(lambda m: re.sub(r"(?<!\\)\|", r"\\|", m.group(0)), str(text))
+
+
 def _today():
     return dt.date.today().isoformat()
 

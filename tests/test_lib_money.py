@@ -346,6 +346,14 @@ class Pages(PageBase):
         self.assertIn("| 第四季 |  |  | -1,000 |", top)
         self.assertIn("| 全年 | 120,000 | 158,000 | 200,000（到 11/21） |", top)
 
+    def test_03b_table_links_escape_pipe(self):
+        """表格裡的連結寫 [[路徑\\|名字]]，連結裡的 | 不被當欄分隔（記帳 3 確認 #4）；表格外的連結照舊。"""
+        self.put("收", "3000", date="2026-10-30", entities=["信義王"])
+        year = self.page(money.year_rel("2026"))
+        self.assertIn("| [[案子/信義王/信義王\\|信義王]] | 3,000 | 0 |", year)
+        self.assertIn("> - 10/30（五）收 3,000 [[案子/信義王/信義王|信義王]]", year)
+        self.assertEqual(agenda.table_cell("[[a/b|b]]、[[c\\|c]]、[[d]]、x|y"), "[[a/b\\|b]]、[[c\\|c]]、[[d]]、x|y")
+
     def test_04_stock_table(self):
         self.put("付", "1000", entities=["文具店"], items=["益生菌 +20 在北店"])
         self.put("無", items=["益生菌 -5 在北店", "益生菌 +5 在南店"], text="調貨")

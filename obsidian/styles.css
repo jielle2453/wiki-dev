@@ -1925,6 +1925,20 @@
   user-select: text;
 }
 
+/* 即時預覽：Obsidian 把底部半頁留白寫在 .cm-content 的 padding-bottom，那段接在內容後面會被推到留白下面。
+   有那段時收掉內容的留白、改在那段後面留（確認 #2）；後面有顯示中的反向連結時，留白由反向連結那邊管。 */
+.markdown-source-view.mod-cm6 .cm-sizer:has(> .wwh-panel) .cm-content {
+  padding-bottom: 0 !important;
+}
+
+.markdown-source-view.mod-cm6 .cm-sizer > .wwh-panel {
+  margin-bottom: 40vh;
+}
+
+.markdown-source-view.mod-cm6 .cm-sizer > .wwh-panel:has(+ .embedded-backlinks:not([style*="display: none"])) {
+  margin-bottom: 12px;
+}
+
 .wwh-panel-title {
   color: var(--text-muted);
   font-weight: 600;

@@ -1653,7 +1653,7 @@ def _total_line(got):
 
 def _type_tables(items, ents, link, rank_n):
     """照型別的小表：每個型別前 rank_n 名，其他合成一行；沒掛實體的錢歸「其他」（D-283）。"""
-    from kb._lib import entities, numbers
+    from kb._lib import agenda, entities, numbers
     by_type = {}
     for it in items:
         if it.get("status") != "done" or it.get("dir") not in ("in", "out"):
@@ -1674,7 +1674,7 @@ def _type_tables(items, ents, link, rank_n):
         if rest:
             lines.append(f"| 其他（{len(rest)}） | {numbers.show(sum((r['in'] for _n, r in rest), Decimal(0)))} | "
                          f"{numbers.show(sum((r['out'] for _n, r in rest), Decimal(0)))} |")
-        out.append("\n".join(lines))
+        out.append("\n".join(agenda.table_cell(x) for x in lines))  # 表格裡的連結 | 要跳開（確認 #4）
     return out
 
 
@@ -1684,7 +1684,7 @@ def missing_text(p):
 
 def _product_table(products, link):
     """商品賣出：數量、金額（多品項沒單價的標「估」，有分不出的標「N 筆沒算進去」）、毛利（估）；整月都沒有毛利就不出那欄（D-284 (3)）。"""
-    from kb._lib import numbers
+    from kb._lib import agenda, numbers
     if not products:
         return ""
     margin = any(p.get("margin") is not None for p in products)
@@ -1696,13 +1696,14 @@ def _product_table(products, link):
         row = f"| {link(p['name'])} | {numbers.show(p['qty']) if plain else p['text']} | {amt} |"
         if margin:
             row += f" {'' if p.get('margin') is None else numbers.show(p['margin'])} |"
-        lines.append(row)
+        lines.append(agenda.table_cell(row))
     return "\n".join(lines)
 
 
 def _stock_table(data, prof, ents, link):
     """庫存表：商品 × 地點，最後一欄合計；沒有地點型別的只有合計；地點一筆都沒有也列 0（D-342）。數字照 stock 的 text、
     places_text（D-344 補：換不了的分開列）。"""
+    from kb._lib import agenda
     rows = stock(None, data=data, prof=prof, ents=ents)["products"]
     if not rows:
         return NOTHING
@@ -1713,7 +1714,7 @@ def _stock_table(data, prof, ents, link):
     for r in rows:
         zero = _show_q(Fraction(0), r.get("unit") or "")
         cells = "".join(f"{r['places_text'].get(n, zero)} | " for n in names)
-        lines.append(f"| {link(r['name'])} | {cells}{r['text']} |")
+        lines.append(agenda.table_cell(f"| {link(r['name'])} | {cells}{r['text']} |"))
     return "\n".join(lines)
 
 

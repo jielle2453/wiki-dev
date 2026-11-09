@@ -54,7 +54,7 @@ const MANAGED_PAGES = ['系統/日程.md', '系統/待處理.md', '系統/裁示
 const MONEY_YEAR_RE = /^系統\/帳\/\d{4}\.md$/; // 帳的每年一頁：照「系統/帳/ 底下」認（記帳 3）
 const PANEL_CLS = 'wwh-panel';
 const PANEL_TITLE = '日程與帳';
-const PANEL_SIZERS = ['.markdown-preview-sizer', '.cm-sizer']; // 閱讀模式、即時預覽（編輯）各接一份
+const PANEL_CARD_ATTR = 'data-wwh-card'; // 那段是哪張卡的：分頁換了檔，不是它的就拿掉
 const PANEL_REDRAW_MS = 50; // 切閱讀模式／即時預覽後，等 Obsidian 畫好那一邊再接
 const GENERATED_BANNER = '這頁由程式產生；要改請在首頁改，或直接跟 Claude 說';
 const NO_KB_TEXT = '找不到 wiki-with-willy：先在 Claude 裡打開這個知識庫一次';
@@ -1204,7 +1204,44 @@ function isGeneratedPage(p) {
   return s === '總目錄.md' || s.startsWith('系統/工作日誌/') || s.startsWith('系統/健檢報告/');
 }
 
-/** 離開被改的那一行（游標換行）、或切到別頁，才叫 kb renders apply。 */
+/** 卡底下那段接在哪（照 Obsidian 1.15 的 DOM，記帳 3 確認 #1、#2）：
+ *  - 閱讀模式：renderer 的 footer（.mod-footer，內建「筆記底部顯示反向連結」也接這裡）。直接接在 .markdown-preview-sizer
+ *    會被 renderer 重畫時拿掉；footer 的元素 renderer 一直留著。
+ *  - 即時預覽：.cm-sizer 裡、內容（.cm-contentContainer）緊後面、反向連結前面。接在 sizer 最後會排在內容底部的半頁留白後面。
+ *  回 [{parent, before, renderer}]；找不到的那邊不接。 */
+function panelSpots(view) {
+  const spots = [];
+  const root = view && (view.containerEl || view.contentEl);
+  const q = (el, sel) => (el && el.querySelector ? el.querySelector(sel) : null);
+  let renderer = null;
+  try {
+    renderer = view && view.previewMode && view.previewMode.renderer;
+  } catch (e) {
+    renderer = null;
+  }
+  const footer = (renderer && renderer.footer && renderer.footer.el) || q(q(root, '.markdown-preview-sizer'), '.mod-footer');
+  if (footer) spots.push({ parent: footer, before: null, renderer: renderer && renderer.footer && renderer.footer.el === footer ? renderer : null });
+  const cm = q(root, '.cm-sizer');
+  if (cm) {
+    const kids = Array.from(cm.children || []);
+    const i = kids.findIndex((k) => k.classList && k.classList.contains('cm-contentContainer'));
+    spots.push({ parent: cm, before: i >= 0 ? kids[i + 1] || null : null, renderer: null });
+  }
+  return spots;
+}
+
+/** 拿掉這個分頁裡的那段；keep 是現在這個檔的路徑時，是這個檔的留著。 */
+function removePanels(view, keep) {
+  for (const { parent } of panelSpots(view)) {
+    for (const old of Array.from(parent.children || [])) {
+      if (!old.classList || !old.classList.contains(PANEL_CLS)) continue;
+      if (keep !== undefined && old.getAttribute && old.getAttribute(PANEL_CARD_ATTR) === keep) continue;
+      parent.removeChild(old);
+    }
+  }
+}
+
+/** 離開被改的那一行（游標換行）、切到別頁、或 Obsidian 視窗失去焦點（切到 Claude），才叫 kb renders apply。 */
 function createApplyTracker() {
   const dirty = new Map();
   const lastEdit = new Map();
@@ -1240,6 +1277,10 @@ function createApplyTracker() {
     },
     isDirty(page) {
       return dirty.has(page);
+    },
+    /** 有沒套用修改的頁（視窗失去焦點時全套用）。 */
+    dirtyPages() {
+      return [...dirty.keys()];
     },
     isTyping(page, now, windowMs) {
       const t = lastEdit.get(page);
@@ -3139,6 +3180,8 @@ class WikiWithWillyPlugin extends Plugin {
     this.registerEvent(ws.on('editor-change', (editor, info) => this.onEditorChange(editor, info)));
     this.registerEvent(this.app.vault.on('modify', (file) => this.onVaultModify(file)));
     this.registerDomEvent(document, 'selectionchange', () => this.onSelection());
+    // 改了一行沒換行就切到 Claude 對話：Obsidian 視窗失去焦點也套用（記帳 3 確認 #5）
+    if (typeof window !== 'undefined') this.registerDomEvent(window, 'blur', () => this.onWindowBlur());
     this.registerInterval(setInterval(() => this.checkSelfUpdate(), 60000));
 
     ws.onLayoutReady(() => {
@@ -3736,6 +3779,7 @@ class WikiWithWillyPlugin extends Plugin {
 
   onFileOpen(file) {
     const p = this.filePathOf(file);
+    this.sweepPanels();
     this.switchedTo(p);
     if (p && isGeneratedPage(p)) this.makeReadOnly(p);
     if (p && file) this.showPanel(file);
@@ -3770,25 +3814,40 @@ class WikiWithWillyPlugin extends Plugin {
     this.drawPanels(p);
   }
 
-  /** 開著這張卡的每個分頁：閱讀模式與即時預覽的最後各接一份（先拿掉舊的）。 */
+  /** 開著這張卡的每個分頁：閱讀模式與即時預覽各接一份（先拿掉舊的；接在哪看 panelSpots）。 */
   drawPanels(p) {
     const model = this.panels ? this.panels.get(p) : null;
     for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
       const view = leaf.view;
       if (!view || !view.file || this.filePathOf(view.file) !== p) continue;
-      const root = view.containerEl || view.contentEl;
-      if (!root || !root.querySelector) continue;
-      for (const sel of PANEL_SIZERS) {
-        const sizer = root.querySelector(sel);
-        if (!sizer) continue;
-        for (const old of Array.from(sizer.children || []).filter((c) => c.classList && c.classList.contains(PANEL_CLS))) sizer.removeChild(old);
-        if (model) sizer.appendChild(this.buildPanel(model));
+      removePanels(view);
+      if (!model) continue;
+      for (const spot of panelSpots(view)) {
+        const box = this.buildPanel(model);
+        box.setAttribute(PANEL_CARD_ATTR, p);
+        spot.parent.insertBefore(box, spot.before);
+        if (spot.renderer && typeof spot.renderer.updateFooter === 'function') {
+          try {
+            spot.renderer.updateFooter(); // footer 高度變了，讓閱讀模式重算捲動
+          } catch (e) {
+            console.error('[wiki-with-willy] 閱讀模式重算 footer 失敗', e);
+          }
+        }
       }
     }
   }
 
-  /** 版面變了（同一分頁切閱讀模式與即時預覽、分頁搬動）：已經算好的那段照接回去，不再叫 kb；drawPanels 先拿掉舊的，不會重複。 */
+  /** 分頁換了檔（點那段的一行跳到帳頁）：不是它現在這個檔的那段拿掉（記帳 3 確認 #3）。 */
+  sweepPanels() {
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view;
+      if (view) removePanels(view, view.file ? this.filePathOf(view.file) : '');
+    }
+  }
+
+  /** 版面變了（同一分頁切閱讀模式與即時預覽、分頁搬動、換檔）：換了檔的拿掉；已經算好的那段照接回去，不再叫 kb；drawPanels 先拿掉舊的，不會重複。 */
   onLayoutChange() {
+    this.sweepPanels();
     if (!this.panels || !this.panels.size) return;
     if (this.panelTimer) clearTimeout(this.panelTimer);
     this.panelTimer = softTimeout(() => {
@@ -3829,6 +3888,7 @@ class WikiWithWillyPlugin extends Plugin {
   }
 
   onActiveChange() {
+    this.sweepPanels();
     const view = this.app.workspace.getActiveViewOfType ? this.app.workspace.getActiveViewOfType(MarkdownView) : null;
     this.switchedTo(view && view.file ? this.filePathOf(view.file) : null);
   }
@@ -3873,6 +3933,11 @@ class WikiWithWillyPlugin extends Plugin {
     if (!p || !isManagedPage(p)) return;
     const line = editor.getCursor().line;
     if (this.tracker.edited(p, line, Date.now())) this.applyPage(p);
+  }
+
+  /** Obsidian 視窗失去焦點：還沒套用的受管頁都套用（她改了一行沒換行就切到 Claude 對話，記帳 3 確認 #5）。 */
+  onWindowBlur() {
+    for (const p of this.tracker.dirtyPages()) if (this.tracker.leave(p)) this.applyPage(p);
   }
 
   onSelection() {
