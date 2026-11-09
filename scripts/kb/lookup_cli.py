@@ -78,10 +78,10 @@ def _money_line(m):
     parts = ["｜".join(sums)] if sums else []
     st = m.get("stock")
     if isinstance(st, dict):
-        where = "、".join(f"{k} {numbers.show(v)}" for k, v in st["places"].items())
-        parts.append(f"庫存 {numbers.show(st['total'])}{(' ' + st['unit']) if st['unit'] else ''}" + (f"（{where}）" if where else ""))
+        where = "、".join(f"{k} {v}" for k, v in st["places_text"].items())
+        parts.append(f"庫存 {st['text']}" + (f"（{where}）" if where else ""))
     elif st:
-        parts.append("庫存：" + "、".join(f"{p['name']} {numbers.show(next(iter(p['places'].values()), 0))}" for p in st))
+        parts.append("庫存：" + "、".join(f"{p['name']} {next(iter(p['places_text'].values()), p['text'])}" for p in st))
     return "帳：" + "；".join(parts) if parts else None
 
 

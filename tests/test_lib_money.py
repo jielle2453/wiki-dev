@@ -280,83 +280,179 @@ class UnitsBase(MoneyBase):
 
 
 class Units6(UnitsBase):
-    """驗收 6（D-344）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項記 unit；換算不了的退回、不寫。"""
+    """驗收 6（D-344 與 11-09 補）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項照她講的存 qty、unit，算的時候才換；
+    換不到同一組的單位寫入時退回、不寫。"""
 
-    def test_6_pack_field_multiplies_and_tell_says_both(self):
+    def test_6_pack_stored_as_said_stock_converts(self):
         out = self.buy("益生菌 +2箱")
-        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (48, "瓶"))
-        self.assertIn("益生菌 +48 瓶（2 箱）", out["tell"])
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (2, "箱"))
+        self.assertIn("益生菌 +2 箱（48 瓶）", out["tell"])
         out = self.buy("益生菌 +3瓶")
         self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (3, "瓶"))
-        self.assertNotIn("（3 瓶）", out["tell"])
+        self.assertIn("益生菌 +3 瓶", out["tell"])
         out = self.buy("益生菌 +3")
-        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (3, "瓶"))
+        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (3, ""))
+        self.assertIn("益生菌 +3 瓶", out["tell"])  # 沒寫單位算基本單位
+        st = money.stock(self.V, "益生菌")["products"][0]
+        self.assertEqual((st["total"], st["unit"], st["apart"], st["text"]), (54, "瓶", [], "54 瓶"))
 
-    def test_6_base_from_section9_other_unit_without_value_refused(self):
+    def test_6_other_unit_after_base_refused_profile_first(self):
+        self.buy("膠囊 +2瓶")
         r = self.buy("膠囊 +2箱", code=3)
         self.assertIn("kb entity field 膠囊 每箱=", r.stdout)
+        self.assertNotIn("kb profile add", r.stdout)  # 第九節已有每箱
+        self.assertIn("瓶", r.stdout)
         r = self.buy("膠囊 +2盒", code=3)
-        self.assertIn("kb entity field 膠囊 每盒=", r.stdout)
-        self.assertIn("kb profile add 數字欄", r.stdout)
-        self.assertEqual(self.live(), [])
-        out = self.buy("膠囊 +2瓶")
-        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (2, "瓶"))
+        add, field = r.stdout.index("kb profile add 數字欄 型別=產品 欄名=每盒 單位=瓶"), r.stdout.index("kb entity field 膠囊 每盒=")
+        self.assertLess(add, field)  # #16：先 profile add 再 entity field
+        self.assertEqual(self.lines_of("膠囊"), [(2, "瓶")])
+
+    def test_6_one_unit_only_written_shown_apart(self):
+        self.buy("膠囊 +2箱")  # 只用一種單位：照記不問
+        self.assertEqual(self.lines_of("膠囊"), [(2, "箱")])
+        st = money.stock(self.V, "膠囊")["products"][0]
+        self.assertEqual((st["total"], st["unit"], st["text"]), (2, "箱", "2 箱（不知道一箱幾瓶）"))
+        self.buy("膠囊 -1瓶", code=3)
+        self.buy("膠囊 -1箱")
+        self.assertEqual(money.stock(self.V, "膠囊")["products"][0]["total"], 1)
 
     def test_6_count_actual_same_rules(self):
         self.buy("益生菌 +50")
+        out = self.kbj("money", "count", "益生菌", "--actual", "1箱")
+        ln = out["item"]["lines"][0]
+        self.assertEqual((out["diff"], ln["qty"], ln["unit"]), (-26, -26, "瓶"))  # 26 瓶換不成整箱：存基本單位
+        self.assertIn("1 箱", out["tell"])  # #15：盤點也講她說的
+        self.assertIn("24 瓶", out["tell"])
         out = self.kbj("money", "count", "益生菌", "--actual", "2箱")
-        self.assertEqual((out["diff"], out["item"]["lines"][0]["unit"]), (-2, "瓶"))
+        ln = out["item"]["lines"][0]
+        self.assertEqual((ln["qty"], ln["unit"]), (1, "箱"))  # 差 24 瓶剛好一箱：存她講的單位
+        self.assertEqual(money.stock(self.V, "益生菌")["products"][0]["total"], 48)
+        self.buy("膠囊 +3瓶")
         self.kb("money", "count", "膠囊", "--actual", "2箱", code=3)
+
+    def test_6_unit_price_and_margin_convert(self):
+        self.kb("entity", "field", "精華液", "每箱=10", "--said")
+        self.add("--dir", "收", "--amount", "18000", "--entity", "李小姐", "--item", "精華液 -1箱")
+        self.add("--dir", "收", "--amount", "100", "--entity", "王先生", "--item", "益生菌 -1箱@960", "--item", "精華液 -2瓶@1800")
+        got = {p["name"]: p for p in money.summary(self.V, "2000-01-01", "2100-01-01")["products"]}
+        self.assertEqual((got["精華液"]["qty"], got["精華液"]["unit"], got["精華液"]["margin"]), (12, "瓶", 7200))
+        self.assertEqual((got["益生菌"]["qty"], got["益生菌"]["amount"]), (24, 960))  # 單價是她講那單位（箱）的價
+
+    def test_6_split_listed_when_field_removed(self):
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
+        self.buy("精華液 +2箱")
+        self.buy("精華液 +12瓶")
+        ents = entities.load(self.V)["entities"]
+        for e in ents:
+            if e["name"] == "精華液":
+                e.pop("欄:每箱", None)
+                e["欄:安全庫存"] = {"value": 20, "from": "said"}
+        E.put_entities(self.V, ents)
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (12, "瓶"))
+        self.assertEqual([(a["qty"], a["unit"]) for a in st["apart"]], [(2, "箱")])
+        self.assertEqual(st["text"], "12 瓶＋2 箱（不知道一箱幾瓶）")
+        low = money.low_stock(self.V, ["精華液"])
+        self.assertEqual((low[0]["stock"], low[0]["text"]), (12, "12 瓶＋2 箱（不知道一箱幾瓶）"))
+        self.assertIn("庫存 12 瓶＋2 箱（不知道一箱幾瓶）", self.kb("lookup", "精華液").stdout)
+        self.assertIn("精華液 12 瓶＋2 箱（不知道一箱幾瓶）", self.kb("money", "stock", "精華液").stdout)
+        self.assertIn("精華液 +2 箱（不知道一箱幾瓶）", self.kb("money", "list").stdout)
+        self.buy("精華液 -1瓶", code=3)  # 有分開的：再記要先問
 
 
 class Units6NoSection9(UnitsBase):
-    """驗收 6（D-344 (2)）：第九節什麼都沒設的店，照她講的單位記，那就成了這個商品的基本單位。"""
+    """驗收 6（D-344 補）：第九節什麼都沒設的店：照她講的記；各單位分開，換不到同一組的退回。"""
 
     def setUp(self):
         super().setUp()
         write_profile(self.V, fields=[], money=money_row("on"))
 
-    def test_6_first_said_unit_becomes_base(self):
+    def test_6_same_unit_ok_other_refused(self):
         self.buy("精華液 +2瓶")
-        self.buy("精華液 +2瓶")
-        self.buy("精華液 +3")
-        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (2, "瓶"), (3, "瓶")])
+        self.buy("精華液 +3瓶")
         r = self.buy("精華液 +2箱", code=3)
-        self.assertIn("kb entity field 精華液 每箱=", r.stdout)
-        self.assertIn("單位=瓶", r.stdout)
-        self.assertEqual(len(self.live()), 3)  # 不寫
+        add, field = r.stdout.index("kb profile add 數字欄 型別=產品 欄名=每箱 單位=瓶"), r.stdout.index("kb entity field 精華液 每箱=")
+        self.assertLess(add, field)
+        self.assertEqual(self.lines_of("精華液"), [(2, "瓶"), (3, "瓶")])  # 不寫
         st = money.stock(self.V, "精華液")["products"][0]
-        self.assertEqual((st["total"], st["unit"]), (7, "瓶"))
-        self.assertIn("庫存 7 瓶", self.kb("lookup", "精華液").stdout)
-        self.assertIn("精華液 7 瓶", self.kb("money", "stock", "精華液").stdout)
-        self.assertIn("精華液 +3 瓶", self.kb("money", "list").stdout)
+        self.assertEqual((st["total"], st["unit"]), (5, "瓶"))
+        self.assertIn("庫存 5 瓶", self.kb("lookup", "精華液").stdout)
+        self.assertIn("精華液 5 瓶", self.kb("money", "stock", "精華液").stdout)
 
-    def test_6_no_unit_first_then_unit_said(self):
-        self.buy("精華液 +3")
-        self.buy("精華液 +2盒")
-        self.assertEqual(self.lines_of("精華液"), [(3, ""), (2, "盒")])
-        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["unit"], "盒")
+    def test_6_11_no_unit_first_then_box_refused(self):
+        mid = self.buy("精華液 +3")["item"]["id"]
+        r = self.buy("精華液 +2箱", code=3)
+        self.assertIn("kb money edit", r.stdout)
+        self.assertIn(mid, r.stdout)
+        self.assertEqual(self.lines_of("精華液"), [(3, "")])
+        self.kb("money", "edit", mid, "--item", "精華液 +3箱")  # 她說那 3 是箱
+        self.buy("精華液 +2箱")
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (5, "箱"))
 
-    def test_6_box_first_then_box_ok_bottle_asks(self):
-        self.buy("膠囊 +2箱")
-        self.buy("膠囊 -1箱")
-        self.assertEqual(self.lines_of("膠囊"), [(2, "箱"), (-1, "箱")])
-        self.buy("膠囊 -3瓶", code=3)
+    def test_6_no_unit_after_unit_refused(self):
+        self.buy("精華液 +2瓶")
+        r = self.buy("精華液 -1", code=3)
+        self.assertIn("沒寫單位", r.stdout)
+
+    def test_6_12_box_then_bottles_no_drift(self):
+        self.buy("精華液 +2箱")
+        self.buy("精華液 -24瓶", code=3)
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
+        self.buy("精華液 -24瓶")
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"], st["text"]), (24, "瓶", "24 瓶"))
+        self.buy("精華液 -72瓶")
+        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["total"], -48)
+
+    def test_6_12_base_is_box_bottles_exact(self):
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=安全庫存", "單位=箱")
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
+        self.buy("精華液 +2箱")
+        self.buy("精華液 -24瓶")
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (1, "箱"))
+        for _ in range(3):
+            self.buy("精華液 -8瓶")
+        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["total"], 0)
+
+    def test_6_13_base_set_later_old_lines_follow(self):
+        self.buy("精華液 +2箱")
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=安全庫存", "單位=瓶")
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual(st["text"], "2 箱（不知道一箱幾瓶）")
+        self.assertEqual(money.low_stock(self.V, ["精華液"]), [])  # 換不了的不跟安全庫存比
+        self.buy("精華液 +10瓶", code=3)  # #13：不會悄悄 2+10
+        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
+        self.kb("entity", "field", "精華液", "每箱=24", "--said")
+        st = money.stock(self.V, "精華液")["products"][0]
+        self.assertEqual((st["total"], st["unit"]), (48, "瓶"))  # 舊帳照新欄算
+        self.buy("精華液 +10瓶")
+        self.assertEqual(money.stock(self.V, "精華液")["products"][0]["total"], 58)
+
+    def test_6_14_pack_value_without_section9_not_silent(self):
+        self.buy("益生菌 +2箱")  # 實體有每箱=24，第九節沒欄：沒有基本單位，照記
+        self.assertEqual(money.stock(self.V, "益生菌")["products"][0]["text"], "2 箱")
+        self.buy("益生菌 +24瓶", code=3)
 
     def test_6_two_units_in_one_add_refused(self):
         self.kb("money", "add", "--dir", "付", "--amount", "100", "--entity", "文具店", "--item", "精華液 +2瓶",
                 "--item", "精華液 +1箱", code=3)
         self.assertEqual(self.live(), [])
 
-    def test_6_pack_value_set_later_converts_to_product_base(self):
-        self.buy("精華液 +2瓶")
-        self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")
-        self.kb("entity", "field", "精華液", "每箱=24", "--said")
-        out = self.buy("精華液 +2箱")
-        self.assertEqual((out["item"]["lines"][0]["qty"], out["item"]["lines"][0]["unit"]), (48, "瓶"))
-        self.assertIn("精華液 +48 瓶（2 箱）", out["tell"])
+    def test_6_edit_ignores_itself(self):
+        mid = self.buy("精華液 +2箱")["item"]["id"]
+        self.kb("money", "edit", mid, "--item", "精華液 +5瓶")
+        self.assertEqual(self.lines_of("精華液"), [(5, "瓶")])
 
-    def test_6_count_actual_unknown_base_takes_said(self):
+    def test_6_cancelled_not_counted(self):
+        mid = self.buy("精華液 +2箱")["item"]["id"]
+        self.kb("money", "cancel", mid)
+        self.buy("精華液 +2瓶")
+
+    def test_6_count_no_base(self):
         out = self.kbj("money", "count", "精華液", "--actual", "4瓶")
         self.assertEqual((out["diff"], out["item"]["lines"][0]["unit"]), (4, "瓶"))
         self.kb("money", "count", "精華液", "--actual", "1箱", code=3)
