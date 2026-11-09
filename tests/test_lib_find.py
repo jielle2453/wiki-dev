@@ -175,6 +175,7 @@ class Matching(Base):
         out = self.find("水電 木作")
         self.assertEqual(sorted(f["card"] for f in out["files"]), sorted([self.quote, self.estimate]))
         self.assertTrue(out["some_words"])
+        self.assertNotIn("some_words", self.find("沒有的字 也沒有"))  # 放寬了還是 0 筆不帶
 
     def test_unparsed_words_compare_title_and_body(self):
         self.assertEqual(self.ids("廚房動線"), [self.meeting])

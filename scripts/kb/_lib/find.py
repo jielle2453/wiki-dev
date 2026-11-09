@@ -275,7 +275,8 @@ def _search(vault, q, parsed, cond, ent_data):
     rows = _scan(vault, cond, ent_data, ent_ids, tag_ids, types, words, ruled, all)
     if not rows and len(words) > 1:  # 每個字都中的沒有，才放寬成中一個就算（jacky 2026-11-09）
         rows = _scan(vault, cond, ent_data, ent_ids, tag_ids, types, words, ruled, any)
-        out["some_words"] = True
+        if rows:
+            out["some_words"] = True
     ordered = cards.newest_first([r[1] for r in rows])
     first = {r[1]["id"]: r for r in rows}
     titled = [b for b in ordered if first[b["id"]][0] == "title"]
