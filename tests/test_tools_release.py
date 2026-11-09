@@ -183,6 +183,15 @@ class CodexBuild(Base):
             release.build(self.repo, "v0.20.0", self.tmp / "dist")
         self.assertIn(".codex-plugin/plugin.json 的版本是 0.19.0", str(cm.exception))
 
+    def test_codex_manifest_without_hooks_is_a_problem(self):
+        """沒有 hooks 欄位，Codex 會去讀 Claude 的 hooks/hooks.json（#56 review 9）。"""
+        add_codex(self.repo, "0.20.0")
+        write(self.repo, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": "0.20.0"}))
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn("的 hooks 要是 ./ 開頭", str(cm.exception))
+
     def test_codex_hooks_must_point_to_files_in_zip(self):
         add_codex(self.repo, "0.20.0", hooks_ref="hooks/gone.py")
         self.commit("codex", tag="v0.20.0")
@@ -826,7 +835,17 @@ class CodexPublish(PublishFixture):
         return git(self.bare, "log", "--format=%s", "codex").split("\n")[:-1]
 
     def test_pushes_codex_branch_with_zip_files(self):
-        got = self.publish()
+        pushes = []
+        real = release._git
+
+        def spy(public, *args):
+            if args[:1] == ("push",):
+                pushes.append(args)
+            return real(public, *args)
+        with mock.patch.object(release, "_git", side_effect=spy):
+            got = self.publish()
+        self.assertTrue(pushes)
+        self.assertFalse([a for a in pushes if any(x in ("-f", "--force", "--force-with-lease") or x.startswith("+") for x in a)])
         self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
         self.assertEqual(git(self.bare, "rev-parse", "codex").strip(), got["codex"])
         names = sorted(x for x in git(self.bare, "ls-tree", "-r", "--name-only", "-z", "codex").split("\0") if x)
@@ -840,11 +859,13 @@ class CodexPublish(PublishFixture):
         first = git(self.bare, "rev-parse", "codex").strip()
         make_tree(self.repo, "0.22.0", note="下一版。")
         add_codex(self.repo, "0.22.0")
+        (self.repo / "templates" / "card.md").unlink()  # 新版拿掉的檔，codex 分支也要拿掉
         self.commit("0.22.0", tag="v0.22.0")
         self.served = ["0.22.0"]
         release.publish(self.repo, "v0.22.0", self.public, "all")
         self.assertEqual(self.codex_log(), ["codex: 0.22.0", "codex: 0.21.0"])
         self.assertEqual(git(self.bare, "rev-parse", "codex~1").strip(), first)  # 接在後面，不是改寫
+        self.assertNotIn("templates/card.md", git(self.bare, "ls-tree", "-r", "--name-only", "codex"))
 
     def test_rerun_does_not_add_another_commit(self):
         a = self.publish()["codex"]
@@ -864,8 +885,17 @@ class CodexPublish(PublishFixture):
             with self.assertRaises(release.ReleaseError):
                 self.publish()
         self.assertEqual(git(self.public, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
+        self.assertFalse((self.public / "hooks" / "codex.json").exists(), "失敗後不留 main 沒有的檔（review 6）")
         self.publish()
         self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
+
+    def test_public_clone_not_on_main_stops(self):
+        """上一次被中斷停在 codex 分支：不把清單推進 codex（review 5）。"""
+        git(self.public, "checkout", "-q", "-b", "codex")
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("不是 main", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
 
     def test_no_codex_manifest_no_codex_branch(self):
         for rel in (".codex-plugin/plugin.json", "hooks/codex.json", ".agents/plugins/marketplace.json", "安裝-Codex.md"):

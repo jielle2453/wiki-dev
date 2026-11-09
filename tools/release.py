@@ -37,6 +37,7 @@ ALLOW_DIRS = (".claude-plugin", ".codex-plugin", ".agents", "hooks", "scripts", 
 ALLOW_FILES = ("README.md", "CHANGELOG.md", "LICENSE", "安裝-Codex.md")
 CODEX_MANIFEST = ".codex-plugin/plugin.json"  # 有這個檔，publish 才另推公開 repo 的 codex 分支（#56）
 CODEX_BRANCH = "codex"
+PUBLIC_BRANCH = "main"  # 公開 repo 放清單與名單的分支
 CODEX_README = "安裝-Codex.md"  # codex 分支的 README.md 用它
 HASH_IN_PATH = ("路徑裡有 #：{}。gh 會把 # 後面當成標籤、Codex 會把它當分支名，請換到沒有 # 的資料夾再跑。")
 PLUGIN_NAME = "wiki-with-willy"
@@ -304,9 +305,12 @@ def _codex_problems(files, version):
         return out
     if manifest.get("version") != version:
         out.append(f"{CODEX_MANIFEST} 的版本是 {manifest.get('version')}，tag 是 {version}（要跟 .claude-plugin 同一版）")
+    _json_of(files, ".agents/plugins/marketplace.json", out)  # Codex 從 codex 分支裝要這份市集
     ref = manifest.get("hooks")
-    if isinstance(ref, str):
-        rel = ref[2:] if ref.startswith("./") else ref
+    if not (isinstance(ref, str) and ref.startswith("./") and ".." not in ref.split("/")):
+        out.append(f"{CODEX_MANIFEST} 的 hooks 要是 ./ 開頭、在外掛裡的路徑（現在是 {ref!r}）；沒有的話 Codex 會去讀 Claude 的 hooks/hooks.json")
+    else:
+        rel = ref[2:]
         hooks = _json_of(files, rel, out)
         for text in _strings(hooks) if hooks is not None else []:
             for sub in re.findall(r"\$\{PLUGIN_ROOT\}/([^\s\"']+)", text):
@@ -454,6 +458,9 @@ def _git(public, *args):
 def _require_clean(public):
     """公開 repo 的 clone 有沒 commit 的改動（已暫存、或改了追蹤的檔）就停：不然那些改動會跟清單或名單一起 commit 推出去。
     沒加進 git 的檔不算（git add 只加清單與名單）。本機還沒推的 commit 不算（上一次推失敗留下的，這次一起推）。"""
+    branch = _git(public, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if branch != PUBLIC_BRANCH:  # 清單與名單只推 main（#56 review 5：上一次被中斷停在 codex 分支時，不把清單推進 codex）
+        raise ReleaseError(f"公開 repo 的 clone 現在在 {branch}，不是 {PUBLIC_BRANCH}；先 git checkout {PUBLIC_BRANCH} 再跑")
     dirty = _git(public, "status", "--porcelain", "--untracked-files=no").strip()
     if dirty:
         raise ReleaseError(f"公開 repo 的 clone 有沒 commit 的改動，先清乾淨再跑：\n{dirty}")
@@ -581,44 +588,46 @@ def _release_exists(public, tag):
 
 def _push_codex(public, version, files):
     """Codex 版（#56 決策 5）：把 zip 的同一批檔推到公開 repo 的 codex 分支（Codex 的市集不認 zip，只認 git 的內容）。
-    一般 commit 接在後面、不 force push；README.md 換成安裝-Codex.md、補 .gitattributes。內容跟上一次一樣就不 commit，
-    push 照跑（上一次 commit 了卻推失敗的，這次一起推）。做完切回原本的分支。回 codex 分支的 commit。"""
-    back = _git(public, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    一般 commit 接在遠端那個後面、不 force push；README.md 換成安裝-Codex.md、補 .gitattributes。內容跟遠端一樣就不 commit。
+    本機的 codex 分支由這裡管：遠端有就一律從遠端那個接（上一次 commit 了卻推失敗的丟掉、這次重做同一份；本機跟遠端分岔也不卡，
+    #56 review 7）。做完（或失敗）切回 main，這裡寫出來、main 沒有的檔刪掉（review 6：不留下擋住下一次切換的檔）。
+    回 codex 分支的 commit。"""
     remote = _git(public, "remote", "get-url", "--push", "origin").strip()  # 推的那個（平常跟抓的同一個）
     has_remote = bool(_git(public, "ls-remote", "--heads", remote, CODEX_BRANCH).strip())
     has_local = bool(_git(public, "branch", "--list", CODEX_BRANCH).strip())
+    out = dict(files)
+    if CODEX_README in out:
+        out["README.md"] = out[CODEX_README]
+    out[".gitattributes"] = b"* text=auto eol=lf\n"
     try:
         if has_remote:
             _git(public, "fetch", "-q", remote, CODEX_BRANCH)
-            if has_local:  # 本機有（可能有上一次沒推成的 commit）：切過去、接上遠端的
-                _git(public, "checkout", "-q", CODEX_BRANCH)
-                _git(public, "merge", "-q", "--ff-only", "FETCH_HEAD")
-            else:
-                _git(public, "checkout", "-q", "-b", CODEX_BRANCH, "FETCH_HEAD")
+            _git(public, "checkout", "-q", "-f", "-B", CODEX_BRANCH, "FETCH_HEAD")
         elif has_local:
-            _git(public, "checkout", "-q", CODEX_BRANCH)
+            _git(public, "checkout", "-q", "-f", CODEX_BRANCH)
         else:
-            _git(public, "checkout", "-q", "--orphan", CODEX_BRANCH)
+            _git(public, "checkout", "-q", "-f", "--orphan", CODEX_BRANCH)
         tracked = [x for x in _git(public, "ls-files", "-z").split(chr(0)) if x]
         if tracked:
             _git(public, "rm", "-q", "-r", "--cached", "--", ".")
             for rel in tracked:
                 Path(public, rel).unlink(missing_ok=True)
-        out = dict(files)
-        if CODEX_README in out:
-            out["README.md"] = out[CODEX_README]
-        out[".gitattributes"] = b"* text=auto eol=lf\n"
         for rel, data in out.items():
             dest = Path(public) / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
-        _git(public, "add", "-f", "--", *sorted(out))
+        # 路徑從 stdin 給（review 8：檔多、中文路徑長時不撞 Windows 指令列上限）；只加這批，clone 裡別的沒追蹤的檔不帶進去
+        _run(["git", "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"], cwd=public, input=chr(0).join(sorted(out)))
         if _git(public, "status", "--porcelain", "--untracked-files=no").strip():
             _git(public, "commit", "-q", "-m", f"codex: {version}")
         _git(public, "push", "-q", "origin", f"HEAD:refs/heads/{CODEX_BRANCH}")
         return _git(public, "rev-parse", "HEAD").strip()
     finally:
-        _git(public, "checkout", "-q", "-f", back)
+        _git(public, "checkout", "-q", "-f", PUBLIC_BRANCH)
+        keep = {x for x in _git(public, "ls-files", "-z").split(chr(0)) if x}
+        for rel in out:
+            if rel not in keep:
+                Path(public, rel).unlink(missing_ok=True)
 
 
 def publish(repo, tag, public, who, wait=15):

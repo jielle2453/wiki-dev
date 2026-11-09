@@ -73,10 +73,10 @@ def main():
         tool = str(payload.get("tool_name", "") or "") if isinstance(payload, dict) else ""
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
-        if _codex is None:
-            raise ImportError("hooks/_codex.py 載不進來")
-        if not _codex.is_codex(payload):
+        if "turn_id" not in payload:  # Claude 的 payload 不靠 _codex（#56 review 1：轉接壞了 Claude 版照舊）；同 _codex.is_codex
             decision, reason, updated, _vault = _judge(payload, tool)
+        elif _codex is None:
+            raise ImportError("hooks/_codex.py 載不進來")
         else:
             decision, reason, updated = _codex_main(payload, tool)
         if decision in ("allow", "deny", "ask"):  # ask：開新口子的密碼動作，Claude Code 跳允許詢問（D-212）；Codex 不會走到 ask

@@ -179,6 +179,25 @@ Codex 版現在放在 wiki-dev 的長期分支 `codex`，main 每發一版都要
 
 ## 裁定（測試、確認之後才有）
 
+### 實作疑義
+
+1. **session 檔記的是 `codex: true`，不是 `client: "codex"`**（決策 2、資料與介面格式、驗收 6、7 照這條讀）。原因：照現有的回合旗標做（`turn.MARK_FLAGS` 加 `codex`，用 `turn.mark_session` 標），「退回自己這句」開的新回合會照舊把旗標帶下去，不用另寫繼承。沒有這個鍵就當 Claude。
+2. 驗收 7 寫在 `tests/test_codex_adapter.py`（`Consent.test_codex_turn_marks_session`），不在 `test_hooks_turn.py`；驗收 11 也寫在 `test_codex_adapter.py`（`Config.test_codex_manifest_version_matches`，codex 分支已經有），不在 `test_repo_hygiene.py`。
+3. review（claude -p、Sonnet、0.56 美元，2026-11-09）10 條：
+   - **修了**：
+     - (1) `hooks/_codex.py` 載不進來時，Claude 的 payload 也被當守門出錯擋下。改成先看 `turn_id`，沒有就照 Claude 判，不碰 `_codex`。
+     - (5) 公開 clone 不在 main 時，`publish`／`rollout` 會把清單推到別的分支。`_require_clean` 改成不在 main 就停。
+     - (6) codex 那步失敗，會留下 main 沒有的檔，擋住下一次切換。切回 main 後刪掉這次寫出來、main 沒有的檔。
+     - (7) 本機 codex 分支跟遠端分岔就卡住。改成遠端有，就一律從遠端那個接。
+     - (8) 路徑全放指令列，日後可能撞 Windows 上限。改用 `--pathspec-from-file`。
+     - (9) Codex manifest 沒有 `hooks`、或路徑出了外掛夾，都沒有擋。改成這兩種都報；`.agents/plugins/marketplace.json` 也要在。
+     - 另外補測試：沒有 force push、新版拿掉的檔 codex 分支也拿掉、不在 main 就停。
+   - **不修**：
+     - (2) `hooks/` 進了 `sys.path`：main 的 `turn.py`、`stop.py` 本來就這樣做。
+     - (3) `output_log` 打回改成最後併成一行印：Claude 的 payload 只有一份，客戶看到的一樣，只差印的時間點。
+     - (10) 不是 bug。
+     - 驗收 6 裡 `dispatch_adopt` 的 Codex prompt 沒有另外測：它跟 `dispatch` 用同一個 `_prompt`。
+
 ## 紀錄（設計 session 結案時填）
 - 實作 commit：
 - 測試報告：
