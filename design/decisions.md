@@ -22,7 +22,7 @@
 | 回合與日誌 | 回合備份、退回、大改動攔截、工作日誌 | 14 |
 | 建置 | build：環境、訪談、抽樣、建置報告 | 11 |
 | 備份與搬家 | backup、restore、moved、清理、換電腦、換帳號 | 10 |
-| 升級與發行 | 安裝、升級、小修、發行程式、名單 | 12 |
+| 升級與發行 | 安裝、升級、小修、發行程式、名單 | 13 |
 | 健檢與待處理 | lint、待處理、回答末尾怎麼問 | 13 |
 | 核心規則與開場 | rules/core.md、開場注入、總資料夾 CLAUDE.md、AI 怎麼說話（橫跨多題） | 8 |
 | 狀態檔格式 | .system/*.json 的 schema、遷移、JSON 為真（橫跨多題，會牽動升級） | 4 |
@@ -315,6 +315,7 @@
 - D-218 清單照舊放 GitHub raw；發行程式先推清單與 zip，確認網路上抓得到新版才改名單
 - D-219 連不上 GitHub 的客戶第一版不支援，遇到再談
 - D-230 換版之前先在她的電腦上驗新版，不過就不換
+- D-535 讓 Python 把 .pyc 寫進 plugin 自己的夾：拿掉 `dont_write_bytecode`（#62）
 
 **健檢與待處理**
 
@@ -3380,6 +3381,17 @@
 - 放棄了：第 2 版「回合備份只備第一次」；把版本 N 直接改名回原檔當退回（現有退回先搬檔後換檔，要改退回核心）；版本檔另外再複製一份進回合（兩份）。
 - 代價：她在 Office 直接改版本檔後說「退回」，那份會被拿掉（存在退回那一句的備份裡，再說退回拿得回）；同步夾每改一次多同步一份版本檔；版本檔她不刪就一直留。
 - 重談條件：OBS 回測 kb 次數沒降到 4 以下；或有客戶的版本檔被同步程式原地改寫、退回說「沒換回」。
+
+## D-535 讓 Python 把 .pyc 寫進 plugin 自己的夾：拿掉 `dont_write_bytecode`（#62）
+- 日期：2026-11-09
+- 狀態：willy設計 提案，待 jacky 說可以。走輕流程。
+- 起因：壓力測試（2026-11-09）每次叫 kb 都重編約 77 個模組；已安裝的 plugin 幾乎沒有 .pyc。
+- 查過：`dont_write_bytecode` 從建殼 spec（2026-10-12）就在 `kb.py`，之後每支 hook 照抄，`test_repo_hygiene` 守著；decisions、incidents、backlog、commit 訊息都沒寫理由。kb 與 hook 都是 `python <plugin>/scripts/kb.py`、`python <plugin>/hooks/*.py` 跑，import 的模組全在 plugin 夾，`__pycache__` 只會落在 plugin 夾（`~\.claude\plugins\cache\…\<版本>\`，使用者可寫），不會落在知識庫或原檔夾。
+- 選了：拿掉 `kb.py` 與 `hooks/*.py` 的 `sys.dont_write_bytecode = True`；`test_repo_hygiene` 改成守「不准有」。
+- 為什麼：一行、不碰發行程式；第一次呼叫寫好之後每次都用。實測（jacky 這台，Python 3.12，`kb --help`，2026-11-09）：沒 .pyc 3.0～5.7 秒、寫好之後 1.5～2.4 秒。
+- 放棄了：發行時預先編 .pyc 放進 zip（.pyc 綁 Python 版本，要每個版本各編一份，客戶裝的版本不一定在清單裡；zip 解開的檔案時間也不一定保留，要改成 hash 驗證，發行程式與 selftest 都要動）；`sys.pycache_prefix` 指到另一個夾（多一段路徑邏輯，plugin 夾本來就可寫）。
+- 代價：plugin 夾多出 `__pycache__`（不在 zip、不進 git）。plugin 夾不能寫時 Python 照舊靜默不寫，跟現在一樣慢、不會壞。環境變數 `PYTHONDONTWRITEBYTECODE` 設了的電腦照舊不寫（Claude Code 本身不設，2026-11-09 用 `claude -p` 實測 hook 與 Bash 工具都沒有）。
+- 重談條件：客戶 plugin 夾發現 `__pycache__` 造成問題（例如換版沒清乾淨、防毒擋）。
 
 ## D-534 記帳先對客戶關掉（#59，修訂 D-343）
 - 日期：2026-11-09
