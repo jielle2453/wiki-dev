@@ -15,7 +15,7 @@ USER_KEYS = (
     "pending_set_aside_days", "set_aside_wake_days", "lint_inferred_days", "preference_lint_days", "versions_keep_days",
     "versions_keep_turns", "backup_keep", "snapshots_keep", "home_timeline_days", "home_recent_max", "find_recent_days",
     "find_results_max", "card_parallel", "preference_max", "preference_max_chars", "ask_expire_days",
-    "card_section_map_min_chars", "card_section_map_min_pages", "index_icons", "index_order",
+    "card_section_map_min_chars", "card_section_map_min_pages", "index_icons", "index_order", "background_scan_minutes",
 )
 CLIENT_REL = Path(".system") / "config.json"
 
