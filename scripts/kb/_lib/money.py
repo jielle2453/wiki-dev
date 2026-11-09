@@ -259,8 +259,13 @@ def _field_unit(prof, type_name, field):
 
 
 def _pack(entry, field):
+    """實體上「每…」的值；第九節拿掉那欄時值進了 old（from 是 None，不是她說清掉），照用最後那個（記帳2 測試第 4 輪 #23 (b)）。"""
     from kb._lib import entities
     v = entities.field_value(entry, field) if entry else None
+    if v is None and entry:
+        cur = next((c for n, c in entities.fields_of(entry).items() if entities.key(n) == entities.key(field)), None)
+        if cur and cur.get("from") is None and cur.get("old"):
+            v = cur["old"][-1].get("value")
     return Fraction(str(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
 
 
@@ -309,6 +314,12 @@ class Units:
         f = factor(self.prof, self.entry, unit, self.base)
         return (_frac(qty) * f, self.base) if f is not None else (_frac(qty), unit)
 
+    def main(self, groups):
+        """算庫存、毛利時的基本單位：第九節有就是它；沒有而這個商品只有一組（只講過一種單位）就是那組，安全庫存、毛利、
+        多品項估的金額照算（記帳2 測試第 4 輪 #18）；兩組以上換不了是 ""。"""
+        groups = list(dict.fromkeys(groups))
+        return self.base or (groups[0] if len(groups) == 1 else "")
+
 
 def _units(prof, ents, name, cache=None):
     from kb._lib import entities
@@ -352,38 +363,46 @@ def _unit_label(u):
     return u or "沒寫單位"
 
 
-def _unit_msg(prof, units, name, prior, new_units):
-    """換不到同一組的退回句（D-344 補；#16 先 profile add 再 entity field）。prior 是 [(單位, 帳的編號)]，new_units 是這次的單位。"""
+def _ask_pack(prof, typ, name, u, r):
+    """問她「大的裝幾個小的」那一步（記帳2 測試第 4 輪 #17）：第九節已有「每u（單位 r）」或「每r（單位 u）」就知道哪個大、
+    直接問、設那欄；都沒有就讓 AI 問她哪個大，不猜。設的一律是 每<大的>=<整數>、欄的單位是小的。"""
+    if _field_unit(prof, typ, "每" + u) == r:
+        big, small = u, r
+    elif _field_unit(prof, typ, "每" + r) == u:
+        big, small = r, u
+    else:
+        return (f"問她一次{u}、{r}哪個大、一個大的裝幾個小的（像一箱幾瓶），答了先 kb profile add 數字欄 型別={typ} "
+                f"欄名=每<大的> 單位=<小的>，再 kb entity field {name} 每<大的>=<整數> --said")
+    return f"問她一次一{big}幾{small}，答了 kb entity field {name} 每{big}=<整數> --said"
+
+
+def _unit_msg(prof, units, name, prior, new_units, bad):
+    """換不過去的退回句（D-344 補；#16 先 profile add 再 entity field；第 4 輪 #17 只問大的裝幾個小的）。prior 是
+    [(單位, 帳的編號)]，new_units 是這次的單位，bad 是要問的單位。"""
     base, typ = units.base, (units.entry or {}).get("type")
     old = [u for u, _mid in prior]
     head = (f"「{name}」以前記過的單位：{'、'.join(dict.fromkeys(map(_unit_label, old))) or '（沒有）'}；"
             f"這次是：{'、'.join(dict.fromkeys(map(_unit_label, new_units)))}；換不成同一個單位，沒有寫。")
-    steps = []
-    if base:
-        for u in dict.fromkeys(u for u in old + list(new_units) if units.to_base(1, u)[1] != base):
-            add = (f"先 kb profile add 數字欄 型別={typ} 欄名=每{u} 單位={base}，再 "
-                   if _field_unit(prof, typ, "每" + u) is None else "")
-            steps.append(f"問她一次一{u}幾{base}，答了{add}kb entity field {name} 每{u}=<數> --said"
-                         f"（{u}比{base}小就反過來設 每{base}，欄的單位={u}）")
-    else:
-        said = [u for u in new_units if u]
-        named = list(dict.fromkeys(said + [u for u in old if u]))
-        if len(named) > 1:
-            big, small = named[:2]
-            steps.append(f"問她一次一{big}幾{small}，答了先 kb profile add 數字欄 型別={typ} 欄名=每{big} 單位={small}，"
-                         f"再 kb entity field {name} 每{big}=<數> --said（大小相反就對調）")
-        blank = list(dict.fromkeys(mid for u, mid in prior if not u))
-        if blank and said:
-            steps.append(f"之前沒寫單位的（{'、'.join(blank)}）問她是什麼單位，"
-                         f"kb money edit <編號> --item \"<那筆全部的品項，補上單位>\"")
+    steps, named = [], [u for u in old + list(new_units) if u]
+    for u in dict.fromkeys(x for x in bad if x):
+        g = units.to_base(1, u)[1]
+        r = base or next((x for x in named if units.to_base(1, x)[1] != g), "")
+        if r:
+            steps.append(_ask_pack(prof, typ, name, u, r))
+    blank = list(dict.fromkeys(mid for u, mid in prior if not u))
+    if not base and blank and any(new_units):
+        steps.append(f"之前沒寫單位的（{'、'.join(blank)}）問她是什麼單位，"
+                     f"kb money edit <編號> --item \"<那筆全部的品項，補上單位>\"")
     tail = "；然後照原句再記" if steps else ""
     if not base and any(not u for u in new_units) and any(old):
         steps.append(f"這次沒寫單位：是{'、'.join(dict.fromkeys(u for u in old if u))}的話 --item 補上單位再記，不確定先問她")
     return head + "；".join(steps) + tail
 
 
-def _check_units(prof, ents, data, lines, exclude=None):
-    """寫入前（D-344 補）：同一個商品，以前沒取消的筆（exclude 是正在改的那筆）加上這次的品項，換不到同一組就退回。"""
+def _check_units(prof, ents, data, lines, exclude=None, strict=False):
+    """寫入前（D-344 補；記帳2 測試第 4 輪 #20、#21 放寬）：這筆帶進一個這個商品沒用過、又換不到以前那些筆任何一組的新單位才退回；
+    基本單位（第九節）當作用過（沒寫單位的就是它）。已經分開列的再記它用過的單位照記（只會繼續分開列、不會加錯），同一筆的收款
+    也不擋。strict（盤點要對得上合計）：以前的筆加上這次換不到同一組就退回。exclude 是正在改的那筆。"""
     mine = {}
     for ln in lines:
         mine.setdefault(_key(ln["entity"]), []).append(ln)
@@ -396,14 +415,27 @@ def _check_units(prof, ents, data, lines, exclude=None):
         for ln in it.get("lines") or []:
             k = _key(ln.get("entity") or "")
             if k in prior:
-                prior[k].append((ln.get("unit") or "", it.get("id"), ln))
+                prior[k].append((ln.get("unit") or "", it.get("id")))
     cache = {}
     for k, new in mine.items():
         units = _units(prof, ents, new[0]["entity"], cache)
-        keys = {units.to_base(1, u)[1] for u, _m, _ln in prior[k]} | {units.to_base(1, ln.get("unit"))[1] for ln in new}
-        if len(keys) > 1:
-            raise MoneyRefused(_unit_msg(prof, units, new[0]["entity"], [(u, m) for u, m, _ln in prior[k]],
-                                         [ln.get("unit") or "" for ln in new]))
+        said = [ln.get("unit") or "" for ln in new]
+        groups = {units.to_base(1, u)[1] for u, _m in prior[k]}
+        if strict:
+            bad = []
+            if len(groups | {units.to_base(1, u)[1] for u in said}) > 1:
+                bad = [u for u in said if units.to_base(1, u)[1] not in groups] or [u for u, _m in prior[k]]
+        else:
+            used, bad = {u for u, _m in prior[k]} | ({units.base, ""} if units.base else set()), []
+            for u in said:
+                g = units.to_base(1, u)[1]
+                if u in used or g in groups or not groups:
+                    used.add(u)
+                    groups.add(g)
+                else:
+                    bad.append(u)
+        if bad:
+            raise MoneyRefused(_unit_msg(prof, units, new[0]["entity"], prior[k], said, bad))
 
 
 def line_text(prof, ents, ln, cache=None):
@@ -791,7 +823,7 @@ def count(vault, product, actual, turn_id, place=None, by="ai"):
     k = _key(e["name"])
 
     def fn(data):
-        _check_units(prof, ents, data, [{"entity": e["name"], "qty": numbers.plain(n), "unit": said}])
+        _check_units(prof, ents, data, [{"entity": e["name"], "qty": numbers.plain(n), "unit": said}], strict=True)
         now, used = Fraction(0), []
         for it in _live(data):
             for ln in it.get("lines") or []:
@@ -863,8 +895,8 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
         rec = per[name]
         if at and not any(at in g["places"] for g in rec.values()):
             continue
-        units = _units(prof, ents, name, cache)
-        main = _pick_main(rec, units.base)
+        base = _units(prof, ents, name, cache).main(rec)
+        main = _pick_main(rec, base)
         order = [main] + [g for g in rec if g != main]
         where = [at] if at else list(dict.fromkeys(names + [p for g in rec.values() for p in g["places"]]))
         cells = {g: {p: rec[g]["places"].get(p, Fraction(0)) if g in rec else Fraction(0) for p in where} for g in order}
@@ -872,11 +904,11 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
         e = entities.find(ents, name)[0]
         out.append({"name": name, "unit": main, "total": _num(total),
                     "places": {p: _num(v) for p, v in cells[main].items()},
-                    "min": entities.field_value(e, "安全庫存") if e else None, "base": units.base,
+                    "min": entities.field_value(e, "安全庫存") if e else None, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec[g]["total"]), "places": {p: _num(v) for p, v in cells[g].items()}}
                               for g in order[1:]],
-                    "text": groups_text([(g, rec[g]["total"]) for g in order if g in rec], units.base),
-                    "places_text": {p: groups_text([(g, cells[g][p]) for g in order if g == main or cells[g][p]], units.base)
+                    "text": groups_text([(g, rec[g]["total"]) for g in order if g in rec], base),
+                    "places_text": {p: groups_text([(g, cells[g][p]) for g in order if cells[g][p] or g == main == base], base)
                                     for p in where}})
     return {"products": out}
 
@@ -920,12 +952,19 @@ def _products(items, ents, prof=None):
     毛利（估）＝賣出數量 ×（售價 − 進價），沒進價不算。數量照 Units 換成基本單位（D-344 補）：單價是她講那個單位的價（金額＝單價 ×
     她講的數），售價、進價是基本單位的；換不了的數量分開放 apart、不算毛利、不拿來分金額。"""
     prof = prof or {}
-    cache, agg = {}, {}
+    cache, agg, seen = {}, {}, {}
+    for it in items:
+        for ln in it.get("lines") or []:
+            g = _units(prof, ents, ln.get("entity"), cache).to_base(1, ln.get("unit"))[1]
+            seen.setdefault(ln.get("entity"), {})[g] = True
+
+    def calc_base(name):
+        return _units(prof, ents, name, cache).main(seen.get(name, ()))
 
     def base_qty(ln):
         units = _units(prof, ents, ln["entity"], cache)
         q, g = units.to_base(-_frac(ln["qty"]), ln.get("unit"))
-        return q, g, units.base
+        return q, g, calc_base(ln["entity"])
 
     for it in items:
         if it.get("dir") != "in" or it.get("status") != "done":
@@ -957,12 +996,12 @@ def _products(items, ents, prof=None):
                 rec["unknown"] = True
     out = []
     for name, rec in sorted(agg.items()):
-        base = _units(prof, ents, name, cache).base
-        main = _pick_main(rec["groups"], base)
+        base, calc = _units(prof, ents, name, cache).base, calc_base(name)
+        main = _pick_main(rec["groups"], calc)
         order = [main] + [g for g in rec["groups"] if g != main]
         sell, cost = _price(ents, name, "售價"), _price(ents, name, "進價")
-        margin = (_num(rec["groups"][base] * (_frac(sell) - _frac(cost)))
-                  if sell is not None and cost is not None and base in rec["groups"] else None)
+        margin = (_num(rec["groups"][calc] * (_frac(sell) - _frac(cost)))
+                  if sell is not None and cost is not None and calc in rec["groups"] else None)
         amount = None if rec["unknown"] else (_num(Fraction(round(rec["amount"]))) if rec["estimated"] else _num(rec["amount"]))
         out.append({"name": name, "qty": _num(rec["groups"].get(main, Fraction(0))), "unit": main, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec["groups"][g])} for g in order[1:]],

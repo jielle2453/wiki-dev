@@ -288,5 +288,27 @@ class Evals(unittest.TestCase):
                 self.assertTrue(any(want in q for q in negatives), want)
 
 
+class MoneyUnits(unittest.TestCase):
+    """references/money.md 的單位（D-344 補，記帳2 測試第 4 輪 #17、#19）：退回時問大的裝幾個小的、設 每<大的>=整數，不設小數；
+    成功句或庫存有「（不知道一箱幾瓶）」問一次，她不知道就算了。"""
+
+    def setUp(self):
+        self.text = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
+
+    def test_short(self):
+        self.assertLessEqual(len(self.text.splitlines()), REFERENCE_MAX_LINES)
+
+    def test_17_asks_how_many_small_in_big(self):
+        for want in ("一箱幾瓶", "每<大的>=<整數>", "欄的單位是小的", "不要猜"):
+            with self.subTest(want=want):
+                self.assertIn(want, self.text)
+        self.assertNotIn("一瓶幾箱", self.text)
+
+    def test_19_unknown_pack_asked_once(self):
+        for want in ("成功句或庫存出現「（不知道一箱幾瓶）」", "她不知道就算了", "不再追問"):
+            with self.subTest(want=want):
+                self.assertIn(want, self.text)
+
+
 if __name__ == "__main__":
     unittest.main()
