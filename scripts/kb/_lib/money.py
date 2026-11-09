@@ -334,12 +334,20 @@ def _num(fr):
 
 class Units:
     """一個商品的單位換算（D-344 補）：base 是第九節的基本單位（"" 是沒有）；to_base 把一個品項換成 (數, 組)，
-    換得了的組是 base（沒寫單位的也是），換不了的組是它自己的單位。"""
+    換得了的組是 base（沒寫單位的也是），換不了的組是它自己的單位。
+    D-344 三補：第九節的單位是型別的預設；said 是帳裡這個商品各筆照記的順序講的單位，第一筆有寫單位、換不到第九節的單位、
+    之後每筆都換得到它（含沒寫單位的）→ 那個單位就是它自己的基本單位（own，type_base 留第九節那個）。"""
 
-    def __init__(self, prof, entry):
+    def __init__(self, prof, entry, said=()):
         self.entry = entry
-        self.base = base_unit(prof, entry.get("type")) if entry else ""
+        self.type_base = self.base = base_unit(prof, entry.get("type")) if entry else ""
         self.prof = prof
+        said = list(said)
+        first = said[0] if said else ""
+        self.own = bool(self.base and first and factor(prof, entry, first, self.base) is None
+                        and all(factor(prof, entry, u, first) is not None for u in said))
+        if self.own:
+            self.base = first
 
     def to_base(self, qty, unit):
         unit = unit or ""
@@ -353,12 +361,27 @@ class Units:
         return self.base or (groups[0] if len(groups) == 1 else "")
 
 
+_SAID = object()
+
+
+def unit_cache(data, skip=None):
+    """_units 的 cache，帶著帳裡每個商品照記的順序講過的單位（D-344 三補看它自己的基本單位）；skip 是不算的那筆編號。
+    沒帶這個的 cache（{}）照第九節算。"""
+    said = {}
+    for it in _live(data):
+        if skip is None or it.get("id") != skip:
+            for ln in it.get("lines") or []:
+                said.setdefault(_key(ln.get("entity") or ""), []).append(ln.get("unit") or "")
+    return {_SAID: said}
+
+
 def _units(prof, ents, name, cache=None):
     from kb._lib import entities
     k = _key(name or "")
     if cache is not None and k in cache:
         return cache[k]
-    got = Units(prof, entities.find(ents, name)[0] if name else None)
+    said = (cache or {}).get(_SAID, {}).get(k, ())
+    got = Units(prof, entities.find(ents, name)[0] if name else None, said)
     if cache is not None:
         cache[k] = got
     return got
@@ -439,7 +462,7 @@ def _check_count(prof, ents, data, line):
     k = _key(line["entity"])
     prior = [(ln.get("unit") or "", it.get("id")) for it in _live(data) for ln in it.get("lines") or []
              if _key(ln.get("entity") or "") == k]
-    units = _units(prof, ents, line["entity"])
+    units = _units(prof, ents, line["entity"], unit_cache(data))
     said = [line.get("unit") or ""]
     groups = {units.to_base(1, u)[1] for u, _m in prior}
     if len(groups | {units.to_base(1, u)[1] for u in said}) > 1:
@@ -472,7 +495,7 @@ ASK_TAIL = "；她不知道就放著，之後不再問（只會分開列，不�
 def unit_asks(vault, it, prof=None, ents=None, data=None):
     """記好、改好之後（D-344 再補：記帳不因單位擋）：這筆的品項有換不到同一組的單位 → [{"entity","unit","with","mark","shown","ask"}]，
     一個商品一個單位一條。有基本單位：換不到基本單位的（成功句的品項已帶 mark，shown 是 True）；沒有：換不到這個商品最早那組的
-    （只講過一種單位不問）。ask 教 AI 問她一次（設 每<大的>=<整數>、欄的單位是小的；之前沒寫單位的教 kb money edit 補）。"""
+    （只講過一種單位不問）。D-344 三補：只用它自己那一種單位的不問；基本單位照這筆之前的帳看（之前只用盒，這筆講瓶就問）。ask 教 AI 問她一次（設 每<大的>=<整數>、欄的單位是小的；之前沒寫單位的教 kb money edit 補）。"""
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
     data = load(vault) if data is None else data
@@ -483,10 +506,13 @@ def unit_asks(vault, it, prof=None, ents=None, data=None):
             first.setdefault(k, ln.get("unit") or "")
             if not ln.get("unit") and x.get("id") != it.get("id"):
                 blank.setdefault(k, []).append(x.get("id"))
-    out, seen, cache = [], set(), {}
+    out, seen, cache, pre = [], set(), unit_cache(data), unit_cache(data, it.get("id"))
     for ln in it.get("lines") or []:
         name, u, k = ln["entity"], ln.get("unit") or "", _key(ln["entity"])
-        units = _units(prof, ents, name, cache)
+        after = _units(prof, ents, name, cache)
+        if after.own:  # D-344 三補：只用它自己那一種單位，不問
+            continue
+        units = _units(prof, ents, name, pre)  # 照這筆之前算：之前只用盒、這筆講瓶也要問一次
         g = units.to_base(1, u)[1]
         ref = units.base or units.to_base(1, first.get(k, u))[1]
         if g == ref or (k, g) in seen:
@@ -502,7 +528,8 @@ def unit_asks(vault, it, prof=None, ents=None, data=None):
         else:
             mark = f"（沒寫單位，不知道是不是{ref}）"
             ask = f"這筆{name}沒寫單位：問她是不是{ref}，是的話 kb money edit {it.get('id')} --item \"<這筆全部的品項，補上單位>\""
-        out.append({"entity": name, "unit": u, "with": ref, "mark": mark, "shown": bool(units.base), "ask": ask + ASK_TAIL})
+        shown = bool(after.base) and after.to_base(1, u)[1] != after.base  # 成功句的品項字已帶 mark
+        out.append({"entity": name, "unit": u, "with": ref, "mark": mark, "shown": shown, "ask": ask + ASK_TAIL})
     return out
 
 
@@ -910,12 +937,12 @@ def count(vault, product, actual, turn_id, place=None, by="ai"):
         raise MoneyRefused(str(e2)) from None
     said = m.group(2) or ""
     where = _place(vault, prof, ents, place, profile.place_types(prof)) if place else None
-    units = Units(prof, e)
-    real, group = units.to_base(n, said)
     k = _key(e["name"])
 
     def fn(data):
         _check_count(prof, ents, data, {"entity": e["name"], "unit": said})
+        units = _units(prof, ents, e["name"], unit_cache(data))  # D-344 三補：只用過盒的照盒算
+        real, group = units.to_base(n, said)
         now, used = Fraction(0), []
         for it in _live(data):
             for ln in it.get("lines") or []:
@@ -969,7 +996,7 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
     ents = _ents(vault) if ents is None else ents
     want = _entity(ents, entity)["name"] if entity else None
     at = _entity(ents, place)["name"] if place else None
-    cache, per = {}, {}
+    cache, per = unit_cache(data), {}
     for it in _live(data):
         for ln in it.get("lines") or []:
             units = _units(prof, ents, ln.get("entity"), cache)
@@ -1059,16 +1086,18 @@ def _unit_price(prof, ents, units, name, field, calc):
     u = re.split(r"[/／]", _field_unit(prof, (units.entry or {}).get("type"), field) or "")[-1].strip()
     if not u or u.upper().endswith(MONEY_UNITS):
         return _frac(p)
+    if units.own and u == units.type_base:  # D-344 三補：第九節寫瓶、膠囊只用盒 → 照它自己的單位讀
+        u = units.base
     f = factor(prof, units.entry, u, calc)
     return None if f is None else _frac(p) / f
 
 
-def _products(items, ents, prof=None):
+def _products(items, ents, prof=None, data=None):
     """賣出（收的那筆、數量是負的）：數量、金額（有單價照單價；一個品項的整筆就是它；多品項沒單價照售價分、標估的；沒售價只報數量）、
     毛利（估）＝賣出數量 ×（售價 − 進價），沒進價不算。分不出的那幾筆不算進金額、筆數放 missing（一筆都算不出 amount 才是 None）。數量照 Units 換成基本單位（D-344 補）：單價是她講那個單位的價（金額＝單價 ×
     她講的數），售價、進價照 _unit_price 換成基本單位的價（第 5 輪 #24，換不了不算）；換不了的數量分開放 apart、不算毛利、不拿來分金額。"""
     prof = prof or {}
-    cache, agg, seen = {}, {}, {}
+    cache, agg, seen = unit_cache({"items": items} if data is None else data), {}, {}
     for it in items:
         for ln in it.get("lines") or []:
             g = _units(prof, ents, ln.get("entity"), cache).to_base(1, ln.get("unit"))[1]
@@ -1180,10 +1209,11 @@ def summary(vault, frm, to, entity=None, vs=None, advanced_by=None):
         return statements_summary(vault, frm, to, entity=entity, vs=vs)
     ents = _ents(vault)
     k = _key(_entity(ents, entity)["name"]) if entity else None
-    items = _pick(_live(load(vault)), k, advanced_by)
+    data = load(vault)
+    items = _pick(_live(data), k, advanced_by)
     got, ranked, rows = _sums(vault, items, frm, to, ents)
     out = {"from": frm, "to": to, "source": "money", **got, "by_type": ranked,
-           "products": _products([i for i in items if _in_range(i.get("date"), frm, to)], ents, _profile(vault)), "vs": None, "diff": None,
+           "products": _products([i for i in items if _in_range(i.get("date"), frm, to)], ents, _profile(vault), data), "vs": None, "diff": None,
            "items": sorted(rows, key=lambda i: (_ref_day(i) or "", i.get("id", "")))}
     if vs:
         other, _r, _rows = _sums(vault, items, vs[0], vs[1], ents)
@@ -1324,7 +1354,7 @@ def _label(ents, name):
     return name
 
 
-def describe(vault, it, prof=None, ents=None):
+def describe(vault, it, prof=None, ents=None, cache=None):
     """「10/30 收 5,000 賣出（李小姐；精華液 −2 瓶、膠囊 −1 瓶，北店）」；列很多筆的呼叫端把 prof、ents 讀一次帶進來。
     品項的數量照 line_text（D-344 補：「精華液 +2 箱（48 瓶）」）。"""
     from kb._lib import agenda, numbers
@@ -1344,7 +1374,7 @@ def describe(vault, it, prof=None, ents=None):
     lines = it.get("lines") or []
     places = {ln.get("place") for ln in lines}
     one = len(places) == 1 and None not in places
-    cache = {}
+    cache = unit_cache(load(vault)) if cache is None else cache
     shown = [f"{_label(ents, ln['entity'])} {line_text(prof, ents, ln, cache)}"
              + (f"（{_label(ents, ln['place'])}）" if ln.get("place") and not one else "") for ln in lines]
     inside = "；".join(x for x in ["、".join(parts), "、".join(shown) + (f"，{_label(ents, lines[0]['place'])}" if one else "")] if x)
@@ -1562,7 +1592,7 @@ def _who(it, link):
     return "、".join(link(n) for n in it.get("entities") or [])
 
 
-def _items_text(it, prof, ents, times=False):
+def _items_text(it, prof, ents, times=False, cache=None):
     """品項：「精華液 +2 箱（48 瓶）、膠囊 −1 瓶，北店」照 line_text（D-344 補）；times：卡底下那段寫「精華液 ×2」，
     講的不是基本單位的帶上她講的單位（「×1 箱」）。"""
     lines = it.get("lines") or []
@@ -1570,7 +1600,7 @@ def _items_text(it, prof, ents, times=False):
         return ""
     places = {ln.get("place") for ln in lines}
     one = len(places) == 1 and None not in places
-    shown, cache = [], {}
+    shown, cache = [], {} if cache is None else cache
     for ln in lines:
         name = _label(ents, ln.get("entity"))
         if times:
@@ -1615,7 +1645,7 @@ def agenda_line(it, link):
     return f"- {agenda.with_weekday(it['due'])}{d} {amt}" + (f" {tail}" if tail else "") + adv
 
 
-def detail_line(it, link, prof, ents, by_id=None):
+def detail_line(it, link, prof, ents, by_id=None, cache=None):
     """年頁明細一行（callout 裡）：「> - 11/5（四）收 5,000 [[…|李小姐]] 賣出（精華液 −2 瓶，北店；小王墊；拆自 10/30 那筆）」。"""
     by_id = by_id or {}
     if it.get("dir") == "none":
@@ -1624,7 +1654,7 @@ def detail_line(it, link, prof, ents, by_id=None):
         body = f"{DIR_TEXT.get(it.get('dir'), '')} {_amt_text(it) or '金額未知'}"
         who = _who(it, link)
         body += (f" {who}" if who else "") + (f" {it['text']}" if it.get("text") else "")
-    inside = [x for x in (_items_text(it, prof, ents),) if x]
+    inside = [x for x in (_items_text(it, prof, ents, cache=cache),) if x]
     if it.get("advanced_by"):
         inside.append(f"{it['advanced_by']}墊")
     src = by_id.get(it.get("split_from")) if it.get("split_from") else None
@@ -1772,6 +1802,7 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
     link = agenda.linker(vault, ents, mark_removed=True) if link is None else link
     live = _live(data)
     by_id = {i.get("id"): i for i in data["items"]}
+    ucache = unit_cache(data)
     years = _years(vault, data)
     pages = {}
     opens = open_items(vault, {"items": live})
@@ -1799,7 +1830,7 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
         else:
             got, _r, _rows = _sums(vault, done, frm, to, ents)
             block = [f"## {FULL_YEAR}\n{_total_line(got)}"] + _type_tables(done, ents, link, n)
-            prod = _product_table(_products(done, ents, prof), link)
+            prod = _product_table(_products(done, ents, prof, data), link)
             if prod:
                 block.append(prod)
             parts.append("\n\n".join(block) + "\n")
@@ -1807,10 +1838,10 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
                 mine = [i for i in done if i["date"][:7] == month]
                 mgot, _r, _rows = _sums(vault, mine, month + "-01", _month_end(month), ents)
                 block = [f"## {int(month[5:])} 月\n{_total_line(mgot)}"] + _type_tables(mine, ents, link, n)
-                prod = _product_table(_products(mine, ents, prof), link)
+                prod = _product_table(_products(mine, ents, prof, data), link)
                 if prod:
                     block.append(prod)
-                lines = [detail_line(i, link, prof, ents, by_id) for i in mine]
+                lines = [detail_line(i, link, prof, ents, by_id, ucache) for i in mine]
                 rows += [(ln, i.get("id")) for ln, i in zip(lines, mine)]
                 block.append(DETAIL_HEAD.format(n=len(mine)) + "\n" + "\n".join(lines))
                 parts.append("\n\n".join(block) + "\n")
@@ -2025,10 +2056,10 @@ def panel_open_line(it, today):
     return head + (f"（{'，'.join(inside)}）" if inside else "")
 
 
-def panel_done_line(it, prof, ents):
+def panel_done_line(it, prof, ents, cache=None):
     """「10/30（五）收 5,000 精華液 ×2、膠囊 ×1」。"""
     body = it.get("text") or "數量" if it.get("dir") == "none" else f"{DIR_TEXT.get(it.get('dir'), '')} {_amt_text(it) or ''}"
-    parts = [x for x in (it.get("text") if it.get("dir") != "none" else "", _items_text(it, prof, ents, times=True)) if x]
+    parts = [x for x in (it.get("text") if it.get("dir") != "none" else "", _items_text(it, prof, ents, times=True, cache=cache)) if x]
     return f"{_wd(it['date'])}{body}" + (f" {' '.join(parts)}" if parts else "")
 
 
@@ -2042,6 +2073,7 @@ def panel(vault, name, today=None):
     link = agenda.linker(vault, ents, mark_removed=True)
     data = load(vault)
     by_id = {i.get("id"): i for i in data["items"]}
+    ucache = unit_cache(data)
     stock_ = got.get("stock")
     stock_out = None
     if isinstance(stock_, list):
@@ -2057,13 +2089,13 @@ def panel(vault, name, today=None):
              (f"未收 {numbers.show(got['open_in'])}", got["open_in"]), (f"未付 {numbers.show(got['open_out'])}", got["open_out"])]
     head = "｜".join(t for t, v in parts if v) or "累計收 0"
     if stock_out is not None and "total" in stock_out:
-        sold = [p for p in _products(_live(data), ents, prof) if _key(p["name"]) == _key(stock_out["name"])]
+        sold = [p for p in _products(_live(data), ents, prof, data) if _key(p["name"]) == _key(stock_out["name"])]
         head = stock_out["line"] + (f"｜賣出累計 {sold[0]['text']}" if sold else "")
     money_out = {
         "in": got["in"], "out": got["out"], "open_in": got["open_in"], "open_out": got["open_out"], "head": head,
         "open": [{"id": i.get("id"), "due": i.get("due"), "late": late_days(i, today) > 0, "line": panel_open_line(i, today),
                   "page": MD_POSIX, "match": open_line(i, link, today)} for i in got["open"] if i.get("dir") in ("in", "out")],
-        "recent": [{"id": i.get("id"), "date": i.get("date"), "line": panel_done_line(i, prof, ents),
-                    "page": year_rel(i["date"][:4]), "match": detail_line(i, link, prof, ents, by_id)} for i in got["recent"]],
+        "recent": [{"id": i.get("id"), "date": i.get("date"), "line": panel_done_line(i, prof, ents, ucache),
+                    "page": year_rel(i["date"][:4]), "match": detail_line(i, link, prof, ents, by_id, ucache)} for i in got["recent"]],
         "total_n": got["total_done"], "page": MD_POSIX}
     return {"money": money_out, "stock": stock_out}
