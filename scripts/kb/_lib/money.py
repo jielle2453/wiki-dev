@@ -881,6 +881,13 @@ def stock(vault, entity=None, place=None, data=None, prof=None, ents=None):
     return {"products": out}
 
 
+def places_line(row):
+    """stock 一列的各地點：「北店 12、南店 5」；那個地點有換不了的才用 places_text（「北店 12 瓶＋2 箱（不知道一箱幾瓶）」）。"""
+    from kb._lib import numbers
+    return "、".join(f"{p} {row['places_text'][p] if any(a['places'].get(p) for a in row['apart']) else numbers.show(v)}"
+                    for p, v in row["places"].items())
+
+
 def low_stock(vault, names, data=None):
     """合計低於「安全庫存」的商品（D-282；只看合計，D-342 (4)）；沒有安全庫存欄的不列。只比換得到基本單位的那組
     （D-344 補；有換不了的一起帶在 text 裡讓她看到有分開）。"""
@@ -957,7 +964,7 @@ def _products(items, ents, prof=None):
         margin = (_num(rec["groups"][base] * (_frac(sell) - _frac(cost)))
                   if sell is not None and cost is not None and base in rec["groups"] else None)
         amount = None if rec["unknown"] else (_num(Fraction(round(rec["amount"]))) if rec["estimated"] else _num(rec["amount"]))
-        out.append({"name": name, "qty": _num(rec["groups"].get(main, Fraction(0))), "unit": main,
+        out.append({"name": name, "qty": _num(rec["groups"].get(main, Fraction(0))), "unit": main, "base": base,
                     "apart": [{"unit": g, "qty": _num(rec["groups"][g])} for g in order[1:]],
                     "text": groups_text([(g, rec["groups"][g]) for g in order], base),
                     "amount": amount, "estimated": rec["estimated"], "margin": margin})

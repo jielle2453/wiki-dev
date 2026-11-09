@@ -305,7 +305,7 @@ def _stock(vault, args, as_json):
     got = money.stock(vault, args.product, place=args.place)
     lines = []
     for p in got["products"]:
-        where = "、".join(f"{k} {v}" for k, v in p["places_text"].items())
+        where = money.places_line(p)
         lines.append(f"- {p['name']} {p['text']}" + (f"（{where}）" if where else ""))
     _out(as_json, lines or ["還沒有庫存的紀錄"], got)
     return 0
