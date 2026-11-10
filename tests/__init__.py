@@ -3,3 +3,4 @@
 import os
 
 os.environ.setdefault("WIKI_WITH_WILLY_NO_BACKGROUND", "1")
+os.environ.setdefault("WIKI_WITH_WILLY_NO_SCHEDULE", "1")  # 背景比對的排程：不碰這台真的工作排程器，沒有測試拿掉（裁定 11）

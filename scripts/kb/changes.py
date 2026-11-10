@@ -9,7 +9,9 @@
 """
 import argparse
 import json
+import os
 import time
+from pathlib import Path
 
 from kb import inventory_cli
 from kb._lib import changes_list, inventory, ledger
@@ -27,6 +29,7 @@ def add_arguments(sub):
     sub.add_argument("--all", action="store_true", help="列出全部檔名（預設每類最多 10 個）")
     sub.add_argument("--moved", action="store_true", help="只列認出的搬動（整夾搬算一件，帶卡上的實體），給 AI 判斷要不要改掛")
     sub.add_argument("--background", action="store_true", help="電腦排程用：比完寫清單、不印（AI 不用跑）")
+    sub.add_argument("--task", help=argparse.SUPPRESS)  # 排程自己的名稱：--background 找不到庫時刪掉它（裁定 12a）
     sub.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
     sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="以 JSON 輸出")
 
@@ -71,12 +74,25 @@ def _moved(vault, report, as_json):
     return 0
 
 
+def _orphan(args):
+    """找不到庫（刪了、搬了、不是庫了）：照 --task 刪掉排程自己（裁定 12、12a），記到系統暫存夾的 log（庫不在）。"""
+    from kb._lib import schedule
+    task = getattr(args, "task", None)
+    gone = schedule.forget(task)
+    ledger.log_error(None, f"背景比對找不到知識庫 {args.vault}，{'刪了排程 ' + task if gone else '排程沒刪'}", source="scan")
+
+
 def _background(args):
     """排程跑的：不印、exit 0；例外記 hook-errors.log（source scan）。"""
     vault = None
     try:
         vault = inventory_cli.find_vault(args)
-        if vault is None or not changes_list.acquire(vault):
+        # --vault 本身要是庫：往上找到外層的庫不算（那是別的庫）
+        if vault is None or (args.vault and Path(os.path.realpath(args.vault)) != vault):
+            vault = None
+            _orphan(args)
+            return 0
+        if not changes_list.acquire(vault):
             return 0
         try:
             from datetime import datetime

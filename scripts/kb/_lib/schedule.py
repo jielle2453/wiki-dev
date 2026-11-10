@@ -16,7 +16,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape, unescape
 
 WINDOWS = os.name == "nt"
+NO_SCHEDULE_ENV = "WIKI_WITH_WILLY_NO_SCHEDULE"  # 測試套件一律設（tests/__init__.py）：不碰這台真的排程（裁定 11）
 FOLDER = "wiki-with-willy"
+TASK_PREFIX = FOLDER + "\\變動比對-"
 PENDING_KEY = "schedule_failed"
 PENDING_TEXT = "背景比對的排程設不起來（{reason}）；新放的檔要等 AI 當場比才看得到，請服務人員看一下"
 SCHTASKS_TIMEOUT = 2  # 秒，一次 schtasks；每天第一句的 turn.py 上限 5 秒（review 1）
@@ -60,8 +62,15 @@ class Failed(Exception):
     """schtasks 失敗；args[0] 是寫進待處理的原因。"""
 
 
+class Skipped(Exception):
+    """設了 NO_SCHEDULE_ENV：不叫 schtasks。"""
+
+
 def _schtasks(argv):
-    """跑 schtasks，回 (exit code, 輸出文字)。輸出是系統碼頁（實測 /query /xml 也是）。測試換掉它。"""
+    """跑 schtasks，回 (exit code, 輸出文字)。輸出是系統碼頁（實測 /query /xml 也是）。測試換掉它。
+    設了 NO_SCHEDULE_ENV 丟 Skipped、不叫（裁定 11）。"""
+    if os.environ.get(NO_SCHEDULE_ENV):
+        raise Skipped()
     r = subprocess.run(argv, capture_output=True, timeout=SCHTASKS_TIMEOUT,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return r.returncode, (r.stdout or b"").decode("mbcs", "replace") + (r.stderr or b"").decode("mbcs", "replace")
@@ -81,18 +90,18 @@ def _pythonw():
 def task_name(vault):
     from kb._lib import vault as vault_lib
     vid = vault_lib.ensure_vault_id(vault)
-    return f"{FOLDER}\\變動比對-{vid.removeprefix('kb-')[:8]}"
+    return TASK_PREFIX + vid.removeprefix("kb-")[:8]
 
 
-def expected(vault, minutes):
-    """這台現在該有的指令與間隔。pythonw 找不到丟 Failed。"""
+def expected(vault, minutes, name):
+    """這台現在該有的指令與間隔。指令帶 --task 自己的名稱：庫刪了背景照它刪掉自己（裁定 12a）。pythonw 找不到丟 Failed。"""
     from kb._lib import paths
     pyw = _pythonw()
     if not pyw:
         raise Failed(f"{Path(sys.executable).parent} 找不到 pythonw.exe")
     kb = paths.plugin_root() / "scripts" / "kb.py"
     vault = str(Path(vault))
-    return {"command": pyw, "arguments": f'"{kb}" changes --background --vault "{vault}"', "cwd": vault,
+    return {"command": pyw, "arguments": f'"{kb}" changes --background --vault "{vault}" --task "{name}"', "cwd": vault,
             "interval": f"PT{minutes}M", "minutes": minutes}
 
 
@@ -139,6 +148,17 @@ def _delete(name):
         raise Failed(" ".join(out.split())[:120] or f"schtasks 回 {code}")
 
 
+def forget(name):
+    """背景比對找不到庫（裁定 12、12a）：照排程帶來的 --task 刪掉自己。不是本 plugin 的名稱不刪；回 True 是刪了。"""
+    if not WINDOWS or not name or not name.startswith(TASK_PREFIX):
+        return False
+    try:
+        _delete(name)
+        return True
+    except (Failed, Skipped, OSError, subprocess.SubprocessError):
+        return False
+
+
 def _turn_id(vault):
     from kb._lib import turn
     return turn.current(vault)["turn"]
@@ -175,12 +195,14 @@ def ensure(vault):
                 _delete(name)
             got = "off"
         else:
-            exp = expected(vault, minutes)
+            exp = expected(vault, minutes, name)
             if current is not None and _same(current, exp):
                 got = "ok"
             else:
                 _create(name, exp)
                 got = "updated" if current is not None else "created"
+    except Skipped:
+        return "unsupported"
     except Exception as e:  # noqa: BLE001
         reason = e.args[0] if isinstance(e, Failed) and e.args else f"{type(e).__name__}: {e}"
         _record_failed(vault, str(reason)[:120])

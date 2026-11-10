@@ -11,6 +11,9 @@ from tests._guard_fixture import ROOT, make_vault
 from kb._lib import paths, pending, schedule
 
 
+REAL_SCHTASKS = schedule._schtasks
+
+
 class FakeSchtasks:
     """記著建過的工作 xml；fail 有值時 /create 失敗。"""
 
@@ -60,6 +63,7 @@ class Ensure(unittest.TestCase):
         kb = str(paths.plugin_root() / "scripts" / "kb.py")
         self.assertIn(f"&quot;{kb}&quot; changes --background --vault &quot;{self.V}&quot;", xml)
         self.assertIn(f"<WorkingDirectory>{self.V}</WorkingDirectory>", xml)
+        self.assertIn(f"--vault &quot;{self.V}&quot; --task &quot;{name}&quot;</Arguments>", xml)  # 裁定 12a
         self.assertIn("<Interval>PT10M</Interval>", xml)
         self.assertIn("<LogonType>InteractiveToken</LogonType>", xml)
         self.assertIn("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>", xml)
@@ -103,6 +107,13 @@ class Ensure(unittest.TestCase):
             self.assertEqual(schedule.ensure(self.V), "failed")
         self.assertIn("pythonw", self.stale()[0]["text"])
 
+    def test_no_schedule_env_never_calls_schtasks(self):
+        """裁定 11：tests/__init__.py 設了不建排程的環境變數，真正那一層不叫 schtasks、ensure 回 unsupported、不記待處理。"""
+        with mock.patch.object(schedule, "_schtasks", REAL_SCHTASKS), \
+                mock.patch.object(schedule.subprocess, "run", side_effect=AssertionError("不該叫 schtasks")):
+            self.assertEqual(schedule.ensure(self.V), "unsupported")
+        self.assertEqual(self.stale(), [])
+
     def test_not_windows_unsupported(self):
         with mock.patch.object(schedule, "WINDOWS", False):
             self.assertEqual(schedule.ensure(self.V), "unsupported")
@@ -115,6 +126,61 @@ class Ensure(unittest.TestCase):
         with mock.patch.object(schedule, "_codepage", lambda s: s.replace("測", "?")):
             self.fake.tasks[name] = self.fake.tasks[name].replace("測", "?")
             self.assertEqual(schedule.ensure(self.V), "ok")
+
+
+class Orphan(unittest.TestCase):
+    """驗收 15（裁定 12、12a）：庫刪了，排程跑 kb changes --background 照 --task 刪掉自己、exit 0；別人的工作不刪。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        self.fake = FakeSchtasks()
+        self.log = Path(self.tmp) / "fallback-errors.log"
+        from kb._lib import ledger
+        for p in (mock.patch.object(schedule, "_schtasks", self.fake), mock.patch.object(schedule, "WINDOWS", True),
+                  mock.patch.object(schedule, "_pythonw", lambda: r"C:\Python\pythonw.exe"),
+                  mock.patch.object(ledger, "fallback_error_log", lambda: self.log)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def background(self, vault, task):
+        from kb import changes
+        args = mock.Mock(background=True, vault=str(vault), task=task)
+        with mock.patch("os.getcwd", lambda: self.tmp):
+            return changes.run(args)
+
+    def test_vault_deleted_deletes_own_task(self):
+        schedule.ensure(self.V)
+        (name,) = self.fake.tasks
+        shutil.rmtree(self.V)
+        self.assertEqual(self.background(self.V, name), 0)
+        self.assertEqual(self.fake.tasks, {})
+        self.assertIn("/delete", self.fake.calls)
+        self.assertIn("找不到知識庫", self.log.read_text(encoding="utf-8"))
+
+    def test_not_a_vault_deletes_own_task(self):
+        """路徑還在但不是知識庫（.system 被刪）。"""
+        schedule.ensure(self.V)
+        (name,) = self.fake.tasks
+        shutil.rmtree(self.V / ".system")
+        self.assertEqual(self.background(self.V, name), 0)
+        self.assertEqual(self.fake.tasks, {})
+
+    def test_other_names_not_deleted(self):
+        shutil.rmtree(self.V)
+        for name in (None, "", r"Microsoft\Windows\Defrag\ScheduledDefrag", r"wiki-with-willy\別的工作"):
+            with self.subTest(name=name):
+                self.assertEqual(self.background(self.V, name), 0)
+        self.assertNotIn("/delete", self.fake.calls)
+
+    def test_vault_present_does_not_delete(self):
+        schedule.ensure(self.V)
+        (name,) = self.fake.tasks
+        self.assertEqual(self.background(self.V, name), 0)
+        self.assertNotIn("/delete", self.fake.calls)
+        self.assertEqual(len(self.fake.tasks), 1)
 
 
 class DailyLine(unittest.TestCase):
