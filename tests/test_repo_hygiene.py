@@ -59,7 +59,7 @@ class NoSysPath(unittest.TestCase):
 
 
 class HookHeader(unittest.TestCase):
-    """每支 hooks/*.py 開頭都要 dont_write_bytecode 與 stdout／stderr reconfigure UTF-8（stop.py 也是）。"""
+    """每支 hooks/*.py 開頭都要 stdout／stderr reconfigure UTF-8（stop.py 也是）；hooks 與 kb.py 不准設 dont_write_bytecode（D-535：.pyc 寫進 plugin 夾）。"""
 
     def test_every_hook_entry_has_header(self):
         names = sorted(p.name for p in (ROOT / "hooks").glob("*.py"))
@@ -67,8 +67,12 @@ class HookHeader(unittest.TestCase):
         for name in names:
             text = (ROOT / "hooks" / name).read_text(encoding="utf-8")
             with self.subTest(file=name):
-                self.assertIn("sys.dont_write_bytecode = True", text)
                 self.assertIn('reconfigure(encoding="utf-8")', text)
+
+    def test_bytecode_not_disabled(self):
+        for path in [*sorted((ROOT / "hooks").glob("*.py")), ROOT / "scripts" / "kb.py"]:
+            with self.subTest(file=path.name):
+                self.assertNotIn("dont_write_bytecode", path.read_text(encoding="utf-8"))
 
 
 class NoDevPaths(unittest.TestCase):
