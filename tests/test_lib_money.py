@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from tests import _entities as E
-from tests.test_entity_fields import field_row, write_profile
+from tests._profile_rows import field_row, write_profile
 from tests.test_scripts_inventory_cli import run_kb
 from kb._lib import entities, env, inventory, money, people, profile, streams, turn  # noqa: E402
 
@@ -124,6 +124,7 @@ class Summary(MoneyBase):
 class ForEntity(MoneyBase):
     places = True
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_for_entity_and_lookup(self):
         self.add("--dir", "收", "--amount", "5000", "--date", "2026-10-30", "--entity", "李小姐", "--item", "精華液 -2 在北店")
         self.add("--dir", "收", "--amount", "1800", "--due", "2026-11-30", "--entity", "李小姐")
@@ -230,6 +231,7 @@ class Extract(MoneyBase):
         write_profile(self.V, fields=[], money=money_row("off"))
         self.assertEqual(money.unscanned(self.V)["money_unscanned"], [])
 
+    @unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
     def test_collect_merges_into_agenda_batch(self):
         from kb._lib import cards, sources
         fid = self.card()
@@ -243,7 +245,6 @@ class Extract(MoneyBase):
         fid = self.card()
         self.add("--dir", "付", "--amount", "3000", "--entity", "信義王", "--card", fid, "--text", "進貨")
         self.assertTrue(money.tell_lines(self.V, self.t)[0].startswith("我從檔案記了 1 筆帳："))
-        self.assertTrue(any(x.startswith("我從檔案記了 1 筆帳：") for x in self.kbj("asks")["tell"]))  # 回答末尾（plan.tell）
 
     def test_purge_card_drops_inferred_keeps_said(self):
         fid = self.card()
@@ -365,6 +366,7 @@ class Pages(PageBase):
 
 
 class PagesRemoved(PageBase):
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_removed_entity_marked_on_pages_and_home(self):
         """記帳 2 的「（已拿掉）」：帳頁、首頁上拿掉的實體名字照加註（名字留著、錢不刪）。"""
         from kb._lib import home
@@ -397,6 +399,7 @@ class RevertRedraws(MoneyBase):
     def page(self, rel):
         return (Path(self.V) / rel).read_text(encoding="utf-8")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_undo_one_item_redraws(self):
         from kb._lib import agenda
         mid = self.add("--dir", "收", "--amount", "50000", "--due", self.due, "--entity", "李小姐", "--text", "尾款甲")["item"]["id"]
@@ -511,6 +514,7 @@ class AgendaReadsMoney(PageBase):
         agenda.apply_hand(self.V, self.t)
         self.assertEqual(agenda.load(self.V)["items"][0]["date"], "2026-11-26", "改了日期照舊被認出")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_08_money_rows_counts_and_cancel(self):
         late = self.put("收", "50000", due="2026-11-20", entities=["信義王"], text="第二期")["id"]
         self.put("付", "3200", due="2026-11-23", text="文具")
@@ -531,6 +535,7 @@ class AgendaReadsMoney(PageBase):
         self.assertNotIn("第二期", self.page().split("## 庫存")[0], "帳頁跟著重畫")
         self.assertEqual(agenda.counts(self.V, agenda.load(self.V))["overdue"], 0)
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_08b_change_date_and_check_on_agenda_page(self):
         a = self.put("收", "1800", due="2026-11-27", entities=["李小姐"])["id"]
         b = self.put("付", "3200", due="2026-11-28", text="文具")["id"]
@@ -546,6 +551,7 @@ class AgendaReadsMoney(PageBase):
 class Registered(PageBase):
     """驗收 6：帳頁與年頁在「程式產生的頁」各處登記（restore 在 test_lib_restore、init 在 test_scripts_init_cli、外掛在 JS 測試）。"""
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_06_renders_cli_purge_journal_items_refresh(self):
         from kb import renders_cli
         from kb._lib import items, journal, purge, refresh
@@ -565,6 +571,7 @@ class Registered(PageBase):
         self.assertIn("10/30（五）收 5,000", self.page(y), "pull 之後重畫（D-293），不當成手改")
         self.assertEqual(renders.carried(self.V, money.MD_POSIX), [])
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_06b_kb_renders_apply_year_page(self):
         mid = self.put("收", "5000", date="2026-10-30", entities=["李小姐"])["id"]
         y = money.year_rel("2026")
@@ -575,6 +582,7 @@ class Registered(PageBase):
         self.assertEqual(len(out["applied"]), 1)
         self.assertEqual(money.get(self.V, mid)["status"], "cancelled")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_06c_purge_old_year_page_from_stream(self):
         """年頁的舊版：帳是流水檔，沒有整份舊版可重畫，派生頁的舊版拿掉（同日程）。"""
         from kb._lib import purge
@@ -661,6 +669,7 @@ class UnitsBase(MoneyBase):
         return self.add(*args)
 
 
+@unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
 class Units6(UnitsBase):
     """驗收 6（D-344 與 11-09 補、再補）：第九節有基本單位（產品：安全庫存、每箱的單位是瓶）。品項照她講的存 qty、unit，算的時候才換；
     換不到同一組的單位照記、分開列，成功句帶「（不知道一箱幾瓶）」、unit_ask 教 AI 問一次；盤點換不了才退回。"""
@@ -745,6 +754,7 @@ class Units6(UnitsBase):
         self.assertEqual((got["精華液"]["qty"], got["精華液"]["unit"], got["精華液"]["margin"]), (12, "瓶", 7200))
         self.assertEqual((got["益生菌"]["qty"], got["益生菌"]["amount"]), (24, 960))  # 單價是她講那單位（箱）的價
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_split_listed_when_field_removed(self):
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
         self.buy("精華液 +2箱")
@@ -774,6 +784,7 @@ class Units6(UnitsBase):
                          "11 瓶＋1 箱＋1 盒（不知道一箱幾瓶、盒跟瓶怎麼換）")
 
 
+@unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
 class Units6NoSection9(UnitsBase):
     """驗收 6（D-344 補、再補）：第九節什麼都沒設的店：照她講的記；各單位分開列，換不到同一組的照記、成功句與 unit_ask 教 AI 問一次。"""
 
@@ -781,6 +792,7 @@ class Units6NoSection9(UnitsBase):
         super().setUp()
         write_profile(self.V, fields=[], money=money_row("on"))
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_same_unit_ok_other_written_apart(self):
         self.buy("精華液 +2瓶")
         out = self.buy("精華液 +3瓶")
@@ -934,6 +946,7 @@ class Units6Pages(UnitsBase):
         self.assertIn("精華液 +3 瓶", self.page(money.year_rel(money._today()[:4])))
         self.assertEqual(self.kbj("entity", "panel", "精華液")["stock"]["line"], "庫存 5 瓶")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_split_shown_everywhere(self):
         from kb._lib import home
         self.kb("entity", "field", "精華液", "每箱=24", "--said")
@@ -953,6 +966,7 @@ class Units6Pages(UnitsBase):
         todo = home.build(self.V)["todo"]["stock"]
         self.assertEqual([(s["entity"], s["stock"], s["text"]) for s in todo], [("精華液", 12, split)])
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_home_skips_unconvertible_only(self):
         from kb._lib import home
         self.buy("膠囊 +6瓶")
@@ -968,6 +982,7 @@ class Units6Pages(UnitsBase):
                          [("膠囊", 4, "4 瓶＋2 箱（不知道一箱幾瓶）")])
 
 
+@unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
 class Units4thRound(UnitsBase):
     """記帳2 測試第 4 輪（D-344 補之後）：#17 問的那句只教「一箱幾瓶」設每<大的>=整數；#18 沒基本單位只講過一種單位那組照算毛利、
     多品項金額；#20、#21 與 D-344 再補：記帳不因單位擋，換不了的照記、分開列、問一次；#23 地點格不吵、第九節拿掉每箱欄時實體上的值照用。"""
@@ -1080,6 +1095,7 @@ class Units4thRound(UnitsBase):
         self.assertEqual(money.stock(self.V, "益生菌")["products"][0]["text"], "2 箱")  # D-344 三補：只用過箱，照箱算
 
 
+@unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
 class Units5thRound(UnitsBase):
     """記帳2 測試第 5 輪：#24 售價、進價看第九節那欄的單位（元這類錢照基本單位），換不到那個單位的毛利、估的金額不算；
     #25 盤點退回句一個單位問一次、跟 unit_ask 同一套；#27 大小看不出不猜方向；#31 淨值 0 的那組不顯示。"""
@@ -1143,6 +1159,7 @@ class Units5thRound(UnitsBase):
         self.kb("profile", "add", "數字欄", "型別=產品", "欄名=每箱", "單位=瓶")  # 看得出箱大才寫一箱幾瓶
         self.assertEqual(money.stock(self.V, "膠囊")["products"][0]["text"], "3 箱−24 瓶（不知道一箱幾瓶）")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_31_zero_apart_group_not_shown(self):
         self.buy("膠囊 +36瓶")
         self.buy("膠囊 +1箱")
@@ -1153,6 +1170,7 @@ class Units5thRound(UnitsBase):
         self.assertNotIn("0 箱", self.kb("lookup", "膠囊").stdout)
 
 
+@unittest.skip("#65 甲段：測的是已拿掉的 kb entity field／kb profile add 數字欄／製卡抽錢；乙段隨本檔刪")
 class Units6Own(UnitsBase):
     """驗收 6 三補（D-344 2026-11-09 三補，記帳確認 #4）：第九節的單位是型別的預設；膠囊只記過盒、沒有每盒 → 盒就是它自己的基本單位：
     庫存、毛利、單價照算成一組，不顯示「不知道…怎麼換」、不帶 unit_ask；售價、進價、安全庫存照盒讀；之後講瓶才分開列、問一次。"""
@@ -1161,6 +1179,7 @@ class Units6Own(UnitsBase):
     def page(self, rel=None):
         return (Path(self.V) / (rel or money.MD_POSIX)).read_text(encoding="utf-8")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_own_unit_one_group_no_ask(self):
         out = self.buy("膠囊 +60盒")
         self.assertNotIn("unit_ask", out)
@@ -1194,6 +1213,7 @@ class Units6Own(UnitsBase):
         p = money.summary(self.V, "2000-01-01", "2100-01-01")["products"][0]
         self.assertEqual((p["unit"], p["margin"]), ("盒", 2 * 400))  # 第九節寫瓶，膠囊照盒讀
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_own_unit_safety_stock(self):
         self.kb("entity", "field", "膠囊", "安全庫存=5", "--said")
         self.buy("膠囊 +6盒")

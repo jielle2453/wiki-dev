@@ -391,7 +391,7 @@ class Drop(Base):
 class Misc(Base):
     def test_bad_page(self):
         r = run_kb("renders", "apply", "系統/日程.txt", cwd=self.V)
-        self.assertEqual((r.returncode, r.stdout.strip()), (3, "頁只收 系統/日程.md、系統/待處理.md、系統/裁示.md、系統/帳.md、系統/帳/<年>.md"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, "頁只收 系統/日程.md、系統/待處理.md、系統/裁示.md"))
 
     def test_backslash_page_name_is_accepted(self):
         r = run_kb("renders", "apply", "系統\\日程.md", cwd=self.V)

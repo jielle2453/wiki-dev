@@ -101,16 +101,15 @@ class Check(Base):
         self.assertEqual(restore.check(self.V, str(z))["skeleton_changed"], [])
 
     def test_money_counted(self):
-        """記帳 3：帳也比（沒取消的每一筆），說法同工作日誌，不印編號。"""
+        """#65 拿掉記帳：舊庫的 money.json 不再比（willy 不讀）。"""
         write_json(self.V / SYSTEM / "money.json", {"schema_version": 1, "items": [
             {"id": "m-00000001", "dir": "in", "amount": 5000, "status": "done", "date": "2026-10-30", "entities": ["李小姐"],
              "text": "賣出", "lines": []},
             {"id": "m-00000002", "dir": "out", "amount": 800, "status": "cancelled", "date": "2026-10-30", "entities": [],
              "text": "取消的", "lines": []}]})
         got = restore.check(self.V, str(self.zip))
-        self.assertEqual(got["lose"]["money"], 1)
-        self.assertEqual(got["examples"]["money"], ["10/30 收 5,000 李小姐 賣出"])
-        self.assertIn("帳：會不見 1 筆（「10/30 收 5,000 李小姐 賣出」）", restore.lines(got))
+        self.assertNotIn("money", got["lose"])  # #65：帳不再比，舊庫留著的帳不算會不見
+        self.assertFalse(any(x.startswith("帳：") for x in restore.lines(got)))
 
     def test_back_side_counts_what_comes_back(self):
         file_card(self.V, "7777", "會回來的卡")

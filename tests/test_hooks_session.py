@@ -788,16 +788,9 @@ class OpeningAgenda(unittest.TestCase):
         (self.V / ".system" / "money.json").write_text(json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False),
                                                        encoding="utf-8")
 
-    def test_money_due_counted(self):
-        """記帳 3（D-273（2））：帳裡逾期沒收的、近期要收付的算進日程那行。"""
-        self.put(("meeting", 2, "open"))
-        self.put_money(("in", 50000, -3, None), ("out", 800, 3, None), ("in", 100, None, None))
-        self.assertEqual(self.agenda_lines(self.status()),
-                         ["日程：逾期 1（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）、7 天內 2"])
-
     def test_owed_line_only_for_the_one_who_paid(self):
         """驗收 12（D-338）：墊的人那台有「公司還欠你」一句，別人那台沒有。"""
-        from tests.test_entity_fields import write_profile
+        from tests._profile_rows import write_profile
         from kb._lib import env
         write_profile(self.V, people=3, about=[{"name": "小王", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"},
                                                {"name": "老闆", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"}])

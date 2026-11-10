@@ -2,6 +2,7 @@
 帳關著的口述與加總、改開補帳、改期列另一邊、區間、待處理、備份與工作日誌。"""
 import datetime as dt
 import json
+import unittest
 
 from tests.test_lib_money import MoneyBase
 from kb._lib import journal, money, pending, statements, turn  # noqa: E402
@@ -192,6 +193,7 @@ class Modes(MoneyBase):
 
 
 class Related(MoneyBase):
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_14_related_both_ways(self):
         aid = json.loads(self.kb("agenda", "add", "--kind", "到期", "--date", "2026-11-30", "--text", "交屋", "--entity", "信義王",
                                  "--json").stdout)["item"]["id"]
@@ -206,6 +208,7 @@ class Related(MoneyBase):
 
 
 class Asks(MoneyBase):
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_19_asks(self):
         from tests import _entities as E
         from kb._lib import cards
@@ -315,6 +318,7 @@ class ConfirmReport(MoneyBase):
         said = self.add("--dir", "收", "--amount", "700", "--entity", "李小姐")["item"]
         self.assertEqual((said["status"], said["date"]), ("done", TODAY), "她講的沒給日期照舊是今天")
 
+    @unittest.skip("#65 甲段：這條測的是已拿掉的畫面／連動（首頁、日程、帳頁、lookup、待處理），乙段隨本檔一起刪")
     def test_6_do_with_resolves_closes_pending(self):
         fid = self.card("影印紙收據")
         pid = self.kbj("money", "unsure", "--card", fid, "--text", "收據 3,500，看不出誰付誰")["pending"]["id"]
