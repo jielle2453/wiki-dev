@@ -15,8 +15,8 @@ rename 搬了夾、夾裡有客戶原檔時，鎖外接著 inventory.scan（只�
 log <名稱> <行>…（D-521）：紀事由程式加進綜合卡（synthesis.add_events），--synced 加完標記整理到。
 render [名稱…]：只重寫那幾張的快取欄；--synced 另換 整理到、更新日（D-518，AI 用 Edit 改完內文之後跑），有沒寫的 exit 1。
 終端機跑的記一段工作日誌程式段（D-085），command 是 entity <子子命令>；對話裡叫的併進回合。
-panel <名稱或編號> --json（記帳 3，D-340，唯讀、不開回合）：Obsidian 外掛在她打開綜合卡時叫，回這個實體的日程（還沒做完的、照 D-289
-這台看得到的）與帳（money.panel：合計、未收付全部、最近幾筆；商品的庫存與各店、地點的各商品），每行帶要開的頁與那一行；外掛只畫。
+panel <名稱或編號> --json（D-340，唯讀、不開回合）：Obsidian 外掛在她打開綜合卡時叫，回這個實體的日程（還沒做完的、照 D-289
+這台看得到的），每行帶要開的頁與那一行；外掛只畫（#65 起沒有帳與庫存）。
 """
 import argparse
 import json
@@ -86,8 +86,8 @@ def add_arguments(sub):
     tg.add_argument("pairs", nargs="*", help="欄=詞（多個詞用逗號分開；欄= 後面空著是看過、沒有）；--from-card 時是更多名稱")
     tg.add_argument("--said", action="store_true", help="她親口說的：這一欄之後照她說的留著")
     tg.add_argument("--from-card", action="store_true", help="她在卡上手改了標籤行：合字典的照她改的記進正本")
-    pn = subs.add_parser("panel", help="卡底下的日程與帳（唯讀，外掛用）",
-                         description="綜合卡底下「日程與帳」那段的資料：日程（全隊的＋我的）、帳、庫存；只讀、不開回合。")
+    pn = subs.add_parser("panel", help="卡底下的日程（唯讀，外掛用）",
+                         description="綜合卡底下「日程」那段的資料：日程（全隊的＋我的）；只讀、不開回合。")
     pn.add_argument("name", help="實體名稱、別名或編號（e-…）")
     for p in (ad, cf, ac, rn, mg, rm, rb, cl, ls, rd, lg, pg, sc, al, tg, pn):
         p.add_argument("--vault", help="總資料夾；沒給就從目前目錄往上找")
@@ -534,11 +534,16 @@ def _print_tagged(vault, rows, got):
 PANEL_NO_ENTITY = "實體清單沒有「{}」"
 
 
+def _wd(day):
+    """YYYY-MM-DD → 「11/25（三）」。"""
+    d = agenda.dt.date.fromisoformat(day)
+    return f"{d.month}/{d.day}（{agenda.WEEKDAYS[d.weekday()]}）"
+
+
 def panel_data(vault, name, today=None):
-    """kb entity panel 的本體（D-340）：{"entity","type","agenda": [...],"money": {...}|None,"stock": {...}|None}。
+    """kb entity panel 的本體（D-340）：{"entity","type","agenda": [...]}。
     日程照 agenda.visible（這台這個人看得到的，D-289）、掛這個實體、還沒做完的（含逾期），每行帶 line（畫的字）、page、match
-    （點了開日程頁的那一行）；帳與庫存照 money.panel。名稱、別名、編號都認。"""
-    from kb._lib import money
+    （點了開日程頁的那一行）。名稱、別名、編號都認。"""
     data = entities.load(vault)
     text = str(name or "").strip()
     e = next((x for x in data["entities"] if x.get("id") == text), None) or entities.find(data, text)[0]
@@ -553,25 +558,19 @@ def panel_data(vault, name, today=None):
             continue
         day = it.get("date")
         late = it.get("kind") in agenda.TRACKED and isinstance(day, str) and day < today
-        span = agenda._span(it) if it.get("kind") == "period" else money._wd(day)
+        span = agenda._span(it) if it.get("kind") == "period" else _wd(day)
         line = f"{span}{agenda.KIND_TEXT.get(it.get('kind'), it.get('kind'))}：{it.get('text')}"
         if late:
             line += f"（已過 {(agenda.dt.date.fromisoformat(today) - agenda.dt.date.fromisoformat(day)).days} 天）"
         rows.append({"id": it.get("id"), "date": day, "kind": agenda.KIND_TEXT.get(it.get("kind"), it.get("kind")),
                      "text": it.get("text"), "late": late, "line": line, "page": agenda.MD_POSIX,
                      "match": agenda._line(it, link) if it.get("kind") != "period" else None})
-    got = money.panel(vault, e["name"], today)
-    return {"entity": e["name"], "type": e.get("type"), "agenda": rows, "money": got["money"], "stock": got["stock"]}
+    return {"entity": e["name"], "type": e.get("type"), "agenda": rows}
 
 
 def _panel(vault, args, as_json):
     got = panel_data(vault, args.name)
-    lines = [f"{got['entity']}的日程與帳"] + [f"- {a['line']}" for a in got["agenda"]]
-    if got["money"]:
-        lines.append(f"帳：{got['money']['head']}")
-        lines += [f"- {r['line']}" for r in got["money"]["open"] + got["money"]["recent"]]
-    if got["stock"] and got["stock"].get("line") and not (got["money"] and "total" in got["stock"]):
-        lines.append(got["stock"]["line"])
+    lines = [f"{got['entity']}的日程"] + [f"- {a['line']}" for a in got["agenda"]]
     _out(as_json, lines, got)
     return 0
 

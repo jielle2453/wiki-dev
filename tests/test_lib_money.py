@@ -597,6 +597,7 @@ class Registered(PageBase):
         self.assertEqual(rows[1]["action"], "purged")
 
 
+@unittest.skip("#65 甲段：kb entity panel 不再回帳與庫存；乙段隨本檔刪")
 class Panel(PageBase):
     """驗收 10：kb entity panel（D-340）：日程只有全隊的＋我的、帳的合計與最近幾筆；商品給各店庫存；分店給那店的庫存。"""
     places = True
@@ -924,6 +925,7 @@ class Units6Pages(UnitsBase):
     def page(self, rel=None):
         return (Path(self.V) / (rel or money.MD_POSIX)).read_text(encoding="utf-8")
 
+    @unittest.skip("#65 甲段：kb entity panel 不再回帳與庫存；乙段隨本檔刪")
     def test_6_pages_and_panel_convert(self):
         self.buy("益生菌 +2箱")
         self.buy("益生菌 +3瓶")
@@ -938,6 +940,7 @@ class Units6Pages(UnitsBase):
         self.assertIn("賣出累計 24 瓶", got["money"]["head"])
         self.assertTrue(any("益生菌 ×1 箱" in r["line"] for r in got["money"]["recent"]))  # 卡底下那段：她講的單位
 
+    @unittest.skip("#65 甲段：kb entity panel 不再回帳與庫存；乙段隨本檔刪")
     def test_6_no_section9_pages_unitless_and_said(self):
         write_profile(self.V, fields=[], money=money_row("on"))
         self.buy("精華液 +2瓶")
