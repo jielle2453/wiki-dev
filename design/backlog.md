@@ -30,7 +30,7 @@
 | hooks | hooks/ 與 hooks.json（橫跨多題） | 1 |
 | 核心規則與開場 | rules/core.md、開場注入、總資料夾 CLAUDE.md、AI 怎麼說話（橫跨多題） | 4 |
 | 架構與共通 | 總資料夾的分區、kb 指令入口、共用程式庫、Windows 邊角 | 5 |
-| 流程與文件 | repo 自己：流程、文件、命名、測試、排題順序 | 14 |
+| 流程與文件 | repo 自己：流程、文件、命名、測試、排題順序 | 16 |
 | 延伸 | 還沒有程式的想法：新來源、新輸出、團隊、Mac 等 | 24 |
 
 **清冊與來源**
@@ -302,6 +302,8 @@
 - B-648（要做、低）main 本來就紅：test_skill_answer Round3::te…
 - B-660（要做、低）確認用 claude -p 時 AI Grep plugin 自己的 r…
 - B-663（要做、低）test_type_dirs 的 HandRenamed／ReviewF…
+- B-665（待決、低）測試期間 worktree 凍結要不要寫進 process
+- B-666（要做、低）0.37.0 發行時整批長跑紅 11 條（test_versions_sessions Revert 新出現）
 
 **延伸**
 
@@ -470,6 +472,8 @@
 | B-661 | 2026-11-08 | 要做 | 低 | 守門與密碼 | 擋 hidden 夾裡的檔，理由寫「「知識庫」使用者說過不讀」：「知識庫」是總資料夾別名，應寫被排除的夾名（#51 確認 #5） | #51 確認 |
 | B-662 | 2026-11-08 | 要做 | 低 | hooks | `claude -p` 結束時印「SessionEnd hook … failed: Hook cancelled」；桌面版會不會也這樣沒驗（#51 確認 #6） | #51 確認 |
 | B-663 | 2026-11-08 | 要做 | 低 | 流程與文件 | `test_type_dirs` 的 HandRenamed／ReviewFixes 整檔跑會紅、單獨跑會過，main 也紅：每句開頭掃描預算 `turn_scan_seconds` 1.5 秒在機器忙時逾時（#51 測試 #3）；`test_hooks_session` 的 OpeningCardEdits 同類：整類跑 5 條常有 1 條紅（回空），v0.33.0 也紅（0.34.0 發行時查） | #51 測試 |
+| B-665 | 2026-11-11 | 待決 | 低 | 流程與文件 | 測試期間 worktree 凍結（實作不 commit、設計不叫 merge）：背景比對第一輪測試中途進了三個 commit，整輪作廢；之後口頭照做。要不要寫進 `design/process.md`，要跟 jacky 談 | 背景比對-測試.md #7（spec 裁定 18） |
+| B-666 | 2026-11-11 | 要做 | 低 | 流程與文件 | 0.37.0 發行時，相關測試整批長跑 11 條紅（`test_hooks_session` 3 條，含 `OpeningProfile.test_broken_profile_json_other_lines_printed`；`test_versions_sessions` Revert 8 條），單獨重跑 20 條全過，記成負載；`test_versions_sessions` 是新出現的，跟 B-663 同類（時間敏感） | 0.37.0 發行（willy主管） |
 | B-664 | 2026-11-08 | 要做 | 中 | 守門與密碼 | hidden 夾的檔名擋不住：Glob 放行並列出 hidden 夾裡的檔名，AI 回答講出檔名（D-174 只管排除那一句不提）；要開 issue（#51 確認 #4） | #51 確認 |
 | B-511 | 2026-10-30 | 做完 | 中 | 整理成卡 | 她在 Obsidian 手改綜合卡內文（D-256 准什麼都能改），下次 Claude 更新那張卡時「現況」照 S-22 改寫、檔頭整個換新（標籤行照 D-505 正本），她改的字可能不見、沒有提示；「紀事」只增，她加的會留、她刪的 hook 會要求補回。候選：更新前比對上次寫的版本，她改過的段先問或照她的寫；或 Obsidian 裡綜合卡內文唯讀、改要經對話。10-30 使用者選前者（A）：更新前比對上次寫的版本，她改過的段先問或照她的寫；#22 之後另開題做。10-31 擴大成 D-270：檔案卡也算，她改的算她說的、相關的跟著改，下次開對話時 Claude 先處理 | #22 實作回報待查 1 |
 | B-512 | 2026-10-30 | 要做 | 低 | 健檢與待處理 | #22 起日程、待處理、裁示重新產生時認出手改直接照做，`renders.handle_list` 沒人叫、handedit 待處理只剩升級前的舊件；`kb lint handedit` 與 lint 的 handedits 那項之後拿掉，或改成列「你加的（還沒處理）」 | #22 實作回報 |
