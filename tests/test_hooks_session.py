@@ -1093,7 +1093,7 @@ class OpeningUpgrade(unittest.TestCase):
 
     def test_withdrawn_line_when_the_list_points_back(self):
         self.put_history(self.plugin())
-        self.put_check(latest="0.0.1", kind="downgrade", allowed=True, note="x")
+        self.put_check(latest="0.0.1", kind="downgrade", allowed=True, note="x", checked_with=self.plugin())  # 裁定 27
         self.assertEqual(self.status()[1], f"這一版 {self.plugin()} 撤回了；用起來有問題的話說「退回舊版」。")
 
     def test_changed_version_beats_the_new_version_line(self):

@@ -245,7 +245,7 @@ def version_line_vault(kind):
         if kind == "b":
             chk.update(latest="99.99.999", kind="major", allowed=True, note="字" * 40)
         if kind == "c":
-            chk.update(latest="0.0.1", kind="downgrade", allowed=True, note="x")
+            chk.update(latest="0.0.1", kind="downgrade", allowed=True, note="x", checked_with=plugin)  # 裁定 27
         (vault / ".system" / "upgrade-history.json").write_text(json.dumps(hist), encoding="utf-8")
         (vault / ".system" / "env.json").write_text(json.dumps(
             {"schema_version": 1, "machines": {platform.node() or "unknown": {"update_check": chk}}}), encoding="utf-8")
