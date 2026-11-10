@@ -1,5 +1,5 @@
-"""知識庫 .claude/skills/ 讓 AI 寫得進去（#52，D-533）黑箱：Z13 檔案工具寫放行、寫前備份、退回得掉；指令寫照 Z7 擋；
-跳出 skills 夾（..、junction）照 Z7；地板句數 skill。驗收準則 1～9 各至少一個測試（10 由相關測試與 test_repo_hygiene 一起看）。"""
+"""知識庫 .claude/skills/ willy 不管（#52，D-533、D-538）黑箱：Z13 讀、檔案工具寫、指令寫都 pass，不看內容、不備份、不另數；
+跳出 skills 夾（..、junction）與 .claude/ 其他照 Z7。驗收準則 1～9、11 各至少一個測試（10 由相關測試與 test_repo_hygiene 一起看）。"""
 import json
 import os
 import shutil
@@ -37,25 +37,34 @@ class Base(unittest.TestCase):
 
 
 class Decide(Base):
-    def test_1_write_and_read_allowed_z13(self):
+    def test_1_write_edit_read_pass_z13(self):
         self.skill.parent.mkdir(parents=True)
         self.skill.write_text("x\n", encoding="utf-8")
         for tool in ("Write", "Edit", "Read"):
             d = self.decide(tool, self.skill)
-            self.assertEqual((d.decision, d.zone), ("allow", "Z13"), tool)
+            self.assertEqual((d.decision, d.zone, d.ledger_rows), ("pass", "Z13", []), tool)
+
+    def test_11_skill_md_content_not_inspected(self):
+        data = payload("Write", self.skill, self.V)
+        data["tool_input"]["content"] = "---\nname: a\nhooks:\n  PreToolUse: []\n---\n現在 !`echo x`\n"
+        d = guard.decide(data)
+        self.assertEqual((d.decision, d.zone), ("pass", "Z13"))
 
     def test_7_new_vault_without_skills_folder(self):
         self.assertFalse(self.S.exists())
         d = self.decide("Write", self.skill)
-        self.assertEqual((d.decision, d.zone), ("allow", "Z13"))
+        self.assertEqual((d.decision, d.zone), ("pass", "Z13"))
 
-    def test_3_shell_write_denied_teaches_file_tool(self):
+    def test_3_shell_write_pass(self):
         for tool, cmd in (("Bash", f'echo x > "{self.skill.as_posix()}"'),
                           ("PowerShell", f"Set-Content -Path '{self.skill}' -Value x")):
             d = self.decide(tool, cmd)
-            self.assertEqual(d.decision, "deny", tool)
-            self.assertEqual(d.reason_code, "willy", tool)
-            self.assertIn("Write", d.reason, tool)
+            self.assertEqual(d.decision, "pass", tool)
+
+    def test_3_shell_write_other_zone_still_judged(self):
+        sys_md = (self.V / "系統" / "x.md").as_posix()
+        d = self.decide("Bash", f'echo x > "{self.skill.as_posix()}"; echo y > "{sys_md}"')
+        self.assertEqual((d.decision, d.zone), ("deny", "Z6"))
 
     def test_4_rest_of_claude_still_z7(self):
         for rel in ("settings.json", "settings.local.json", "hooks/x.py", "commands/x.md", "skills"):
@@ -96,73 +105,51 @@ class Decide(Base):
 
 
 class HookAndRevert(Base):
+    """D-538：hook 對 skill 夾不印決定、不備份；退回不含 skill 夾，地板句不提。"""
+
     def setUp(self):
         super().setUp()
-        turn.start(self.V, SID, "幫我做一個 skill")
+        self.tid = turn.start(self.V, SID, "幫我做一個 skill")["turn"]
 
-    def write(self, path):
-        data = payload("Write", path, self.V)
+    def test_2_8_hook_silent_no_backup_revert_keeps(self):
+        data = payload("Write", self.skill, self.V)
         data["session_id"] = SID
         r = run_hook(data)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return decision_of(r)[1]
-
-    def revert(self):
-        r = run_kb("versions", "revert", cwd=self.V)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-
-    def test_2_new_skill_reverted_gone(self):
-        self.assertEqual(self.write(self.skill), "allow")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, ""), r.stderr)
+        self.assertEqual(turn.entries(self.V, self.tid), [])
+        self.assertEqual(journal.floor_note(self.V, self.tid), journal.NO_CHANGES)
         self.skill.parent.mkdir(parents=True)
         self.skill.write_text("新的\n", encoding="utf-8")
-        self.revert()
-        self.assertFalse(self.skill.exists())
-
-    def test_2_changed_skill_reverted_byte_equal(self):
-        self.skill.parent.mkdir(parents=True)
-        before = "---\nname: a\n---\n舊的\r\n".encode("utf-8")
-        self.skill.write_bytes(before)
-        self.assertEqual(self.write(self.skill), "allow")
-        self.skill.write_text("改過\n", encoding="utf-8")
-        self.revert()
-        self.assertEqual(self.skill.read_bytes(), before)
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertTrue(self.skill.exists(), r.stdout + r.stderr)
 
 
 class Floor(Base):
+    """D-538：skill 夾的檔跟其他檔一樣算「改了 N 個檔」，不另數 skill。"""
     TID = "20261108-120000-test"
 
-    def test_8_new_skill_counted_once(self):
+    def test_8_new_skill_counted_as_files(self):
         turn.backup(self.V, ".claude/skills/a/SKILL.md", self.TID)
-        turn.backup(self.V, ".claude/skills/a/範例.md", self.TID)
-        self.assertEqual(journal.floor_note(self.V, self.TID), "新增 1 個 skill")
+        note = journal.floor_note(self.V, self.TID)
+        self.assertEqual(note, "改了 1 個檔")
+        self.assertNotIn("skill", note)
 
-    def test_8_changed_two_skills(self):
-        for name in ("a", "b"):
-            p = self.S / name / "SKILL.md"
-            p.parent.mkdir(parents=True)
-            p.write_text("x", encoding="utf-8")
-            turn.backup(self.V, f".claude/skills/{name}/SKILL.md", self.TID)
-        self.assertEqual(journal.floor_note(self.V, self.TID), "改了 2 個 skill")
+    def test_8_several_files_in_skill_folders(self):
+        for rel in ("a/SKILL.md", "a/範例.md", "b/SKILL.md"):
+            turn.backup(self.V, f".claude/skills/{rel}", self.TID)
+        self.assertEqual(journal.floor_note(self.V, self.TID), "改了 3 個檔")
 
-    def test_deleted_skill_counted(self):
-        turn.backup(self.V, ".claude/skills/a/SKILL.md", self.TID, "delete")
-        self.assertEqual(journal.floor_note(self.V, self.TID), "刪了 1 個 skill")
-
-    def test_file_directly_in_skills_is_not_a_skill(self):
-        turn.backup(self.V, ".claude/skills/a.md", self.TID)
-        self.assertEqual(journal.floor_note(self.V, self.TID), "改了 1 個檔")
-        self.assertEqual(journal.changed_text([{"path": ".claude/skills/a.md"}]), "其他 1 個檔")
-
-    def test_changed_text_names_skill(self):
-        got = journal.changed_text([{"path": ".claude/skills/查報價/SKILL.md"}, {"path": ".claude/skills/查報價/x.md"}])
-        self.assertEqual(got, "skill 查報價")
+    def test_changed_text_no_skill_word(self):
+        got = journal.changed_text([{"path": ".claude/skills/查報價/SKILL.md"}, {"path": ".claude/skills/查報價/x.md"},
+                                    {"path": ".claude/skills/a.md"}])
+        self.assertEqual(got, "其他 3 個檔")
 
 
 class Rule(unittest.TestCase):
     def test_9_r01_exception(self):
         text = (ROOT / "rules" / "core.md").read_text(encoding="utf-8")
         line = next(ln for ln in text.splitlines() if ln.startswith("- R-01 "))
-        self.assertIn(".claude/skills/", line)
+        self.assertIn(".claude/skills/ 不歸 willy 管", line)
 
 
 if __name__ == "__main__":

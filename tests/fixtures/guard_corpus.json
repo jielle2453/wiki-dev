@@ -11650,9 +11650,9 @@
     "file_path": "<V>/.claude/skills/查報價/SKILL.md"
    },
    "cwd": "<V>",
-   "expect": "allow",
+   "expect": "pass",
    "來源": "skill夾放寫 驗收 1、7",
-   "note": "Z13：skill 夾檔案工具寫放行（夾還不在也放行）"
+   "note": "D-538：Z13 willy 不管，檔案工具寫 pass（夾還不在也是 Z13）"
   },
   {
    "tool": "Bash",
@@ -11660,9 +11660,9 @@
     "command": "echo x > .claude/skills/查報價/SKILL.md"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "skill夾放寫 驗收 3",
-   "note": "Z13 指令寫照 Z7 擋（willy，教改用檔案工具）"
+   "note": "D-538：Z13 指令寫 pass（照 Z11）"
   },
   {
    "tool": "PowerShell",
@@ -11670,9 +11670,9 @@
     "command": "Set-Content -Path '<V>\\.claude\\skills\\查報價\\SKILL.md' -Value x"
    },
    "cwd": "<V>",
-   "expect": "deny",
+   "expect": "pass",
    "來源": "skill夾放寫 驗收 3",
-   "note": "Z13 指令寫照 Z7 擋"
+   "note": "D-538：Z13 指令寫 pass（照 Z11）"
   },
   {
    "tool": "Write",
@@ -11707,6 +11707,27 @@
    ],
    "來源": "skill夾放寫 驗收 6",
    "note": "skills 底下的 junction 連到 .claude：照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/查報價/SKILL.md",
+    "content": "---\nname: 查報價\nhooks:\n  PreToolUse: []\n---\n現在 !`echo x`\n"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "skill夾放寫 驗收 11（D-538）",
+   "note": "SKILL.md 不看內容"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "echo x > .claude/skills/查報價/SKILL.md; echo y > 系統/x.md"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 3（D-538）",
+   "note": "skill 夾 pass，同一句寫系統區照擋"
   }
  ]
 }

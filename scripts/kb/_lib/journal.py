@@ -59,7 +59,6 @@ _FLOOR_COUNTED = (
     ("Z1", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張綜合卡"),
     ("Z5", (("modify", "改了"), ("create", "新增"), ("delete", "刪了")), "張檔案卡"),
     ("Z4", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "份 " + HOLD_DIR),
-    ("Z13", (("create", "新增"), ("modify", "改了"), ("delete", "刪了")), "個 skill"),  # D-533：數 skill 夾
 )
 _FLOOR_SETTINGS = "改了設定與狀態檔"
 
@@ -388,7 +387,7 @@ def _floor(vault, rows):
     if not rows:
         return NO_CHANGES
     sources = sources_lib.load(vault)
-    counts, settings, other, skills = {}, False, 0, {}
+    counts, settings, other = {}, False, 0
     for e in rows:
         zone = turn.zone_of(vault, e["path"], sources)
         if zone == "Z7":
@@ -396,12 +395,8 @@ def _floor(vault, rows):
         elif zone in ("Z1", "Z4", "Z5"):
             key = (zone, e.get("action"))
             counts[key] = counts.get(key, 0) + 1
-        elif zone == "Z13" and len(parts := e["path"].replace("\\", "/").split("/")) > 3:  # skill 數夾不數檔；skills 底下直接放的檔不算 skill
-            skills.setdefault(e.get("action"), set()).add(parts[2].casefold())
         else:
             other += 1
-    for action, names in skills.items():
-        counts[("Z13", action)] = len(names)
     parts = []
     for zone, verbs, unit in _FLOOR_COUNTED:
         for action, verb in verbs:
@@ -523,7 +518,7 @@ def _named(names, unit):
 
 def changed_text(changed):
     """改了的路徑 → 一行白話：「綜合卡 王宅；檔案卡 1 張；暫存區 1 份；日程；其他 2 個檔」；沒有回空字串。"""
-    synth, cards, outputs, words, files, other, skills = [], 0, 0, [], [], 0, []
+    synth, cards, outputs, words, files, other = [], 0, 0, [], [], 0
     for c in changed or []:
         rel = str(c.get("path") or "")
         parts = rel.split("/")
@@ -531,9 +526,6 @@ def changed_text(changed):
         if word:
             if word not in words:
                 words.append(word)
-        elif len(parts) > 3 and parts[0] == ".claude" and parts[1] == "skills":  # D-533：skill 夾
-            if parts[2] not in skills:
-                skills.append(parts[2])
         elif parts[0] == "檔案索引":
             cards += 1
         elif parts[0] == HOLD_DIR:
@@ -555,8 +547,6 @@ def changed_text(changed):
         out.append(f"檔案卡 {cards} 張")
     if outputs:
         out.append(f"{HOLD_DIR} {outputs} 份")
-    if skills:
-        out.append(f"skill {_named(skills, '個')}")
     out += words
     if files:
         out.append(_named(files, "個"))
