@@ -164,6 +164,19 @@ class Matching(Base):
         out = self.find("第一次 木作")  # 第一次：會議紀錄的標題（8 月）；木作：估價單的內文（10 月，日期更新）
         self.assertEqual([(f["card"], f["hit"]) for f in out["files"]], [(self.meeting, "title"), (self.estimate, "body")])
 
+    def test_words_must_all_hit(self):
+        """jacky 2026-11-09：「GS 1V UE spec」中一個字就算會到 729 份；字要每個都在標題或內文。"""
+        out = self.find("含 木作")  # 「含」兩張卡內文都有，「木作」只有估價單
+        self.assertEqual([f["card"] for f in out["files"]], [self.estimate])
+        self.assertNotIn("some_words", out)
+        self.assertEqual(self.ids("估價 櫃體"), [self.estimate])  # 一個在標題、一個在內文也算
+
+    def test_no_card_has_all_words_falls_back_to_any(self):
+        out = self.find("水電 木作")
+        self.assertEqual(sorted(f["card"] for f in out["files"]), sorted([self.quote, self.estimate]))
+        self.assertTrue(out["some_words"])
+        self.assertNotIn("some_words", self.find("沒有的字 也沒有"))  # 放寬了還是 0 筆不帶
+
     def test_unparsed_words_compare_title_and_body(self):
         self.assertEqual(self.ids("廚房動線"), [self.meeting])
 

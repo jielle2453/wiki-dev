@@ -7,7 +7,8 @@
 build：從 tag 用 git archive 取檔，照 D-213 要放的清單（含 agents/、obsidian/）打 zip 到 dist/（.gitignore 有），位元組可重現；最後檢查：
 zip 裡只有清單上的、plugin.json 與 hooks/hooks.json 引用的路徑都在、版本號等於 tag、obsidian/ 三個檔都在且 manifest.json 的版號等於 tag、CHANGELOG 最新一段有「給客戶的一句話」、
 config/skeleton_history.json 有這一版且跟 tag 裡的骨架一致；小修（D-217，前兩位跟上一個 tag 相同）不准動骨架檔、各 schema 版本常數、
-_lib/migrate.py；每個 .py 照 Python 3.10 的語法 parse 得過；打好的 zip 解開跑它自己的 kb selftest --json（開發機的 Python，D-230）。
+_lib/migrate.py；遷移表（STATE_FILES、CARD_HEADER_MIGRATIONS、SYNTHESIS_MIGRATIONS）比上一個 tag 多了列，_lib/streams.py 的
+FORMAT_VERSION 就要比上一個 tag 大（D-335）；每個 .py 照 Python 3.10 的語法 parse 得過；打好的 zip 解開跑它自己的 kb selftest --json（開發機的 Python，D-230）。
 問題一次全列；zip 先寫暫存名，全部過了才改成正式名（有問題不留、也不動先前打好的同名 zip）。印 sha256。--prepare 在打 tag 之前的發行 commit 裡先把這一版的骨架指紋追加進 config/skeleton_history.json。
 publish：build → gh release create 傳 zip → 更新公開 repo 的 marketplace.json（版本、網址、sha256）並推 → 每 30 秒從外面抓清單，
 抓到新版（最多等 --wait 分鐘）才改 rollout.json 並推（D-218：名單不能比清單先更新）；超過停下來、名單沒改，清單與 zip 已經推了，之後用 rollout 補。
@@ -263,6 +264,60 @@ def _patch_problems(files, previous):
     return out
 
 
+MIGRATE = "scripts/kb/_lib/migrate.py"
+STREAMS = "scripts/kb/_lib/streams.py"
+MIGRATION_TABLES = ("STATE_FILES", "CARD_HEADER_MIGRATIONS", "SYNTHESIS_MIGRATIONS")
+
+
+def _assigned(data, name):
+    """模組最上層 `name = …` 的值（ast 節點）；讀不懂或沒有回 None。"""
+    try:
+        tree = ast.parse(data)
+    except (SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return node.value
+    return None
+
+
+def migration_rows(data):
+    """migrate.py 三張遷移表各有幾列 {表名: 列數}；沒有這張表（或沒有這個檔）算 0，不是寫死的清單（看不出列數）是 None。"""
+    out = {}
+    for name in MIGRATION_TABLES:
+        value = _assigned(data, name) if data is not None else None
+        if value is None:
+            out[name] = 0
+        else:
+            out[name] = len(value.elts) if isinstance(value, (ast.Tuple, ast.List)) else None
+    return out
+
+
+def format_version(data):
+    """streams.py 的 FORMAT_VERSION（整數）；沒有或不是寫死的整數回 None。"""
+    value = _assigned(data, "FORMAT_VERSION") if data is not None else None
+    return value.value if isinstance(value, ast.Constant) and type(value.value) is int else None
+
+
+def _format_problems(files, previous):
+    """遷移表比上一個 tag 多了列＝大升級，流水檔格式版本要比上一個 tag 大（D-335）。previous 是上一個 tag 的檔，沒有就不查。"""
+    if previous is None:
+        return []
+    now, old = migration_rows(files.get(MIGRATE)), migration_rows(previous.get(MIGRATE))
+    unreadable = [name for name in MIGRATION_TABLES if now[name] is None]
+    if unreadable:
+        return [f"{MIGRATE} 的 {'、'.join(unreadable)} 看不出有幾列（要寫成清單），沒辦法檢查流水檔格式版本"]
+    grew = [f"{name} {old[name]} → {now[name]}" for name in MIGRATION_TABLES
+            if old[name] is not None and now[name] > old[name]]
+    if not grew:
+        return []
+    fv_now, fv_old = format_version(files.get(STREAMS)), format_version(previous.get(STREAMS))
+    if fv_now is not None and (fv_old is None or fv_now > fv_old):
+        return []
+    return [f"遷移表比上一版多了列（{'、'.join(grew)}），流水檔格式版本要升：{STREAMS} 的 FORMAT_VERSION 是 {fv_now}，"
+            f"上一版是 {fv_old}，要改成比 {fv_old} 大才能發行（D-335）"]
+
+
 def problems(files, version, previous=None):
     """最後檢查：回問題清單（空的就是過了）。files 是要放進 zip 的檔，previous 是上一個 tag 的檔（只有小修才給，查小修規則）。"""
     out = [f"不在要放清單上：{rel}" for rel in sorted(files) if not allowed(rel)]
@@ -378,10 +433,9 @@ def build(repo, tag, out_dir=None):
     files = {rel: data for rel, data in archive.items() if allowed(rel)}
     skipped = sorted({rel.split("/", 1)[0] for rel in archive if not allowed(rel)})
     prev_tag = previous_tag(repo, version)
-    previous = None
-    if prev_tag and kind(tag_version(prev_tag), version) == "patch":
-        previous = collect(repo, prev_tag)
-    found = problems(files, version, previous) + syntax_problems(files)
+    prev_files = collect(repo, prev_tag) if prev_tag else None
+    previous = prev_files if prev_tag and kind(tag_version(prev_tag), version) == "patch" else None
+    found = problems(files, version, previous) + _format_problems(files, prev_files) + syntax_problems(files)
     dest = Path(out_dir or repo / "dist").resolve() / f"{PLUGIN_NAME}-{version}.zip"
     tmp = dest.with_name(f".{dest.name}.tmp")  # 先寫暫存名，全部過了才改名（裁定 16：重打失敗不動先前打好的那份）
     _write_zip(files, tmp)

@@ -155,6 +155,37 @@ test('游標移到別行（沒打字）才叫；切到別頁也叫；不是這�
   assert.strictEqual(none.out.runs.length, 0);
 });
 
+test('Obsidian 視窗失去焦點（切到 Claude）：還沒套用的受管頁也套用；沒改的不叫（記帳 3 確認 #5）', async () => {
+  const { plugin, out } = makePlugin();
+  plugin.onEditorChange(editorAt(4), { file: { path: '系統/帳.md' } }); // 刪了一行，游標還在那行
+  plugin.onWindowBlur();
+  await tick();
+  await tick();
+  assert.deepStrictEqual(out.runs, [['renders', 'apply', '系統/帳.md', '--json']]);
+  plugin.onWindowBlur();
+  await tick();
+  assert.strictEqual(out.runs.length, 1, '套用過了，再失去焦點不重叫');
+  const regs = [];
+  const fake = makePlugin();
+  const app = fake.app;
+  app.workspace.on = () => ({});
+  app.workspace.onLayoutReady = () => {};
+  app.vault.on = () => ({});
+  app.vault.setConfig = () => {};
+  fake.plugin.registerDomEvent = (target, ev) => regs.push([target, ev]);
+  fake.plugin.registerInterval = (id) => clearInterval(id);
+  const hadWindow = 'window' in globalThis;
+  const prevWindow = globalThis.window;
+  globalThis.window = { name: 'win' };
+  try {
+    await fake.plugin.onload();
+  } finally {
+    if (hadWindow) globalThis.window = prevWindow;
+    else delete globalThis.window;
+  }
+  assert.ok(regs.some(([t, ev]) => t && t.name === 'win' && ev === 'blur'), 'onload 登記 window 的 blur');
+});
+
 test('套用時先把開著的頁存檔，再叫 kb', async () => {
   const { plugin, out, leaves } = makePlugin();
   const order = [];

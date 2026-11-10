@@ -238,6 +238,23 @@ class SimpleCardForAiNotes(unittest.TestCase):
         self.assertIn("2. md 檔例外：只寫第 1 點的簡單版", carding)
 
 
+class MoneyConfirm(unittest.TestCase):
+    """記帳確認報告 #3、#5：子代理都讀的 card-maker 說字有 $ 用單引號；ingest 的 money.md 範例用單引號、沒寫日期不給 --date --due。"""
+
+    def test_3_single_quotes(self):
+        agent = (ROOT / "agents" / "card-maker.md").read_text(encoding="utf-8")
+        self.assertIn("單引號", agent)
+        self.assertIn("`$`", agent)
+        money = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
+        self.assertIn("--text '<讀到什麼、哪裡看不出>'", money)
+        self.assertNotIn('--text "', money)
+
+    def test_5_no_date_is_open(self):
+        money = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
+        self.assertIn("沒寫日期", money)
+        self.assertIn("不要記成今天", money)
+
+
 if __name__ == "__main__":
     unittest.main()
 
