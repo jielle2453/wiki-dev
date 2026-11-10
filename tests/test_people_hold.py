@@ -1,4 +1,4 @@
-"""多人共用 2 第 9 點：暫存區當成保留別名「暫存區」的來源（團隊雲端的夾）。兩台＝換 platform.node，各自 locate 自己的路徑。"""
+"""多人共用 2 第 9 點：暫存區當成保留別名「暫存區」的來源（團隊雲端的夾）。兩台＝換 socket.gethostname，各自 locate 自己的路徑。"""
 import json
 import os
 import unittest

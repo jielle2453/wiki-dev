@@ -1,5 +1,5 @@
 """多人共用 2：兩台模擬（老闆 boss-pc、小王 wang-laptop）的日程、偏好、口述出處、可以讀、來源位置、開場問名字。
-兩台用 platform.node 換機器名模擬（env.json 照機器名分）；kb 子行程用真的機器名。"""
+兩台用 socket.gethostname 換機器名模擬（env.json 照機器名分）；kb 子行程用真的機器名。"""
 import json
 import os
 import shutil

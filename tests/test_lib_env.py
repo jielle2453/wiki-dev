@@ -75,19 +75,20 @@ class Env(unittest.TestCase):
         self.assertTrue(env.missing_reported(self.V, "src-3f9a"))
 
     def test_machine_name_falls_back_to_unknown(self):
-        with mock.patch("platform.node", return_value=""):
+        with mock.patch("socket.gethostname", return_value=""):
             self.assertEqual(env.machine_name(), "unknown")
-        with mock.patch("platform.node", return_value="DESKTOP-ABC"):
+        with mock.patch("socket.gethostname", return_value="DESKTOP-ABC"):
             self.assertEqual(env.machine_name(), "DESKTOP-ABC")
 
-    def test_machine_name_asks_platform_once_per_process(self):
-        """裁定 23：platform.node 走 WMI（0.1～0.4 s），同一個行程只查一次；換了 platform.node（模擬別台）照換的回。"""
-        with mock.patch("platform.node", return_value="DESKTOP-ABC") as node:
-            self.assertEqual([env.machine_name(), env.machine_name()], ["DESKTOP-ABC", "DESKTOP-ABC"])
-            self.assertEqual(node.call_count, 1)
-        with mock.patch("platform.node", return_value="LIN-PC") as node:
-            self.assertEqual([env.machine_name(), env.machine_name()], ["LIN-PC", "LIN-PC"])
-            self.assertEqual(node.call_count, 1)
+    def test_machine_name_is_hostname_same_as_platform_node(self):
+        """裁定 24：改用 socket.gethostname（platform.node 走 WMI，有負載 1.4～1.7 s）；值要跟 platform.node 一樣，
+        不然流水檔會把同一台當成另一台。真的去叫，不模擬。"""
+        import platform
+        import socket
+        self.assertEqual(socket.gethostname(), platform.node())
+        self.assertEqual(env.machine_name(), platform.node())
+        with mock.patch("platform.node", side_effect=AssertionError("不該叫 platform.node")):
+            env.machine_name()
 
 
 if __name__ == "__main__":
