@@ -20,8 +20,16 @@ ENV_REL = Path(".system") / "env.json"
 KEY = "missing_sources_reported"
 
 
+_NODE = []  # [platform.node 那個函式, 它回的名字]
+
+
 def machine_name():
-    return platform.node() or "unknown"
+    """這台的機器名。platform.node 走 WMI（0.1～0.4 s），同一個行程只查一次、不存檔（裁定 23）；
+    platform.node 被換掉（測試模擬別台）就照換掉的重查。"""
+    fn = platform.node
+    if not _NODE or _NODE[0] is not fn:
+        _NODE[:] = [fn, fn()]
+    return _NODE[1] or "unknown"
 
 
 def _path(vault):

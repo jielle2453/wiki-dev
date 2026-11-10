@@ -80,6 +80,15 @@ class Env(unittest.TestCase):
         with mock.patch("platform.node", return_value="DESKTOP-ABC"):
             self.assertEqual(env.machine_name(), "DESKTOP-ABC")
 
+    def test_machine_name_asks_platform_once_per_process(self):
+        """裁定 23：platform.node 走 WMI（0.1～0.4 s），同一個行程只查一次；換了 platform.node（模擬別台）照換的回。"""
+        with mock.patch("platform.node", return_value="DESKTOP-ABC") as node:
+            self.assertEqual([env.machine_name(), env.machine_name()], ["DESKTOP-ABC", "DESKTOP-ABC"])
+            self.assertEqual(node.call_count, 1)
+        with mock.patch("platform.node", return_value="LIN-PC") as node:
+            self.assertEqual([env.machine_name(), env.machine_name()], ["LIN-PC", "LIN-PC"])
+            self.assertEqual(node.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
