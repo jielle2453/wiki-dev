@@ -1094,7 +1094,7 @@ class Background(Base):
         upgrade.background(self.V)
         self.assertEqual(self.check_saved(), {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
                                               "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None,
-                                              "verify_failed": None})
+                                              "verify_failed": None, "checked_with": "0.20.1"})
         self.assertEqual(self.fake.calls, [])
 
     def test_patch_for_her_is_applied_in_background(self):
@@ -1343,7 +1343,7 @@ class Opening(Base):
         self.PLUGIN = "0.21.0"
         self.put_history("0.21.0")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.20.1", "kind": "downgrade", "allowed": True,
-                                      "note": "x", "auto_patched": None, "error": None})
+                                      "note": "x", "auto_patched": None, "error": None, "checked_with": "0.21.0"})
         self.assertEqual(self.open()[0]["line"], "這一版 0.21.0 撤回了；用起來有問題的話說「退回舊版」。")
 
     def test_withdrawn_but_not_on_roster_prints_nothing(self):
