@@ -47,6 +47,8 @@ def get(vault, key):
     if key not in client:
         return default
     value = client[key]
+    if type(default) is float and type(value) is int:  # 小數鍵寫整數照收（裁定 30）；bool 不是 int 型別，照擋
+        return float(value)
     if type(value) is not type(default):  # bool 不當 int，"十" 不當 10
         ledger.log_error(vault, f"config.json 的 {key} 型別不對（{type(value).__name__}），用預設 {default!r}")
         return default
