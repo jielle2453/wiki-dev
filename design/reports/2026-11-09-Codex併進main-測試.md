@@ -88,3 +88,16 @@
 - 改動檔有 `scripts/kb/_lib/turn.py`（spec「可以動」沒列；實作疑義 1 用 `MARK_FLAGS` 帶出來的），確認只加 `codex` 旗標。
 - `skeleton/AGENTS.md` 只有 11 行；spec 第 9 條說「從 main 的 `skeleton/CLAUDE.md` 重做，只換一段」，要比對兩份差多少。
 - 驗收 17 的 `#` 路徑問題：主管改位置解決。
+
+## 第 2 輪
+
+日期：2026-11-10。測的版本：`e7dda858`（修正 #1：`.codex-plugin/plugin.json` 的 version 0.34.0→0.36.0，只動這一行，對齊 merge 後的 main，不是 bump）。範圍：只回測驗收 1、11（D-524）；驗收 1 的其他檔第 1 輪除 #1 外都已判定，不重跑。
+
+**結論：可以進確認。** 17 條全過。
+
+| # | 判定 | 證據 |
+|---|---|---|
+| 1 | 過 | `python -m pytest -q tests/test_codex_adapter.py tests/test_repo_hygiene.py`：41 passed、1173 subtests passed，exit 0（1:44）。其他檔沿用第 1 輪的判定（紅的都在 main 上一樣會紅，見第 1 輪驗收 1） |
+| 11 | 過 | `test_codex_adapter.py::Config::test_codex_manifest_version_matches` 1 passed；`.claude-plugin`、`.codex-plugin` 的 version 都是 0.36.0 |
+
+發現：沒有新的。#1 已修；「bump 要兩份 plugin.json 一起改」轉給發行（willy設計二 2026-11-10）。
