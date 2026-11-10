@@ -90,6 +90,11 @@ class Env(unittest.TestCase):
         with mock.patch("platform.node", side_effect=AssertionError("不該叫 platform.node")):
             env.machine_name()
 
+    def test_machine_name_oserror_same_as_platform_node(self):
+        """裁定 24：gethostname 丟 OSError 時跟 platform.node 一樣當 ''，machine_name 照舊回 unknown。"""
+        with mock.patch("socket.gethostname", side_effect=OSError("no host")):
+            self.assertEqual(env.machine_name(), "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

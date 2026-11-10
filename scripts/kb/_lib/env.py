@@ -22,8 +22,13 @@ KEY = "missing_sources_reported"
 
 def machine_name():
     """這台的機器名。用 socket.gethostname（不到 1 ms），不用 platform.node（走 WMI，有負載 1.4～1.7 s）；
-    兩個值一樣，不用 COMPUTERNAME（全大寫，流水檔會當成另一台）（裁定 24）。"""
-    return socket.gethostname() or "unknown"
+    Windows 的 platform.node 本來就是 socket.gethostname、OSError 回 ''，這裡照抄；不用 COMPUTERNAME
+    （全大寫，env.json 會當成另一台）（裁定 24）。"""
+    try:
+        name = socket.gethostname()
+    except OSError:
+        name = ""
+    return name or "unknown"
 
 
 def _path(vault):
