@@ -48,7 +48,7 @@
 - 知識庫裡多一份 `AGENTS.md`（Codex 讀它，內容跟 `CLAUDE.md` 一樣）。舊知識庫沒有這份的話，跑一次 `kb init` 補骨架。
 - 整理新檔：Codex 有開子代理的工具就每批派一個去做；沒有就由主對話自己一批一批做（等比較久、做的時候不好插話）。做法程式都一樣，卡的內容不受影響。
 - 密碼相關的動作（顯示存好的密碼、用存好的密碼開檔、讓某一種檔自動用密碼）AI 會先問客戶，**客戶下一句回「好」「可以」「同意」才做**；回別的就不做。
-- 升級（「升級」「有新版嗎」）AI 不會代做：由服務人員跑 `codex plugin marketplace upgrade wiki-with-willy`、照第二節第 2 步重裝，再照第 3 步重新信任 hook（每次重裝都要，2026-11-09 實測）。從 0.34.0 升上來的那一次，Codex 用的 hooks 檔改名成 `hooks/codex.json`（發行時填版號起），舊的信任不算，一樣照第 3 步重新信任一次。
+- 升級（「升級」「有新版嗎」）AI 不會代做：由服務人員跑 `codex plugin marketplace upgrade wiki-with-willy`、照第二節第 2 步重裝，再照第 3 步重新信任 hook（每次重裝都要，2026-11-09 實測）。從 0.34.0（市集名 `wiki-with-willy-local`）升上來的那一次，`marketplace upgrade` 用新舊哪個名字都會報錯，改照這個順序：先 `codex plugin remove wiki-with-willy@wiki-with-willy-local`、`codex plugin marketplace remove wiki-with-willy-local`，再照第二節第 1 步重新 `marketplace add`（帶 `--ref codex`）、第 2 步 `plugin add`，最後照第 3 步重新信任 hook（Codex 用的 hooks 檔改名成 `hooks/codex.json`（發行時填版號起），舊的信任不算）。
 - 貼圖片、貼長文字給 AI 收進知識庫：這版可能收不到，AI 會照實說。
 - claude.ai 的線上文件讀不到，會記成「線上文件打不開」。
 
