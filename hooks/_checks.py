@@ -274,10 +274,14 @@ def change_lines(vault, told_files=(), session_id=None):
     gone = set(report["missing"]) | set(report.get("still_missing") or [])
     told = [k for k in told if not (k.startswith("missing|") and k[len("missing|"):] not in gone)]
     seen = set(told)
-    from kb._lib import cards, inventory
+    from kb._lib import inventory
 
     skip = set()
-    if report["added"] or report["modified"]:
+    listed = report.get("not_wip")
+    if isinstance(listed, list):  # 寫清單時算好的，不載清冊（裁定 28）
+        skip = {inventory.uri_key(u) for u in listed if isinstance(u, str)}
+    elif report["added"] or report["modified"]:  # 升級前寫的舊清單：照舊載一次清冊
+        from kb._lib import cards
         try:  # 指路卡、封存、照設定不整理的不算（裁定 8，同 kb cards wip）；清冊讀不到就不篩、記一行 log
             skip = {inventory.uri_key(loc["uri"]) for e in inventory.load(vault)["entries"] if cards.not_wip(e)
                     for loc in e.get("locations") or [] if loc.get("uri")}

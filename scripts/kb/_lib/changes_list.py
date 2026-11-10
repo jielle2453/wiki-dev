@@ -56,12 +56,28 @@ def _ids(report):
     return out
 
 
+def _not_wip(report):
+    """新增與修改裡照 cards.not_wip 要略過的 uri（指路卡、封存、照設定不整理）：寫清單時用手上的清冊算好，
+    每句開頭就不用載清冊（裁定 28）。"""
+    from kb._lib import cards, inventory
+    keys = {inventory.uri_key(u): u for u in list(report["added"]) + list(report["modified"])}
+    out = {}
+    for e in report.get("entries") or []:
+        if keys and cards.not_wip(e):
+            for loc in e.get("locations") or []:
+                u = keys.get(inventory.uri_key(loc.get("uri", "")))
+                if u is not None:
+                    out[u] = None
+    return list(out)
+
+
 def write(vault, report, via, seconds, wip=None, cards_mtime=None, card_edits=None, card_base_stamp=None):
     """寫清單（暫存檔再換名）。report 是 inventory.scan 的回傳（帶 entries）。"""
     from kb._lib import inventory
     body = {k: v for k, v in inventory.public(report).items()}
     body["moved"] = [list(m) for m in report["moved"]]
     body["ids"] = _ids(report)
+    body["not_wip"] = _not_wip(report)
     data = {"schema_version": SCHEMA_VERSION, "at": datetime.now().isoformat(timespec="seconds"), "seconds": round(seconds, 1),
             "via": via, "report": body, "wip": wip, "cards_mtime": cards_mtime,
             "card_edits": card_edits, "card_base_stamp": card_base_stamp}

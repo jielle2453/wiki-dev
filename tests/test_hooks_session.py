@@ -540,6 +540,39 @@ class OpeningWip(unittest.TestCase):
         (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")  # 新放的（清冊沒有）照算
         self.assertIn(WIP.format(1), turn_lines(self.V, "filter-new"))
 
+    def pointer_a_and_new(self):
+        """a.txt 記成指路卡且改過、另放一份新的：只有新的算製作中。"""
+        p = self.V / ".system" / "inventory.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        (entry,) = [e for e in data["entries"] if any(loc["uri"].endswith("/a.txt") for loc in e["locations"])]
+        entry["card_mode"] = "pointer"
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        (self.raw / "客戶案件" / "a.txt").write_text("改過\n", encoding="utf-8")
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        background_scan(self.V)
+        return self.V / ".system" / "local" / "changes.json"
+
+    def test_not_wip_listed_so_turn_does_not_load_inventory(self):
+        """裁定 28：背景寫清單時算好 not_wip，每句開頭照它略過、不載清冊（3 萬份 1.9～3.0 s）。"""
+        listed = json.loads(self.pointer_a_and_new().read_text(encoding="utf-8"))["report"]["not_wip"]
+        self.assertEqual([u.rsplit("/", 1)[-1] for u in listed], ["a.txt"])
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hook_checks_not_wip", ROOT / "hooks" / "_checks.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        from kb._lib import inventory
+        with mock.patch.object(inventory, "load", side_effect=AssertionError("每句開頭不該載清冊")):
+            lines, _ = mod.change_lines(self.V)
+        self.assertEqual([ln for ln in lines if CHANGE_HEAD.match(ln)], [WIP.format(1)])
+
+    def test_old_list_without_not_wip_still_filters(self):
+        """裁定 28：升級前寫的清單沒有 not_wip，照舊載清冊篩。"""
+        p = self.pointer_a_and_new()
+        data = json.loads(p.read_text(encoding="utf-8"))
+        del data["report"]["not_wip"]
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual([ln for ln in turn_lines(self.V, "old-list", scan=False) if CHANGE_HEAD.match(ln)], [WIP.format(1)])
+
 
 class DailyWip(unittest.TestCase):
     """D-525 第 5 點、驗收 5：每天第一句有製作中才多一行（最多 3 個檔名），沒有不印。"""
