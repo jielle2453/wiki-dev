@@ -78,7 +78,7 @@ class Ensure(unittest.TestCase):
         kb = str(paths.plugin_root() / "scripts" / "kb.py")
         self.assertEqual(argv_of(schedule._field(xml, "Arguments")),
                          [kb, "changes", "--background", "--vault", str(self.V), "--task", name])  # 裁定 12a、14
-        self.assertIn(f"<WorkingDirectory>{self.V}</WorkingDirectory>", xml)
+        self.assertNotIn("WorkingDirectory", xml)  # 裁定 33：庫刪了工作排程器會因起始夾不在而啟動失敗，自刪走不到
         self.assertIn("<Interval>PT10M</Interval>", xml)
         self.assertIn("<ExecutionTimeLimit>PT12H</ExecutionTimeLimit>", xml)  # 裁定 15
         self.assertIn("<LogonType>InteractiveToken</LogonType>", xml)
@@ -94,6 +94,16 @@ class Ensure(unittest.TestCase):
         name = next(iter(self.fake.tasks))
         self.fake.tasks[name] = self.fake.tasks[name].replace("scripts", "別的版本\\scripts")
         self.assertEqual(schedule.ensure(self.V), "updated")
+        self.assertEqual(schedule.ensure(self.V), "ok")
+
+    def test_updated_when_old_task_has_working_directory(self):
+        """裁定 33：舊版建的工作有 WorkingDirectory，重建成沒有的。"""
+        schedule.ensure(self.V)
+        name = next(iter(self.fake.tasks))
+        self.fake.tasks[name] = self.fake.tasks[name].replace(
+            "</Arguments>", f"</Arguments><WorkingDirectory>{self.V}</WorkingDirectory>")
+        self.assertEqual(schedule.ensure(self.V), "updated")
+        self.assertNotIn("WorkingDirectory", self.fake.tasks[name])
         self.assertEqual(schedule.ensure(self.V), "ok")
 
     def test_off_deletes_then_back_on_creates(self):
@@ -155,7 +165,7 @@ class ArgvRoundTrip(unittest.TestCase):
         with mock.patch.object(schedule, "_pythonw", lambda: r"C:\Python\pythonw.exe"):
             for vault in ("D:\\", "D:\\知識庫\\", "C:\\有 空白\\庫", "C:\\有 空白\\結尾\\", 'C:\\含"引號\\庫', "\\\\伺服器\\分享\\"):
                 exp = schedule.expected(vault, 10, name)
-                want = [kb, "changes", "--background", "--vault", exp["cwd"], "--task", name]
+                want = [kb, "changes", "--background", "--vault", str(Path(vault)), "--task", name]
                 with self.subTest(vault=vault):
                     self.assertEqual(argv_of(exp["arguments"]), want)
                     self.assertEqual(schedule._field(schedule._xml(exp), "Arguments"), exp["arguments"])

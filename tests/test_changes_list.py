@@ -96,6 +96,17 @@ class Background(Base):
         self.assertEqual([ln.split("\t")[1] for ln in log], ["scan"])
         self.assertFalse(changes_list.path(self.V).exists())
 
+    def test_cwd_elsewhere_still_writes(self):
+        """裁定 33：排程不設起始夾，cwd 不在庫裡也照 --vault 找庫、寫清單。"""
+        import tempfile
+        elsewhere = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        (self.raw / "客戶案件" / "新.txt").write_text("新\n", encoding="utf-8")
+        r = kb(elsewhere, "changes", "--background", "--vault", str(self.V))
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+        self.assertEqual([u.rsplit("/", 1)[-1] for u in self.listed()["report"]["added"]], ["新.txt"])
+        self.assertEqual(os.listdir(elsewhere), [])
+
     def test_stdout_none_does_not_break(self):
         """驗收 10：pythonw 跑的 stdout、stderr 是 None。"""
         code = ("import os, sys, runpy\nkb, v = sys.argv[1], sys.argv[2]\nsys.path.insert(0, os.path.dirname(kb))\n"

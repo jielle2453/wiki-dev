@@ -52,7 +52,7 @@ XML = """<?xml version="1.0" encoding="UTF-16"?>
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>{command}</Command><Arguments>{arguments}</Arguments><WorkingDirectory>{cwd}</WorkingDirectory></Exec>
+    <Exec><Command>{command}</Command><Arguments>{arguments}</Arguments></Exec>
   </Actions>
 </Task>
 """
@@ -94,7 +94,8 @@ def task_name(vault):
 
 
 def expected(vault, minutes, name):
-    """這台現在該有的指令與間隔。指令帶 --task 自己的名稱：庫刪了背景照它刪掉自己（裁定 12a）。pythonw 找不到丟 Failed。"""
+    """這台現在該有的指令與間隔。指令帶 --task 自己的名稱：庫刪了背景照它刪掉自己（裁定 12a）；不設起始夾，
+    整條路照 --vault 找庫（裁定 33）。pythonw 找不到丟 Failed。"""
     from kb._lib import paths
     pyw = _pythonw()
     if not pyw:
@@ -103,7 +104,7 @@ def expected(vault, minutes, name):
     vault = str(Path(vault))
     # list2cmdline 照 Windows 的引號、反斜線規則（裁定 14：手寫 "D:\" 會吞掉後面的參數）
     args = subprocess.list2cmdline([str(kb), "changes", "--background", "--vault", vault, "--task", name])
-    return {"command": pyw, "arguments": args, "cwd": vault,
+    return {"command": pyw, "arguments": args,
             "interval": f"PT{minutes}M", "minutes": minutes}
 
 
@@ -113,15 +114,15 @@ def _field(xml, tag):
 
 
 def _same(xml, exp):
-    return all(_field(xml, tag) == _codepage(exp[key]) for tag, key in
+    """指令、參數、間隔一樣，而且沒有起始夾（裁定 33：舊版設成庫本身，庫刪了工作排程器啟動就失敗 0x8007010B，自刪走不到）。"""
+    return _field(xml, "WorkingDirectory") is None and all(_field(xml, tag) == _codepage(exp[key]) for tag, key in
                (("Command", "command"), ("Arguments", "arguments"), ("Interval", "interval")))
 
 
 def _xml(exp):
     user = (os.environ.get("USERDOMAIN", "") + "\\" if os.environ.get("USERDOMAIN") else "") + getpass.getuser()
     return XML.format(minutes=exp["minutes"], start=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), interval=exp["interval"],
-                      user=escape(user), command=escape(exp["command"]), arguments=escape(exp["arguments"], _QUOT_REV),
-                      cwd=escape(exp["cwd"]))
+                      user=escape(user), command=escape(exp["command"]), arguments=escape(exp["arguments"], _QUOT_REV))
 
 
 def _query(name):
