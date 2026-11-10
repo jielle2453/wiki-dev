@@ -210,6 +210,11 @@ Codex 版現在放在 wiki-dev 的長期分支 `codex`，main 每發一版都要
      - (6) 沒有 `turn_id` 的 Codex payload 會走 Claude 那條：Codex 版 spec 定「有 `turn_id` 就是 Codex」，跟 `_codex.is_codex` 同一條。
      - (7) 已經被 (1) 涵蓋。
 
+### 確認裁定（2026-11-11）
+
+1. 確認落差（高）：Codex 0.34.0 照 `安裝-Codex.md` 升不上來。0.34.0 的市集名是 `wiki-with-willy-local`，這版是 `wiki-with-willy`，`marketplace upgrade` 兩個名字都報錯。→ 只補文件、不改程式（jacky 經 willy主管 2026-11-11）：`安裝-Codex.md` 升級那節加「從 0.34.0（市集名 `wiki-with-willy-local`）升上來的那一次：先 `codex plugin remove wiki-with-willy@wiki-with-willy-local`、`codex plugin marketplace remove wiki-with-willy-local`，再照第二節重新 `marketplace add`（`--ref codex`）、`plugin add`，最後照第 3 步重新信任 hook」。確認情境 4 照新文件回測。
+2. 測試與確認用終端機（jacky 2026-11-11）：Claude 的情境 3 用 `claude --permission-mode default` 在終端機驗；Codex 的情境 2、4 用終端機的 codex。
+
 ## 紀錄（設計 session 結案時填）
 - 實作 commit：
 - 測試報告：
