@@ -1424,20 +1424,30 @@ class OpeningCardEdits(unittest.TestCase):
         background_scan(self.V)
         self.assertEqual(self.listed(), [self.CARD])
 
-    def test_turn_reads_only_listed_cards(self):
-        """裁定 19：每句開頭不走全部的卡，只比清單列的那幾張。"""
+    def no_card_base(self):
+        """每句開頭不准碰卡的基準與全部的卡（裁定 19、21）。"""
         from kb._lib import card_base
+        boom = AssertionError("每句開頭不該載基準、走全部的卡")
+        return [mock.patch.object(card_base, f, side_effect=boom) for f in ("load", "all_cards", "edits")]
+
+    def test_turn_prints_listed_without_loading_base(self):
+        """裁定 21：card_base 版本沒變 → 照清單印，不載基準。"""
         background_scan(self.V)
         self.hand_edit()
         background_scan(self.V)
         mod = self.checks()
-        with mock.patch.object(card_base, "all_cards", side_effect=AssertionError("不該走全部的卡")), \
-                mock.patch.object(card_base, "edits", side_effect=AssertionError("不該走全部的卡")):
+        patches = self.no_card_base()
+        for p in patches:
+            p.start()
+        try:
             self.assertEqual(mod.line_card_edits(self.V), (self.LINE, True))
+        finally:
+            for p in patches:
+                p.stop()
         self.assertEqual(self.edit_lines(turn_lines(self.V, scan=False)), [self.LINE])
 
     def test_done_then_not_printed_although_listed(self):
-        """清單還列著，但 kb cards edits --done 處理掉了：跟基準比不出來，不印。"""
+        """清單還列著，但 kb cards edits --done 處理掉了：card_base 版本變了，這句不印手改（也不載基準），等下次背景。"""
         background_scan(self.V)
         self.hand_edit()
         background_scan(self.V)
@@ -1445,7 +1455,25 @@ class OpeningCardEdits(unittest.TestCase):
                            text=True, encoding="utf-8", cwd=str(self.V), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.listed(), [self.CARD])
+        mod = self.checks()
+        patches = self.no_card_base()
+        for p in patches:
+            p.start()
+        try:
+            self.assertEqual(mod.line_card_edits(self.V), (None, True))
+        finally:
+            for p in patches:
+                p.stop()
         self.assertEqual(self.edit_lines(turn_lines(self.V, scan=False)), [])
+        background_scan(self.V)
+        self.assertEqual(self.listed(), [])
+
+    def test_deleted_listed_card_not_counted(self):
+        background_scan(self.V)
+        self.hand_edit()
+        background_scan(self.V)
+        (self.V / self.CARD).unlink()
+        self.assertEqual(self.checks().line_card_edits(self.V), (None, True))
 
     def test_null_not_compared(self):
         """card_edits 是 null（AI 當場寫的、還沒背景跑過）：不知道，不比。"""

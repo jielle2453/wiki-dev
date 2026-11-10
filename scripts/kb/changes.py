@@ -102,9 +102,10 @@ def _background(args):
             report = inventory.scan(vault, sources)
             wip = changes_list.wip_summary(cards.wip(vault, sources))
             card_edits = [e["path"] for e in card_base.edits(vault)["edits"]]  # 不設時限、順便補基準（裁定 19）
+            stamp = changes_list.card_base_stamp(vault)  # 補完基準之後的版本：每句開頭看它變了沒（裁定 21）
             if not changes_list.newer_than(vault, began):  # 比的期間 AI 當場比過或套用了：這份已經舊了，等下一次
                 changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault),
-                                   card_edits)
+                                   card_edits, stamp)
         finally:
             changes_list.release(vault)
     except Exception as e:  # noqa: BLE001  背景跑的，沒人看得到輸出

@@ -64,6 +64,7 @@ class Background(Base):
         self.assertLessEqual(len(d["wip"]["names"]), 3)
         self.assertIsInstance(d["cards_mtime"], float)
         self.assertEqual(d["card_edits"], [])  # 裁定 19
+        self.assertEqual(d["card_base_stamp"], changes_list.card_base_stamp(self.V))  # 裁定 21
         self.assertGreaterEqual(d["seconds"], 0)
         self.assertFalse(list(changes_list.path(self.V).parent.glob("*.tmp")))
 
@@ -120,13 +121,15 @@ class Foreground(Base):
         d = self.listed()
         self.assertEqual(d["via"], "changes")
         self.assertGreaterEqual(d["at"], old["at"])
-        self.assertEqual((d["wip"], d["cards_mtime"], d["card_edits"]), (old["wip"], old["cards_mtime"], old["card_edits"]))
+        self.assertEqual((d["wip"], d["cards_mtime"], d["card_edits"], d["card_base_stamp"]),
+                         (old["wip"], old["cards_mtime"], old["card_edits"], old["card_base_stamp"]))
         self.assertIn("新.txt", json.dumps(d["report"]["added"], ensure_ascii=False))
 
     def test_no_old_list_writes_null(self):
         self.assertEqual(kb(self.V, "changes").returncode, 0)
         d = self.listed()
-        self.assertEqual((d["via"], d["wip"], d["cards_mtime"], d["card_edits"]), ("changes", None, None, None))
+        self.assertEqual((d["via"], d["wip"], d["cards_mtime"], d["card_edits"], d["card_base_stamp"]),
+                         ("changes", None, None, None, None))
 
     def test_quick_incomplete_does_not_write(self):
         (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_hash_budget_bytes": 1}), encoding="utf-8")
@@ -206,6 +209,42 @@ class Removed(unittest.TestCase):
         r = subprocess.run(["git", "grep", "-n", "-E", "after_answer|stop_scan_seconds|turn_scan_hash_budget_bytes|CHANGES_INCOMPLETE",
                             "--", "hooks", "scripts", "config"], capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
         self.assertEqual(r.stdout, "")
+
+
+
+class CardBaseStamp(unittest.TestCase):
+    """裁定 21：card_base 的版本＝json 檔、流水檔夾、夾裡最新的流水檔的 mtime；寫卡的基準或別台流水檔追加都會變。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_path_matches_card_base(self):
+        from kb._lib import card_base
+        self.assertEqual(changes_list.CARD_BASE_POSIX, card_base.BASE_POSIX)
+
+    def test_changes_when_base_written_or_stream_appended(self):
+        from kb._lib import card_base, streams
+        card = self.V / "檔案索引" / "a" / "卡-12345678.md"
+        card.parent.mkdir(parents=True, exist_ok=True)
+        card.write_text("---\n編號: f-12345678\n---\n# 卡\n", encoding="utf-8", newline="\n")
+        before = changes_list.card_base_stamp(self.V)
+        card_base.edits(self.V)  # 補基準：寫 card_base
+        after = changes_list.card_base_stamp(self.V)
+        self.assertNotEqual(before, after)
+        self.assertEqual(after, changes_list.card_base_stamp(self.V))
+        other = streams.stream_dir(self.V, "card_base") / "別台.jsonl"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_text("{}\n", encoding="utf-8")
+        later = changes_list.card_base_stamp(self.V)
+        self.assertNotEqual(after, later)
+        st = other.stat()
+        with open(other, "a", encoding="utf-8") as f:  # 追加：夾的 mtime 不變，檔的變
+            f.write("{}\n")
+        os.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+        self.assertNotEqual(later, changes_list.card_base_stamp(self.V))
 
 
 if __name__ == "__main__":

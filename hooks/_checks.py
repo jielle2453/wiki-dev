@@ -349,17 +349,18 @@ def _stopped(vault, session_id):
 # ---------- 卡、標籤、設定檔、找不到的來源 ----------
 
 def line_card_edits(vault):
-    """客戶手改了卡，系統跟著更新（D-270）：只比背景比對清單 card_edits 列的那幾張跟基準（card_base.edits_of，裁定 19），
-    還有改的才印（kb cards edits --done 處理過的比不出來）；走全部的卡、補基準是背景的事。null 是不知道、不比。
-    先 kb upgrade --finish 轉格式、卡要跟著搬的庫先不比。回 (行, 比完了嗎)，一定比完。"""
+    """客戶手改了卡，系統跟著更新（D-270）：照背景比對清單 card_edits 印（裁定 19），不載基準、不走全部的卡（裁定 21）。
+    card_base 的版本跟清單記的不同（kb cards edits --done、AI 寫了卡）→ 這句不印，等下一次背景重算；null 是不知道、不印。
+    列的卡已經不在的不算。先 kb upgrade --finish 轉格式、卡要跟著搬的庫先不比。回 (行, 比完了嗎)，一定比完。"""
     if yield_to_upgrade(vault):
         return None, True
-    from kb._lib import card_base, changes_list
+    from kb._lib import changes_list
 
-    rels = (changes_list.read(vault) or {}).get("card_edits")
-    if not isinstance(rels, list):
+    data = changes_list.read(vault) or {}
+    rels = data.get("card_edits")
+    if not isinstance(rels, list) or data.get("card_base_stamp") != changes_list.card_base_stamp(vault):
         return None, True
-    n = len(card_base.edits_of(vault, [r for r in rels if isinstance(r, str)]))
+    n = sum(1 for r in rels if isinstance(r, str) and os.path.isfile(os.path.join(str(vault), r)))
     return (CARD_EDITS_LINE.format(n=n) if n else None), True
 
 

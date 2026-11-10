@@ -2,7 +2,7 @@
 
 kb changes --background（電腦排程）寫、kb changes 與 kb inventory scan（全部來源）跟著寫；每句開頭（hooks/_checks）只讀這份。
 格式：{schema_version: 1, at, seconds, via: background|changes|inventory scan, report, wip: {n, names} 或 null, cards_mtime 或 null,
-card_edits: 改過的卡的相對路徑 list 或 null（裁定 19）}。
+card_edits: 改過的卡的相對路徑 list 或 null（裁定 19）, card_base_stamp: 算 card_edits 時 card_base 的版本或 null（裁定 21）}。
 report 是 inventory.public(report) 去掉 entries，多 ids（變動那幾份的 uri → 清冊編號，給 detected_rows 用）。
 讀不懂、schema_version 不是 1 → 當沒有清單（不記 log：排程還沒跑過是正常的）。
 """
@@ -17,6 +17,7 @@ from kb._lib.io import read_json
 
 LIST_REL = ".system/local/changes.json"
 LOCK_REL = ".system/local/changes.lock"
+CARD_BASE_POSIX = ".system/card_base.json"  # 同 card_base.BASE_POSIX（不 import card_base：每句開頭要輕）
 LOCK_STALE = 30 * 60  # 秒：超過算上一個中途被砍留下的
 SCHEMA_VERSION = 1
 WIP_NAMES = 3
@@ -55,7 +56,7 @@ def _ids(report):
     return out
 
 
-def write(vault, report, via, seconds, wip=None, cards_mtime=None, card_edits=None):
+def write(vault, report, via, seconds, wip=None, cards_mtime=None, card_edits=None, card_base_stamp=None):
     """寫清單（暫存檔再換名）。report 是 inventory.scan 的回傳（帶 entries）。"""
     from kb._lib import inventory
     body = {k: v for k, v in inventory.public(report).items()}
@@ -63,7 +64,7 @@ def write(vault, report, via, seconds, wip=None, cards_mtime=None, card_edits=No
     body["ids"] = _ids(report)
     data = {"schema_version": SCHEMA_VERSION, "at": datetime.now().isoformat(timespec="seconds"), "seconds": round(seconds, 1),
             "via": via, "report": body, "wip": wip, "cards_mtime": cards_mtime,
-            "card_edits": card_edits}
+            "card_edits": card_edits, "card_base_stamp": card_base_stamp}
     p = path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="changes-", suffix=".tmp", dir=str(p.parent))  # 各寫各的暫存檔：背景與 AI 當場跑的可能同時寫（review 2）
@@ -87,9 +88,10 @@ def newer_than(vault, at):
 
 
 def write_carried(vault, report, via, seconds):
-    """AI 當場跑的（kb changes、kb inventory scan）：wip、cards_mtime、card_edits 沿用舊清單，沒有就 null（實作疑義 1、裁定 19）。"""
+    """AI 當場跑的（kb changes、kb inventory scan）：wip、cards_mtime、card_edits、card_base_stamp 沿用舊清單，沒有就 null（實作疑義 1、裁定 19、21）。"""
     old = read(vault) or {}
-    return write(vault, report, via, seconds, old.get("wip"), old.get("cards_mtime"), old.get("card_edits"))
+    return write(vault, report, via, seconds, old.get("wip"), old.get("cards_mtime"), old.get("card_edits"),
+                 old.get("card_base_stamp"))
 
 
 def applied(report):
@@ -184,3 +186,22 @@ def cards_mtime(vault):
             continue
         top = False
     return best
+
+
+def card_base_stamp(vault):
+    """card_base 的版本（裁定 21）：[json 檔, 流水檔夾, 夾裡最新的流水檔] 的 mtime_ns，不在的是 None。
+    只 stat，不讀內容。流水檔是追加寫的（夾的 mtime 不跟著變），所以另看夾裡的檔。"""
+    from kb._lib import streams
+    d = streams.stream_dir(vault, "card_base")
+    out = []
+    for p in (Path(vault) / CARD_BASE_POSIX, d):
+        try:
+            out.append(os.stat(p).st_mtime_ns)
+        except OSError:
+            out.append(None)
+    try:
+        with os.scandir(d) as it:
+            out.append(max((e.stat().st_mtime_ns for e in it if e.is_file()), default=None))
+    except OSError:
+        out.append(None)
+    return out

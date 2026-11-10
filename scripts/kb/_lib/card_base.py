@@ -407,34 +407,6 @@ def edits(vault, deadline=None, persist=True):
     return {"edits": out, "more": more}
 
 
-def edits_of(vault, rels):
-    """只比這幾張（背景比對清單列的，裁定 19）：判斷跟 edits 一樣，但不走全部的卡、不補基準、不寫狀態檔。
-    不是卡、沒有基準的跳過。回 edits 的 "edits" 那種 list。"""
-    recs = load(vault)
-    pulled = _pulled_same_fn(vault)
-    out, mine = [], None
-    for rel in rels:
-        got = recs.get(rel)
-        kind = card_kind(vault, rel) if got is not None else None
-        if kind is None:
-            continue
-        try:
-            body = _read_body(vault, rel)
-        except (OSError, UnicodeDecodeError):
-            continue
-        pend = got.get("pending")
-        hs = hunks(pend["before"], pend["after"]) if isinstance(pend, dict) else []
-        if hs and pend.get("machine"):
-            mine = mine or _machine(vault)
-            if _others_pending(vault, pend, mine):
-                hs = []
-        if got["sha256"] != sha(body) and not pulled(rel):
-            hs = hs + hunks(got["body"], body)
-        if hs:
-            out.append(_item(vault, rel, kind, hs))
-    return out
-
-
 class DoneRefused(ValueError):
     pass
 
