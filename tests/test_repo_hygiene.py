@@ -75,6 +75,20 @@ class HookHeader(unittest.TestCase):
                 self.assertNotIn("dont_write_bytecode", path.read_text(encoding="utf-8"))
 
 
+class ScheduleEnvOnlyInInit(unittest.TestCase):
+    """裁定 11：不建真排程的環境變數只准 tests/__init__.py 設，別的測試不准碰（關掉就會建真工作）。"""
+
+    def test_only_init_mentions_it(self):
+        needle = "NO_" + "SCHEDULE"  # 拆開拼，本檔自己不含
+        init = ROOT / "tests" / "__init__.py"
+        self.assertIn(needle, init.read_text(encoding="utf-8"))
+        for path in sorted((ROOT / "tests").rglob("*.py")):
+            if path == init:
+                continue
+            with self.subTest(file=path.name):
+                self.assertNotIn(needle, path.read_text(encoding="utf-8"))
+
+
 class NoDevPaths(unittest.TestCase):
     def test_no_dev_machine_paths(self):
         for name in tracked_files():

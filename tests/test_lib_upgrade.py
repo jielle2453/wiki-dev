@@ -1094,7 +1094,7 @@ class Background(Base):
         upgrade.background(self.V)
         self.assertEqual(self.check_saved(), {"date": "2026-10-24", "latest": "0.21.0", "kind": "minor", "allowed": True,
                                               "note": "日程可以匯出成 Excel", "auto_patched": None, "error": None,
-                                              "verify_failed": None})
+                                              "verify_failed": None, "checked_with": "0.20.1"})
         self.assertEqual(self.fake.calls, [])
 
     def test_patch_for_her_is_applied_in_background(self):
@@ -1145,6 +1145,16 @@ class Background(Base):
         self.assertEqual((saved["date"], saved["latest"], saved["allowed"], saved["note"]),
                          ("2026-10-24", "0.21.0", True, "舊的一句話"))
         self.assertTrue(saved["error"])
+
+    def test_check_records_which_version_checked_it(self):
+        """裁定 27：背景查到就記 checked_with＝現在的版本；連不上沿用上一次的。"""
+        self.serve("0.21.0", mine=True)
+        upgrade.background(self.V)
+        self.assertEqual(self.check_saved()["checked_with"], "0.20.1")
+        self.fake.texts[MANIFEST_URL] = OSError("連不上")
+        self.PLUGIN = "0.21.0"
+        upgrade.background(self.V)
+        self.assertEqual(self.check_saved()["checked_with"], "0.20.1")
 
     def test_offline_first_time_records_only_error(self):
         self.fake.texts[MANIFEST_URL] = OSError("連不上")
@@ -1248,9 +1258,30 @@ class Opening(Base):
         """待你決定 1 的 (b)：撤回也只講一次，told 記 withdrawn:<這台的版本>。"""
         self.put_history("0.20.1")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.20.0", "kind": "downgrade", "allowed": True,
-                                      "note": None, "auto_patched": None, "error": None})
+                                      "note": None, "auto_patched": None, "error": None, "checked_with": "0.20.1"})
         self.assertTrue(self.open()[0]["line"].startswith("這一版 0.20.1 撤回了"))
         self.assertEqual(env.update_check(self.V)["told"], "withdrawn:0.20.1")
+        self.assertIsNone(self.open()[0]["line"])
+
+    def test_withdrawn_not_judged_from_a_check_made_by_an_older_version(self):
+        """裁定 27：快取是舊版查的（沒有 checked_with）、升級後 latest 比現在舊：不判撤回、不印，等背景重查。"""
+        self.PLUGIN = "0.36.0"
+        self.put_history("0.36.0")
+        env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.35.1", "kind": "patch", "allowed": True,
+                                      "note": None, "auto_patched": None, "error": None})
+        self.assertIsNone(self.open()[0]["line"])
+        env.set_update_check(self.V, dict(env.update_check(self.V), checked_with="0.35.1"))
+        self.assertIsNone(self.open()[0]["line"])
+
+    def test_offline_background_keeps_checked_with_so_old_cache_stays_quiet(self):
+        """裁定 27：舊快取沒有 checked_with、背景連不上（_save_error）也不能蓋成現在的版本，開場照樣不判撤回。"""
+        self.PLUGIN = "0.36.0"
+        self.put_history("0.36.0")
+        env.set_update_check(self.V, {"date": "2026-10-23", "latest": "0.35.1", "kind": "patch", "allowed": True,
+                                      "note": None, "auto_patched": None, "error": None})
+        upgrade._save_error(self.V, OSError("連不上"))
+        saved = env.update_check(self.V)
+        self.assertEqual((saved["latest"], saved["checked_with"]), ("0.35.1", None))
         self.assertIsNone(self.open()[0]["line"])
 
     def test_note_is_cleaned_again_before_the_opening_prints_it(self):
@@ -1312,7 +1343,7 @@ class Opening(Base):
         self.PLUGIN = "0.21.0"
         self.put_history("0.21.0")
         env.set_update_check(self.V, {"date": "2026-10-24", "latest": "0.20.1", "kind": "downgrade", "allowed": True,
-                                      "note": "x", "auto_patched": None, "error": None})
+                                      "note": "x", "auto_patched": None, "error": None, "checked_with": "0.21.0"})
         self.assertEqual(self.open()[0]["line"], "這一版 0.21.0 撤回了；用起來有問題的話說「退回舊版」。")
 
     def test_withdrawn_but_not_on_roster_prints_nothing(self):

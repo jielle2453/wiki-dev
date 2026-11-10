@@ -36,7 +36,7 @@ class Base(unittest.TestCase):
 
     def as_machine(self, name):
         """程式內模擬另一台電腦（env.json 照機器名分）；kb 子行程用真的機器名。"""
-        return mock.patch("platform.node", return_value=name)
+        return mock.patch("socket.gethostname", return_value=name)
 
     def multi(self, n=3):
         r = self.kb("profile", "set", "people", str(n))
