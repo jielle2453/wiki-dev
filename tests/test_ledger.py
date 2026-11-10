@@ -118,6 +118,18 @@ class Functions(unittest.TestCase):
         ledger.touch_status(self.V)
         self.assertEqual(json.loads(files[0].read_text(encoding="utf-8"))["date"], date.today().isoformat())
 
+    def test_touch_status_hostname_not_platform_node(self):
+        """裁定 25：守門每次都跑，不叫走 WMI 的 platform.node；檔名照舊（值跟 platform.node 一樣），OSError 當 ''→unknown。"""
+        from unittest import mock
+        name = platform.node()
+        with mock.patch("platform.node", side_effect=AssertionError("不該叫 platform.node")):
+            ledger.touch_status(self.V)
+        d = self.V / ".system" / "guard-status"
+        self.assertEqual(json.loads((d / f"{ledger._safe_host(name)}.json").read_text(encoding="utf-8"))["host"], name)
+        with mock.patch("socket.gethostname", side_effect=OSError("no host")):
+            ledger.touch_status(self.V)
+        self.assertEqual(json.loads((d / "unknown.json").read_text(encoding="utf-8"))["host"], "")
+
 
 
 class Round1(unittest.TestCase):

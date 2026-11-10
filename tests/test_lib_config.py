@@ -95,6 +95,19 @@ class Get(unittest.TestCase):
             json.dumps({"prompt_head_max": True}), encoding="utf-8")
         self.assertEqual(config.get(self.vault, "prompt_head_max"), 200)
 
+    def test_int_accepted_for_float_key(self):
+        """裁定 30：預設是小數的鍵寫整數照生效、回 float；true 與字串照舊退回預設、記 log。"""
+        cfg = self.vault / ".system" / "config.json"
+        cfg.write_text(json.dumps({"turn_scan_seconds": 2}), encoding="utf-8")
+        got = config.get(self.vault, "turn_scan_seconds")
+        self.assertEqual((got, type(got)), (2.0, float))
+        log = self.vault / ".system" / "hook-errors.log"
+        self.assertFalse(log.exists())
+        for bad in (True, "2"):
+            cfg.write_text(json.dumps({"turn_scan_seconds": bad}), encoding="utf-8")
+            self.assertEqual(config.get(self.vault, "turn_scan_seconds"), 1.5)
+        self.assertEqual(len(log.read_text(encoding="utf-8").splitlines()), 2)
+
     def test_client_file_cannot_add_unknown_key(self):
         (self.vault / ".system" / "config.json").write_text(json.dumps({"mystery": 1}), encoding="utf-8")
         with self.assertRaises(KeyError):

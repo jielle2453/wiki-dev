@@ -165,13 +165,15 @@ class OpeningBudget(unittest.TestCase):
 
 
 def turn_status(prepare=None, session_id="budget-turn"):
-    """跑 hooks/turn.py（每句開頭，放寬丙 3b），回 additionalContext 的行（沒有輸出回 []）。"""
+    """先跑一次背景比對（電腦排程，D-536），再跑 hooks/turn.py（每句開頭，放寬丙 3b），回 additionalContext 的行（沒有輸出回 []）。"""
     tmp = Path(tempfile.mkdtemp(prefix="kbbudget-"))
     try:
         vault = tmp / "vault"
         shutil.copytree(FIXTURE_VAULT, vault)
         if prepare is not None:
             prepare(vault)
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "kb.py"), "changes", "--background", "--vault", str(vault)],
+                       capture_output=True, cwd=str(vault), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))  # 排程跑過（D-536）
         data = {"session_id": session_id, "cwd": str(vault), "prompt": "問", "hook_event_name": "UserPromptSubmit"}
         r = subprocess.run([sys.executable, str(TURN_HOOK)], input=json.dumps(data), capture_output=True,
                            text=True, encoding="utf-8", cwd=str(vault), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
@@ -243,7 +245,7 @@ def version_line_vault(kind):
         if kind == "b":
             chk.update(latest="99.99.999", kind="major", allowed=True, note="字" * 40)
         if kind == "c":
-            chk.update(latest="0.0.1", kind="downgrade", allowed=True, note="x")
+            chk.update(latest="0.0.1", kind="downgrade", allowed=True, note="x", checked_with=plugin)  # 裁定 27
         (vault / ".system" / "upgrade-history.json").write_text(json.dumps(hist), encoding="utf-8")
         (vault / ".system" / "env.json").write_text(json.dumps(
             {"schema_version": 1, "machines": {platform.node() or "unknown": {"update_check": chk}}}), encoding="utf-8")
@@ -263,6 +265,34 @@ class OpeningVersionLines(unittest.TestCase):
                 self.assertTrue(lines[0].startswith("【wiki-with-willy】kb 指令：python \"" + LONG_PLUGIN_ROOT), "kb 行用長路徑量")
                 self.assertLessEqual(count_lines(status), OPENING_MAX_LINES, lines)
                 self.assertLessEqual(len(status), OPENING_MAX_CHARS, (len(status), lines))
+
+    def test_daily_worst_case_with_schedule_line(self):
+        """背景比對（D-536）：每天第一句最壞情況（有新版最長的一句、日程三個數字、製作中三個長檔名）再加「設好背景比對」那行，
+        仍在 OPENING_MAX_LINES、OPENING_MAX_CHARS 內。那行只在真的建了排程時出現（測試環境不碰排程），字照 SCHEDULE_LINE 算。"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("budget_checks", ROOT / "hooks" / "_checks.py")
+        checks = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(checks)
+        schedule_line = checks.SCHEDULE_LINE.format(n=999)
+
+        def prepare(vault):
+            version_line_vault("b")(vault)
+            names = ["二〇二六年第四季報價單v3.xlsx", "信義王的家工程合約補充條款.docx", "大安陳木作估價明細修正版.pdf"]
+            local = vault / ".system" / "local"
+            local.mkdir(parents=True, exist_ok=True)
+            report = {"added": [], "modified": [], "missing": [], "still_missing": [], "moved": [], "missing_sources": [],
+                      "incomplete": False, "ids": {}}
+            (local / "changes.json").write_text(json.dumps(
+                {"schema_version": 1, "at": "2026-11-10T10:00:00", "seconds": 1.0, "via": "background", "report": report,
+                 "wip": {"n": 1280, "names": names}, "cards_mtime": 1.0}, ensure_ascii=False), encoding="utf-8")
+        for source in ("startup", "compact"):
+            status = opening_status(source, prepare)
+            lines = status.splitlines()
+            with self.subTest(source=source):
+                self.assertEqual(sum(1 for ln in lines if ln.startswith("製作中 1280 份：")), 1, lines)
+                worst = status + "\n" + schedule_line
+                self.assertLessEqual(count_lines(worst), OPENING_MAX_LINES, lines)
+                self.assertLessEqual(len(worst), OPENING_MAX_CHARS, (len(worst), lines))
 
     def test_finish_line_hides_the_ingest_hint_so_it_is_not_the_worst_case(self):
         lines = turn_status(version_line_vault("a"))
