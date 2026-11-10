@@ -5,7 +5,7 @@
 --moved 只列搬動（整夾搬算一件，cards.moved_changes），--json 時印 {moved, incomplete}（放寬丙 5-2）。
 清冊讀不到第一行「清冊讀不到：<原因>」exit 3；找不到知識庫 exit 3。
 背景比對（D-536）：比完寫清單 .system/local/changes.json（changes_list；--quick 沒比完不寫）。--background 是電腦排程跑的：
-全比、不設時間上限、另算製作中與卡的最新修改時間；不印、任何例外寫 hook-errors.log（source scan）、exit 0；另一個在跑就結束。
+全比、不設時間上限、另算製作中、卡的最新修改時間與手改過的卡（card_base.edits，補基準）；不印、任何例外寫 hook-errors.log（source scan）、exit 0；另一個在跑就結束。
 """
 import argparse
 import json
@@ -96,13 +96,15 @@ def _background(args):
             return 0
         try:
             from datetime import datetime
-            from kb._lib import cards
+            from kb._lib import card_base, cards
             start, began = time.monotonic(), datetime.now().isoformat(timespec="seconds")
             sources = sources_lib.load(vault)
             report = inventory.scan(vault, sources)
             wip = changes_list.wip_summary(cards.wip(vault, sources))
+            card_edits = [e["path"] for e in card_base.edits(vault)["edits"]]  # 不設時限、順便補基準（裁定 19）
             if not changes_list.newer_than(vault, began):  # 比的期間 AI 當場比過或套用了：這份已經舊了，等下一次
-                changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault))
+                changes_list.write(vault, report, "background", time.monotonic() - start, wip, changes_list.cards_mtime(vault),
+                                   card_edits)
         finally:
             changes_list.release(vault)
     except Exception as e:  # noqa: BLE001  背景跑的，沒人看得到輸出

@@ -4,6 +4,8 @@
 - 關鍵字後接分隔（：、:、=、是、為、空白）的那一段遮到下一個空白或標點；值在前的「<值> 是他的密碼」遮 <值>；
 - 不遮：清冊裡有的檔名（known_names）、程式固定句（SAFE_PHRASES）。
 """
+import json
+import os
 import unittest
 
 from tests._guard_fixture import ROOT  # noqa: F401  （把 scripts 放進 sys.path）
@@ -156,6 +158,50 @@ class KnownNamesFromInventory(unittest.TestCase):
         self.assertEqual(credentials.known_names(self.tmp), ["密碼 王.txt"])
         self.assertEqual(credentials.known_names(self.tmp / "nope"), [])
         self.assertEqual(credentials.known_names(None), [])
+
+    def fresh(self):
+        """每支 hook 是新行程：清掉記憶體快取，只剩存檔快取。"""
+        credentials._NAMES_CACHE.clear()
+        return credentials.known_names(self.tmp)
+
+    def bump_inventory(self, entries_text):
+        p = self.tmp / ".system" / "inventory.json"
+        st = p.stat()
+        p.write_text(entries_text, encoding="utf-8")
+        os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+
+    def test_file_cache_hit_does_not_read_inventory(self):
+        """裁定 13：stamp 對得上直接用存檔，不讀清冊全文（清冊換成壞的、時間改回原樣，還是回舊答案）。"""
+        self.assertEqual(self.fresh(), ["密碼 王.txt"])
+        cache = json.loads((self.tmp / ".system" / "local" / "known-names.json").read_text(encoding="utf-8"))
+        self.assertEqual(cache["names"], ["密碼 王.txt"])
+        p = self.tmp / ".system" / "inventory.json"
+        st = p.stat()
+        p.write_text("壞的", encoding="utf-8")
+        os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+        self.assertEqual(self.fresh(), ["密碼 王.txt"])
+
+    def test_stamp_changed_recomputes_and_rewrites(self):
+        self.fresh()
+        inv = {"entries": [{"locations": [{"uri": "file://客戶案件/新的帳密.txt"}]}]}
+        self.bump_inventory(json.dumps(inv, ensure_ascii=False))
+        self.assertEqual(self.fresh(), ["新的帳密.txt"])
+        cache = json.loads((self.tmp / ".system" / "local" / "known-names.json").read_text(encoding="utf-8"))
+        self.assertEqual((cache["stamp"], cache["names"]), ((self.tmp / ".system" / "inventory.json").stat().st_mtime_ns,
+                                                             ["新的帳密.txt"]))
+
+    def test_broken_cache_recomputes(self):
+        local = self.tmp / ".system" / "local"
+        local.mkdir()
+        for bad in ("壞的", "[]", '{"stamp": "x"}', '{"names": ["假的"]}'):
+            (local / "known-names.json").write_text(bad, encoding="utf-8")
+            with self.subTest(bad=bad):
+                self.assertEqual(self.fresh(), ["密碼 王.txt"])
+
+    def test_cache_not_writable_still_computes(self):
+        (self.tmp / ".system" / "local").write_text("擋住，不是資料夾", encoding="utf-8")
+        self.assertEqual(self.fresh(), ["密碼 王.txt"])
+        self.assertEqual(self.fresh(), ["密碼 王.txt"])
 
     def test_prompt_head_and_journal_use_inventory_names(self):
         from kb._lib import journal, turn

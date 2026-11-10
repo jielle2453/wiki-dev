@@ -14,6 +14,21 @@ from kb._lib import paths, pending, schedule
 REAL_SCHTASKS = schedule._schtasks
 
 
+def argv_of(arguments):
+    """Windows 怎麼把排程的 Arguments 拆成參數（CommandLineToArgvW；前面墊一個程式名，第一個字的規則不同）。"""
+    import ctypes
+    from ctypes import wintypes
+    f = ctypes.windll.shell32.CommandLineToArgvW
+    f.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    f.restype = ctypes.POINTER(wintypes.LPWSTR)
+    n = ctypes.c_int()
+    p = f("pythonw.exe " + arguments, ctypes.byref(n))
+    try:
+        return [p[i] for i in range(1, n.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(p)
+
+
 class FakeSchtasks:
     """記著建過的工作 xml；fail 有值時 /create 失敗。"""
 
@@ -61,10 +76,11 @@ class Ensure(unittest.TestCase):
         self.assertRegex(name, r"^wiki-with-willy\\變動比對-[0-9a-f]{8}$")
         self.assertIn(r"<Command>C:\Python\pythonw.exe</Command>", xml)
         kb = str(paths.plugin_root() / "scripts" / "kb.py")
-        self.assertIn(f"&quot;{kb}&quot; changes --background --vault &quot;{self.V}&quot;", xml)
+        self.assertEqual(argv_of(schedule._field(xml, "Arguments")),
+                         [kb, "changes", "--background", "--vault", str(self.V), "--task", name])  # 裁定 12a、14
         self.assertIn(f"<WorkingDirectory>{self.V}</WorkingDirectory>", xml)
-        self.assertIn(f"--vault &quot;{self.V}&quot; --task &quot;{name}&quot;</Arguments>", xml)  # 裁定 12a
         self.assertIn("<Interval>PT10M</Interval>", xml)
+        self.assertIn("<ExecutionTimeLimit>PT12H</ExecutionTimeLimit>", xml)  # 裁定 15
         self.assertIn("<LogonType>InteractiveToken</LogonType>", xml)
         self.assertIn("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>", xml)
         self.assertEqual(schedule.ensure(self.V), "ok")
@@ -126,6 +142,23 @@ class Ensure(unittest.TestCase):
         with mock.patch.object(schedule, "_codepage", lambda s: s.replace("測", "?")):
             self.fake.tasks[name] = self.fake.tasks[name].replace("測", "?")
             self.assertEqual(schedule.ensure(self.V), "ok")
+
+
+@unittest.skipUnless(sys.platform == "win32", "CommandLineToArgvW 只有 Windows")
+class ArgvRoundTrip(unittest.TestCase):
+    """裁定 14：Arguments 用 list2cmdline 組，根目錄、結尾反斜線、空白、引號拆回來都跟原本一樣（`"D:\\"` 會吞掉後面）。"""
+
+    def test_paths(self):
+        from kb._lib import paths
+        kb = str(paths.plugin_root() / "scripts" / "kb.py")
+        name = schedule.TASK_PREFIX + "deadbeef"
+        with mock.patch.object(schedule, "_pythonw", lambda: r"C:\Python\pythonw.exe"):
+            for vault in ("D:\\", "D:\\知識庫\\", "C:\\有 空白\\庫", "C:\\有 空白\\結尾\\", 'C:\\含"引號\\庫', "\\\\伺服器\\分享\\"):
+                exp = schedule.expected(vault, 10, name)
+                want = [kb, "changes", "--background", "--vault", exp["cwd"], "--task", name]
+                with self.subTest(vault=vault):
+                    self.assertEqual(argv_of(exp["arguments"]), want)
+                    self.assertEqual(schedule._field(schedule._xml(exp), "Arguments"), exp["arguments"])
 
 
 class Orphan(unittest.TestCase):

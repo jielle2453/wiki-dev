@@ -1,7 +1,8 @@
 """背景比對的清單（#60、#61，D-536）：.system/local/changes.json，這台電腦自己的，不備份、不進回合帳。
 
 kb changes --background（電腦排程）寫、kb changes 與 kb inventory scan（全部來源）跟著寫；每句開頭（hooks/_checks）只讀這份。
-格式：{schema_version: 1, at, seconds, via: background|changes|inventory scan, report, wip: {n, names} 或 null, cards_mtime 或 null}。
+格式：{schema_version: 1, at, seconds, via: background|changes|inventory scan, report, wip: {n, names} 或 null, cards_mtime 或 null,
+card_edits: 改過的卡的相對路徑 list 或 null（裁定 19）}。
 report 是 inventory.public(report) 去掉 entries，多 ids（變動那幾份的 uri → 清冊編號，給 detected_rows 用）。
 讀不懂、schema_version 不是 1 → 當沒有清單（不記 log：排程還沒跑過是正常的）。
 """
@@ -54,14 +55,15 @@ def _ids(report):
     return out
 
 
-def write(vault, report, via, seconds, wip=None, cards_mtime=None):
+def write(vault, report, via, seconds, wip=None, cards_mtime=None, card_edits=None):
     """寫清單（暫存檔再換名）。report 是 inventory.scan 的回傳（帶 entries）。"""
     from kb._lib import inventory
     body = {k: v for k, v in inventory.public(report).items()}
     body["moved"] = [list(m) for m in report["moved"]]
     body["ids"] = _ids(report)
     data = {"schema_version": SCHEMA_VERSION, "at": datetime.now().isoformat(timespec="seconds"), "seconds": round(seconds, 1),
-            "via": via, "report": body, "wip": wip, "cards_mtime": cards_mtime}
+            "via": via, "report": body, "wip": wip, "cards_mtime": cards_mtime,
+            "card_edits": card_edits}
     p = path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="changes-", suffix=".tmp", dir=str(p.parent))  # 各寫各的暫存檔：背景與 AI 當場跑的可能同時寫（review 2）
@@ -85,9 +87,9 @@ def newer_than(vault, at):
 
 
 def write_carried(vault, report, via, seconds):
-    """AI 當場跑的（kb changes、kb inventory scan）：wip、cards_mtime 沿用舊清單，沒有就 null（實作疑義 1）。"""
+    """AI 當場跑的（kb changes、kb inventory scan）：wip、cards_mtime、card_edits 沿用舊清單，沒有就 null（實作疑義 1、裁定 19）。"""
     old = read(vault) or {}
-    return write(vault, report, via, seconds, old.get("wip"), old.get("cards_mtime"))
+    return write(vault, report, via, seconds, old.get("wip"), old.get("cards_mtime"), old.get("card_edits"))
 
 
 def applied(report):

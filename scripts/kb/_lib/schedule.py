@@ -48,7 +48,7 @@ XML = """<?xml version="1.0" encoding="UTF-16"?>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <StartWhenAvailable>false</StartWhenAvailable>
-    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT12H</ExecutionTimeLimit>
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
@@ -101,7 +101,9 @@ def expected(vault, minutes, name):
         raise Failed(f"{Path(sys.executable).parent} 找不到 pythonw.exe")
     kb = paths.plugin_root() / "scripts" / "kb.py"
     vault = str(Path(vault))
-    return {"command": pyw, "arguments": f'"{kb}" changes --background --vault "{vault}" --task "{name}"', "cwd": vault,
+    # list2cmdline 照 Windows 的引號、反斜線規則（裁定 14：手寫 "D:\" 會吞掉後面的參數）
+    args = subprocess.list2cmdline([str(kb), "changes", "--background", "--vault", vault, "--task", name])
+    return {"command": pyw, "arguments": args, "cwd": vault,
             "interval": f"PT{minutes}M", "minutes": minutes}
 
 

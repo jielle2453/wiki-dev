@@ -45,8 +45,6 @@ MISSING_SOURCE_TEAM = "這台找不到來源「{alias}」（預設在 {spec}）�
 LEARNING_LINE = "這台第一次用，還在認檔案，好了再報變動；先不整理、不跟客戶提變動。"  # D-300
 WHO_LINE = "這台第一次用，請先問她這台電腦是誰在用（預設 {name}），答了跑 kb who set <名字>。"  # D-286
 CARD_EDITS_LINE = "客戶在 Obsidian 改了 {n} 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # D-270
-CARD_EDITS_MAYBE = "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"  # 時限內一張都沒比到
-CARD_EDITS_MORE = "客戶在 Obsidian 改了 {n} 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"
 PROFILE_CHANGED = "設定檔被手改了（{summary}）：跑 kb profile apply 套用；做完照核心規則講發現什麼、推測使用者的意思、做了什麼。"
 PROFILE_ERROR = "設定檔有改但讀不懂：{error}；改好下次再問"
 PROFILE_LINE_MAX = 120
@@ -350,18 +348,19 @@ def _stopped(vault, session_id):
 
 # ---------- 卡、標籤、設定檔、找不到的來源 ----------
 
-def line_card_edits(vault, deadline=None):
-    """客戶手改了卡，系統跟著更新（D-270）：比卡內文跟基準（card_base.edits），有改過的才印；時限內比不完就說可能還有。
-    沒有基準的卡這裡順手補上（第一次開不報）。先 kb upgrade --finish 轉格式、卡要跟著搬的庫先不比。回 (行, 比完了嗎)。"""
+def line_card_edits(vault):
+    """客戶手改了卡，系統跟著更新（D-270）：只比背景比對清單 card_edits 列的那幾張跟基準（card_base.edits_of，裁定 19），
+    還有改的才印（kb cards edits --done 處理過的比不出來）；走全部的卡、補基準是背景的事。null 是不知道、不比。
+    先 kb upgrade --finish 轉格式、卡要跟著搬的庫先不比。回 (行, 比完了嗎)，一定比完。"""
     if yield_to_upgrade(vault):
         return None, True
-    from kb._lib import card_base
+    from kb._lib import card_base, changes_list
 
-    got = card_base.edits(vault, deadline=deadline if deadline is not None else START + TURN_BUDGET)
-    n = len(got["edits"])
-    if not n:
-        return (CARD_EDITS_MAYBE if got["more"] else None), not got["more"]
-    return (CARD_EDITS_MORE if got["more"] else CARD_EDITS_LINE).format(n=n), not got["more"]
+    rels = (changes_list.read(vault) or {}).get("card_edits")
+    if not isinstance(rels, list):
+        return None, True
+    n = len(card_base.edits_of(vault, [r for r in rels if isinstance(r, str)]))
+    return (CARD_EDITS_LINE.format(n=n) if n else None), True
 
 
 def line_learning(vault):

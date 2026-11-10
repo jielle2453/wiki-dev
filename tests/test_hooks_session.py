@@ -10,6 +10,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests._guard_fixture import ROOT, make_vault
 
@@ -1360,7 +1361,7 @@ class NoInboxLine(unittest.TestCase):
 
 
 class OpeningCardEdits(unittest.TestCase):
-    """手改卡跟著更新（D-270 驗收 7）：有她改過的卡開場多一行，沒有就沒有；比對超過時限 more 為 true、開場照出。"""
+    """手改卡跟著更新（D-270 驗收 7）：有她改過的卡開場多一行，沒有就沒有；走全部的卡在背景，每句開頭只比清單列的（裁定 19）。"""
 
     CARD = "檔案索引/公司行政/報稅時程表-647d76ee.md"
     TEXT = "---\n編號: f-647d76ee\n標題: 報稅時程表\n卡型: 表單\n---\n# 報稅時程表\n\n- 總價 5.5 萬〔第 1 段〕\n"
@@ -1403,32 +1404,59 @@ class OpeningCardEdits(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.edit_lines(self.lines()), [])
 
-    def test_over_time_budget_says_maybe_more(self):
+    LINE = "客戶在 Obsidian 改了 1 張卡（kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。"
+
+    def checks(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("hook_checks_edits", ROOT / "hooks" / "_checks.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.lines()  # 補基準
-        self.hand_edit()
-        line, done = mod.line_card_edits(self.V, deadline=time.monotonic() - 1000)  # 假時鐘：時限早就過了
-        self.assertFalse(done)
-        self.assertEqual(line,  # 一張都沒比到：不知道有沒有，照 spec 說「可能有」（裁定 5 #5）
-                         "可能有客戶改過的卡（kb cards edits）：先跑一次看看，有的話先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。")
-        log = (self.V / ".system" / "hook-errors.log")
-        self.assertFalse(log.exists() and "card_base" in log.read_text(encoding="utf-8"))
+        return mod
 
-    def test_more_wording(self):
-        """時限內沒比完、已經找到的先講，加「可能還有」。"""
-        import importlib.util
+    def listed(self):
+        return json.loads((self.V / ".system" / "local" / "changes.json").read_text(encoding="utf-8"))["card_edits"]
+
+    def test_background_writes_card_edits(self):
+        """裁定 19：背景比對跑 card_base.edits（補基準），清單存改過的卡的路徑。"""
+        background_scan(self.V)
+        self.assertEqual(self.listed(), [])
+        self.hand_edit()
+        background_scan(self.V)
+        self.assertEqual(self.listed(), [self.CARD])
+
+    def test_turn_reads_only_listed_cards(self):
+        """裁定 19：每句開頭不走全部的卡，只比清單列的那幾張。"""
         from kb._lib import card_base
-        spec = importlib.util.spec_from_file_location("hook_checks_more", ROOT / "hooks" / "_checks.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        self.lines()
-        orig = card_base.edits
-        card_base.edits = lambda vault, deadline=None, persist=True: {"edits": [{"path": self.CARD}] * 2, "more": True}
-        try:
-            self.assertEqual(mod.line_card_edits(self.V)[0],
-                             "客戶在 Obsidian 改了 2 張卡（可能還有，kb cards edits）：先照 note skill 處理完再回答；那是客戶的意思，照做、不跟客戶提指令名。")
-        finally:
-            card_base.edits = orig
+        background_scan(self.V)
+        self.hand_edit()
+        background_scan(self.V)
+        mod = self.checks()
+        with mock.patch.object(card_base, "all_cards", side_effect=AssertionError("不該走全部的卡")), \
+                mock.patch.object(card_base, "edits", side_effect=AssertionError("不該走全部的卡")):
+            self.assertEqual(mod.line_card_edits(self.V), (self.LINE, True))
+        self.assertEqual(self.edit_lines(turn_lines(self.V, scan=False)), [self.LINE])
+
+    def test_done_then_not_printed_although_listed(self):
+        """清單還列著，但 kb cards edits --done 處理掉了：跟基準比不出來，不印。"""
+        background_scan(self.V)
+        self.hand_edit()
+        background_scan(self.V)
+        r = subprocess.run([sys.executable, str(KB), "cards", "edits", "--done", self.CARD], capture_output=True,
+                           text=True, encoding="utf-8", cwd=str(self.V), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.listed(), [self.CARD])
+        self.assertEqual(self.edit_lines(turn_lines(self.V, scan=False)), [])
+
+    def test_null_not_compared(self):
+        """card_edits 是 null（AI 當場寫的、還沒背景跑過）：不知道，不比。"""
+        from kb._lib import card_base
+        background_scan(self.V)
+        self.hand_edit()
+        p = self.V / ".system" / "local" / "changes.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data["card_edits"] = None
+        p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        mod = self.checks()
+        with mock.patch.object(card_base, "all_cards", side_effect=AssertionError("不該走全部的卡")):
+            self.assertEqual(mod.line_card_edits(self.V), (None, True))
+        self.assertEqual(self.edit_lines(turn_lines(self.V, scan=False)), [])

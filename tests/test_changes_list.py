@@ -63,6 +63,7 @@ class Background(Base):
         self.assertIsInstance(d["wip"]["n"], int)
         self.assertLessEqual(len(d["wip"]["names"]), 3)
         self.assertIsInstance(d["cards_mtime"], float)
+        self.assertEqual(d["card_edits"], [])  # 裁定 19
         self.assertGreaterEqual(d["seconds"], 0)
         self.assertFalse(list(changes_list.path(self.V).parent.glob("*.tmp")))
 
@@ -119,13 +120,13 @@ class Foreground(Base):
         d = self.listed()
         self.assertEqual(d["via"], "changes")
         self.assertGreaterEqual(d["at"], old["at"])
-        self.assertEqual((d["wip"], d["cards_mtime"]), (old["wip"], old["cards_mtime"]))
+        self.assertEqual((d["wip"], d["cards_mtime"], d["card_edits"]), (old["wip"], old["cards_mtime"], old["card_edits"]))
         self.assertIn("新.txt", json.dumps(d["report"]["added"], ensure_ascii=False))
 
     def test_no_old_list_writes_null(self):
         self.assertEqual(kb(self.V, "changes").returncode, 0)
         d = self.listed()
-        self.assertEqual((d["via"], d["wip"], d["cards_mtime"]), ("changes", None, None))
+        self.assertEqual((d["via"], d["wip"], d["cards_mtime"], d["card_edits"]), ("changes", None, None, None))
 
     def test_quick_incomplete_does_not_write(self):
         (self.V / ".system" / "config.json").write_text(json.dumps({"changes_quick_hash_budget_bytes": 1}), encoding="utf-8")
