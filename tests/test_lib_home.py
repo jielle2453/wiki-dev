@@ -43,9 +43,10 @@ class Shape(Base):
         out = self.build()
         self.assertEqual(out["schema"], "willy-home/1")
         self.assertEqual(out["today"], TODAY)
-        self.assertEqual(set(out), {"schema", "version", "today", "cheer", "counts", "timeline", "todo", "confirm", "claude", "others", "recent"})
+        self.assertEqual(set(out), {"schema", "version", "today", "cheer", "counts", "timeline", "todo", "confirm", "claude", "others", "recent",
+                                    "links"})  # links 是記帳 3 加的欄（加欄不改舊欄）
         self.assertEqual(set(out["counts"]), {"overdue", "today", "week", "confirm", "other", "claude"})
-        self.assertEqual(set(out["todo"]), {"overdue", "today", "week"})
+        self.assertEqual(set(out["todo"]), {"overdue", "today", "week", "stock", "owed"})
         self.assertEqual(set(out["timeline"]), {"from", "to", "rows"})
 
     def test_version_is_plugin_version(self):
@@ -420,6 +421,65 @@ class Resilience(Base):
         real = (cards._scan_groups, cards.open_link, config.get, entities.mounts)
         self.build()
         self.assertEqual((cards._scan_groups, cards.open_link, config.get, entities.mounts), real)
+
+
+# ---------- 記帳 3：首頁讀帳（D-273（2）、D-282、D-338、新定 2、3） ----------
+
+from tests.test_lib_money import TODAY3, PageBase  # noqa: E402
+from kb._lib import env  # noqa: E402
+
+
+class Money(PageBase):
+    def build(self, **kw):
+        return home.build(self.V, today=TODAY3, **kw)
+
+    def test_09_todo_money_items(self):
+        a = self.put("收", "50000", due="2026-11-20", entities=["信義王"], text="第二期")["id"]
+        b = self.put("付", None, due="2026-11-25", entities=["文具店"], text="尾款")["id"]
+        out = self.build()
+        late = next(x for x in out["todo"]["overdue"] if x["id"] == a)
+        self.assertEqual((late["source"], late["dir"], late["amount"], late["settle_ok"], late["late"], late["date"]),
+                         ("money", "in", 50000, True, True, "2026-11-20"))
+        self.assertEqual(late["entities"], ["信義王"])
+        self.assertIn("收 50,000", late["text"])
+        self.assertEqual(late["page"], "系統/帳.md")
+        self.assertTrue(late["match"].startswith("- 11/20（五）收 50,000"))
+        week = next(x for x in out["todo"]["week"] if x["id"] == b)
+        self.assertFalse(week["settle_ok"], "金額未知不給勾")
+        self.assertEqual((out["counts"]["overdue"], out["counts"]["week"]), (1, 1))
+        self.assertEqual(out["links"]["money"], "系統/帳.md")
+        json.dumps(out, ensure_ascii=False)
+
+    def test_09b_stock_owed_links(self):
+        self.put("付", "1000", items=["精華液 +4"])
+        out = self.build()
+        self.assertEqual([(s["entity"], s["stock"], s["min"], s["unit"]) for s in out["todo"]["stock"]], [("精華液", 4, 5, "瓶")])
+        self.put("付", "1000", items=["精華液 +2"])
+        self.assertEqual(self.build()["todo"]["stock"], [], "補了自動消失")
+        self.assertEqual(self.build()["todo"]["owed"], [], "單人沒有報帳")
+
+    def test_09c_owed_only_for_the_one_who_paid(self):
+        self.team(me="小王")
+        self.put("付", "3200", entities=["文具店"], text="文具", advanced_by="小王")
+        self.put("付", "500", text="計程車", advanced_by="老闆")
+        owed = self.build()["todo"]["owed"]
+        self.assertEqual([(o["amount"], o["text"]) for o in owed], [(3200, "文具")], "別人的報帳不在他的 owed")
+        env.set_person(self.V, "老闆")
+        self.assertEqual([o["amount"] for o in self.build()["todo"]["owed"]], [500])
+
+    def test_09d_links_none_when_off_and_empty(self):
+        self.set_mode("off")
+        self.assertIsNone(self.build()["links"]["money"])
+
+    def test_09e_timeline_points_on_matter_row_only(self):
+        a = self.put("收", "50000", due="2026-11-28", entities=["信義王"], text="第二期")["id"]
+        self.put("收", "1800", due="2026-11-27", entities=["李小姐"])
+        rows = self.build()["timeline"]["rows"]
+        row = next(r for r in rows if r["label"] == "信義王")
+        mark = next(m for m in row["marks"] if m["id"] == a)
+        self.assertEqual((mark["shape"], mark["source"], mark["end"]), ("point", "money", "2026-11-28"))
+        self.assertFalse(any(m.get("source") == "money" and m["id"] != a for r in rows for m in r["marks"]),
+                         "沒掛事類實體的不上時間軸")
 
 
 if __name__ == "__main__":

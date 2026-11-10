@@ -106,6 +106,31 @@ class Diff(Base):
         hers = self.BASE.replace("- 2026-10-01", "- [ ] 2026-10-01")
         self.assertEqual(renders.diff(self.BASE, hers, self.LINES)["checked"], [])
 
+    def test_unlink(self):
+        """記帳 3（D-280）：連結還原成名字；沒有 | 的取路徑最後一段。"""
+        self.assertEqual(renders.unlink("- 收 50,000 [[01 案子/信義王/信義王|信義王]] 第二期"), "- 收 50,000 信義王 第二期")
+        self.assertEqual(renders.unlink("[[系統/帳/2026|2026]]、[[02 顧客/李小姐/李小姐]]"), "2026、李小姐")
+        self.assertEqual(renders.unlink("沒有連結"), "沒有連結")
+
+    def test_link_untouched_is_not_a_change(self):
+        """她沒動連結的行不算改；Obsidian 搬卡改了連結路徑也不算；改日期照舊認得。"""
+        base = "# 日程\n## 今天\n- 2026-11-05（週四）會議 見面（[[02 顧客/李小姐/李小姐|李小姐]]）\n"
+        lines = [("- 2026-11-05（週四）會議 見面（[[02 顧客/李小姐/李小姐|李小姐]]）", "a-1")]
+        moved = base.replace("02 顧客/李小姐", "03 顧客/李小姐")
+        self.assertTrue(renders.is_empty(renders.diff(base, moved, lines)))
+        plain = base.replace("[[02 顧客/李小姐/李小姐|李小姐]]", "李小姐")
+        self.assertTrue(renders.is_empty(renders.diff(base, plain, lines)))
+        got = renders.diff(base, base.replace("2026-11-05（週四）", "2026-11-08"), lines)
+        self.assertEqual([(c["id"], c["to"]) for c in got["changed_date"]], [("a-1", "2026-11-08")])
+
+    def test_skip_lines(self):
+        """skip 認得的行（帳頁的表與合計）改了不算。"""
+        base = "# 帳\n## 11 月\n合計：收 5,000\n| 商品 | 數 |\n|---|---|\n| 精華液 | 2 |\n"
+        hers = base.replace("| 精華液 | 2 |", "| 精華液 | 9 |").replace("收 5,000", "收 9,000")
+        skip = lambda line: line.startswith(("|", "合計"))  # noqa: E731
+        self.assertTrue(renders.is_empty(renders.diff(base, hers, [], skip=skip)))
+        self.assertEqual(len(renders.diff(base, hers, [])["other"]), 2)
+
     def test_handedit_flag(self):
         self.assertTrue(renders.is_empty({"checked": [], "removed": [], "changed_date": [], "other": []}))
         self.assertFalse(renders.is_empty({"checked": [{"id": "p-1"}], "removed": [], "changed_date": [], "other": []}))

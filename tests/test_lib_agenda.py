@@ -572,7 +572,7 @@ class Render(Base):
                           text="施工", entities=["信義王"])])
         agenda.render(self.V, today=TODAY)
         got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn("- 2026-10-15 期間 施工（信義王）完成", got)
+        self.assertIn("- 2026-10-15 期間 施工（[[案子/信義王/信義王|信義王]]）完成", got)  # 有綜合卡的寫連結（D-280）
 
     def test_unchanged_content_is_not_rewritten_or_backed_up(self):
         shutil.copy2(FIX / "agenda.json", self.V / ".system" / "agenda.json")

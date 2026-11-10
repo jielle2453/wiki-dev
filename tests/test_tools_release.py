@@ -62,14 +62,16 @@ def skeleton_hashes(root):
             if p.is_file() and p.name != ".gitkeep"}
 
 
-def make_tree(root, version, note="日程可以匯出成 Excel。", schema=2, skeleton="身分\n", history=True, hooks_ref="hooks/session.py"):
-    """一個最小的假外掛樹，加上不該進 zip 的雜物。"""
+def make_tree(root, version, note="日程可以匯出成 Excel。", schema=2, skeleton="身分\n", history=True, hooks_ref="hooks/session.py",
+              fmt=1):
+    """一個最小的假外掛樹，加上不該進 zip 的雜物。fmt 是流水檔格式版本（D-335）。"""
     write(root, ".claude-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": version}))
     write(root, "hooks/hooks.json", json.dumps({"hooks": {"SessionStart": [{"hooks": [
         {"type": "command", "command": f'python "${{CLAUDE_PLUGIN_ROOT}}/{hooks_ref}"'}]}]}}))
     write(root, "hooks/session.py", "print('x')\n")
     write(root, "scripts/kb/_lib/inventory.py", f"SCHEMA_VERSION = {schema}\n")
     write(root, "scripts/kb/_lib/migrate.py", "STATE_FILES = ()\n")
+    write(root, "scripts/kb/_lib/streams.py", f"FORMAT_VERSION = {fmt}\n")
     write(root, "scripts/kb.py", "print('kb')\n")
     write(root, "agents/card-maker.md", "---\nname: card-maker\n---\n")
     write(root, "obsidian/manifest.json", json.dumps({"id": "wiki-with-willy", "version": version}))  # Obsidian 首頁外掛（#22）：三個檔都要在
@@ -505,7 +507,7 @@ class PatchRule(Base):
         self.assertEqual(self.patch()["version"], "0.20.1")
 
     def test_minor_may_change_all_of_them(self):
-        make_tree(self.repo, "0.21.0", note="大升級。", schema=3, skeleton="新身分\n")
+        make_tree(self.repo, "0.21.0", note="大升級。", schema=3, skeleton="新身分\n", fmt=2)
         write(self.repo, "scripts/kb/_lib/migrate.py", "STATE_FILES = (1,)\n")
         self.commit("0.21.0", tag="v0.21.0")
         self.assertEqual(release.build(self.repo, "v0.21.0", self.tmp / "dist")["version"], "0.21.0")
@@ -516,6 +518,61 @@ class PatchRule(Base):
         make_tree(self.repo, "0.20.1", note="第一版。")
         self.commit("第一版", tag="v0.20.1")
         self.assertEqual(release.build(self.repo, "v0.20.1", self.tmp / "dist")["version"], "0.20.1")
+
+
+class FormatRule(Base):
+    """記帳 1a（D-335）：遷移表比上一個 tag 多了列＝大升級，流水檔格式版本（streams.FORMAT_VERSION）要比上一個 tag 大。"""
+
+    def minor(self, migrate=None, fmt=1):
+        make_tree(self.repo, "0.21.0", note="大升級。", fmt=fmt)
+        if migrate is not None:
+            write(self.repo, "scripts/kb/_lib/migrate.py", migrate)
+        self.commit("0.21.0", tag="v0.21.0")
+        return release.build(self.repo, "v0.21.0", self.tmp / "dist")
+
+    def test_new_row_without_format_bump_is_refused(self):
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.minor("STATE_FILES = (\n    Migration(1),\n)\n")
+        msg = str(cm.exception)
+        self.assertIn("FORMAT_VERSION", msg)
+        self.assertIn("STATE_FILES", msg)
+        self.assertIn("要升", msg)
+        self.assertFalse(list((self.tmp / "dist").glob("*.zip")))
+
+    def test_new_row_with_format_bump_passes(self):
+        self.assertEqual(self.minor("STATE_FILES = (\n    Migration(1),\n)\n", fmt=2)["version"], "0.21.0")
+
+    def test_format_bump_without_new_rows_passes(self):
+        """驗收 4：只升格式版本、遷移表沒新列（1a 單獨跑時）不擋。"""
+        self.assertEqual(self.minor(fmt=2)["version"], "0.21.0")
+
+    def test_no_new_rows_no_bump_passes(self):
+        self.assertEqual(self.minor()["version"], "0.21.0")
+
+    def test_rows_of_the_other_two_tables_count_too(self):
+        for name in ("CARD_HEADER_MIGRATIONS", "SYNTHESIS_MIGRATIONS"):
+            with self.subTest(name=name):
+                with self.assertRaises(release.ReleaseError) as cm:
+                    self.minor(f'STATE_FILES = ()\n{name} = [{{"from": "1", "to": "2"}}]\n')
+                self.assertIn(name, str(cm.exception))
+
+    def test_migration_rows_counts_literal_tables(self):
+        text = ('STATE_FILES = (\n    Migration(1),\n    Migration(2),\n)\nCARD_HEADER_MIGRATIONS = []\n'
+                'SYNTHESIS_MIGRATIONS = [{"from": "1"}]  # 註解\n').encode("utf-8")
+        self.assertEqual(release.migration_rows(text),
+                         {"STATE_FILES": 2, "CARD_HEADER_MIGRATIONS": 0, "SYNTHESIS_MIGRATIONS": 1})
+        self.assertEqual(release.migration_rows(b"STATE_FILES = ()\n")["SYNTHESIS_MIGRATIONS"], 0)  # 沒有這張表算 0 列
+        self.assertEqual(release.format_version(b"FORMAT_VERSION = 3\n"), 3)
+        self.assertIsNone(release.format_version(b"X = 1\n"))
+
+    def test_real_repo_tables_are_readable(self):
+        """這個 repo 自己的 migrate.py、streams.py 讀得出列數與格式版本（表改寫法時要跟著改發行程式）。"""
+        root = Path(__file__).resolve().parent.parent / "scripts" / "kb" / "_lib"
+        rows = release.migration_rows((root / "migrate.py").read_bytes())
+        self.assertTrue(all(isinstance(n, int) for n in rows.values()), rows)
+        self.assertGreater(rows["STATE_FILES"], 0)
+        self.assertGreater(rows["SYNTHESIS_MIGRATIONS"], 0)
+        self.assertIsInstance(release.format_version((root / "streams.py").read_bytes()), int)
 
 
 class Prepare(Base):

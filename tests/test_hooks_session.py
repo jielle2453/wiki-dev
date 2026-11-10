@@ -778,6 +778,40 @@ class OpeningAgenda(unittest.TestCase):
         self.assertEqual({k for k in after if before.get(k) != after[k]} - {".system/env.json", ".system/vault.json", ".system/upgrade-history.json"}, set())
         self.assertFalse((self.V / "系統" / "日程.md").exists())
 
+    def put_money(self, *rows):
+        """rows：(dir, amount, 距今天數 or None, advanced_by)；都是還沒收付的。"""
+        from datetime import date, timedelta
+        items = [{"id": f"m-{i:08x}", "dir": d, "amount": amt, "status": "open", "date": None,
+                  "due": (date.today() + timedelta(days=days)).isoformat() if days is not None else None, "entities": [],
+                  "lines": [], "advanced_by": adv, "text": f"錢{i}", "history": []}
+                 for i, (d, amt, days, adv) in enumerate(rows)]
+        (self.V / ".system" / "money.json").write_text(json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False),
+                                                       encoding="utf-8")
+
+    def test_money_due_counted(self):
+        """記帳 3（D-273（2））：帳裡逾期沒收的、近期要收付的算進日程那行。"""
+        self.put(("meeting", 2, "open"))
+        self.put_money(("in", 50000, -3, None), ("out", 800, 3, None), ("in", 100, None, None))
+        self.assertEqual(self.agenda_lines(self.status()),
+                         ["日程：逾期 1（逾期的在回答最後問一件，客戶說先放著就 kb asks set-aside）、7 天內 2"])
+
+    def test_owed_line_only_for_the_one_who_paid(self):
+        """驗收 12（D-338）：墊的人那台有「公司還欠你」一句，別人那台沒有。"""
+        from tests.test_entity_fields import write_profile
+        from kb._lib import env
+        write_profile(self.V, people=3, about=[{"name": "小王", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"},
+                                               {"name": "老闆", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"}])
+        self.put_money(("out", 3200, None, "小王"), ("out", 800, None, "小王"), ("out", 500, None, "老闆"))
+        env.set_person(self.V, "小王")
+        owed = [ln for ln in self.status() if ln.startswith("公司還欠你")]
+        self.assertEqual(owed, ["公司還欠你 2 筆共 4,000（錢0、錢1）"])
+        env.set_person(self.V, "老闆")
+        env.set_daily_done(self.V, "2000-01-01")  # 每天第一句才說：換一個人重來
+        self.assertEqual([ln for ln in self.status() if ln.startswith("公司還欠你")], ["公司還欠你 1 筆共 500（錢2）"])
+        env.set_daily_done(self.V, "2000-01-01")
+        env.set_person(self.V, "小美")
+        self.assertEqual([ln for ln in self.status() if ln.startswith("公司還欠你")], [])
+
 
 class OpeningPreferences(unittest.TestCase):
     """note 改規則第 4 點、驗收 13（D-137）：core.md 之後接「客戶偏好：」一條一行；沒有不印；profile.json 壞了這段不印、其他照印、寫 log。"""
