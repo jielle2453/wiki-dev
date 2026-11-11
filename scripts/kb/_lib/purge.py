@@ -583,9 +583,15 @@ OBSIDIAN_DATA = ".obsidian/plugins/wiki-with-willy/data.json"
 OBSIDIAN_BOOKMARKS = ".obsidian/bookmarks.json"
 
 
-def _obsidian_match(path, ids, folder):
-    """workspace.json 裡記的檔案路徑是不是那些卡或那夾（檔案索引/<別名>/<夾>/ 底下）。"""
+def _obsidian_match(path, ids, folder, prefix=""):
+    """workspace.json 裡記的檔案路徑是不是那些卡或那夾（檔案索引/<別名>/<夾>/ 底下）。
+    prefix（#66 丙）：上層 vault 記的路徑是「<前綴>/<庫內路徑>」，只認這個前綴開頭的，去掉前綴再照庫內的判；別的一律不是。"""
     p = str(path or "").replace("\\", "/").casefold()
+    if prefix:
+        head = prefix.strip("/").casefold() + "/"
+        if not p.startswith(head):
+            return False
+        p = p[len(head):]
     if folder is not None:
         base = f"檔案索引/{folder[0]}/{folder[1]}".replace("\\", "/").strip("/").casefold()
         if p == base or p.startswith(base + "/"):
@@ -593,12 +599,12 @@ def _obsidian_match(path, ids, folder):
     return any(p.endswith(f"-{str(i)[2:]}.md".casefold()) for i in ids if str(i).startswith("f-"))
 
 
-def _prune_workspace(node, ids, folder):
+def _prune_workspace(node, ids, folder, prefix=""):
     """分頁樹裡指到那些卡或那夾的葉子拿掉（state.file 或 state.state.file）；回 (新的節點或 None, 拿掉幾個)。"""
     if isinstance(node, list):
         out, n = [], 0
         for x in node:
-            got, k = _prune_workspace(x, ids, folder)
+            got, k = _prune_workspace(x, ids, folder, prefix)
             n += k
             if got is not None:
                 out.append(got)
@@ -607,36 +613,57 @@ def _prune_workspace(node, ids, folder):
         return node, 0
     state = node.get("state") if isinstance(node.get("state"), dict) else {}
     inner = state.get("state") if isinstance(state.get("state"), dict) else {}
-    if node.get("type") == "leaf" and any(_obsidian_match(f, ids, folder) for f in (state.get("file"), inner.get("file"))):
+    if node.get("type") == "leaf" and any(_obsidian_match(f, ids, folder, prefix) for f in (state.get("file"), inner.get("file"))):
         return None, 1
     n, out = 0, dict(node)
     if isinstance(node.get("children"), list):
-        out["children"], n = _prune_workspace(node["children"], ids, folder)
+        out["children"], n = _prune_workspace(node["children"], ids, folder, prefix)
     return out, n
 
 
-def _prune_bookmarks(items, ids, folder):
+def _prune_bookmarks(items, ids, folder, prefix=""):
     """書籤清單：type 是 file／folder、path 指到那些卡或那夾的拿掉，群組（group）裡的也算；回 (新清單, 拿掉幾個)。"""
     out, n = [], 0
     for b in items:
-        if isinstance(b, dict) and b.get("type") in ("file", "folder") and _obsidian_match(b.get("path"), ids, folder):
+        if isinstance(b, dict) and b.get("type") in ("file", "folder") and _obsidian_match(b.get("path"), ids, folder, prefix):
             n += 1
             continue
         if isinstance(b, dict) and isinstance(b.get("items"), list):
-            inner, k = _prune_bookmarks(b["items"], ids, folder)
+            inner, k = _prune_bookmarks(b["items"], ids, folder, prefix)
             n += k
             b = dict(b, items=inner) if k else b
         out.append(b)
     return out, n
 
 
+def _drop_opened(holder, ids):
+    """{"opened": [...]} 裡那些卡編號拿掉：回 (新的或原來那個, 拿掉幾筆)。形狀不對的不動。"""
+    if not isinstance(holder, dict) or not isinstance(holder.get("opened"), list):
+        return holder, 0
+    kept = [o for o in holder["opened"] if not (isinstance(o, dict) and o.get("card") in ids)]
+    n = len(holder["opened"]) - len(kept)
+    return (dict(holder, opened=kept), n) if n else (holder, 0)
+
+
 def _obsidian_traces(vault, ids, folder, counts):
     """Obsidian 的痕跡（Obsidian 首頁，#22，D-262、裁定 15）：.obsidian/workspace.json 的 lastOpenFiles 與 main／left／right 樹裡指到那些卡或那夾的
     項目拿掉；bookmarks.json（核心外掛「書籤」）指到那些卡或那夾的拿掉；外掛 data.json 的「最近」拿掉那些卡編號。
-    讀不懂的整份不動、算沒清完（state）。沒有這些檔就略過。清了幾個記在 counts["obsidian"]，給成功句照實說。"""
+    讀不懂的整份不動、算沒清完（state）。沒有這些檔就略過。清了幾個記在 counts["obsidian"]，給成功句照實說。
+    #66 丙（D-545）：知識庫在上層 vault 裡時，上層那三個檔再做一次——路徑只認「<前綴>/」開頭的，data.json 只動 roots[<前綴>]。"""
+    from kb._lib import obsidian
     ids = set(ids)
-    got = counts.setdefault("obsidian", {"workspace": 0, "bookmarks": 0, "recent": 0})
-    ws = Path(vault) / OBSIDIAN_WORKSPACE
+    counts.setdefault("obsidian", {"workspace": 0, "bookmarks": 0, "recent": 0})
+    _obsidian_traces_at(Path(vault), "", ids, folder, counts)
+    outer = obsidian.outer_vault(vault)
+    if outer is not None:
+        _obsidian_traces_at(outer[0], outer[1], ids, folder, counts)
+
+
+def _obsidian_traces_at(base, prefix, ids, folder, counts):
+    """base 的 .obsidian/ 那三個檔清一次。prefix 空的是知識庫自己（data.json 清舊格式最上層的 opened 與新格式的 roots[""]）；
+    不空的是上層 vault（路徑只認這個前綴開頭的、data.json 只清 roots[prefix]，別的知識庫與她自己的一律不動）。"""
+    got = counts["obsidian"]
+    ws = base / OBSIDIAN_WORKSPACE
     if ws.is_file():
         try:
             data = json.loads(ws.read_text(encoding="utf-8"))
@@ -645,41 +672,46 @@ def _obsidian_traces(vault, ids, folder, counts):
             new = dict(data)
             n = 0
             if isinstance(data.get("lastOpenFiles"), list):
-                new["lastOpenFiles"] = [f for f in data["lastOpenFiles"] if not _obsidian_match(f, ids, folder)]
+                new["lastOpenFiles"] = [f for f in data["lastOpenFiles"] if not _obsidian_match(f, ids, folder, prefix)]
                 n += len(data["lastOpenFiles"]) - len(new["lastOpenFiles"])
             for part in ("main", "left", "right"):
                 if part in data:
-                    new[part], k = _prune_workspace(data[part], ids, folder)
+                    new[part], k = _prune_workspace(data[part], ids, folder, prefix)
                     n += k
             if new != data:
                 write_text_atomic(ws, json.dumps(new, ensure_ascii=False, indent=2) + "\n")
                 got["workspace"] += n
         except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
-    bm = Path(vault) / OBSIDIAN_BOOKMARKS
+    bm = base / OBSIDIAN_BOOKMARKS
     if bm.is_file():
         try:
             data = json.loads(bm.read_text(encoding="utf-8"))
             if not isinstance(data, dict) or (data.get("items") is not None and not isinstance(data["items"], list)):
                 raise ValueError("bookmarks.json 格式不對")
             if isinstance(data.get("items"), list):
-                items, n = _prune_bookmarks(data["items"], ids, folder)
+                items, n = _prune_bookmarks(data["items"], ids, folder, prefix)
                 if n:
                     write_text_atomic(bm, json.dumps(dict(data, items=items), ensure_ascii=False, indent=2) + "\n")
                     got["bookmarks"] += n
         except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
-    dj = Path(vault) / OBSIDIAN_DATA
+    dj = base / OBSIDIAN_DATA
     if dj.is_file():
         try:
             data = json.loads(dj.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("data.json 不是物件")
-            if isinstance(data.get("opened"), list):
-                kept = [o for o in data["opened"] if not (isinstance(o, dict) and o.get("card") in ids)]
-                if len(kept) != len(data["opened"]):
-                    write_text_atomic(dj, json.dumps(dict(data, opened=kept), ensure_ascii=False, indent=2) + "\n")
-                    got["recent"] += len(data["opened"]) - len(kept)
+            new, n = (data, 0) if prefix else _drop_opened(data, ids)  # 舊格式：最上層的 opened（只有知識庫自己那份）
+            roots = new.get("roots")
+            if isinstance(roots, dict) and prefix in roots:  # 新格式（#66 乙）：roots[前綴]，知識庫自己那份的前綴是 ""
+                one, k = _drop_opened(roots[prefix], ids)
+                if k:
+                    new = dict(new, roots=dict(roots, **{prefix: one}))
+                    n += k
+            if n:
+                write_text_atomic(dj, json.dumps(new, ensure_ascii=False, indent=2) + "\n")
+                got["recent"] += n
         except (ValueError, OSError, UnicodeDecodeError):
             counts["left"]["state"] += 1
 

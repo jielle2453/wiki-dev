@@ -68,10 +68,10 @@ class Base(unittest.TestCase):
 class Status(Base):
     def test_three_items_each_right(self):
         code, out = kb(self.V, "obsidian", "status", "--json")
-        self.assertEqual((code, json.loads(out)), (0, {"installed": True, "registered": False, "plugin": False}))
+        self.assertEqual((code, json.loads(out)), (0, {"installed": True, "registered": False, "plugin": False, "outer": None}))
         self.register()
         obsidian.place(self.V)
-        self.assertEqual(json.loads(kb(self.V, "obsidian", "status", "--json")[1]), {"installed": True, "registered": True, "plugin": True})
+        self.assertEqual(json.loads(kb(self.V, "obsidian", "status", "--json")[1]), {"installed": True, "registered": True, "plugin": True, "outer": None})
         self.state["installed"] = False
         self.assertFalse(json.loads(kb(self.V, "obsidian", "status", "--json")[1])["installed"])
 
@@ -183,6 +183,71 @@ class Open(Base):
         self.assertTrue(url.startswith("obsidian://open?path=D%3A%2F"), url)
         self.assertNotIn(" ", url)
         self.assertNotIn("\\", url)
+
+
+class Outer(Base):
+    """#66 丙 驗收 7、8：知識庫在她原本的 Obsidian 資料夾（上層 vault）裡。這裡上層是 self.tmp、前綴是 vault。"""
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / ".obsidian").mkdir()
+        self.name = self.tmp.name
+
+    def test_7_status_when_outer_registered(self):
+        self.register(self.tmp)
+        code, out = kb(self.V, "obsidian", "status", "--json")
+        self.assertEqual((code, json.loads(out)), (0, {"installed": True, "registered": True, "plugin": False,
+                                                       "outer": {"name": self.name, "prefix": "vault", "plugin": False}}))
+        obsidian.place_outer(self.V)
+        self.assertEqual(json.loads(kb(self.V, "obsidian", "status", "--json")[1])["outer"],
+                         {"name": self.name, "prefix": "vault", "plugin": True})
+        lines = kb(self.V, "obsidian", "status")[1].splitlines()
+        self.assertEqual(lines[1], "這個知識庫：Obsidian 已經登記")
+        self.assertEqual(lines[-1], f"這個知識庫在你原本的 Obsidian 資料夾（{self.name}）裡面，會從那裡打開")
+
+    def test_7_open_opens_the_outer_vault_without_registering(self):
+        from kb import obsidian_cli
+        self.register(self.tmp)
+        before = self.cfg.read_text(encoding="utf-8")
+        self.state["running"] = True  # 不用寫 obsidian.json，Obsidian 在跑也不擋
+        code, out = kb(self.V, "obsidian", "open")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.started, [obsidian.open_url(os.path.realpath(self.tmp))])
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), before, "沒有多出知識庫那一筆")
+        self.assertEqual(out.splitlines()[0],
+                         f"已打開 Obsidian（你原本的資料夾 {self.name}），按左邊的首頁按鈕就看得到。" + obsidian_cli.TRUST_NOTE)
+        for base in (self.V, self.tmp):
+            self.assertTrue((base / obsidian.PLUGIN_REL / "main.js").is_file(), base.name)
+        self.started.clear()
+        got = json.loads(kb(self.V, "obsidian", "open", "--json")[1])
+        self.assertEqual((got["opened"], got["registered_now"], got["outer"], got["wrote"]), (True, False, self.name, []))
+
+    def test_7_outer_registered_counts_as_registered(self):
+        self.assertFalse(obsidian.vault_registered(self.V))
+        self.register(self.tmp)
+        self.assertTrue(obsidian.vault_registered(self.V), "上層已登記也算（moved 的 obsidian_reopen 用這個）")
+
+    def test_8_outer_not_registered_is_as_before(self):
+        from kb import obsidian_cli
+        code, out = kb(self.V, "obsidian", "status", "--json")
+        self.assertEqual(json.loads(out), {"installed": True, "registered": False, "plugin": False, "outer": None})
+        self.assertEqual(len(kb(self.V, "obsidian", "status")[1].splitlines()), 3)
+        self.state["running"] = True
+        code, out = kb(self.V, "obsidian", "open")
+        self.assertEqual((code, out.strip()), (3, obsidian_cli.CLOSE_FIRST))
+        self.state["running"] = False
+        code, out = kb(self.V, "obsidian", "open", "--json")
+        got = json.loads(out)
+        self.assertEqual((code, got["registered_now"], got["outer"]), (0, True, None))
+        self.assertEqual(self.started, [obsidian.open_url(self.V)])
+        (entry,) = json.loads(self.cfg.read_text(encoding="utf-8"))["vaults"].values()
+        self.assertEqual(Path(entry["path"]).resolve(), Path(self.V).resolve())
+
+    def test_8_own_registration_wins(self):
+        self.register(self.V)
+        self.assertIsNone(json.loads(kb(self.V, "obsidian", "status", "--json")[1])["outer"])
+        kb(self.V, "obsidian", "open")
+        self.assertEqual(self.started, [obsidian.open_url(self.V)])
 
 
 if __name__ == "__main__":

@@ -52,5 +52,80 @@ class Zone(unittest.TestCase):
             self.assertEqual((d.zone, d.decision), ("Z7", "deny"), rel)
 
 
+class OuterPlugin(unittest.TestCase):
+    """#66 丙 驗收 14～20：上層 vault（這裡是 self.tmp）那份外掛夾照 Z7 擋；上層 .obsidian 的其他檔、她的筆記照舊。"""
+
+    def setUp(self):
+        self.tmp, self.V, self.raw = make_vault()
+        self.plug = self.tmp / ".obsidian" / "plugins" / "wiki-with-willy"
+        self.plug.mkdir(parents=True)
+        self.main = self.plug / "main.js"
+        self.main.write_text("// 外掛", encoding="utf-8")
+        (self.tmp / ".obsidian" / "plugins" / "obsidian-git").mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def decide(self, tool, value, cwd=None):
+        return guard.decide(payload(tool, value, cwd or self.V))
+
+    def system_files(self):
+        return {f.relative_to(self.V).as_posix(): (f.stat().st_mtime_ns, f.stat().st_size)
+                for f in (self.V / ".system").rglob("*") if f.is_file() and f.name != "ledger.tsv"}
+
+    def test_14_15_file_tools(self):
+        inner = self.decide("Write", self.V / ".obsidian" / "plugins" / "wiki-with-willy" / "main.js")
+        for tool in ("Write", "Edit"):
+            for target in (self.main, self.plug / "data.json", self.plug):
+                d = self.decide(tool, target)
+                self.assertEqual((d.zone, d.decision, d.reason_code), ("Z7", "deny", inner.reason_code), f"{tool} {target.name}")
+        d = self.decide("Write", self.main)
+        self.assertEqual(d.reason, inner.reason, "理由句跟知識庫裡 .obsidian 被擋時一樣")
+        self.assertEqual([r["zone"] for r in d.ledger_rows], ["Z7"])
+        d = self.decide("Read", self.main)
+        self.assertEqual((d.zone, d.decision), ("Z7", "allow"))
+
+    def test_16_rest_of_outer_is_as_before(self):
+        for rel in (".obsidian/app.json", ".obsidian/plugins/obsidian-git/data.json", "筆記.md",
+                    ".obsidian/plugins/wiki-with-willy2/main.js", ".obsidian/plugins"):
+            d = self.decide("Write", self.tmp / rel)
+            self.assertEqual((d.zone, d.decision), ("Z11", "pass"), rel)
+
+    def test_17_shell_writes(self):
+        main, plug = self.main.as_posix(), self.plug.as_posix()
+        before = self.system_files()
+        for cmd in (f'cp x "{main}"', f'echo x > "{main}"', f'rm -r "{plug}"', f'mv "{main}" "{main}.bak"',
+                    "cp x ../.obsidian/plugins/wiki-with-willy/main.js", "echo x >> ../.obsidian/plugins/wiki-with-willy/main.js"):
+            d = self.decide("Bash", cmd)
+            self.assertEqual((d.decision, d.zone), ("deny", "Z7"), cmd)
+        for cmd in (f'Set-Content -Path "{main}" -Value x', f'Copy-Item x -Destination "{main}"', f'Remove-Item "{plug}" -Recurse',
+                    "Set-Content ../.obsidian/plugins/wiki-with-willy/main.js x"):
+            d = self.decide("PowerShell", cmd)
+            self.assertEqual((d.decision, d.zone), ("deny", "Z7"), cmd)
+        self.assertEqual(self.system_files(), before, "驗收 20：找上層不寫任何狀態檔")
+
+    def test_17_shell_reads_and_her_own_files_pass(self):
+        self.assertNotEqual(self.decide("Bash", f'cat "{self.main.as_posix()}"').decision, "deny")
+        self.assertNotEqual(self.decide("Bash", f'echo x > "{(self.tmp / "筆記.md").as_posix()}"').decision, "deny")
+        self.assertNotEqual(self.decide("Bash", f'echo x > "{(self.tmp / ".obsidian" / "app.json").as_posix()}"').decision, "deny")
+
+    def test_18_kb_commands_still_pass(self):
+        for cmd in (f"{KB} init", f"{KB} upgrade --finish", f"{KB} obsidian open"):
+            for tool in ("Bash", "PowerShell"):
+                self.assertNotEqual(self.decide(tool, cmd).decision, "deny", f"{tool} {cmd}")
+
+    def test_19_two_levels_up_nearest_and_none(self):
+        deep = self.tmp / "a" / "b"
+        shutil.copytree(self.V, deep)
+        d = guard.decide(payload("Write", self.main, deep))
+        self.assertEqual((d.zone, d.decision), ("Z7", "deny"))
+        (self.tmp / "a" / ".obsidian").mkdir()  # 近的那個才是上層：遠的那份不歸這個知識庫
+        self.assertEqual(guard.decide(payload("Write", self.main, deep)).zone, "Z11")
+        d = guard.decide(payload("Write", self.tmp / "a" / ".obsidian" / "plugins" / "wiki-with-willy" / "main.js", deep))
+        self.assertEqual((d.zone, d.decision), ("Z7", "deny"))
+        shutil.rmtree(self.tmp / ".obsidian")
+        self.assertEqual(self.decide("Write", self.main).zone, "Z11", "沒有上層 vault：照舊")
+
+
 if __name__ == "__main__":
     unittest.main()

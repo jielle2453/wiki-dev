@@ -149,5 +149,93 @@ class ObsidianTraces(unittest.TestCase):
         self.assertIn("跟廠商約時間", md)
 
 
+class OuterTraces(ObsidianTraces):
+    """#66 丙 驗收 9～12：知識庫在上層 vault（這裡是 self.tmp）裡，上層記的痕跡只清這個知識庫前綴開頭的。"""
+
+    def setUp(self):
+        P.Purge.setUp(self)
+        self.up = Path(self.tmp)
+        (self.up / ".obsidian").mkdir()
+        self.pre = Path(self.V).name
+        self.tail = f"-{self.fid[2:]}.md"
+
+    def put_up(self, rel, data):
+        p = self.up / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return p
+
+    def three(self):
+        """這個知識庫的、她自己根目錄的、別的知識庫的：同一個編號結尾，只有第一個該被清。"""
+        return [f"{self.pre}/{self.card_rel}", f"檔案索引/客戶案件/私人/x{self.tail}", f"別庫/檔案索引/客戶案件/私人/y{self.tail}"]
+
+    def test_9_outer_workspace_and_bookmarks_only_this_prefix(self):
+        mine, hers, other = self.three()
+        ws = {"main": {"id": "m", "type": "split", "children": [
+                  {"id": "t1", "type": "tabs", "children": [self.leaf(mine), self.leaf(hers), self.leaf(other), self.leaf("筆記.md")]}]},
+              "lastOpenFiles": [mine, hers, other, f"{self.pre}/檔案索引/客戶案件/私人", f"{self.pre}/系統/日程.md"]}
+        wp = self.put_up(".obsidian/workspace.json", ws)
+        bp = self.put_up(".obsidian/bookmarks.json", {"items": [
+            {"type": "file", "path": mine}, {"type": "file", "path": hers}, {"type": "file", "path": other},
+            {"type": "folder", "path": f"{self.pre}/檔案索引/客戶案件/私人"}, {"type": "folder", "path": "檔案索引/客戶案件/私人"}]})
+        out = self.run_purge()
+        got = json.loads(wp.read_text(encoding="utf-8"))
+        self.assertEqual(got["lastOpenFiles"], [hers, other, f"{self.pre}/系統/日程.md"])
+        self.assertEqual([c["state"]["state"]["file"] for c in got["main"]["children"][0]["children"]], [hers, other, "筆記.md"])
+        self.assertEqual([b["path"] for b in json.loads(bp.read_text(encoding="utf-8"))["items"]],
+                         [hers, other, "檔案索引/客戶案件/私人"])
+        line = out.splitlines()[-2]
+        self.assertRegex(line, r"^Obsidian 裡清了：工作區 3 處、書籤 2 個；")
+        self.assertTrue(line.endswith(LINE), out)
+
+    def test_9_counts_merge_with_the_vaults_own(self):
+        self.put(".obsidian/workspace.json", {"lastOpenFiles": [self.card_rel, "系統/日程.md"]})
+        self.put_up(".obsidian/workspace.json", {"lastOpenFiles": self.three()})
+        out = self.run_purge()
+        self.assertRegex(out.splitlines()[-2], r"^Obsidian 裡清了：工作區 2 處；")
+
+    def test_10_outer_data_json_only_this_root(self):
+        data = {"current": self.pre, "timelineDays": 14, "roots": {
+            self.pre: {"opened": [{"card": self.fid, "at": ""}, {"card": "f-9999", "at": ""}]},
+            "別庫": {"opened": [{"card": self.fid, "at": ""}]}},
+            "opened": [{"card": self.fid, "at": ""}]}
+        dp = self.put_up(".obsidian/plugins/wiki-with-willy/data.json", data)
+        out = self.run_purge()
+        want = dict(data, roots=dict(data["roots"], **{self.pre: {"opened": [{"card": "f-9999", "at": ""}]}}))
+        self.assertEqual(json.loads(dp.read_text(encoding="utf-8")), want, "別的庫、current、其他鍵都不動")
+        self.assertRegex(out.splitlines()[-2], r"外掛最近 1 筆；")
+
+    def test_11_own_data_json_both_formats(self):
+        dp = self.put(".obsidian/plugins/wiki-with-willy/data.json", {
+            "current": "", "opened": [{"card": self.fid, "at": ""}, {"card": self.keep_fid, "at": ""}],
+            "roots": {"": {"opened": [{"card": self.fid, "at": ""}, {"card": "f-9999", "at": ""}]},
+                      "別的": {"opened": [{"card": self.fid, "at": ""}]}}})
+        out = self.run_purge()
+        self.assertEqual(json.loads(dp.read_text(encoding="utf-8")), {
+            "current": "", "opened": [{"card": self.keep_fid, "at": ""}],
+            "roots": {"": {"opened": [{"card": "f-9999", "at": ""}]}, "別的": {"opened": [{"card": self.fid, "at": ""}]}}})
+        self.assertRegex(out.splitlines()[-2], r"外掛最近 2 筆；")
+
+    def test_12_unreadable_outer_workspace_left_alone_others_cleaned(self):
+        wp = self.up / ".obsidian" / "workspace.json"
+        wp.write_text("{壞掉", encoding="utf-8")
+        dp = self.put_up(".obsidian/plugins/wiki-with-willy/data.json", {"roots": {self.pre: {"opened": [{"card": self.fid, "at": ""}]}}})
+        own = self.put(".obsidian/workspace.json", {"lastOpenFiles": [self.card_rel]})
+        turn.start(self.V, None, "不要讀私人那夾")
+        self.exclude()
+        self.write_synthesis("信義王現在很好。")
+        code, out = kb("folders", "purge", "客戶案件/私人", "--vault", str(self.V))
+        self.assertEqual(wp.read_text(encoding="utf-8"), "{壞掉")
+        self.assertEqual(code, 3, out)
+        self.assertIn("狀態檔", out)
+        self.assertEqual(json.loads(dp.read_text(encoding="utf-8")), {"roots": {self.pre: {"opened": []}}})
+        self.assertEqual(json.loads(own.read_text(encoding="utf-8")), {"lastOpenFiles": []})
+
+    def test_missing_obsidian_files_are_fine(self):
+        out = self.run_purge()
+        self.assertIn(LINE, out)
+        self.assertEqual([f.name for f in (self.up / ".obsidian").iterdir()], [], "上層沒有那些檔就不建")
+
+
 if __name__ == "__main__":
     unittest.main()

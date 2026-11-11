@@ -843,8 +843,26 @@ def find_vault(cwd):
     return None
 
 
+OUTER_DEPTH = 2  # 上層 vault 往上找幾層（同 kb._lib.obsidian.OUTER_DEPTH）
+OUTER_PLUGIN_REL = ".obsidian/plugins/wiki-with-willy"
+
+
+def outer_plugin_dir(vault):
+    """上層 vault 那份外掛夾（#66 丙，D-545）：vault 已 normalize；從知識庫根往上最多兩層、最近一個有 .obsidian/ 資料夾的夾底下的
+    .obsidian/plugins/wiki-with-willy（照 normalize 在 Windows 的小寫）。沒有上層回 None。每次現找（只多兩次 isdir），不寫狀態檔。"""
+    cur = vault.rstrip("/")
+    for _ in range(OUTER_DEPTH):
+        if "/" not in cur:
+            return None
+        cur = cur.rsplit("/", 1)[0]
+        if os.path.isdir(cur + "/.obsidian"):
+            return normalize(cur + "/" + OUTER_PLUGIN_REL, None)
+    return None
+
+
 def classify(path, vault, sources):
-    """path、vault 都已 normalize。回 (zone, alias)；alias 只有 Z9／Z10／Z10b 有。"""
+    """path、vault 都已 normalize。回 (zone, alias)；alias 只有 Z9／Z10／Z10b 有。
+    知識庫外只多認一個夾：上層 vault 那份外掛夾本身與底下照 Z7（Obsidian 開啟時會執行的程式，#66 丙）。"""
     if inside(path, vault):
         if path == vault:
             return "Z8", None
@@ -864,6 +882,9 @@ def classify(path, vault, sources):
         if len(parts) == 3 and parts[2] == parts[1] + ".md":
             return "Z1", None
         return "Z2", None
+    outer = outer_plugin_dir(vault)
+    if outer is not None and inside(path, outer):
+        return "Z7", None
     status, src = sources.lookup(path)
     if status == "excluded":
         return "Z10", src["alias"]
