@@ -249,6 +249,7 @@
 - D-510 彈性區的守門：讀放行、檔案工具寫放行並備份、指令寫擋、密碼檔照擋、製卡助手不碰（放寬守門；待對方同意）（部分修訂，見 D-306）（撤回，見 D-532）
 - D-533 知識庫 `.claude/skills/` 給 AI 用檔案工具寫（守門 Z13、寫前備份、指令寫照擋、跳出照 Z7、地板句提 skill）（放寬守門、改 core.md）（部分修訂，見 D-538）
 - D-538 知識庫的 skill 夾 willy 不管：讀寫都 pass、不看內容、不備份、不另數；只留跳出與 `.claude/` 其他照 Z7（#52 測試發現 1、2，修訂 D-533 第 1、3、5 條）
+- D-539 Codex 的 hook 檔：main 留 `hooks/codex.json`，發行寫 codex 分支時改名成 `hooks/hooks.json`、manifest 不寫 `hooks` 指標（#56 確認發現 Codex 只執行預設檔名；修訂 D-5xx #56 決策 1）
 - D-514 打開檔案的指令當成讀；開的是程式或巨集檔照「跑程式」判（放寬守門；對方已同意；收 #18）
 - D-515 附著到開著的 Word／Excel／PowerPoint 一起改：不擋、不問、不備份，退回交給 Office
 - D-516 規則與 produce 刪掉「改原檔一律另存副本」「檔開著請她關掉」（改 core.md；補 D-515）
@@ -3385,6 +3386,16 @@
 - 代價：她在 Office 直接改版本檔後說「退回」，那份會被拿掉（存在退回那一句的備份裡，再說退回拿得回）；同步夾每改一次多同步一份版本檔；版本檔她不刪就一直留。
 - 重談條件：OBS 回測 kb 次數沒降到 4 以下；或有客戶的版本檔被同步程式原地改寫、退回說「沒換回」。
 
+## D-539 Codex 的 hook 檔在發行時改名成預設的 `hooks/hooks.json`（#56；修訂 #56 spec 決策 1）
+- 日期：2026-11-11
+- 狀態：jacky 2026-11-11 定（「就這樣做」）。
+- 起因：#56 確認情境 2 不過：Codex 0.167.1 執行 hook 只讀外掛裡預設的 `hooks/hooks.json`，manifest 的 `"hooks": "./hooks/codex.json"` 只影響 `/hooks` 清單與信任，不影響執行（willy設計二 實測：jacky 自己的 Codex 裝公開版 0.35.1（預設檔名）hook 有跑、有開場段；測試 home 裝這版一個都不跑；在快取把 codex.json 放成 hooks.json 就跑）。之前的查證只驗了 `hooks/list`。Claude Code 則是 `hooks/hooks.json` 跟 manifest 指的檔**都讀**（實測兩個標記檔都寫出），所以也不能反過來讓 Claude 改讀別的檔。
+- 選了：main 照舊兩份（`hooks/hooks.json` Claude、`hooks/codex.json` Codex，內容跟 0.35.1 的 Codex 版逐事件相同）；`.codex-plugin/plugin.json` 不寫 `hooks`；`tools/release.py` 寫 codex 分支那步（#55 已有）把 `hooks/codex.json` 寫成 `hooks/hooks.json`、不放 `hooks/codex.json`；build 的 Codex 檢查改驗 codex.json 在、引用的檔在。zip（Claude 市集用）不變。
+- 為什麼：codex 分支本來就是一棵獨立的樹（Codex 只認 git 內容），跟 pixel-office 的 `codex/` 子資料夾同一個精神（每棵樹一份預設檔名的 hooks.json）；只動發行那一步，不動 hook 程式、不換目錄結構。
+- 放棄了：一份 hooks.json 兩邊共用（變數名、欄位不同，要驗兩邊容錯）；Codex 放子資料夾（Codex 快取只複製外掛夾，willy 的 hook 要用根目錄的 scripts/kb，pixel-office 能這樣做是因為它的 Codex 程式獨立一支）；MCP（GBrain 的路，擋不了主機的寫入、也沒有開場注入）。
+- 代價：main 上 `hooks/codex.json` 跟 Codex 實際讀的檔名不同，看程式的人要知道發行會改名；從 main 直接用 `--plugin-dir`／本機市集給 Codex 試時要自己改名。
+- 重談條件：Codex 開始照 manifest 的 hooks 指標執行；Claude Code 改成只讀 manifest 指的檔。
+- 另記：確認第 2 輪在測試 home 把 codex.json 放成 hooks.json 後 hook 有跑但三個事件都 Failed，知識庫 hook-errors.log 有一筆 session 的 JSONDecodeError（Invalid \escape, col 81）；同一支程式手餵正確 JSON 正常。原因未查實（待用錄音器抓 Codex 實際餵的 stdin），實作時先不處理，確認那輪再驗。
 ## D-538 知識庫的 skill 夾 willy 不管（#52；修訂 D-533 第 1、3、5 條）
 - 日期：2026-11-10
 - 狀態：jacky 2026-11-10 定。拿掉 D-533 的備份、指令寫擋、提醒，守門判斷變少、不是放寬到 willy 自己的檔（`.claude/` 其他照 Z7）。spec `specs/2026-11-08-skill夾放寫.md` 裁定 1、2。
