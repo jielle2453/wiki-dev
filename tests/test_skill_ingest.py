@@ -159,8 +159,8 @@ class CardMakerSkeleton(unittest.TestCase):
         self.steps = self.body[self.body.index("## 骨架"):self.body.index("## 共通")]
 
     def test_dispatch_flow_in_order(self):
-        marks = ["cards todo --json", "cards dispatch --json", "Agent 工具", "subagent_type", "approval", "cards status",
-                 "cards stop --json", "TaskStop", "`asks` 有就問一件", "note_cmd", "turn note"]
+        marks = ["cards todo --json", "cards dispatch --json", "派一個子代理", "沒有派子代理的工具", "approval", "cards status",
+                 "cards stop --json", "你派的子代理都中斷", "`asks` 有就問一件", "note_cmd", "turn note"]
         pos = [self.steps.index(m) for m in marks]
         self.assertEqual(pos, sorted(pos), marks)
 

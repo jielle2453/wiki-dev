@@ -34,8 +34,14 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-ALLOW_DIRS = (".claude-plugin", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents", "obsidian")
-ALLOW_FILES = ("README.md", "CHANGELOG.md", "LICENSE")
+ALLOW_DIRS = (".claude-plugin", ".codex-plugin", ".agents", "hooks", "scripts", "config", "rules", "skills", "templates", "skeleton", "agents", "obsidian")
+ALLOW_FILES = ("README.md", "CHANGELOG.md", "LICENSE", "安裝-Codex.md")
+CODEX_MANIFEST = ".codex-plugin/plugin.json"  # 有這個檔，publish 才另推公開 repo 的 codex 分支（#56）
+CODEX_BRANCH = "codex"
+PUBLIC_BRANCH = "main"  # 公開 repo 放清單與名單的分支
+CODEX_README = "安裝-Codex.md"  # codex 分支的 README.md 用它
+CODEX_HOOKS = "hooks/codex.json"  # main 上 Codex 的 hook 檔；codex 分支寫成預設的 hooks/hooks.json（D-539）
+HASH_IN_PATH = ("路徑裡有 #：{}。gh 會把 # 後面當成標籤、Codex 會把它當分支名，請換到沒有 # 的資料夾再跑。")
 PLUGIN_NAME = "wiki-with-willy"
 POLL_SECONDS = 30
 FETCH_SECONDS = 15
@@ -331,6 +337,7 @@ def problems(files, version, previous=None):
                 if isinstance(ref, str) and not _exists(files, ref[2:] if ref.startswith("./") else ref):
                     out.append(f"plugin.json 的 {key} 引用的路徑不在 zip 裡：{ref}")
     out += _obsidian_problems(files, version)
+    out += _codex_problems(files, version)
     hooks = _json_of(files, "hooks/hooks.json", out)
     for text in _strings(hooks) if hooks is not None else []:
         for ref in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s\"']+)", text):
@@ -340,6 +347,30 @@ def problems(files, version, previous=None):
     out += _history_problems(files, version)
     if previous is not None:
         out += _patch_problems(files, previous)
+    return out
+
+
+def _codex_problems(files, version):
+    """Codex 版（#56）：有 .codex-plugin/plugin.json 才查：版號等於 tag（跟 Claude 版同一版）、manifest 不准有 hooks
+    （D-539：Codex 執行只讀預設的 hooks/hooks.json，有 hooks 會讓 /hooks 清單跟實際執行的不一致）、hooks/codex.json 在、
+    它引用的 ${PLUGIN_ROOT}/… 都在。"""
+    if CODEX_MANIFEST not in files:
+        return []
+    out = []
+    manifest = _json_of(files, CODEX_MANIFEST, out)
+    if not isinstance(manifest, dict):
+        return out
+    if manifest.get("version") != version:
+        out.append(f"{CODEX_MANIFEST} 的版本是 {manifest.get('version')}，tag 是 {version}（要跟 .claude-plugin 同一版）")
+    _json_of(files, ".agents/plugins/marketplace.json", out)  # Codex 從 codex 分支裝要這份市集
+    if "hooks" in manifest:
+        out.append(f"{CODEX_MANIFEST} 不能有 hooks：Codex 執行只讀 hooks/hooks.json（發行時由 {CODEX_HOOKS} 改名），"
+                   "寫了會讓 /hooks 清單跟實際執行的不一致（D-539）")
+    hooks = _json_of(files, CODEX_HOOKS, out)
+    for text in _strings(hooks) if hooks is not None else []:
+        for sub in re.findall(r"\$\{PLUGIN_ROOT\}/([^\s\"']+)", text):
+            if not _exists(files, sub):
+                out.append(f"{CODEX_HOOKS} 引用的路徑不在 zip 裡：{sub}")
     return out
 
 
@@ -481,6 +512,10 @@ def _git(public, *args):
 def _require_clean(public):
     """公開 repo 的 clone 有沒 commit 的改動（已暫存、或改了追蹤的檔）就停：不然那些改動會跟清單或名單一起 commit 推出去。
     沒加進 git 的檔不算（git add 只加清單與名單）。本機還沒推的 commit 不算（上一次推失敗留下的，這次一起推）。"""
+    branch = _git(public, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if branch != PUBLIC_BRANCH:  # 清單與名單只推 main（#56 review 5：上一次被中斷停在 codex 分支時，不把清單推進 codex）
+        raise ReleaseError(f"公開 repo 的 clone 現在在 {branch}，不是 {PUBLIC_BRANCH}；先 git checkout {PUBLIC_BRANCH} 再跑"
+                           f"（上一次推 codex 分支中途被中斷、切不回去時用 git checkout -f {PUBLIC_BRANCH}）")
     dirty = _git(public, "status", "--porcelain", "--untracked-files=no").strip()
     if dirty:
         raise ReleaseError(f"公開 repo 的 clone 有沒 commit 的改動，先清乾淨再跑：\n{dirty}")
@@ -606,9 +641,90 @@ def _release_exists(public, tag):
     return True
 
 
+def _push_codex(public, version, files):
+    """Codex 版（#56 決策 5）：把 zip 的同一批檔推到公開 repo 的 codex 分支（Codex 的市集不認 zip，只認 git 的內容）。
+    一般 commit 接在遠端那個後面、不 force push；README.md 換成安裝-Codex.md、hooks/codex.json 寫成 hooks/hooks.json
+    （D-539：Codex 執行只讀預設檔名；Claude 的 hooks.json 不進 codex 分支）、補 .gitattributes。內容跟遠端一樣就不 commit。
+    本機的 codex 分支由這裡管：遠端有就一律從遠端那個接（上一次 commit 了卻推失敗的丟掉、這次重做同一份；本機跟遠端分岔也不卡，
+    #56 review 7）。做完（或失敗）切回 main，這裡寫出來、main 沒有的檔刪掉（review 6：不留下擋住下一次切換的檔）。
+    回 codex 分支的 commit。"""
+    remote = _git(public, "remote", "get-url", "--push", "origin").strip()  # 推的那個（平常跟抓的同一個）
+    has_remote = bool(_git(public, "ls-remote", "--heads", remote, CODEX_BRANCH).strip())
+    has_local = bool(_git(public, "branch", "--list", CODEX_BRANCH).strip())
+    out = dict(files)
+    if CODEX_README in out:
+        out["README.md"] = out[CODEX_README]
+    if CODEX_HOOKS in out:
+        out["hooks/hooks.json"] = out.pop(CODEX_HOOKS)
+    out[".gitattributes"] = b"* text=auto eol=lf\n"
+    main_tracked = _tracked(public)
+    clash = sorted(rel for rel in out if rel not in main_tracked and Path(public, rel).exists())
+    if clash:  # 沒追蹤的檔跟 Codex 版同名：切分支會蓋掉、收尾會刪掉（#56 review 二輪 1），先停
+        raise ReleaseError("公開 repo 的 clone 裡有沒追蹤的檔跟 Codex 版同名，推 codex 分支會蓋掉它們，先移走再跑："
+                           + "、".join(clash[:5]) + ("…" if len(clash) > 5 else ""))
+    try:
+        sha = _codex_commit(public, version, out, remote, has_remote, has_local)
+    except BaseException:
+        _back_to_main(public, out, quiet=True)  # 原本的錯誤照丟，切回去失敗不蓋掉它（review 二輪 2）
+        raise
+    _back_to_main(public, out)
+    return sha
+
+
+def _tracked(public):
+    return {x for x in _git(public, "ls-files", "-z").split(chr(0)) if x}
+
+
+def _codex_commit(public, version, out, remote, has_remote, has_local):
+    """切到 codex 分支、換成這一版的檔、有變才 commit、推（不 force）；回 commit。"""
+    if has_remote:
+        _git(public, "fetch", "-q", remote, CODEX_BRANCH)
+        _git(public, "checkout", "-q", "-f", "-B", CODEX_BRANCH, "FETCH_HEAD")
+    elif has_local:
+        _git(public, "checkout", "-q", "-f", CODEX_BRANCH)
+    else:
+        _git(public, "checkout", "-q", "-f", "--orphan", CODEX_BRANCH)
+    tracked = [x for x in _git(public, "ls-files", "-z").split(chr(0)) if x]
+    if tracked:
+        _git(public, "rm", "-q", "-r", "--cached", "--", ".")
+        for rel in tracked:
+            Path(public, rel).unlink(missing_ok=True)
+    for rel, data in out.items():
+        dest = Path(public) / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+    # 路徑從 stdin 給（review 8：檔多、中文路徑長時不撞 Windows 指令列上限）；只加這批，clone 裡別的沒追蹤的檔不帶進去
+    _run(["git", "--literal-pathspecs", "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"], cwd=public,
+         input=chr(0).join(sorted(out)))  # 檔名照字面，[ ] * ? 不當萬用字元（review 二輪 3）
+    if _git(public, "status", "--porcelain", "--untracked-files=no").strip():
+        _git(public, "commit", "-q", "-m", f"codex: {version}")
+    _git(public, "push", "-q", "origin", f"HEAD:refs/heads/{CODEX_BRANCH}")
+    return _git(public, "rev-parse", "HEAD").strip()
+
+
+def _back_to_main(public, written, quiet=False):
+    """切回 main，這次寫出來、main 沒有的檔刪掉（review 6）。切回去失敗也照樣清，quiet 時不丟（不蓋掉原本的錯誤）。"""
+    err = None
+    try:
+        _git(public, "checkout", "-q", "-f", PUBLIC_BRANCH)
+    except ReleaseError as e:
+        err = e
+    try:
+        keep = _tracked(public)
+        for rel in written:
+            if rel not in keep:
+                Path(public, rel).unlink(missing_ok=True)
+    except (ReleaseError, OSError):
+        pass
+    if err is not None and not quiet:
+        raise err
+
+
 def publish(repo, tag, public, who, wait=15):
-    """build → gh release → 清單 → 等外面抓得到 → 名單。回 build 的結果。
-    中途失敗可以直接重跑：release 已經有了就把同一個 zip 補傳上去（--clobber，zip 位元組可重現），上次沒推的清單 commit 這次一起推。"""
+    """build → gh release → 清單 → 等外面抓得到 → 名單 → Codex 版推 codex 分支（有 .codex-plugin 才推，#56）。回 build 的結果
+    （多 "codex"：codex 分支的 commit，沒推是 None）。
+    中途失敗可以直接重跑：release 已經有了就把同一個 zip 補傳上去（--clobber，zip 位元組可重現），上次沒推的清單 commit 這次一起推，
+    codex 分支內容一樣就只補推。"""
     who = _check_who(who)
     _require_clean(public)
     files = collect(Path(repo), tag)
@@ -627,6 +743,7 @@ def publish(repo, tag, public, who, wait=15):
     _wait_for_list(manifest_url, version, wait)
     roster = set_rollout(public, version, who, note)
     _commit_and_push(public, f"rollout: {version}", roster.name)
+    got["codex"] = _push_codex(public, version, files) if CODEX_MANIFEST in files else None
     return got
 
 
@@ -679,8 +796,20 @@ def build_parser():
     return parser
 
 
+def hash_paths(args):
+    """--repo、--public、zip 輸出夾裡有 # 的（#55）：gh 把 path#label 的 # 後面當標籤、Codex 把它當分支名，發到一半才壞。"""
+    paths = [args.repo, getattr(args, "public", None)]
+    if args.command == "build" or args.command == "publish":
+        paths.append(getattr(args, "out", None) or str(Path(args.repo) / "dist"))
+    return [str(Path(p).resolve()) for p in paths if p and "#" in str(Path(p).resolve())]
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    bad = hash_paths(args) if args.command in ("build", "publish") else []
+    if bad:
+        print("失敗：" + HASH_IN_PATH.format(bad[0]))
+        return 2
     try:
         if args.command == "build":
             if args.prepare:
@@ -695,6 +824,8 @@ def main(argv=None):
         elif args.command == "publish":
             got = publish(args.repo, args.tag, args.public, args.who, args.wait)
             print(f"已發行 {got['version']}；sha256: {got['sha256']}")
+            print(f"Codex 版：已推到公開 repo 的 {CODEX_BRANCH} 分支（{got['codex'][:8]}）" if got.get("codex")
+                  else "Codex 版：這一版沒有 .codex-plugin，沒推")
         else:
             rollout(args.repo, args.version, args.public, args.who)
             print(f"名單已改：{args.version}")

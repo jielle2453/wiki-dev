@@ -28,6 +28,13 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, HERE)
+try:
+    import _codex  # noqa: E402  Codex 轉接
+except BaseException:  # noqa: BLE001  載不進來：Claude 的 payload 照舊，Codex 的當成不認得（review 二輪 4）
+    _codex = None
+
+_BLOCKS = []  # 這次要打回的理由（_block 收、main 最後印一行）
 
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 OUTPUT_ZONE = "Z4"  # 暫存區（D-324：原 AI 產出 Z3 併進 Z4）：AI 用檔案工具寫進去的檔登成 AI 產出（出處類別）
@@ -49,42 +56,58 @@ def main():
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError(f"payload 不是物件：{type(payload).__name__}")
-        tool = payload.get("tool_name")
-        if tool not in WRITE_TOOLS:
-            return
-        ti = payload.get("tool_input") or {}
-        target = ti.get("notebook_path") if tool == "NotebookEdit" else ti.get("file_path")
-        if not target:
-            return
-        from kb import guard
-        from kb._lib import inventory, turn
-        from kb._lib import sources as sources_lib
-        from kb._lib.paths import normalize
-
-        cwd = payload.get("cwd") or os.getcwd()
-        vault = guard.find_vault(cwd)
-        if vault is None:
-            return
-        sources = sources_lib.load(vault)
-        zone, _alias = guard.classify(normalize(str(target), cwd), normalize(str(vault), None), sources)
-        if zone not in (OUTPUT_ZONE, CARDS_ZONE, SYNTHESIS_ZONE):
-            return
-        rel = turn.rel_path(vault, str(target), cwd)
-        if not (vault / rel).is_file():
-            return
-        # card-maker（D-195 釐清 3b）：子代理寫的照它記的回合（跟 guard.py 同一支），總目錄與綜合卡快取的備份才在同一回合
-        agent_turn = turn.agent_turn(vault, payload.get("session_id"), payload.get("agent_id"))
-        t = (turn.turn_data(vault, agent_turn) if agent_turn else None) or turn.current(vault, payload.get("session_id"))
-        if agent_turn:
-            _touch(vault, payload)
-        if zone == OUTPUT_ZONE:
-            inventory.register_output(vault, rel, t["turn"])
-        elif zone == SYNTHESIS_ZONE:
-            _check_synthesis(vault, rel, t["turn"], payload)
-        elif rel.lower().endswith(".md"):
-            _check_card(vault, rel, sources, t["turn"], payload)
+        items = (_codex.normalize(payload) or []) if _codex is not None and _codex.is_codex(payload) else [payload]  # Codex 的 apply_patch 逐檔登記
+        for item in items:
+            try:
+                _one(item)
+            except BaseException as e:  # noqa: BLE001  一份出錯不擋後面幾份（review 5）
+                _log(e, payload)
     except BaseException as e:  # noqa: BLE001  任何例外都要吞掉
         _log(e, payload)
+    if _BLOCKS:
+        try:
+            sys.stdout.write(json.dumps({"decision": "block", "reason": "\n".join(_BLOCKS)}, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+        except BaseException as e:  # noqa: BLE001
+            _log(e, payload)
+
+
+def _one(payload):
+    """一份（現有格式的）payload：照區登記成品、驗卡頭與綜合卡。"""
+    tool = payload.get("tool_name")
+    if tool not in WRITE_TOOLS:
+        return
+    ti = payload.get("tool_input") or {}
+    target = ti.get("notebook_path") if tool == "NotebookEdit" else ti.get("file_path")
+    if not target:
+        return
+    from kb import guard
+    from kb._lib import inventory, turn
+    from kb._lib import sources as sources_lib
+    from kb._lib.paths import normalize
+
+    cwd = payload.get("cwd") or os.getcwd()
+    vault = guard.find_vault(cwd)
+    if vault is None:
+        return
+    sources = sources_lib.load(vault)
+    zone, _alias = guard.classify(normalize(str(target), cwd), normalize(str(vault), None), sources)
+    if zone not in (OUTPUT_ZONE, CARDS_ZONE, SYNTHESIS_ZONE):
+        return
+    rel = turn.rel_path(vault, str(target), cwd)
+    if not (vault / rel).is_file():
+        return
+    # card-maker（D-195 釐清 3b）：子代理寫的照它記的回合（跟 guard.py 同一支），總目錄與綜合卡快取的備份才在同一回合
+    agent_turn = turn.agent_turn(vault, payload.get("session_id"), payload.get("agent_id"))
+    t = (turn.turn_data(vault, agent_turn) if agent_turn else None) or turn.current(vault, payload.get("session_id"))
+    if agent_turn:
+        _touch(vault, payload)
+    if zone == OUTPUT_ZONE:
+        inventory.register_output(vault, rel, t["turn"])
+    elif zone == SYNTHESIS_ZONE:
+        _check_synthesis(vault, rel, t["turn"], payload)
+    elif rel.lower().endswith(".md"):
+        _check_card(vault, rel, sources, t["turn"], payload)
 
 
 def _touch(vault, payload):
@@ -97,8 +120,7 @@ def _touch(vault, payload):
 
 
 def _block(reason):
-    sys.stdout.write(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    _BLOCKS.append(reason)  # main 最後併成一行輸出（Codex 一個 patch 改多檔時只能有一個 JSON）
 
 
 def _entities_ok(vault):

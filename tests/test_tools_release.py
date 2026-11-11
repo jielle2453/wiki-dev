@@ -155,6 +155,61 @@ class Versions(unittest.TestCase):
         self.assertEqual(release.kind("0.21.0", "0.20.1"), "downgrade")
 
 
+def add_codex(root, version, hooks_ref="hooks/session.py"):
+    """Codex 版的檔（#56）：manifest 不寫 hooks（D-539）、hooks/codex.json、本機市集、安裝說明。"""
+    write(root, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": version}))
+    write(root, "hooks/codex.json", json.dumps({"hooks": {"SessionStart": [{"hooks": [
+        {"type": "command", "command": f'python "${{PLUGIN_ROOT}}/{hooks_ref}"'}]}]}}))
+    write(root, ".agents/plugins/marketplace.json", json.dumps({"name": "wiki-with-willy", "plugins": [
+        {"name": "wiki-with-willy", "source": {"source": "local", "path": "./"}}]}))
+    write(root, "安裝-Codex.md", "# Codex 安裝\n")
+
+
+class CodexBuild(Base):
+    """#56、#55：zip 帶 Codex 版的檔；Codex manifest 的版號、hooks 檔也查。"""
+
+    def test_zip_has_codex_files_but_not_design_or_tests(self):
+        add_codex(self.repo, "0.20.0")
+        self.commit("codex", tag="v0.20.0")
+        names = self.names(release.build(self.repo, "v0.20.0", self.tmp / "dist")["zip"])
+        for rel in (".codex-plugin/plugin.json", ".agents/plugins/marketplace.json", "hooks/codex.json", "安裝-Codex.md",
+                    "hooks/hooks.json"):
+            self.assertIn(rel, names)
+        self.assertFalse([n for n in names if n.startswith(("design/", "tests/", "tools/"))])
+
+    def test_codex_version_must_match_tag(self):
+        add_codex(self.repo, "0.19.0")
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn(".codex-plugin/plugin.json 的版本是 0.19.0", str(cm.exception))
+
+    def test_codex_manifest_with_hooks_is_a_problem(self):
+        """D-539：Codex 執行只讀預設的 hooks/hooks.json，manifest 有 hooks 會讓 /hooks 清單跟實際執行的不一致。"""
+        add_codex(self.repo, "0.20.0")
+        write(self.repo, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": "0.20.0",
+                                                                  "hooks": "./hooks/codex.json"}))
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn(".codex-plugin/plugin.json 不能有 hooks", str(cm.exception))
+
+    def test_codex_hooks_file_must_exist(self):
+        add_codex(self.repo, "0.20.0")
+        (self.repo / "hooks" / "codex.json").unlink()
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn("hooks/codex.json", str(cm.exception))
+
+    def test_codex_hooks_must_point_to_files_in_zip(self):
+        add_codex(self.repo, "0.20.0", hooks_ref="hooks/gone.py")
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn("hooks/codex.json 引用的路徑不在 zip 裡：hooks/gone.py", str(cm.exception))
+
+
 class Collect(Base):
     def test_only_the_allow_list_goes_into_the_zip_and_nothing_else(self):
         """驗收 15：zip 只含 D-213 清單（含 agents/，D-213 補）；design、tests、tools、repo 的 CLAUDE.md、.claude、git 設定檔都不放。"""
@@ -560,8 +615,8 @@ class Prepare(Base):
         self.assertEqual(release.build(self.repo, "v0.21.0", self.tmp / "dist")["version"], "0.21.0")
 
 
-class Publish(Base):
-    """驗收 16：本機假的公開 repo（bare）、gh 與抓清單的替身。"""
+class PublishFixture(Base):
+    """驗收 16：本機假的公開 repo（bare）、gh 與抓清單的替身（Publish 與 CodexPublish 共用）。"""
 
     def setUp(self):
         super().setUp()
@@ -633,6 +688,10 @@ class Publish(Base):
 
     def publish(self, who="all", wait=15):
         return release.publish(self.repo, "v0.21.0", self.public, who, wait=wait)
+
+
+class Publish(PublishFixture):
+    """驗收 16。"""
 
     def test_waits_until_the_list_shows_the_new_version_then_changes_the_roster(self):
         self.served = ["0.20.0", "0.20.0", "0.21.0"]
@@ -828,6 +887,108 @@ def subprocess_run(argv, cwd):
     return subprocess.run(argv, cwd=str(cwd) if cwd else None, capture_output=True, text=True, encoding="utf-8").stdout
 
 
+class CodexPublish(PublishFixture):
+    """#56 決策 5：publish 把 zip 的同一批檔推到公開 repo 的 codex 分支（一般 commit、不 force push）。"""
+
+    def setUp(self):
+        super().setUp()
+        add_codex(self.repo, "0.21.0")
+        self.commit("0.21.0 codex", tag="v0.21.0")
+        self.served = ["0.21.0"]
+
+    def codex_log(self):
+        return git(self.bare, "log", "--format=%s", "codex").split("\n")[:-1]
+
+    def test_pushes_codex_branch_with_zip_files(self):
+        pushes = []
+        real = release._git
+
+        def spy(public, *args):
+            if args[:1] == ("push",):
+                pushes.append(args)
+            return real(public, *args)
+        with mock.patch.object(release, "_git", side_effect=spy):
+            got = self.publish()
+        self.assertTrue(pushes)
+        self.assertFalse([a for a in pushes if any(x in ("-f", "--force", "--force-with-lease") or x.startswith("+") for x in a)])
+        self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
+        self.assertEqual(git(self.bare, "rev-parse", "codex").strip(), got["codex"])
+        names = sorted(x for x in git(self.bare, "ls-tree", "-r", "--name-only", "-z", "codex").split("\0") if x)
+        self.assertEqual(names, sorted((set(self.names(got["zip"])) - {"hooks/codex.json"}) | {".gitattributes"}))
+        self.assertEqual(git(self.bare, "show", "codex:README.md"), "# Codex 安裝\n")
+        # D-539：codex 分支的 hooks/hooks.json 是 main 的 codex.json，不放 codex.json
+        self.assertEqual(git(self.bare, "show", "codex:hooks/hooks.json"),
+                         (self.repo / "hooks" / "codex.json").read_text(encoding="utf-8"))
+        self.assertIsNotNone(self.remote_file("marketplace.json"))  # main 照舊有清單
+        self.assertEqual(git(self.public, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
+
+    def test_next_version_is_a_normal_commit_on_top(self):
+        self.publish()
+        first = git(self.bare, "rev-parse", "codex").strip()
+        make_tree(self.repo, "0.22.0", note="下一版。")
+        add_codex(self.repo, "0.22.0")
+        (self.repo / "templates" / "card.md").unlink()  # 新版拿掉的檔，codex 分支也要拿掉
+        self.commit("0.22.0", tag="v0.22.0")
+        self.served = ["0.22.0"]
+        release.publish(self.repo, "v0.22.0", self.public, "all")
+        self.assertEqual(self.codex_log(), ["codex: 0.22.0", "codex: 0.21.0"])
+        self.assertEqual(git(self.bare, "rev-parse", "codex~1").strip(), first)  # 接在後面，不是改寫
+        self.assertNotIn("templates/card.md", git(self.bare, "ls-tree", "-r", "--name-only", "codex"))
+
+    def test_rerun_does_not_add_another_commit(self):
+        a = self.publish()["codex"]
+        b = self.publish()["codex"]
+        self.assertEqual((a, self.codex_log()), (b, ["codex: 0.21.0"]))
+
+    def test_rerun_after_codex_push_failed_pushes_the_same_commit(self):
+        real = release._git
+        state = {"fail": True}
+
+        def flaky(public, *args):
+            if args[:1] == ("push",) and "refs/heads/codex" in args[-1] and state["fail"]:
+                state["fail"] = False
+                raise release.ReleaseError("git push 失敗：連不上")
+            return real(public, *args)
+        with mock.patch.object(release, "_git", side_effect=flaky):
+            with self.assertRaises(release.ReleaseError):
+                self.publish()
+        self.assertEqual(git(self.public, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
+        self.assertFalse((self.public / "hooks" / "hooks.json").exists(), "失敗後不留 main 沒有的檔（review 6）")
+        self.publish()
+        self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
+
+    def test_untracked_file_with_same_name_stops_and_is_kept(self):
+        """公開 clone 裡沒追蹤、跟 Codex 版同名的檔：不蓋、不刪，先停（review 二輪 1）。"""
+        write(self.public, "hooks/hooks.json", "我自己的\n")  # D-539：codex 分支寫的是 hooks.json
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("同名", str(cm.exception))
+        self.assertEqual((self.public / "hooks" / "hooks.json").read_text(encoding="utf-8"), "我自己的\n")
+        self.assertEqual(git(self.bare, "branch", "--list", "codex").strip(), "")
+
+    def test_bracket_file_name_is_pushed_literally(self):
+        """檔名有 [ ] 不當萬用字元（review 二輪 3）。"""
+        write(self.repo, "skills/manage/[範例].md", "x\n")
+        self.commit("bracket", tag="v0.21.0")
+        self.publish()
+        self.assertIn("skills/manage/[範例].md", git(self.bare, "ls-tree", "-r", "--name-only", "-z", "codex").split("\0"))
+
+    def test_public_clone_not_on_main_stops(self):
+        """上一次被中斷停在 codex 分支：不把清單推進 codex（review 5）。"""
+        git(self.public, "checkout", "-q", "-b", "codex")
+        with self.assertRaises(release.ReleaseError) as cm:
+            self.publish()
+        self.assertIn("不是 main", str(cm.exception))
+        self.assertEqual(self.gh_calls, [])
+
+    def test_no_codex_manifest_no_codex_branch(self):
+        for rel in (".codex-plugin/plugin.json", "hooks/codex.json", ".agents/plugins/marketplace.json", "安裝-Codex.md"):
+            (self.repo / rel).unlink()
+        self.commit("no codex", tag="v0.21.0")
+        self.assertIsNone(self.publish()["codex"])
+        self.assertEqual(git(self.bare, "branch", "--list", "codex").strip(), "")
+
+
 class Rollout(Base):
     def setUp(self):
         super().setUp()
@@ -941,6 +1102,20 @@ class Cli(Base):
         code, _out, _err = self.run_main("build", "v0.21.0", "--prepare", "--repo", str(self.repo))
         self.assertEqual(code, 0)
         self.assertIn("0.21.0", json.loads((self.repo / "config" / "skeleton_history.json").read_text(encoding="utf-8")))
+
+    def test_hash_in_path_stops_before_anything(self):
+        """#55：--repo、--public、輸出夾有 # 就停（結束碼 2），gh 一次都沒叫。"""
+        bad = self.tmp / "#待開"
+        bad.mkdir()
+        with mock.patch.object(release, "_run", side_effect=AssertionError("不該跑任何指令")):
+            for argv in (["build", "v0.20.0", "--repo", str(self.repo), "--out", str(bad)],
+                         ["build", "v0.20.0", "--repo", str(bad)],
+                         ["publish", "v0.20.0", "--repo", str(self.repo), "--public", str(bad), "--all"]):
+                with self.subTest(argv=argv):
+                    code, out, _err = self.run_main(*argv)
+                    self.assertEqual(code, 2)
+                    self.assertIn("路徑裡有 #：", out)
+                    self.assertIn(str(bad.resolve()), out)
 
     def test_publish_needs_exactly_one_of_for_all_none(self):
         for extra in ([], ["--all", "--none"], ["--for", ID1, "--all"]):
