@@ -287,6 +287,39 @@ class OuterPlugin(unittest.TestCase):
             self.assertEqual(r.returncode, 3, f"{dest}\n{r.stdout}{r.stderr}")
             self.assertIn("是 willy 自己的檔", r.stdout, dest)
 
+    def test_17d_folder_above_the_vault_inside_a_registered_source(self):
+        """裁定 10：登記的來源包住知識庫時，知識庫的上層夾（含那個來源根本身）是 Z9，一樣不能整夾丟掉、改名、搬走；
+        來源裡她自己的檔與不含知識庫的夾照舊。"""
+        import json
+        import os
+        import subprocess
+        import sys
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT), PYTHONIOENCODING="utf-8")
+        kb_dir = self.tmp / "包" / "案" / "kb"
+        shutil.copytree(self.V, kb_dir)
+        reg = kb_dir / ".system" / "sources.json"
+        data = json.loads(reg.read_text(encoding="utf-8"))
+        data["sources"].append({"id": "src-0001", "alias": "包", "spec": "../..", "excludes": []})
+        reg.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        (kb_dir.parent / "她的.md").write_text("x", encoding="utf-8")
+        (self.tmp / "包" / "別夾").mkdir()
+        (self.tmp / "包" / "別夾" / "檔.md").write_text("x", encoding="utf-8")
+
+        def run(*args):
+            return subprocess.run([sys.executable, f"{ROOT}/scripts/kb.py", "source-edit", *args], capture_output=True, text=True,
+                                  encoding="utf-8", cwd=str(kb_dir), env=env)
+        for args in (("trash", "..", "--check"), ("rename", "..", "x", "--check"), ("trash", "../..", "--check"),
+                     ("move", "..", "--to", "../../別夾", "--check"), ("rename", "..", "x")):
+            r = run(*args)
+            self.assertEqual(r.returncode, 3, f"{args}\n{r.stdout}{r.stderr}")
+            self.assertIn("是 willy 自己的檔", r.stdout, args)
+        self.assertTrue(kb_dir.is_dir())
+        for args in (("trash", "../她的.md", "--check"), ("trash", "../../別夾", "--check"),
+                     ("move", "../../別夾/檔.md", "--to", "..", "--check")):
+            r = run(*args)
+            self.assertNotIn("willy 自己的檔", r.stdout, args)
+            self.assertEqual(r.returncode, 0, f"{args}\n{r.stdout}{r.stderr}")
+
 
 if __name__ == "__main__":
     unittest.main()
