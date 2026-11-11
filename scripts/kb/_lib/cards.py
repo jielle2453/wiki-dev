@@ -1610,6 +1610,12 @@ def _link_target(rel):
     return rel
 
 
+def _index_link(rel):
+    """總目錄上的連結目標（D-541）：從總目錄所在的夾算起的相對寫法（./…）再跳脫。"""
+    from kb._lib.paths import rel_link  # 這個模組裡有函式拿 paths 當區域變數名
+    return _link_target(rel_link(INDEX_POSIX, rel))
+
+
 def _link_text(text):
     text = str(text)
     for a, b in _TEXT_ESC:
@@ -1663,9 +1669,9 @@ def _summary_lines(vault):
             if not loc:
                 continue
             if e.get("archived"):  # 封存的實體收進最後的摺疊框「已封存」（放寬丙 12，D-332）
-                old.append(f"> - [{_link_text(e['name'])}]({_link_target(loc)})")
+                old.append(f"> - [{_link_text(e['name'])}]({_index_link(loc)})")
             else:
-                rows.append(f"  - [{_link_text(e['name'])}]({_link_target(loc)})")
+                rows.append(f"  - [{_link_text(e['name'])}]({_index_link(loc)})")
         if rows:
             out += [f"- {_link_text(t['name'])}"] + rows
     if old:
@@ -1706,7 +1712,7 @@ def _render_index(vault, turn_id):
                 emit(node[key], depth + 1)
             else:
                 title, rel, mark = node[key]
-                lines.append(f"{pad}- {mark}[{_link_text(title)}]({_link_target(rel)})")
+                lines.append(f"{pad}- {mark}[{_link_text(title)}]({_index_link(rel)})")
     emit(tree, 0)
     summary = "\n".join(_summary_lines(vault)) or INDEX_NO_SUMMARY
     files = "\n".join(lines) if lines else INDEX_EMPTY

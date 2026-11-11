@@ -30,6 +30,19 @@ def decode_uri(text):
     return text
 
 
+def rel_link(page, target):
+    """連結目標的相對寫法（#66 甲，D-541）：page 是連結寫在哪一頁、target 是要連到的檔，兩個都是相對知識庫根的 posix 路徑。
+    回從 page 所在的夾算起的相對路徑，一律 ./ 或 ../ 開頭、分隔用 /、不動副檔名、不跳脫。
+    Obsidian 開在知識庫的上層夾、或同一個 vault 有兩個知識庫時，相對寫法才會開到這個知識庫自己的檔。"""
+    here = [s for s in str(page).split("/")[:-1] if s]
+    there = [s for s in str(target).split("/") if s]
+    same = 0
+    while same < len(here) and same < len(there) - 1 and here[same] == there[same]:
+        same += 1
+    up = len(here) - same
+    return ("../" * up if up else "./") + "/".join(there[same:])
+
+
 def plugin_root():
     here = Path(__file__).resolve()
     for d in here.parents:

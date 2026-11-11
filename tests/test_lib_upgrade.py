@@ -893,8 +893,8 @@ class DowngradeFlow(Base):
         self.assertEqual(str(cm.exception), "另一個備份、還原或退回正在跑，等它做完")
 
 
-class Finish(Base):
-    """驗收 7、9、10：--finish。"""
+class FinishSetup(Base):
+    """--finish 的測試共用：假骨架、假 CHANGELOG。"""
     PLUGIN = "0.21.0"
 
     def setUp(self):
@@ -919,6 +919,10 @@ class Finish(Base):
 
     def finish(self):
         return upgrade.finish(self.V, self.turn)
+
+
+class Finish(FinishSetup):
+    """驗收 7、9、10：--finish。"""
 
     def test_same_version_says_already_and_does_nothing(self):
         self.put_history("0.21.0")
@@ -1081,6 +1085,103 @@ class Finish(Base):
         self.finish()
         self.assertTrue(self.finish()["already"])
         self.assertEqual(len(self.history()["history"]), 1)
+
+
+class FinishRelinks(FinishSetup):
+    """#66 甲（D-541）驗收 8：舊庫升上來，日程頁、總目錄、綜合卡「相關檔」的連結重寫成相對寫法。"""
+    CARD = "案子/信義王/信義王.md"
+    MOVED = "01 案子/信義王/信義王.md"  # 從這麼舊的版本升上來，遷移會替型別夾補編號
+
+    def setUp(self):
+        super().setUp()
+        from tests import _cards, _entities as E
+        from kb._lib import agenda, cards, renders, synthesis
+        _cards.scan_apply(self.V)
+        E.set_profile(self.V)
+        E.install(self.V)
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
+        agenda.add(self.V, "到期", "2030-03-01", "付尾款", ["信義王"], self.turn)
+        cards.render_index(self.V, self.turn)
+        synthesis.render_cache(self.V, None, self.turn)
+        self.pages = [self.V / agenda.MD_POSIX, self.V / cards.INDEX_POSIX, self.V / self.CARD]
+        day, index, card = [p.read_text(encoding="utf-8") for p in self.pages]
+        for text, new in ((day, "[[../案子/信義王/信義王|信義王]]"), (index, "](./案子/信義王/信義王.md)"), (card, "[[../../檔案索引/")):
+            self.assertIn(new, text)
+        # 換成舊版程式寫的樣子（指紋照舊寫法記）
+        old_day = day.replace("[[../案子/", "[[案子/")
+        lines = [(ln.replace("[[../案子/", "[[案子/"), pid)
+                 for ln, pid in agenda.item_lines(self.V, agenda.load(self.V), None, agenda.linker(self.V))]
+        renders.record(self.V, agenda.MD_POSIX, old_day, day=agenda._today(), lines=lines)
+        old_index = index.replace("](./", "](")
+        renders.record(self.V, cards.INDEX_POSIX, old_index)
+        i, j = synthesis._span(card)
+        old_section = card[i:j].replace("[[../../檔案索引/", "[[檔案索引/").replace("|信義王報價]]", ".md|信義王報價]]")
+        renders.record(self.V, synthesis._file_key(self.CARD), old_section)
+        for p, text in zip(self.pages, (old_day, old_index, card[:i] + old_section + card[j:])):
+            p.write_text(text, encoding="utf-8", newline="\n")
+        self.put_history("0.20.1")
+
+    def texts(self):
+        card = next(p for p in (self.V / self.MOVED, self.V / self.CARD) if p.is_file())
+        self.pages[2] = card
+        return [p.read_text(encoding="utf-8") for p in self.pages]
+
+    def errors(self):
+        from kb._lib import ledger
+        p = self.V / ledger.ERROR_LOG_REL
+        return p.read_text(encoding="utf-8").splitlines() if p.is_file() else []
+
+    def assert_new(self, day, index, card):
+        self.assertIn("[[../01 案子/信義王/信義王|信義王]]", day)
+        self.assertNotIn("[[案子/", day)
+        self.assertNotIn("[[01 案子/", day)
+        self.assertIn("](./01%20案子/信義王/信義王.md)", index)
+        self.assertNotIn("](案子/", index)
+        self.assertNotIn("](01%20案子/", index)
+        self.assertNotIn("](檔案索引/", index)
+        self.assertIn("[[../../檔案索引/", card)
+        self.assertNotIn("[[檔案索引/", card)
+
+    def test_three_pages_are_rewritten_once(self):
+        from kb._lib import renders
+        day, index, card = self.texts()
+        self.assertIn("[[案子/信義王/信義王|信義王]]", day)
+        self.assertIn("](案子/信義王/信義王.md)", index)
+        self.assertIn("[[檔案索引/", card)
+        got = self.finish()
+        self.assertFalse(got["already"])
+        self.assert_new(*self.texts())
+        self.assertEqual(renders.saved(self.V), [])  # 沒有一頁被當成她手改
+        self.assertEqual(self.errors(), [])
+        stamps = [p.stat().st_mtime_ns for p in self.pages]
+        self.assertTrue(self.finish()["already"])
+        self.assertEqual([p.stat().st_mtime_ns for p in self.pages], stamps)
+
+    def test_one_render_failing_is_logged_and_does_not_stop_the_upgrade(self):
+        from kb._lib import agenda, cards, synthesis
+        for mod, name, rest in ((agenda, "render", (1, 2)), (cards, "render_index", (0, 2)), (synthesis, "render_cache", (0, 1))):
+            with self.subTest(failing=name):
+                self.tearDown()
+                self.setUp()
+                before = self.texts()
+                with mock.patch.object(mod, name, side_effect=OSError("磁碟滿了")):
+                    got = self.finish()
+                self.assertEqual((got["already"], got["to"]), (False, "0.21.0"))
+                self.assertEqual(self.history()["current"], "0.21.0")
+                (line,) = [x for x in self.errors() if "\tupgrade\t" in x]  # 遷移裡本來就會叫 render_cache 的那支另外記自己的
+                self.assertIn("磁碟滿了", line)
+                after = self.texts()
+                for k in rest:
+                    self.assertNotEqual(after[k], before[k])
+                    self.assertNotIn("[[檔案索引/", after[k])
+                    self.assertNotIn("](案子/", after[k])
+
+    def test_downgrade_does_not_rewrite(self):
+        self.PLUGIN = "0.20.0"
+        self.put_history("0.21.0")
+        before = self.texts()
+        self.finish()
+        self.assertEqual(self.texts(), before)
 
 
 class Background(Base):

@@ -504,11 +504,11 @@ class FileSection(Base):
         text = self.card()
         self.assertIn(synthesis.FILE_BEGIN + "\n## 相關檔\n", text)
         self.assertIn(synthesis.FILE_END + "\n\n## 紀事\n", text)  # D-523：插在紀事前面
-        self.assertIn(f"[[{main}|信義王報價]]（2026-10-01）", text)
-        self.assertIn(f"[[{other}|信義王估價]]（2026-09-12）", text)
+        self.assertIn(f"[[../../{main[:-3]}|信義王報價]]（2026-10-01）", text)  # #66 甲：從綜合卡算起的相對寫法
+        self.assertIn(f"[[../../{other[:-3]}|信義王估價]]（2026-09-12）", text)
         self.assertNotIn("[!note]- 其他", text)
         daan = self.card("案子/大安陳/大安陳.md")
-        self.assertIn("> [!note]- 其他\n> - [[" + other + "|信義王估價]]", daan)
+        self.assertIn("> [!note]- 其他\n> - [[../../" + other[:-3] + "|信義王估價]]", daan)
         self.assertNotIn("### ", daan)
         self.assertEqual(synthesis.render_cache(self.V, None, self.t), [])  # 穩定：第二次不寫
 
@@ -517,8 +517,8 @@ class FileSection(Base):
         new = E.write_card(self.V, E.ESTIMATE, "信義王報價", ["信義王"], date="2026-10-01")
         synthesis.render_cache(self.V, ["信義王"], self.t)
         text = self.card()
-        self.assertLess(text.index(new), text.index("> [!note]- 舊版"))
-        self.assertGreater(text.index(old), text.index("> [!note]- 舊版"))
+        self.assertLess(text.index(new[:-3]), text.index("> [!note]- 舊版"))
+        self.assertGreater(text.index(old[:-3]), text.index("> [!note]- 舊版"))
 
     def test_v2_card_counts_as_main(self):
         rel = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
@@ -527,7 +527,7 @@ class FileSection(Base):
                      encoding="utf-8", newline="\n")
         self.assertEqual(cards.validate(self.V, rel, self.by_id()), (True, ""))
         synthesis.render_cache(self.V, ["信義王"], self.t)
-        self.assertIn(f"[[{rel}|信義王報價]]", self.card())
+        self.assertIn(f"[[../../{rel[:-3]}|信義王報價]]", self.card())
 
     def test_ai_edit_without_section_passes_and_handedit_kept(self):
         E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"])
@@ -552,6 +552,61 @@ class FileSection(Base):
     def test_no_files_no_section(self):
         synthesis.render_cache(self.V, ["信義王"], self.t)
         self.assertNotIn(synthesis.FILE_BEGIN, self.card())
+
+    def section(self, rel=XINYI_REL):
+        text = self.card(rel)
+        i, j = synthesis._span(text)
+        return text[i:j]
+
+    def test_every_link_is_relative_to_the_card(self):
+        """#66 甲（D-541）驗收 3：相關檔每個連結都從綜合卡所在的夾算起，連得到那張檔案卡。"""
+        import re
+        main = E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"], date="2026-10-01")
+        other = E.write_card(self.V, E.ESTIMATE, "信義王估價", ["信義王"], date="2026-09-12")
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        links = re.findall(r"\[\[([^\]|]*)\|", self.section())
+        self.assertEqual(sorted(links), sorted("../../" + r[:-3] for r in (main, other)))
+        for link in links:
+            self.assertTrue(link.startswith("../../檔案索引/"), link)
+            self.assertTrue(((self.V / XINYI_REL).parent / (link + ".md")).resolve().is_file(), link)
+        self.assertEqual(synthesis.file_section([{"id": "f-1", "path": "檔案索引/a/甲-1.md", "title": "甲"}], "01 顧客/深/一層/卡.md"),
+                         synthesis.FILE_BEGIN + "\n## 相關檔\n\n### 未分類\n- [[../../../檔案索引/a/甲-1|甲]]\n\n" + synthesis.FILE_END)
+
+    def old_style(self):
+        """程式上次寫的是舊寫法的那段（指紋有記）；回 (舊的那段, 新的那段)。"""
+        from kb._lib import renders
+        E.write_card(self.V, E.QUOTE, "信義王報價", ["信義王"], date="2026-10-01")
+        synthesis.render_cache(self.V, ["信義王"], self.t)
+        new = self.section()
+        old = new.replace("[[../../檔案索引/", "[[檔案索引/").replace("|信義王報價]]", ".md|信義王報價]]")
+        self.assertNotEqual(old, new)
+        (self.V / XINYI_REL).write_text(self.card().replace(new, old), encoding="utf-8", newline="\n")
+        renders.record(self.V, synthesis._file_key(XINYI_REL), old)
+        return old, new
+
+    def test_old_style_section_is_rewritten_and_is_not_a_hand_edit(self):
+        """驗收 6：舊寫法的那段是程式寫的 → 重寫成新寫法，不留她那份。"""
+        from unittest import mock
+        from kb._lib import renders
+        old, new = self.old_style()
+        t2 = turn.start(self.V, None, "")["turn"]
+        with mock.patch.object(renders, "keep", wraps=renders.keep) as keep:
+            self.assertEqual(synthesis.render_cache(self.V, ["信義王"], t2), [XINYI_REL])
+        keep.assert_not_called()
+        self.assertEqual(self.section(), new)
+        self.assertEqual(renders.saved(self.V), [])
+        self.assertEqual(synthesis.render_cache(self.V, ["信義王"], t2), [])
+
+    def test_old_style_section_she_edited_is_kept_first(self):
+        """驗收 6：她真的改過那段（指紋對不上）照舊先留她那份。"""
+        from kb._lib import renders
+        old, new = self.old_style()
+        (self.V / XINYI_REL).write_text(self.card().replace("## 相關檔", "## 相關檔\n她寫的一行"), encoding="utf-8", newline="\n")
+        t2 = turn.start(self.V, None, "")["turn"]
+        self.assertEqual(synthesis.render_cache(self.V, ["信義王"], t2), [XINYI_REL])
+        self.assertEqual(self.section(), new)
+        (saved,) = renders.saved(self.V)
+        self.assertIn("她寫的一行", (self.V / saved["saved"]).read_text(encoding="utf-8"))
 
 
 def heads(text):

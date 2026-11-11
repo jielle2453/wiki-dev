@@ -260,7 +260,7 @@ class Archive(Base):
         from kb._lib import synthesis
         a = {"id": "f-1", "path": "檔案索引/a/a-1.md", "title": "甲", "date": "2026-01-01", "card_type": "會議紀錄", "relation": "main"}
         b = dict(a, id="f-2", path="檔案索引/a/b-2.md", title="乙", date="2026-02-01", archived=True)
-        text = synthesis.file_section([a, b])
+        text = synthesis.file_section([a, b], "案子/甲/甲.md")
         main, _sep, other = text.partition("> [!note]- 其他")
         self.assertIn("甲", main)
         self.assertNotIn("乙", main)

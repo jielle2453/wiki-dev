@@ -805,15 +805,18 @@ NO_TYPE = "未分類"
 _WIKI_ESC = {"|": "｜", "[": "［", "]": "］"}
 
 
-def _wiki(m):
+def _wiki(m, rel):
+    from kb._lib import paths
     title = re.sub(r"[|\[\]]", lambda x: _WIKI_ESC[x.group()], m.get("title") or m["path"].rpartition("/")[2][:-3])
     day = m.get("date") or ""
-    return f"[[{m['path']}|{title}]]" + (f"（{day}）" if _DATE.match(day) else "")
+    to = paths.rel_link(rel, m["path"])
+    return f"[[{to[:-3] if to.endswith('.md') else to}|{title}]]" + (f"（{day}）" if _DATE.match(day) else "")
 
 
-def file_section(mounts_of_it):
+def file_section(mounts_of_it, rel):
     """綜合卡紀事上面那段「相關檔」（程式寫的快取，AI 不碰）：主要的照卡型分組、文件日期新的在前，同標題較舊的收進
-    `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。"""
+    `> [!note]- 舊版`，只是提到的（relation 是 mention）與封存的檔全放進最後的 `> [!note]- 其他`。一份檔都沒有回空字串。
+    rel 是那張綜合卡相對知識庫根的路徑：連結寫成從它所在的夾算起的相對路徑、去掉 .md（D-541）。"""
     ordered = sorted(sorted(mounts_of_it, key=lambda m: m["id"]), key=_date_key, reverse=True)
     main, old, other, seen = [], [], [], set()
     for m in ordered:
@@ -830,10 +833,10 @@ def file_section(mounts_of_it):
         groups.setdefault(m.get("card_type") or NO_TYPE, []).append(m)
     lines = [FILE_BEGIN, FILE_TITLE, ""]
     for t in sorted(groups, key=lambda t: (-len(groups[t]), t)):
-        lines += [f"### {t}"] + [f"- {_wiki(m)}" for m in groups[t]] + [""]
+        lines += [f"### {t}"] + [f"- {_wiki(m, rel)}" for m in groups[t]] + [""]
     for head, items in (("舊版", old), ("其他", other)):
         if items:
-            lines += [f"> [!note]- {head}"] + [f"> - {_wiki(m)}" for m in items] + [""]
+            lines += [f"> [!note]- {head}"] + [f"> - {_wiki(m, rel)}" for m in items] + [""]
     return "\n".join(lines + [FILE_END])
 
 
@@ -941,7 +944,7 @@ def render_cache(vault, entity_names, turn_id):
             continue
         new = replace_front(text, {"檔案卡": card_lines(mounts.get(e["name"], [])),
                                    "相關實體": related(data, mounts, e)})
-        section = file_section(all_mounts.get(e["name"], []))
+        section = file_section(all_mounts.get(e["name"], []), rel)
         hers = _hers_file_section(vault, rel, new, section)
         if hers is not None:  # 她手改了這段：先留她那份再重寫（D-223）；留不下來這次就不動這段
             try:

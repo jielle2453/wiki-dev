@@ -74,10 +74,11 @@ def holding(vault):
     return str(vault) in _HOLDING
 
 
-def linker(vault, ents=None, mark_removed=False):
-    """實體名字 → 程式頁上的寫法（D-280）：有綜合卡寫 [[<卡的實際位置去掉 .md>|<名稱>]]（卡搬過夾也對，entities.locate），
+def linker(vault, ents=None, mark_removed=False, page=MD_POSIX):
+    """實體名字 → 程式頁上的寫法（D-280、D-541）：有綜合卡寫 [[<從 page 所在的夾到卡實際位置的相對路徑，去掉 .md>|<名稱>]]
+    （卡搬過夾也對，entities.locate；page 是連結寫在哪一頁，預設 系統/ 底下那幾頁），
     沒有卡的、不在清單的照寫名字。同一頁查過的名字記住，不重複找卡。mark_removed：拿掉的實體加註「（已拿掉）」（帳頁、首頁的帳，記帳 2）。"""
-    from kb._lib import entities
+    from kb._lib import entities, paths
     try:
         data = entities.load(vault) if ents is None else ents
     except ValueError:
@@ -96,7 +97,8 @@ def linker(vault, ents=None, mark_removed=False):
             elif e is not None and e.get("status") == "active" and e.get("type") and not entities.is_self(e):
                 where = entities.locate(vault, e, data)
                 if where:
-                    out = f"[[{where[:-3] if where.endswith('.md') else where}|{name}]]"
+                    to = paths.rel_link(page, where)
+                    out = f"[[{to[:-3] if to.endswith('.md') else to}|{name}]]"
         except (OSError, ValueError):
             out = name
         memo[name] = out

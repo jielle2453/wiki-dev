@@ -118,7 +118,7 @@ class Views(Base):
     def test_md_line_and_export(self):
         it = self.add(repeat="每年", lead_days=3)
         md = (Path(self.V) / agenda.MD_POSIX).read_text(encoding="utf-8")
-        self.assertIn("生日（[[案子/信義王/信義王|信義王]]）（每年）", md)
+        self.assertIn("生日（[[../案子/信義王/信義王|信義王]]）（每年）", md)
         row = agenda.export_payload(self.V, agenda.load(self.V))["items"][0]
         self.assertEqual(row["repeat"], "year")
         self.assertEqual(row["fp"], agenda.item_fp(dict(it, repeat=None)))  # repeat 不進指紋

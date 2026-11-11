@@ -572,7 +572,7 @@ class Render(Base):
                           text="施工", entities=["信義王"])])
         agenda.render(self.V, today=TODAY)
         got = (self.V / "系統" / "日程.md").read_text(encoding="utf-8")
-        self.assertIn("- 2026-10-15 期間 施工（[[案子/信義王/信義王|信義王]]）完成", got)  # 有綜合卡的寫連結（D-280）
+        self.assertIn("- 2026-10-15 期間 施工（[[../案子/信義王/信義王|信義王]]）完成", got)  # 有綜合卡的寫連結（D-280）
 
     def test_unchanged_content_is_not_rewritten_or_backed_up(self):
         shutil.copy2(FIX / "agenda.json", self.V / ".system" / "agenda.json")
@@ -589,6 +589,76 @@ class Render(Base):
         put(self.V, [item()])
         agenda.render(self.V, t2, today=TODAY)
         self.assertEqual([r["path"] for r in turn.entries(self.V, t2)], [agenda.MD_POSIX])
+
+
+class RelativeLinks(Base):
+    """#66 甲（D-541）：日程頁的連結從 系統/ 算起；舊寫法的頁重寫一次、不算她手改。"""
+    OLD, NEW = "[[案子/信義王/信義王|信義王]]", "[[../案子/信義王/信義王|信義王]]"
+
+    def md(self):
+        return (self.V / agenda.MD_POSIX).read_text(encoding="utf-8")
+
+    def old_page(self):
+        """程式上次寫的是舊寫法（指紋有記）。"""
+        from kb._lib import renders
+        self.add(date="2030-03-03", text="給報價")
+        new = self.md()
+        self.assertIn(self.NEW, new)  # 驗收 2
+        self.assertNotIn("[[案子/", new)
+        old = new.replace(self.NEW, self.OLD)
+        (self.V / agenda.MD_POSIX).write_text(old, encoding="utf-8", newline="\n")
+        data = agenda.load(self.V)
+        lines = [(ln.replace(self.NEW, self.OLD), pid) for ln, pid in agenda.item_lines(self.V, data, TODAY, agenda.linker(self.V))]
+        renders.record(self.V, agenda.MD_POSIX, old, day=TODAY, lines=lines)
+        return old, new
+
+    def test_linker_page_decides_the_depth(self):
+        self.assertEqual(agenda.linker(self.V)("信義王"), self.NEW)
+        self.assertEqual(agenda.linker(self.V, page="總目錄.md")("信義王"), "[[./案子/信義王/信義王|信義王]]")
+        self.assertEqual(agenda.linker(self.V, page="案子/大安陳/大安陳.md")("信義王"), "[[../信義王/信義王|信義王]]")
+        self.assertEqual(agenda.linker(self.V)("沒這個人"), "沒這個人")
+
+    def test_old_style_page_is_rewritten_and_is_not_a_hand_edit(self):
+        """驗收 5。"""
+        from kb._lib import pending, renders
+        old, new = self.old_page()
+        self.assertFalse(renders.check(self.V, agenda.MD_POSIX))
+        before = pending.load(self.V)
+        t2 = turn.start(self.V, None, "")["turn"]
+        self.assertTrue(agenda.render(self.V, t2, today=TODAY))
+        self.assertEqual(self.md(), new)
+        self.assertEqual(pending.load(self.V), before)
+        self.assertEqual(renders.saved(self.V), [])
+        self.assertFalse(renders.check(self.V, agenda.MD_POSIX))
+
+    def change_date(self, old_style):
+        old, new = self.old_page()
+        if not old_style:
+            agenda.render(self.V, today=TODAY)  # 先重寫成新寫法，她再改
+        page = old if old_style else new
+        self.assertEqual(self.md(), page)
+        self.assertIn("- 2030-03-03（週日）", page)
+        (self.V / agenda.MD_POSIX).write_text(page.replace("- 2030-03-03（週日）", "- 2030-03-10（週日）"),
+                                              encoding="utf-8", newline="\n")
+        agenda.apply_hand(self.V, turn.start(self.V, None, "")["turn"])
+        (it,) = read(self.V)
+        return it["date"], [h["by"] for h in it["history"]][-1:], self.md()
+
+    def test_date_changed_on_an_old_style_line_is_still_recognised(self):
+        """驗收 7：她改了日期、那行的連結還是舊寫法，認得出是哪一條；頁重寫成新寫法。"""
+        day, by, md = self.change_date(old_style=True)
+        self.assertEqual((day, by), ("2030-03-10", [agenda.HAND_BY]))
+        self.assertIn("- 2030-03-10（週日）到期 給報價（" + self.NEW, md)
+        self.assertNotIn("[[案子/", md)
+
+    def test_date_changed_on_a_new_style_line_gives_the_same(self):
+        day, by, md = self.change_date(old_style=False)
+        self.assertEqual((day, by), ("2030-03-10", [agenda.HAND_BY]))
+        self.assertIn("- 2030-03-10（週日）到期 給報價（" + self.NEW, md)
+
+    def test_table_cell_escapes_the_bar_in_a_relative_link(self):
+        """驗收 9。"""
+        self.assertEqual(agenda.table_cell("[[../a/b|b]]"), "[[../a/b\\|b]]")
 
 
 if __name__ == "__main__":

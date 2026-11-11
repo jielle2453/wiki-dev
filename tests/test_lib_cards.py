@@ -215,13 +215,13 @@ class RenderIndex(Vault):
         self.assertEqual(body, [
             "- 客戶案件",
             "  - 大安陳",
-            f"    - 📘 [大安陳 會議(一)](檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
-            "  - 📄 [壞卡-00000000](檔案索引/客戶案件/壞卡-00000000.md)",
-            f"  - 📄 [空檔](檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
+            f"    - 📘 [大安陳 會議(一)](./檔案索引/客戶案件/大安陳/大安陳%20會議%28一%29-{pick['file://' + _cards.MEETING]['id'][2:]}.md)",
+            "  - 📄 [壞卡-00000000](./檔案索引/客戶案件/壞卡-00000000.md)",
+            f"  - 📄 [空檔](./檔案索引/客戶案件/空檔-{pick['file://客戶案件/空檔.bin']['id'][2:]}.md)",
             "- 知識庫",
             "  - 案子",
             "    - 信義王",
-            f"      - 📘 [信義王合約\\[正本\\]](檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
+            f"      - 📘 [信義王合約\\[正本\\]](./檔案索引/知識庫/案子/信義王/信義王合約%5B正本%5D-"
             f"{pick['file://知識庫/案子/信義王/合約.docx']['id'][2:]}.md)",
             "",
             "共 4 張卡",
@@ -563,11 +563,24 @@ class IndexSections(unittest.TestCase):
         text = self.text()
         self.assertLess(text.index("## 摘要"), text.index("## 檔案"))
         summary = text[text.index("## 摘要"):text.index("## 檔案")]
-        self.assertIn("- 案子\n  - [信義王](案子/信義王/信義王.md)", summary)
-        self.assertIn("  - [大安陳](案子/大安陳/大安陳.md)", summary)
+        self.assertIn("- 案子\n  - [信義王](./案子/信義王/信義王.md)", summary)
+        self.assertIn("  - [大安陳](./案子/大安陳/大安陳.md)", summary)
         files = text[text.index("## 檔案"):]
         self.assertRegex(files, r"- 📕 \[信義王報價\]")
         self.assertRegex(files, r"- 📘 \[信義王合約\]")
+
+    def test_every_link_is_relative_to_the_index(self):
+        """#66 甲（D-541）驗收 4：摘要與檔案兩塊的連結都以 ./ 開頭，連得到檔。"""
+        import re
+        text = self.text()
+        targets = re.findall(r"\]\(([^)]*)\)", text)
+        self.assertGreaterEqual(len(targets), 4)
+        self.assertIn("## 摘要", text)
+        for target in targets:
+            self.assertTrue(target.startswith("./"), target)
+            self.assertTrue((self.V / urllib.parse.unquote(target)).is_file(), target)
+        self.assertEqual(text.count("]("), len(targets))
+        self.assertFalse(cards.index_broken(self.V))
 
     def test_icons_off_and_files_first(self):
         self.config(index_icons=False, index_order="files_first")

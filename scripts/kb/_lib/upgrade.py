@@ -813,6 +813,19 @@ def _run_init(vault):
         init.run(argparse.Namespace(path=str(vault), check=False, json=False))
 
 
+def _relink(vault, turn_id):
+    """程式頁重產一次（D-541）：日程頁、總目錄、綜合卡「相關檔」的連結換成這一版的寫法。三支都是內容沒變不寫、寫前備進回合；
+    哪一支出錯記 hook-errors.log 後繼續，不擋升級。"""
+    from kb._lib import agenda, cards, ledger, synthesis
+    for what, run in (("日程.md", lambda: agenda.render(vault, turn_id)),
+                      ("總目錄.md", lambda: cards.render_index(vault, turn_id)),
+                      ("綜合卡的相關檔", lambda: synthesis.render_cache(vault, None, turn_id))):
+        try:
+            run()
+        except Exception as e:  # noqa: BLE001
+            ledger.log_error(vault, f"升級後重寫{what}的連結沒成：{type(e).__name__}: {e}", source="upgrade")
+
+
 def _snapshot_file(vault, name):
     """pending 記的快照名 → 快照夾裡那個 .zip（只收單純的檔名，../ 這類一律不認）；不在回 None。"""
     if not isinstance(name, str) or not name.endswith(".zip") or Path(name).name != name or name in (".", ".."):
@@ -913,6 +926,7 @@ def finish(vault, turn_id):
             mig = migrate.apply(vault, turn_id)  # 先於 kb init：init 自己也會升設定檔 schema，但不備進回合（驗收 8 要退得回）
             had = {rel for rel in skeleton.files() if (Path(vault) / rel).exists()}
             _run_init(vault)
+            _relink(vault, turn_id)
             sk = skeleton.reconcile(vault, turn_id, from_version=cur)
             old_area = _old_area(vault, cur)  # init 之後：系統/ 已在
             created = sorted({rel for rel in skeleton.files() if rel not in had and (Path(vault) / rel).exists()}

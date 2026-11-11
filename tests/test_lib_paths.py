@@ -246,5 +246,30 @@ class SourcesUnresolvedShape(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class RelLink(unittest.TestCase):
+    """#66 甲（D-541）：連結目標寫成從那一頁所在的夾算起的相對路徑，一律 ./ 或 ../ 開頭。"""
+
+    def test_from_system_page(self):
+        self.assertEqual(paths.rel_link("系統/日程.md", "01 顧客/李小姐/李小姐.md"), "../01 顧客/李小姐/李小姐.md")
+
+    def test_from_synthesis_card(self):
+        self.assertEqual(paths.rel_link("01 顧客/李小姐/李小姐.md", "檔案索引/報價/2026/報價單.md"),
+                         "../../檔案索引/報價/2026/報價單.md")
+
+    def test_from_root_page(self):
+        self.assertEqual(paths.rel_link("總目錄.md", "01 顧客/李小姐/李小姐.md"), "./01 顧客/李小姐/李小姐.md")
+
+    def test_same_folder(self):
+        self.assertEqual(paths.rel_link("01 顧客/李小姐/李小姐.md", "01 顧客/李小姐/附件.md"), "./附件.md")
+        self.assertEqual(paths.rel_link("總目錄.md", "首頁.md"), "./首頁.md")
+
+    def test_sibling_branch_shares_only_the_first_folder(self):
+        self.assertEqual(paths.rel_link("檔案索引/甲/a.md", "檔案索引/乙/b.md"), "../乙/b.md")
+
+    def test_space_chinese_hash_kept_as_is(self):
+        self.assertEqual(paths.rel_link("系統/日程.md", "01 顧客/C# 案 (一)/C# 案 (一).md"), "../01 顧客/C# 案 (一)/C# 案 (一).md")
+        self.assertEqual(paths.rel_link("總目錄.md", "檔案索引/a b/報價 100%.pdf"), "./檔案索引/a b/報價 100%.pdf")  # 不動副檔名
+
+
 if __name__ == "__main__":
     unittest.main()

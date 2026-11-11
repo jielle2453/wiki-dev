@@ -112,6 +112,19 @@ class Diff(Base):
         self.assertEqual(renders.unlink("[[系統/帳/2026|2026]]、[[02 顧客/李小姐/李小姐]]"), "2026、李小姐")
         self.assertEqual(renders.unlink("沒有連結"), "沒有連結")
 
+    def test_unlink_old_and_relative_links_are_the_same(self):
+        """#66 甲（D-541）：同一行舊寫法與相對寫法還原後相同，只是連結寫法不同不算她手改。"""
+        old = "- 2026-11-05（週四）會議 見面（[[02 顧客/李小姐/李小姐|李小姐]]）、[[02 顧客/李小姐/李小姐]]、| [[系統/帳/2026\\|2026]] |"
+        new = old.replace("[[02 顧客/", "[[../02 顧客/").replace("[[系統/帳/", "[[./帳/")
+        self.assertNotEqual(old, new)
+        self.assertEqual(renders.unlink(new), renders.unlink(old))
+        self.assertEqual(renders.unlink("[[../../檔案索引/a/報價單|報價單]]、[[./首頁]]、[[../a/b#段]]"), "報價單、首頁、b")
+        base = "# 日程\n## 今天\n" + old.split("、")[0] + "\n"
+        lines = [(base.splitlines()[-1].replace("[[02 顧客/", "[[../02 顧客/"), "a-1")]
+        self.assertTrue(renders.is_empty(renders.diff(base.replace("[[02 顧客/", "[[../02 顧客/"), base, lines)))
+        got = renders.diff(base.replace("[[02 顧客/", "[[../02 顧客/"), base.replace("2026-11-05（週四）", "2026-11-08"), lines)
+        self.assertEqual([(c["id"], c["to"]) for c in got["changed_date"]], [("a-1", "2026-11-08")])
+
     def test_link_untouched_is_not_a_change(self):
         """她沒動連結的行不算改；Obsidian 搬卡改了連結路徑也不算；改日期照舊認得。"""
         base = "# 日程\n## 今天\n- 2026-11-05（週四）會議 見面（[[02 顧客/李小姐/李小姐|李小姐]]）\n"
