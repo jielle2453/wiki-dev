@@ -270,10 +270,22 @@ class OuterPlugin(unittest.TestCase):
                 self.assertIn("是 willy 自己的檔", r.stdout, args)
             self.assertTrue(kb_dir.is_dir(), kb_dir)
         # 上層夾裡她自己的檔照舊
-        for args in (("trash", "../她的.md", "--check"), ("rename", "../她的.md", "改名.md", "--check")):
-            r = run(without, *args)
-            self.assertNotIn("willy 自己的檔", r.stdout, args)
-            self.assertEqual(r.returncode, 0, f"{args}\n{r.stdout}{r.stderr}")
+        (with_outer.parent / "她的.md").write_text("x", encoding="utf-8")
+        (self.tmp / "外" / "子夾").mkdir()
+        (self.tmp / "外" / "子夾" / "別的.md").write_text("x", encoding="utf-8")
+        for kb_dir in (with_outer, without):
+            for args in (("trash", "../她的.md", "--check"), ("rename", "../她的.md", "改名.md", "--check")):
+                r = run(kb_dir, *args)
+                self.assertNotIn("willy 自己的檔", r.stdout, args)
+                self.assertEqual(r.returncode, 0, f"{args}\n{r.stdout}{r.stderr}")
+        # 裁定 11：只擋來源端。把檔搬「進」知識庫的上層夾照舊；目的地是上層 .obsidian/plugins、.obsidian 夾本身仍擋（classify 的 Z7）
+        r = run(with_outer, "move", "../../子夾/別的.md", "--to", "..", "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("willy 自己的檔", r.stdout)
+        for dest in ("../.obsidian/plugins", "../.obsidian"):
+            r = run(with_outer, "move", "../../子夾/別的.md", "--to", dest, "--check")
+            self.assertEqual(r.returncode, 3, f"{dest}\n{r.stdout}{r.stderr}")
+            self.assertIn("是 willy 自己的檔", r.stdout, dest)
 
 
 if __name__ == "__main__":
