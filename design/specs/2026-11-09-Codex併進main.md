@@ -137,7 +137,7 @@ Codex 版現在放在 wiki-dev 的長期分支 `codex`，main 每發一版都要
 2. Claude 版的測試沒被改：`git diff origin/main -- tests/test_hooks_guard.py tests/test_hooks_output_log.py tests/test_hooks_stop.py tests/test_hooks_turn.py tests/test_hooks_session.py tests/test_hooks_subagent.py` 只有新加的行，沒有刪掉或改掉的斷言。
 3. `git diff origin/main -- hooks/hooks.json` 是空的。
 4. Claude Code 只讀 `hooks.json`：在測試庫跑 `claude -p "hi" --plugin-dir <worktree> --debug-file <檔>`，debug 檔裡登記的 willy hook 都來自 `hooks/hooks.json`，沒有 `codex.json`；SessionStart 的開場段照常出現。
-5. Codex 只讀 `codex.json`：在空的 CODEX_HOME 從 worktree 加本機市集、裝外掛，用 `codex app-server` 的 `hooks/list` 查（腳本做法見決策 1 的查證文件）。willy 的 hook key 全部是 `wiki-with-willy@…:hooks/codex.json:…`，總共 6 個事件（session_start、user_prompt_submit、pre_tool_use、post_tool_use、stop、session_end），沒有 `hooks/hooks.json` 的 key。
+5. Codex 跑的是 Codex 版的 hook（D-539 改）：在空的 CODEX_HOME 從假公開 repo 的 `codex` 分支裝（或照安裝-Codex.md 備用步驟：zip 解開、`codex.json` 改名蓋掉 `hooks.json`、加本機市集），用 `codex app-server` 的 `hooks/list` 查（腳本做法見決策 1 的查證文件）。willy 的 hook key 全部是 `wiki-with-willy@…:hooks/hooks.json:…`、Codex 的 matcher，總共 6 個事件（session_start、user_prompt_submit、pre_tool_use、post_tool_use、stop、session_end）。**不能直接從 main 的 worktree 加本機市集驗**：那樣 Codex 跑到的是 Claude 版 `hooks/hooks.json`（8 個事件），這是 D-539 的預期結果（測試第 3 輪 #9）。
 6. 派工 prompt 分兩邊：在 `test_scripts_cards_dispatch.py` 加兩條。
    - session 檔沒有 `client` 時，`prompt` 等於 main 的格式。
    - session 檔有 `client: "codex"` 時，`prompt` 含 `card-maker.md` 的絕對路徑和 `--done`。

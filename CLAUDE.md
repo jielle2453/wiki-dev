@@ -4,7 +4,7 @@
 給誰看：改這個 repo 的 Claude 與人。怎麼用 plugin 看 README.md，設計與決策看 design/。
 什麼時候更新：目錄或流程變了的那個 commit 一起改。
 
-Codex 版在同一份程式（#56）：`hooks/codex.json`、`.codex-plugin/`、`.agents/`、`hooks/_codex.py`、`skeleton/AGENTS.md`、`安裝-Codex.md`。Claude 版的 `hooks/hooks.json` 不准為了 Codex 改；Codex 的對話由 `turn.py` 標 `codex`，要分兩邊的行為看這個旗標。
+Codex 版在同一份程式（#56）：`hooks/codex.json`、`.codex-plugin/`、`.agents/`、`hooks/_codex.py`、`skeleton/AGENTS.md`、`安裝-Codex.md`。Claude 版的 `hooks/hooks.json` 不准為了 Codex 改；Codex 的對話由 `turn.py` 標 `codex`，要分兩邊的行為看這個旗標。main 不能直接給 Codex 裝：Codex 只執行預設檔名 `hooks/hooks.json`，發行時 `release.py` 把 `hooks/codex.json` 改名寫進公開版 `codex` 分支（D-539）；要在 main 試 Codex 得自己改名。
 
 ## 一、原始碼地圖（按需讀，在 `ops/`）
 
