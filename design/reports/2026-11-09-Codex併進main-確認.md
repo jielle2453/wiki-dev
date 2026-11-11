@@ -121,3 +121,37 @@
 判定：對照下 hook 仍不跑，「專案根判成家目錄」這個解釋不成立；情境 2 維持**不過**，#6 不變（原因仍未查實；剩下可能：0.167.1 的 exec／TUI 行為、測試 `CODEX_HOME` 本身的其他差異）。依指示沒有再跑「整理一下」「大安陳的報價多少」。
 
 收尾：`codex-home-s2\auth.json` 測完刪掉。`C:\c56` 留著，要清再說。
+
+## 第 3 輪
+
+日期：2026-11-11。範圍：設計 session 查出 #6 根因（Codex 只認信任紀錄裡的內容指紋＋預設檔名 `hooks/hooks.json`），修在 D-539（`80ec0834`：發行時 `_push_codex` 把 `hooks/codex.json` 改名成 `hooks/hooks.json`），文件 `af45da2c`；worktree HEAD `06d6e24d`。重驗情境 2、4。
+
+做法：
+- 拋棄式 clone `確認\dev` 升 0.38.0、`build --prepare`、打 tag，出 `out\wiki-with-willy-0.38.0.zip`；用 `release._push_codex` 推到假公開 repo 的 codex 分支（`33d0304`，前面是 0.34.0 `6fc856a`、0.37.0 `10c3ac1`）。
+- 情境 2：新 `codex-home-s2b` 照 `安裝-Codex.md` 裝 0.38.0，知識庫 `s2b\知識庫` 由 0.38.0 `kb init` 建。
+- 情境 4：新 `codex-home-s4b` 先裝 0.34.0（`--ref 6fc856a`）建 `s4b\知識庫`，再照文件四步升到 0.38.0。
+- 兩個 config 都加 `[projects.'c:\users\user'] trust_level = "untrusted"`（避開 #7）；知識庫 `.system/config.json` 的更新網址清空（不碰真遠端）。
+- jacky 在 TUI `/hooks` 信任；我用 `hookslist.py` 確認 6 個 trusted 後跑 `codex --no-daemon exec --skip-git-repo-check --json … < /dev/null`。Codex 0.167.1。
+
+| 情境 | 結果 |
+|---|---|
+| 2 開場段 | **過**：「有，我看到 wiki-with-willy 的開場段：包含 `kb` 指令路徑、每 10 分鐘背景比對的要求，以及 R-01 到 R-14 核心規則」 |
+| 2 「整理一下」 | **過（有落差）**：第 1 次讀檔工具卡住、沒改檔（#11）；第 2 次先問「有 42 份要整理…現在做嗎？」（同 #2，另外念出 skill 路徑，#10）；`resume` 回「現在做」→ `cards dispatch`、`spawn_agent` 分批製卡＋綜合卡，4 份 rollout 有 `--done`，最後 `done: true`。成果：30 份檔案卡＋10 份現況頁；10 份 PDF 讀不到（#9）、2 份 .doc 照實請客戶另存，都記進「系統／待處理.md」 |
+| 2 「大安陳的報價多少」 | **過**：「最新第二版報價是 **62 萬元**，已核對原檔〔…第二版報價，2026/08/24〕；合約工程總價 65 萬 1,000 元（含稅）」 |
+| 4 升級步驟 | **過**：照 `af45da2c` 四步（移除舊 plugin、移除 `wiki-with-willy-local`、加新市集、裝 `wiki-with-willy@wiki-with-willy`）裝上 0.38.0 |
+| 4 要求重新信任 | **過**：升級後 `hookslist` 6 個都是 untrusted，重新信任後 trusted。`/hooks` 抬頭那行 jacky 沒記下來 |
+| 4 信任後開場 | **過**：開場段出現，且要求先跑 `kb upgrade --finish` |
+
+判定：#6 已解（D-539），情境 2、4 改判**過**；新增落差 #9（高）、#10、#11（低）。
+
+| # | 嚴重 | 內容 |
+|---|---|---|
+| 9 | 高 | 情境 2：Codex 沙箱裡 PDF 全讀不到。同一台電腦、同一份 0.38.0，在 Codex 裡 `kb build env` 印「不行：PDF 元件被擋，PDF 會讀不到」，在沙箱外跑印「可以：PDF 元件可以用」；10 份 PDF 製卡失敗（「PDF 元件出錯，讀不到」），包括信義王兩版報價、內湖李估價單與合約。沙箱設定是 `安裝-Codex.md` 第二節第 4 步規定的 `[windows] sandbox = "unelevated"`（`elevated` 讀不到外掛），所以照文件裝的 Codex 客戶都會這樣。情境 1（Claude）PDF 有讀到。AI 對客戶說「這台電腦的 PDF 讀取元件無法使用，需要服務人員處理」，有照實講、沒亂答。是 `_pdf_probe` 在沙箱裡哪一步被擋（載 pdfium DLL、暫存路徑或其他），我沒查 |
+| 10 | 低 | spec 以外：第 2 次「整理一下」先問時，回答最後一行「依據 [ingest 技能規則](C:/…/0.38.0/skills/ingest/SKILL.md)「份數多照 announce、approval 先問」」，內部路徑與英文規則名給客戶看到。和 #2 是同類 |
+| 11 | 低 | spec 以外：第 1 次「整理一下」在讀 `SKILL.md` 的工具呼叫（code mode 的 `exec_command`／`Get-Content`）一直沒回，AI 回「讀取檔案的工具一直沒有回應…沒有更動任何資料」。之後沒再發生。我另外試過沒加 `-Encoding UTF8` 的 `Get-Content` 讀那份 SKILL.md，中文是亂碼；這跟卡住有沒有關係沒查 |
+
+沒確認到的：#9 的根因；`/hooks` 抬頭那行；`kb upgrade` 的下載（更新網址清空，同第 1 輪）。
+
+花費：這一輪沒用 `claude -p`，API 總額維持約 5.12 美元。Codex 用 jacky 的 ChatGPT：8 次 `exec`，共約 782 萬 input tokens（其中約 763 萬是快取）、1.1 萬 output tokens，九成在「現在做」那次（708 萬 input，含子代理）。
+
+收尾：`codex-home-s2b`、`codex-home-s4b` 的 `auth.json` 測完刪掉。`dev`、`out`、`fake-pub(.git)`、`s2b`、`s4b` 和舊的 home 都留著，要清再說。
