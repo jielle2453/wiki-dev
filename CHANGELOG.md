@@ -13,7 +13,7 @@ bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；�
 - **commit**：8f79c39e、4efafaf5、e545921c（skill夾放寫）；177d1132、653b8fb2、8654d48f、e1dba56b、80ec0834、06d6e24d、af45da2c（Codex併進main）
 - **spec**：design/specs/2026-11-08-skill夾放寫.md、2026-11-09-Codex併進main.md
 - **關掉的 issue**：#52、#55、#56
-- **還沒驗、還沒定的**：寫 skill 時 Claude Code 自己對 `.claude/` 的安全檢查會跳允許（不是 willy 擋），`-p` 模式寫不進去；同一對話說「退回」時 willy 沒有 skill 的備份，AI 可能改把 skill 夾丟進資源回收筒。Codex 沙箱 `unelevated` 下 PDF 元件被擋、PDF 製卡失敗（跟這版改動無關，另案）。main 不能直接給 Codex 裝，要裝公開版的 `codex` 分支。
+- **還沒驗、還沒定的**：寫 skill 時 Claude Code 自己對 `.claude/` 的安全檢查會跳允許（不是 willy 擋），`-p` 模式寫不進去；同一對話說「退回」時 willy 沒有 skill 的備份，AI 可能改把 skill 夾丟進資源回收筒。Codex 沙箱 `unelevated` 下 PDF 元件被擋、PDF 製卡失敗（跟這版改動無關，另案）。main 不能直接給 Codex 裝，要裝公開版的 `codex` 分支。`test_hooks_session` 的 `test_missing_again_told_again`（檔不見、放回、又不見要再講一次，裁定 18）單獨跑固定不過，0.37.0 就是如此、不是這版改的，另案查。
 
 ## 0.37.0 — 2026-11-11
 - **給客戶的一句話**：檔案很多時也不會慢下來：電腦會在背景每 10 分鐘幫你看有沒有新檔、改過的檔或改過的卡，你一開口就直接接著做，答完收尾也快很多；新建的知識庫第一次對話也不會再誤報「守門好像沒在跑」。不想要背景檢查的，跟 willy 說關掉就好。
