@@ -11,7 +11,8 @@ from kb._lib.paths import normalize as paths_normalize  # noqa: E402
 
 KB_WORDS = {"kb", "office", "copy", "output", "save", "source", "edit", "move", "willy", "Edit", "Write", "MultiEdit", "folders",
             "include", "trash", "replace", "name", "to", "profile", "apply", "selftest", "Word", "Excel", "Move", "Item", "Force",
-            "Copy", "Test", "Path", "os", "rename", "shutil", "rmdir", "hook", "errors", "log", "n", "mv", "cp", "check", "json"}
+            "Copy", "Test", "Path", "os", "rename", "shutil", "rmdir", "hook", "errors", "log", "n", "mv", "cp", "check", "json",
+            "Office", "Save"}  # Office、.Save()：守門補洞測試第 1 輪後裁定 12 加進 CONTENT_REASON 的兩句
 
 
 class DecideBase(unittest.TestCase):
