@@ -670,6 +670,25 @@ def office_save_targets(text):
     return out
 
 
+def strip_file_calls(text):
+    """把 .NET 檔案靜態呼叫、[IO.FileInfo]::new(…)、Office 另存連同括號裡的參數換成空白：同一段的全名寫入動詞從剩下的字抽目標
+    （測試第 1 輪後裁定 13；.NET 呼叫另外由 file_calls 判）。"""
+    spans = []
+    for rx in (_NET_CALL, _NET_NEW, OFFICE_SAVE):
+        for m in rx.finditer(text):
+            args, end = _call_args(text, m.end())
+            if args is not None:
+                spans.append((m.start(), end))
+    out, last = [], 0
+    for a, b in sorted(spans):
+        if a < last:
+            continue
+        out.append(text[last:a] + " ")
+        last = b
+    out.append(text[last:])
+    return "".join(out)
+
+
 DOWNLOAD_VERBS = {"iwr", "irm", "invoke-webrequest", "invoke-restmethod", "curl", "wget"}
 
 

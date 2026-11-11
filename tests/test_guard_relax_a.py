@@ -452,9 +452,14 @@ class Holes25(Base):
                           ("PowerShell", f"Set-Content '{w}/新.txt' x; $d.SaveAs2('{w}/新.txt')"),
                           ("PowerShell", f"iwr https://x.tw -OutFile '{w}/n.docx'; Move-Item '{v}/我的夾/筆記.txt' '{w}/n.docx'"),
                           ("PowerShell", f"iwr https://x.tw/a -OutFile '{w}/sub'"),
-                          ("Bash", f"curl https://x.tw/a -OutFile '{w}/new5.docx'")):
+                          ("Bash", f"curl https://x.tw/a -OutFile '{w}/new5.docx'"),
+                          ("Bash", f"python -c \"import os; os.rename(r'{v}/我的夾/筆記.txt', r'{w}/nb12.txt') "
+                                   f"# .SaveAs('{w}/nb12.txt')\"")):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.d(tool, cmd).decision, "deny")
+        for name in ("rm", "ni"):  # 檔名剛好是動詞名的新檔照放（code review 第二輪）
+            with self.subTest(name=name):
+                self.passes("PowerShell", word + f"$d.SaveAs2('{w}/{name}')")
 
     def test_round1_content_reason_sentences(self):
         """測試第 1 輪後裁定 12：CONTENT_REASON 補兩句；照新句子改寫後做得完（驗收 4）。"""
@@ -483,6 +488,14 @@ class Holes25(Base):
         # code review：.NET 呼叫的內容參數（剛好是既有檔的路徑）不當全名動詞的目標
         self.passes("PowerShell", f"Set-Content -Path '{v}/我的夾/new.txt' -Value ([IO.File]::WriteAllText('{v}/我的夾/n.txt', "
                                   f"'{v}/我的夾/筆記.txt'))")
+        # code review 第二輪：全名動詞自己的目標剛好也出現在 .NET 參數裡，照樣判；.NET 參數裡的 copy、cp 字串不當動詞
+        self.denies("PowerShell", f"Set-Content '{v}/我的夾/筆記.txt' -Value ([IO.File]::WriteAllText('{v}/暫存區/新x.txt', "
+                                  f"'{v}/我的夾/筆記.txt'))", "content")
+        self.denies("PowerShell", f"Add-Content '{v}/我的夾/筆記.txt' ([IO.File]::Copy('{v}/我的夾/筆記.txt', '{v}/暫存區/bak.txt'))",
+                    "content")
+        for word in ("copy", "cp", "xcopy"):
+            with self.subTest(word=word):
+                self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', '{word}')")
 
 
 if __name__ == "__main__":
