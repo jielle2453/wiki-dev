@@ -223,6 +223,29 @@
 > 1. **放進知識庫裡**：跟我說一聲，我就在知識庫裡建「測試筆記.md」，內容寫 hello。
 > 2. **一定要放上一層**：把「確認vault」這個資料夾加進這次對話可以寫入的範圍，或在那個資料夾重新開 Claude Code，再叫我建一次。
 
+### 人眼結果（jacky，2026-11-11）
+
+清單：`#66-外掛上層vault\確認\人眼清單.md`。jacky 回「沒問題」並確認是「看完都正常」。
+
+| 情境 | 判定 | 補的證據 |
+|---|---|---|
+| 甲 3 | 過（jacky） | |
+| 乙 1 | 過（jacky） | CLI：確認vault 受限模式已關，`wiki-with-willy` 有載入 |
+| 乙 2 | 過（jacky） | |
+| 乙 3 | 過（jacky＋檔案） | jacky 第一次回「沒問題」時兩個庫的日程都沒變（agenda.json 停在 18:03／18:20），請他再加一次：20:25:47 只有 `willyB\.system\agenda.json`、`willyB\系統\日程.md` 變了（多一條「2026-11-11 到期 11122」，工作日誌記「你在 Obsidian 按的」），willyA、willy根開沒動。但重寫的寫法不對，見落差 #4 |
+| 乙 4 | 過（jacky） | |
+| 乙 5 | 過（jacky） | |
+| 乙 6 | 過（jacky） | |
+| 乙 7 | 過（自動） | `Obsidian.com vault=確認vault dev:errors` → `No errors captured.`（乙 3 前後各跑一次） |
+| 丙 4 | 過（jacky＋檔案） | `obsidian.json` 14 個 vault，沒有路徑是 willyA 的 |
+| 丙 6 | 待做 | 等 jacky 說開始 |
+
+### 新落差
+
+| # | 嚴重 | 內容 |
+|---|---|---|
+| 4 | 中 | 乙 3 從首頁加日程後，`willyB\系統\日程.md` 被重寫成舊寫法 `[[01 客戶/李美華/李美華|…]]`；在確認vault 裡解析成 `01 客戶/李美華/李美華.md`（**根目錄的假檔**）與 `willyA/01 客戶/王大明/王大明.md`（**另一個庫**）——正是甲要防的。根因：首頁外掛照 `installed_plugins.json` 找 kb.py（`findKb`：先挑 projectPath 等於這個知識庫的，再挑 user 範圍，都沒有就拿最後一筆），這台沒有任何一筆登記給 willyB，挑到別題留下的 `willy-c56 0.37.0` 快取，用的是已發行的舊 kb，不是 worktree。這是確認環境沒照 process 第六節做本機市集 local 安裝造成的（開場說人眼在 Obsidian 不用裝），worktree 程式本身沒錯。但客戶那邊也可能遇到：plugin 用 local 範圍只裝在 willyA 時，首頁切到 willyB 會找不到「自己的」那筆，退到別的版本（例如另一個知識庫裝的舊版）去寫 willyB。請設計判斷 `findKb` 在上層 vault 多庫時要不要改挑法。已用 worktree 的 `kb agenda render` 把 willyB 日程頁重寫回 `../` 寫法，Obsidian 解析回到 willyB 自己的卡。 |
+
 ### 第 2 輪花費
 
 0.45 美元（丙 1 0.28、丙 2 0.17）；累計 7.44 美元。沒有新落差。
