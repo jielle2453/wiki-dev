@@ -77,7 +77,8 @@ DELETE_REASON = ("這會刪掉「{name}」，刪了救不回來：改用 kb sour
 OVERWRITE_REASON = ("「{dest}」已經有同名的「{name}」，這樣會蓋掉它：改用 kb source-edit move <來源> --to <夾>，"
                     "同名時它會告訴你內容一不一樣，再選 --replace 或 --name。" + AI_TAIL)
 CONTENT_REASON = ("這會直接改「{name}」的內容、改之前留不了一份：文字檔用 Edit 或 Write 改（會先留一份），"
-                  "Word、Excel 這類用 kb office。" + AI_TAIL)
+                  "Word、Excel 這類用 kb office。下載或匯出會蓋掉既有檔：存成新檔名，或先 kb source-edit trash 舊的再存。"
+                  "要存的是她開著的那份 Office 檔：用附著那份的 .Save()，不要另存到同一路徑。" + AI_TAIL)  # 後兩句：守門補洞裁定 12
 BATCH_REASON = ("批次搬檔看不出會不會蓋掉同名檔：mv、cp 加 -n，Move-Item 不加 -Force，Copy-Item 先用 Test-Path 跳過已有的；"
                 "或用 kb source-edit move 一次給多個檔。" + AI_TAIL)
 CODE_REASON = ("這段程式會刪檔或覆蓋檔，來不及先留一份：刪檔用 kb source-edit trash，寫或改檔用 Edit／Write，"
@@ -1469,6 +1470,8 @@ def _file_call_check(calls, saves, base, ctx):
     for raw in [cmdparse.literal_arg(a) for a in named] + saves:
         p = _norm(raw, base) if raw and not any(c in raw for c in "$%`") else None
         zone = classify(p, ctx.vault_n, ctx.sources)[0] if p is not None else None
+        if raw in saves and p is not None and in_workspace(p, ctx.vault_n):
+            continue  # 另存、匯出到工作區：寫入欄已照裁定 11 判過（新檔放行、既有檔 content）
         if zone and _willy_shell_zone(zone, p, ctx.vault_n):
             return ctx.deny(zone, "willy", willy_reason(zone, p, ctx.vault_n, ctx.command))
     for action, args in calls:
@@ -1508,11 +1511,12 @@ def _check_plan(plan, ctx):
             return ctx.content(p, z)
     # .NET 檔案呼叫與 Office 另存（守門補洞 #25）：點名的字面路徑先判，這段別處看不出目標（$x = …、.Open('a').SaveAs2('b')）也一樣；
     # 沒擋的看不出目標照 U5，看得出的不再走下面的「其餘的寫」（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是要改的檔）
-    file_call = False  # 這段的寫是 .NET 呼叫或 Office 另存：判完就不再走「其餘的寫」
+    # 這段的動詞是全名寫入動詞（Set-Content '<p>' ([IO.File]::WriteAllText(…))）時，判完 .NET 那部分照樣走下面（測試第 1 輪後裁定 13）
+    file_call = False  # 這段的寫只有 .NET 呼叫或 Office 另存：判完就不再走「其餘的寫」
     if ctx.powershell and plan["kind"] == "write":
         calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
-        file_call = bool(calls or saves)
-        got = _file_call_check(calls, saves, base, ctx) if file_call else None
+        file_call = bool(calls or saves) and verb not in _KNOWN_VERBS
+        got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
         if got is not None:
             return got
     if plan.get("unknown"):
@@ -1948,8 +1952,22 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     # D-186：每個路徑照讀判斷；只有真正被寫的（導向目標、寫入那段的參數、管線後面才寫時整個子指令）套寫入欄
     # （第八輪「整條 is_write 為真全部套寫入欄」的誤擋收在這裡，B-024）。只切目錄的目標不算 Z10b（只切目錄不讀內容）
     moves_root = _moves_root(flat, cwd, vault_n, powershell)
+    # 測試第 1 輪後裁定 11：另存、匯出、下載到做文件的工作區（.system/temp/office/）的目標，新檔照決策 3 放行、既有檔照蓋掉判
+    ws_saves = set()
+    for plan in info["stages"]:
+        raws = cmdparse.office_save_targets(plan["text"] + "\n" + (plan.get("code") or ""))
+        raws += cmdparse.outfile_targets(cmdparse.strip_marks(plan["text"]), powershell)
+        for raw in raws:
+            p = _norm(raw, plan.get("base"))
+            if p is not None and in_workspace(p, vault_n):
+                ws_saves.add(p)
 
     def write_column(p, zone, alias):
+        ws = p if p in ws_saves else p.rstrip(",") if p.rstrip(",") in ws_saves else None  # 'a.pdf', 17 的逗號會黏在路徑上（B-542）
+        if ws is not None:
+            if os.path.isfile(ws):
+                return deny(zone, "content", CONTENT_REASON.format(name=_display_name(command, ws)))
+            return None
         if zone == "Z8" and p == vault_n and moves_root:
             return deny(zone, VAULT_MOVE_CODE, VAULT_MOVE_REASON)  # 寫入目標是總資料夾本身：搬家，不是「第一層不放檔」
         decision, code, reason = _verdict(zone, "read", alias)

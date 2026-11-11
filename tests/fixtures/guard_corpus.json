@@ -13632,6 +13632,201 @@
    ],
    "來源": "守門補洞 #25 裁定",
    "note": "裁定 5：冒號寫法解不開 → unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\temp\\office\\新.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：SaveAs2 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.ExportAsFixedFormat('<V>\\.system\\temp\\office\\新.pdf', 17)"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：ExportAsFixedFormat 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\temp\\office\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：-OutFile 到工作區新檔放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; c.GetActiveObject('Word.Application').ActiveDocument.SaveAs2(r'<V>\\.system\\temp\\office\\新2.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：python SaveAs2 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\temp\\office\\舊.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：SaveAs2 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.ExportAsFixedFormat(0, '<V>\\.system\\temp\\office\\舊.pdf')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：ExportAsFixedFormat 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\temp\\office\\舊.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：-OutFile 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\新.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11 對照：工作區以外的 .system 照舊 willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11 對照：-OutFile 到工作區以外的 .system 照舊 willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content '<RAW>\\客戶案件\\a.docx' -Value ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同段有 [IO.File]::WriteAllText 新檔與 Set-Content 既有檔，照 Set-Content 判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content '<RAW>\\客戶案件\\a.docx' ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同上，-Value 用位置參數"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Clear-Content '<RAW>\\客戶案件\\a.docx' ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同段 Clear-Content 既有檔"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'); Clear-Content '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：分兩段也照判"
   }
  ]
 }

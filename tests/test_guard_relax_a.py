@@ -426,6 +426,49 @@ class Holes25(Base):
                 self.denies("PowerShell", cmd, "delete")
         self.passes("PowerShell", "git grep \"mode='rb+'\" -- 我的夾/筆記.txt")  # 引號裡提到的模式不讓這段變成寫
 
+    def test_round1_workspace_saves(self):
+        """測試第 1 輪後裁定 11：另存、匯出、下載成新檔到工作區 .system/temp/office/ 放行；既有檔照蓋掉（content）；工作區以外的 .system 照舊 willy。"""
+        v = self.V.as_posix()
+        ws = self.V / ".system" / "temp" / "office"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "舊.docx").write_bytes(b"x")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        w = f"{v}/.system/temp/office"
+        for cmd in (word + f"$d.SaveAs2('{w}/新.docx')", word + f"$d.ExportAsFixedFormat('{w}/新.pdf', 17)",
+                    f"iwr https://example.com/a.docx -OutFile '{w}/新下載.docx'"):
+            with self.subTest(cmd=cmd):
+                self.passes("PowerShell", cmd)
+        for cmd in (word + f"$d.SaveAs2('{w}/舊.docx')", f"iwr https://example.com/a.docx -OutFile '{w}/舊.docx'"):
+            with self.subTest(cmd=cmd):
+                self.denies("PowerShell", cmd, "content")
+        self.denies("PowerShell", word + f"$d.SaveAs2('{v}/.system/新.docx')", "willy")
+        self.denies("PowerShell", f"Set-Content '{w}/舊.docx' x", "willy")  # 工作區只放另存、匯出、下載，別的寫照舊
+
+    def test_round1_content_reason_sentences(self):
+        """測試第 1 輪後裁定 12：CONTENT_REASON 補兩句；照新句子改寫後做得完（驗收 4）。"""
+        v = self.V.as_posix()
+        target = self.V / "我的夾" / "下載2.txt"
+        target.write_text("舊", encoding="utf-8")
+        d = self.denies("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2.txt'", "content")
+        self.assertIn("下載或匯出會蓋掉既有檔：存成新檔名，或先 kb source-edit trash 舊的再存", d.reason)
+        self.assertIn("要存的是她開著的那份 Office 檔：用附著那份的 .Save()，不要另存到同一路徑", d.reason)
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2（新）.txt'")  # 存成新檔名
+        self.allowed(self.kb(f'source-edit trash "{v}/我的夾/下載2.txt"'))  # 或先丟回收筒再存
+        target.unlink()
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2.txt'")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        self.denies("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價.docx')", "content")
+        self.passes("PowerShell", word + "$d.Save()")  # 存她開著的那份：附著那份的 .Save()
+
+    def test_round1_same_stage_full_name_verb(self):
+        """測試第 1 輪後裁定 13：同一段有 .NET 寫入與全名寫入動詞，全名那個照判（改前就擋，改後不能放）。"""
+        v = self.V.as_posix()
+        for cmd in (f"Set-Content '{v}/我的夾/筆記.txt' -Value ([IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x'))",
+                    f"Set-Content '{v}/我的夾/筆記.txt' ([IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x'))"):
+            with self.subTest(cmd=cmd):
+                self.denies("PowerShell", cmd, "content")
+        self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x')")  # 只有 .NET 寫新檔照放
+
 
 if __name__ == "__main__":
     unittest.main()

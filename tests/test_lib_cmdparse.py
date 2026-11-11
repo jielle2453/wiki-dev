@@ -657,6 +657,15 @@ class Holes25(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(calls(text), [])
 
+    def test_outfile_targets(self):
+        """測試第 1 輪後裁定 11：-OutFile 的字面目標。"""
+        t = cmdparse.outfile_targets
+        self.assertEqual(t("iwr https://x.tw/a -OutFile 'C:/x/a.docx'"), ["C:/x/a.docx"])
+        self.assertEqual(t("Invoke-WebRequest -Uri https://x.tw -OutF:C:/x/b.pdf"), ["C:/x/b.pdf"])
+        self.assertEqual(t("irm https://x.tw -OutFile $p"), [])
+        self.assertEqual(t("Set-Content -OutFile C:/x/a"), [])  # 不是下載動詞
+        self.assertEqual(t("iwr https://x.tw/a"), [])
+
     def test_office_save_targets(self):
         targets = cmdparse.office_save_targets
         self.assertEqual(targets("$d.SaveAs2('C:\\x\\a.docx')"), ["C:\\x\\a.docx"])

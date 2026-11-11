@@ -670,6 +670,27 @@ def office_save_targets(text):
     return out
 
 
+DOWNLOAD_VERBS = {"iwr", "irm", "invoke-webrequest", "invoke-restmethod", "curl", "wget"}
+
+
+def outfile_targets(text, powershell=True):
+    """iwr、irm、Invoke-WebRequest、Invoke-RestMethod、PowerShell 的 curl、wget 帶 -OutFile（含縮寫與 -OutFile:值）的字面目標；
+    變數或運算式不算。不是這些動詞回 []（測試第 1 輪後裁定 11）。"""
+    words = raw_words(text, powershell)
+    if verb_of(words) not in DOWNLOAD_VERBS:
+        return []
+    out = []
+    for k, w in enumerate(words):
+        name, colon, value = w.partition(":")
+        if not name.lower().startswith("-outf"):
+            continue
+        raw = value if colon and value else (words[k + 1] if k + 1 < len(words) else "")
+        v, _quoted, dyn = _unquote(raw, powershell)
+        if v and not dyn:
+            out.append(v)
+    return out
+
+
 def literal_arg(arg):
     """一個參數是字面字串時回裡面的字（PowerShell 單引號的 '' 是一個 '）；變數、運算式、雙引號裡有 $ 或反引號回 None。"""
     if len(arg) >= 2 and arg[0] == arg[-1] == "'" and "'" not in arg[1:-1].replace("''", ""):
