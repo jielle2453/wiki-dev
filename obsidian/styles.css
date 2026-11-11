@@ -228,6 +228,12 @@
   gap: 16px 32px;
 }
 
+/* 同一個 vault 有好幾個知識庫時的下拉選單（#66 乙）；用 Obsidian 自己的 select 樣子 */
+.wwh-root-select {
+  align-self: flex-start;
+  max-width: 16em;
+}
+
 .wwh-greet {
   display: flex;
   flex-direction: column;

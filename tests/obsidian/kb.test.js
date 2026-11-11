@@ -166,6 +166,7 @@ test('Plugin 載入：找到 kb 就建 runner，叫 kb home 把首頁畫出來',
   const cfg = path.join(root, 'cfg');
   const inst = path.join(root, 'inst');
   fs.mkdirSync(path.join(vault, '.system'), { recursive: true });
+  fs.writeFileSync(path.join(vault, '.system', 'sources.json'), '{}\n'); // 知識庫的記號（#66 乙：vault 根有記號才是知識庫）
   fs.mkdirSync(path.join(cfg, 'plugins'), { recursive: true });
   fs.mkdirSync(path.join(inst, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(inst, 'scripts', 'kb.py'), '# fake\n');
@@ -216,6 +217,8 @@ test('Plugin 載入：找不到 kb，首頁只印一句、其他區不畫', asyn
   const cfg = path.join(root, 'cfg');
   fs.mkdirSync(path.join(cfg, 'plugins'), { recursive: true });
   fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), installedFile({}));
+  fs.mkdirSync(path.join(root, '.system'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.system', 'sources.json'), '{}\n'); // 是知識庫，只是找不到 kb（#66 乙）
   const saved = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = cfg;
   const app = {

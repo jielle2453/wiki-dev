@@ -159,6 +159,7 @@ class FakeFragment extends FakeEl {
 
 function makeDocument() {
   return {
+    head: new FakeEl('head'), // 外掛在這裡放藏檔案樹的 <style>（#66 乙）
     createElement: (t) => new FakeEl(t),
     createTextNode: (t) => new FakeText(t),
     createDocumentFragment: () => new FakeFragment(),
