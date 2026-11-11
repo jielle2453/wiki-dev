@@ -1,7 +1,7 @@
 # git 保護 spike 報告
 
 日期：2026-11-11
-位置：原本在 `Desktoplm-wiki-testgit保護-spike報告.md`（量測程式與原始數字還在那個夾）
+位置：原本在 `Desktop\llm-wiki-test\git保護-spike\報告.md`（量測程式與原始數字還在那個夾）
 給誰看：討論 `design/reports/git保護-方案草稿.md` 的設計 session。只放量到的數字與做得到／做不到，不做決定。
 對應草稿第九節 1～5。程式與原始結果都在這個夾：`gen_data.py`（假資料）、`spikelib.py`（共用）、`bench1_speed.py`、`spike1_crlf_attrs.py`、`spike1_d_split.py`、`spike1_textconv_mkdocx.py`、`spike2_multiuser.py`、`spike3_prune.py`、`spike3_shallow_fsck.py`；數字在 `results/*.json`。假資料與保護用 git dir 量完已刪。
 
