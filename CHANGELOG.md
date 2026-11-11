@@ -4,6 +4,17 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.38.0 — 2026-11-11
+- **給客戶的一句話**：現在可以叫 willy 在知識庫裡幫你做 skill（例如「幫我做一個查報價的 skill」），第一次寫進去時 Claude 會問你允不允許，按允許就好。用 Codex 的：升級到這版後，在 Codex 打一次 `/hooks` 重新信任 willy，不然 willy 不會動。
+- **改了什麼**：
+  - #52（D-533，D-538 修訂）：知識庫 `.claude/skills/` 不歸 willy 管，守門 Z13 讀寫都放行、不看內容、不備份、不另數；跳出 skill 夾（`..`、連結、junction）與 `.claude/` 其他照 Z7 擋；R-01 改句。
+  - #56、#55（D-539）：Codex 版併進 main，不再維護 `codex` 長期分支。Codex 的 hook 放 `hooks/codex.json`（`hooks/hooks.json` 是 Claude 版，一字不改）；`release.py` 寫公開版 `codex` 分支時把它改名成 `hooks/hooks.json`、Codex manifest 不寫 `hooks` 指標；打包帶 Codex 版的檔、查 `.codex-plugin` 版號與 hooks 引用、publish 最後推公開 repo 的 `codex` 分支（一般 commit、不 force push）；路徑有 `#` 先停。Codex 的對話標 codex、派工照給 Codex 的 prompt；`cards batch --done`、`AGENTS.md`、`.codex` 保留區從 codex 分支搬來。`安裝-Codex.md` 補從 0.34.0（wiki-with-willy-local）升上來與重新信任 hook 的步驟。
+- **為什麼**：客戶要在自己的知識庫建 skill 被守門擋（#52，jacky 2026-11-08）；Codex 版兩條線並存每版都要手動併、容易漏（#56，jacky 2026-11-09 定乙）。確認時發現 Codex 0.167.1 執行時只讀預設的 `hooks/hooks.json`（manifest 的指標只影響 `/hooks` 清單），所以改成發行時改名（D-539）；Codex 信任 hook 時記內容雜湊，hook 檔一變就不跑、只印 Failed。
+- **commit**：8f79c39e、4efafaf5、e545921c（skill夾放寫）；177d1132、653b8fb2、8654d48f、e1dba56b、80ec0834、06d6e24d、af45da2c（Codex併進main）
+- **spec**：design/specs/2026-11-08-skill夾放寫.md、2026-11-09-Codex併進main.md
+- **關掉的 issue**：#52、#55、#56
+- **還沒驗、還沒定的**：寫 skill 時 Claude Code 自己對 `.claude/` 的安全檢查會跳允許（不是 willy 擋），`-p` 模式寫不進去；同一對話說「退回」時 willy 沒有 skill 的備份，AI 可能改把 skill 夾丟進資源回收筒。Codex 沙箱 `unelevated` 下 PDF 元件被擋、PDF 製卡失敗（跟這版改動無關，另案）。main 不能直接給 Codex 裝，要裝公開版的 `codex` 分支。
+
 ## 0.37.0 — 2026-11-11
 - **給客戶的一句話**：檔案很多時也不會慢下來：電腦會在背景每 10 分鐘幫你看有沒有新檔、改過的檔或改過的卡，你一開口就直接接著做，答完收尾也快很多；新建的知識庫第一次對話也不會再誤報「守門好像沒在跑」。不想要背景檢查的，跟 willy 說關掉就好。
 - **改了什麼**：
