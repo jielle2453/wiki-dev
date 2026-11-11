@@ -379,7 +379,7 @@ def _rename_archive(vault, mapping, turn_id, undo):
             write_json_atomic(p, arch)
 
 
-# ---------- 加總（#65：原 kb money sum 帳關著那條，D-343） ----------
+# ---------- 加總（#65：原記帳的 sum 帳關著那條，D-343） ----------
 
 def _in_range(day, frm, to):
     return bool(day) and (frm is None or day >= frm) and (to is None or day <= to)

@@ -424,14 +424,16 @@ class Resilience(Base):
 
 # ---------- #65 拿掉記帳：首頁沒有帳的段 ----------
 
-from tests.test_lib_money import TODAY3, PageBase  # noqa: E402
-
-
-class NoMoney(PageBase):
+class NoMoney(Base):
     def test_money_due_and_stock_and_owed_not_in_home(self):
-        self.put("收", "50000", due="2026-11-20", entities=["信義王"], text="第二期")
-        self.put("付", "1000", items=["精華液 +4"])
-        out = home.build(self.V, today=TODAY3)
+        """舊庫留著的 .system/money.json 有還沒收付的帳、庫存、墊的：首頁不讀、不畫。"""
+        items = [{"id": "m-00000001", "dir": "in", "amount": 50000, "status": "open", "date": None, "due": "2026-10-20",
+                  "entities": ["信義王"], "lines": [], "advanced_by": None, "text": "第二期", "history": []},
+                 {"id": "m-00000002", "dir": "out", "amount": 1000, "status": "settled", "date": "2026-10-29", "due": None,
+                  "entities": [], "lines": [{"item": "精華液", "qty": 4}], "advanced_by": None, "text": "", "history": []}]
+        (__import__("pathlib").Path(self.V) / ".system" / "money.json").write_text(json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False),
+                                                       encoding="utf-8")
+        out = home.build(self.V, today=TODAY)
         self.assertEqual((out["counts"]["overdue"], out["counts"]["week"]), (0, 0), "帳的到期件不再算進首頁")
         self.assertEqual(set(out["todo"]), {"overdue", "today", "week"})
         self.assertNotIn("links", out)

@@ -825,22 +825,12 @@ class OpeningAgenda(unittest.TestCase):
         (self.V / ".system" / "money.json").write_text(json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False),
                                                        encoding="utf-8")
 
-    def test_owed_line_only_for_the_one_who_paid(self):
-        """驗收 12（D-338）：墊的人那台有「公司還欠你」一句，別人那台沒有。"""
-        from tests._profile_rows import write_profile
+    def test_owed_line_gone(self):
+        """#65 拿掉記帳：舊庫留著的 .system/money.json 有墊的帳，每天第一句也不再說「公司還欠你」。"""
         from kb._lib import env
-        write_profile(self.V, people=3, about=[{"name": "小王", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"},
-                                               {"name": "老闆", "kind": "person", "aliases": [], "source": "said", "date": "2026-10-19"}])
-        self.put_money(("out", 3200, None, "小王"), ("out", 800, None, "小王"), ("out", 500, None, "老闆"))
+        self.put_money(("out", 3200, None, "小王"), ("out", 800, None, "小王"))
         env.set_person(self.V, "小王")
-        owed = [ln for ln in self.status() if ln.startswith("公司還欠你")]
-        self.assertEqual(owed, ["公司還欠你 2 筆共 4,000（錢0、錢1）"])
-        env.set_person(self.V, "老闆")
-        env.set_daily_done(self.V, "2000-01-01")  # 每天第一句才說：換一個人重來
-        self.assertEqual([ln for ln in self.status() if ln.startswith("公司還欠你")], ["公司還欠你 1 筆共 500（錢2）"])
-        env.set_daily_done(self.V, "2000-01-01")
-        env.set_person(self.V, "小美")
-        self.assertEqual([ln for ln in self.status() if ln.startswith("公司還欠你")], [])
+        self.assertEqual([ln for ln in self.status() if "公司還欠你" in ln], [])
 
 
 class OpeningPreferences(unittest.TestCase):

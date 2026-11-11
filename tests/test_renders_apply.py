@@ -432,7 +432,7 @@ class Misc(Base):
         self.assertEqual(len(self.turn_dirs()), len(before) + 1)
 
     def test_index_and_journal_pages_still_only_saved(self):
-        self.assertEqual(hand.PAGE_NAMES.keys(), {AGENDA_MD, PENDING_MD, RULINGS_MD, "系統/帳.md"})  # 帳頁（記帳 3）
+        self.assertEqual(hand.PAGE_NAMES.keys(), {AGENDA_MD, PENDING_MD, RULINGS_MD})  # #65 起帳頁不受管
 
 
 if __name__ == "__main__":

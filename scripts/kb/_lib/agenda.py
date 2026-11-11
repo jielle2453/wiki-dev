@@ -14,7 +14,6 @@ exported_at 以外都一樣就不寫）；失敗不擋日程，寫 hook-errors.l
 重複（D-501）：repeat {every year|month|week, from 錨點}，一條永遠代表「下一次」。會議、提醒過了就移到下一次（load 在記憶體移，
 _mutate 寫回並記歷程）；到期、承諾、期間要 done 才移、狀態維持 open。改日期錨點跟著換。
 #65 拿掉記帳：日程頁不再列帳的到期件，日程不記錢。實體名字寫成連到卡實際位置的連結（linker）。
-holding／linker(mark_removed) 是 kb money（乙段才刪）還在用的。
 """
 import calendar
 import copy
@@ -66,16 +65,9 @@ class AgendaRefused(ValueError):
     """kb agenda 的拒絕：訊息就是給人看的那句。"""
 
 
-_HOLDING = set()  # 正拿著日程鎖的知識庫（這個行程裡）：帳寫完不回頭重畫日程頁，免得同一把鎖等自己
-
-
-def holding(vault):
-    return str(vault) in _HOLDING
-
-
-def linker(vault, ents=None, mark_removed=False):
+def linker(vault, ents=None):
     """實體名字 → 程式頁上的寫法（D-280）：有綜合卡寫 [[<卡的實際位置去掉 .md>|<名稱>]]（卡搬過夾也對，entities.locate），
-    沒有卡的、不在清單的照寫名字。同一頁查過的名字記住，不重複找卡。mark_removed：拿掉的實體加註「（已拿掉）」（帳頁、首頁的帳，記帳 2）。"""
+    沒有卡的、不在清單的照寫名字。同一頁查過的名字記住，不重複找卡。"""
     from kb._lib import entities
     try:
         data = entities.load(vault) if ents is None else ents
@@ -89,10 +81,7 @@ def linker(vault, ents=None, mark_removed=False):
         out = name
         try:
             e = entities.find(data, name)[0]
-            if mark_removed and e is not None and e.get("status") == "removed" and entities.key(e.get("name")) == entities.key(name):
-                from kb._lib import money
-                out = f"{name}{money.REMOVED_MARK}"
-            elif e is not None and e.get("status") == "active" and e.get("type") and not entities.is_self(e):
+            if e is not None and e.get("status") == "active" and e.get("type") and not entities.is_self(e):
                 where = entities.locate(vault, e, data)
                 if where:
                     out = f"[[{where[:-3] if where.endswith('.md') else where}|{name}]]"
@@ -204,27 +193,23 @@ def _mutate(vault, turn_id, fn, hand_out=None):
     p = _path(vault)
     p.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(p):
-        _HOLDING.add(str(vault))
-        try:
-            data = _load_raw(vault)
-            before = copy.deepcopy(data)
-            rolled = _roll_all(data, turn_id)
-            hand = _consume_hand(vault, data, turn_id)
-            if hand_out is not None:
-                hand_out.append(hand)
-            result, changed = fn(data)
-            changed = changed or rolled or isinstance(hand, dict) or hand == "unrecognized"  # hand.UNRECOGNIZED：頁面照常重寫
-            if changed:
-                from kb._lib import turn
-                turn.backup(vault, AGENDA_POSIX, turn_id)
-                write_json_atomic(p, data)
-                try:  # 資料已存好；md 重畫不了只記 log，不讓 AI 以為沒記到又加一次（B-470）
-                    render(vault, turn_id, data, base=before, hand=hand or {})
-                except Exception as e:  # noqa: BLE001
-                    from kb._lib import ledger
-                    ledger.log_error(vault, f"日程.md 重畫失敗：{type(e).__name__}: {e}", source="agenda_render")
-        finally:
-            _HOLDING.discard(str(vault))
+        data = _load_raw(vault)
+        before = copy.deepcopy(data)
+        rolled = _roll_all(data, turn_id)
+        hand = _consume_hand(vault, data, turn_id)
+        if hand_out is not None:
+            hand_out.append(hand)
+        result, changed = fn(data)
+        changed = changed or rolled or isinstance(hand, dict) or hand == "unrecognized"  # hand.UNRECOGNIZED：頁面照常重寫
+        if changed:
+            from kb._lib import turn
+            turn.backup(vault, AGENDA_POSIX, turn_id)
+            write_json_atomic(p, data)
+            try:  # 資料已存好；md 重畫不了只記 log，不讓 AI 以為沒記到又加一次（B-470）
+                render(vault, turn_id, data, base=before, hand=hand or {})
+            except Exception as e:  # noqa: BLE001
+                from kb._lib import ledger
+                ledger.log_error(vault, f"日程.md 重畫失敗：{type(e).__name__}: {e}", source="agenda_render")
     if changed:
         safe_export(vault)  # 放開 agenda.json 的鎖之後（T-1）
     return result

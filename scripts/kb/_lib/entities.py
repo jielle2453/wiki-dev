@@ -15,7 +15,7 @@ note 改知識：alias 加與拿掉別名（D-148）；rename／merge 連口述�
 schema 3（標籤記在實體上，D-505）：每筆多 tags（{欄: 詞 | [詞…]}；"" 與 [] 是看過、沒有；沒有這個鍵是還沒標過）、
 tags_said（她親口定的欄）與 tags_at（tags 最後寫入的時間，健檢比卡的修改時間，裁定 5）。schema 2 讀進來不補（沒有 tags 就是還沒標過），
 寫的時候寫 3。set_tags 是唯一寫 tags 的地方：照第八節驗、她說過的欄只有 said 才改；綜合卡檔頭的標籤行是它的渲染。
-數字欄（舊庫實體上的 欄:<名>，#65 起 willy 不再寫）：只留 fields_of、field_value 兩個讀的函式給 kb money 用，值原樣留著。
+數字欄（舊庫實體上的 欄:<名>，#65 起 willy 不再寫也不讀）：值原樣留著，讀到不報錯；只有 purge 清掉出處卡被清除的那幾筆（FIELD_PREFIX）。
 """
 import os
 import posixpath
@@ -599,27 +599,9 @@ def merge_tags(dst, src):
     dst["tags_at"] = _now_stamp()
 
 
-# ---------- 數字欄（#65 起只剩讀：舊庫實體上的 欄:<名> 留著，kb money 還在讀；寫的函式拿掉了） ----------
+# ---------- 數字欄（#65 拿掉）：舊庫實體上的 欄:<名> 原樣留著，只有 purge 認這個前綴 ----------
 
-FIELD_PREFIX = profile.FIELD_PREFIX
-
-
-def fields_of(entry):
-    """實體上 欄: 開頭的那幾欄收成一組：{欄名: 那欄的值（{"value","from","card","doc_date","at","old"}）}。"""
-    return {k[len(FIELD_PREFIX):]: v for k, v in (entry or {}).items()
-            if isinstance(k, str) and k.startswith(FIELD_PREFIX) and isinstance(v, dict)}
-
-
-def _field_key(entry, field):
-    """實體上這一欄的鍵（比對照 key）；沒有回 None。"""
-    return next((k for k in (entry or {}) if isinstance(k, str) and k.startswith(FIELD_PREFIX)
-                 and key(k[len(FIELD_PREFIX):]) == key(field)), None)
-
-
-def field_value(entry, field):
-    """這一欄現在的值（數；清掉或沒有是 None）。"""
-    k = _field_key(entry, field)
-    return (entry.get(k) or {}).get("value") if k else None
+FIELD_PREFIX = "欄:"
 
 
 def _profile(vault):
@@ -1132,7 +1114,6 @@ def rename(vault, ref, new_name, new_type, turn_id, undo=None):
             changed += [{"path": rel, "action": "modify"} for rel, _names in touched]
             if key(old_name) != key(new_name):
                 changed += _agenda_follow(vault, {key(old_name): new_name}, turn_id)
-                changed += _money_follow(vault, {key(old_name): new_name}, turn_id)
                 changed += _knowledge_follow(vault, {key(old_name): new_name}, turn_id)
             _save(vault, data, turn_id, undo)
             changed.append({"path": ENTITIES_POSIX, "action": "modify"})
@@ -1272,7 +1253,6 @@ def merge(vault, src_ref, dst_ref, turn_id):
             changed += [{"path": rel, "action": "modify"}
                         for rel, _n in retarget_cards(vault, {key(src["name"]): dst["name"]}, turn_id, undo)]
             changed += _agenda_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
-            changed += _money_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
             changed += _knowledge_follow(vault, {key(src["name"]): dst["name"]}, turn_id)
             changed += _drop_close_items(vault, src, f"實體已合併進「{dst['name']}」", turn_id, undo)
             _save(vault, data, turn_id, undo)
@@ -1494,9 +1474,6 @@ def _agenda_snapshot(vault, undo):
     if (Path(vault) / agenda.AGENDA_POSIX).exists():
         undo.file(agenda.AGENDA_POSIX)
         undo.file(agenda.MD_POSIX)
-    from kb._lib import money
-    if money.exists(vault):  # 帳也一起（記帳 2）
-        undo.file(money.MONEY_POSIX)
 
 
 def _agenda_follow(vault, mapping, turn_id):
@@ -1504,14 +1481,6 @@ def _agenda_follow(vault, mapping, turn_id):
     from kb._lib import agenda
     if agenda.rename_entity(vault, mapping, turn_id):
         return [{"path": agenda.AGENDA_POSIX, "action": "modify"}, {"path": agenda.MD_POSIX, "action": "modify"}]
-    return []
-
-
-def _money_follow(vault, mapping, turn_id):
-    """帳裡掛的實體、品項的商品與地點跟著換（記帳 2）；拿掉的實體不叫這裡，名字留在帳裡。回給日誌的 changed。"""
-    from kb._lib import money
-    if money.rename_entity(vault, mapping, turn_id):
-        return [{"path": money.MONEY_POSIX, "action": "modify"}]
     return []
 
 

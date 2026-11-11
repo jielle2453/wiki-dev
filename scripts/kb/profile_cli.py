@@ -20,8 +20,7 @@ type rename 的舊名不在型別表、只在檔案卡的 待補型別 裡（bui
 改字典的詞或欄，先改正本（entities.retag_entities，by program），再改每張卡檔頭那一行（synthesis.retag），影響照正本數；
 先 --check、做了照 entities._Undo 倒回、卡、實體清單與設定檔都備進回合。apply 遇到手改拿掉有實體用到的詞或欄就拒絕，
 回結果清單指到 apply --rename-tag（同一欄正好一出一進）或 apply --drop-tags（實作疑義 2）。
-數字欄（第九節，#65）：不再有指令（add／remove 數字欄 直接拒絕）；設定檔還留著第九、十節，型別改名、合併、拿掉時第九節的列與
-第十節的地點的型別照舊跟著改，到乙段才整節拿掉。
+數字欄（第九節）、記帳（第十節）與第五節的平常在哪，#65 整個拿掉：add／remove 數字欄 直接拒絕，設定檔沒有這幾處。
 鎖 profile.json 30 秒。終端機跑的記一段工作日誌程式段（D-085），對話裡叫的併進回合。
 """
 import argparse
@@ -67,7 +66,7 @@ def add_arguments(sub):
     stp.add_argument("value", help="值")
     rm = subs.add_parser("remove", help="拿掉一列", description="照主鍵拿掉一列。寫前先備份。")
     for p in (ad, rm):
-        p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤、數字欄、記帳")
+        p.add_argument("section", help="節：型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
         p.add_argument("fields", nargs="*", help="欄=值（例：偏好=回答先講結論）")
     ty = subs.add_parser("type", help="型別改名、合併、拿掉", description="會搬資料夾的型別操作；先 --check 看影響。")
     tys = ty.add_subparsers(dest="type_command", metavar="<動作>", required=True)
@@ -134,14 +133,6 @@ def _detail_lines(st):
     lines += [f"- 標籤 {t}的{f} 多了（{'、'.join(new_tags[(t, f)]['words'])}）" for t, f in d["tags"]["added"]]
     lines += [f"- 標籤 {t}的{f} 少了" for t, f in d["tags"]["removed"]]
     lines += [f"- 標籤 {t}的{f} 改了" for t, f in d["tags"]["changed"]]
-    lines += [f"- 數字欄 {t}的{f} 多了" for t, f in d["fields"]["added"]]
-    lines += [f"- 數字欄 {t}的{f} 少了" for t, f in d["fields"]["removed"]]
-    lines += [f"- 數字欄 {t}的{f} 改了單位" for t, f in d["fields"]["changed"]]
-    if d["money"]["added"] or d["money"]["changed"]:
-        m = (new.get("money") or [{}])[0]
-        modes = {v: k for k, v in profile.MONEY_MODES.items()}
-        places = "、".join(m.get("places") or [])
-        lines.append(f"- 記帳 改成{modes.get(m.get('mode'), '')}" + (f"（地點的型別：{places}）" if places else ""))
     return lines
 
 
@@ -332,34 +323,14 @@ def _apply_locked(vault, as_json, conversation, drop_tags=False, rename_tags=())
     if about_lines:
         changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
     journal_cli.record_program_or_warn(vault, sentence[1:], changed, "profile apply", conversation)
-    backfill = _money_backfill(vault, old, merged)
     if as_json:
         print(json.dumps(dict(_public(st), applied=True, created_dirs=created, removed_dirs=removed_dirs,
-                              unskipped=len(unskipped), about=about, pending_types=pend,
-                              **({"backfill": backfill} if backfill else {})), ensure_ascii=False))
+                              unskipped=len(unskipped), about=about, pending_types=pend), ensure_ascii=False))
         return 0
     print(sentence)
-    for line in about_lines + pending_lines + ([BACKFILL_LINE.format(**backfill)] if backfill else []):
+    for line in about_lines + pending_lines:
         print(line)
     return 0
-
-
-BACKFILL_LINE = "帳關著時記下的錢有 {statements} 句、舊檔案 {cards} 份還沒進帳：問她一次要不要補（kb money backfill --json）"
-
-
-def _money_backfill(vault, old, new):
-    """第十節從關改成開或只記我講的（D-343）：{"statements": 標過還沒進帳的口述句數, "cards": 改成開時要抽錢的舊卡份數}；
-    不是這種改法回 None。讀不到帳或卡只記 log、當 0。"""
-    if profile.money_mode(old) != "off" or profile.money_mode(new) == "off":
-        return None
-    from kb._lib import ledger, money
-    try:
-        n = len(money.backfill(vault))
-        m = len(money.unscanned(vault)["money_unscanned"]) if profile.money_mode(new) == "on" else 0
-    except (ValueError, OSError) as e:
-        ledger.log_error(vault, f"算補帳份數失敗：{type(e).__name__}: {e}", source="profile")
-        n = m = 0
-    return {"statements": n, "cards": m}
 
 
 def _create_dirs(vault, st, as_json):
@@ -509,7 +480,7 @@ def _apply_from(vault, from_md, as_json, conversation):
                                               known_types=[t["name"] for t in data["types"]], **profile.preference_limits(vault),
                                               resolve=profile.template_resolver(vault, data),
                                               uses=profile.known_uses(vault, data)),
-                             data, profile.place_names(vault))
+                             data)
     except profile.ProfileError as e:
         _refuse(as_json, st, APPLY_ERROR.format(error=e.message))
         return 3
@@ -679,7 +650,7 @@ def _edit_locked(vault, op, args, as_json, conversation):
                                config.get(vault, "card_title_max_chars"),
                                known_types=[t["name"] for t in old["types"]], **lim,
                                resolve=profile.template_resolver(vault, merged), uses=profile.known_uses(vault, old))
-        profile.fill_missing(new, merged, profile.place_names(vault), old.get("about"))  # 跟舊 JSON 比：add 改的平常在哪才驗
+        profile.fill_missing(new, merged)
     except profile.ProfileError as e:
         raise Refused(getattr(e, "plain", None) or e.message) from e  # 第八節照欄位講（裁定 21）
     profile.carry_whose(new["preferences"], sections["preferences"])
@@ -722,13 +693,10 @@ def _edit_locked(vault, op, args, as_json, conversation):
     if about_lines:
         changed.append({"path": entities.ENTITIES_POSIX, "action": "modify"})
     journal_cli.record_program_or_warn(vault, message, changed, f"profile {op}", conversation)
-    backfill = _money_backfill(vault, old, data)  # 關改成開或只記我講的（記帳 2 第 4 點）
-    _out(as_json, (first["lines"] if first else []) + [message] + about_lines
-         + ([BACKFILL_LINE.format(**backfill)] if backfill else []),
+    _out(as_json, (first["lines"] if first else []) + [message] + about_lines,
          dict({"applied": True, "section": section, "op": op, "row": res["row"],
                "message": message, "created_dirs": created, "unskipped": len(unskipped),
-               "retag": sum(sum(v.values()) for v in marked.values())}, **_first_payload(first),
-              **({"backfill": backfill} if backfill else {})))
+               "retag": sum(sum(v.values()) for v in marked.values())}, **_first_payload(first)))
     return 0
 
 
@@ -1160,8 +1128,7 @@ def _rename_type(vault, data, row, new, members, imp, turn_id):
         synth = [dict(s, type=new) if profile._key(s["type"]) == profile._key(old) else s
                  for s in data["synthesis_sections"]]
         tags = [dict(t, type=new) if profile._key(t["type"]) == profile._key(old) else t for t in data.get("tags") or []]
-        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags,
-                                             **_typed_rows(data, old, new)), turn_id, undo)
+        changed = _write_profile(vault, dict(data, types=types, synthesis_sections=synth, tags=tags), turn_id, undo)
         # 綜合卡檔頭在搬夾之前改：備份記在舊位置，退回時先把夾改回去再還原，不會在新名底下多出檔
         changed += entities.retype(vault, old, new, turn_id, undo)
         for f in imp["folders"]:
@@ -1215,8 +1182,7 @@ def _merge_type(vault, data, row, dst, members, imp, turn_id, renumber):
             _move(vault, undo, turn_id, f"{AI_DIR}/{src}", f"{AI_DIR}/{dst['name']}/{src}")
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(src)]
         tags = _merged_tags(data, src, dst["name"])
-        changed += _write_profile(vault, dict(data, types=renumber["types"], synthesis_sections=synth, tags=tags,
-                                              **_typed_rows(data, src, dst["name"], merge=True)), turn_id, undo)
+        changed += _write_profile(vault, dict(data, types=renumber["types"], synthesis_sections=synth, tags=tags), turn_id, undo)
         changed += entities.retype(vault, src, dst["name"], turn_id, undo)  # 已移除、已合併的條目也換掉舊型別
         left = _item_count(vault / src_dir) if (vault / src_dir).is_dir() else 0
         if (vault / src_dir).is_dir() and not left:
@@ -1253,8 +1219,7 @@ def _remove_type(vault, data, row, turn_id, renumber):
     def act(undo):
         synth = [s for s in data["synthesis_sections"] if profile._key(s["type"]) != profile._key(name)]
         tags = [t for t in data.get("tags") or [] if profile._key(t["type"]) != profile._key(name)]
-        changed = _write_profile(vault, dict(data, types=renumber["types"], synthesis_sections=synth, tags=tags,
-                                             **_typed_rows(data, name, None)), turn_id, undo)
+        changed = _write_profile(vault, dict(data, types=renumber["types"], synthesis_sections=synth, tags=tags), turn_id, undo)
         if (vault / folder).is_dir() and not keep_dir:
             os.rmdir(vault / folder)
             undo.rmdir(folder)
@@ -1362,7 +1327,7 @@ def _pending_rename(vault, data, old, new, category, checking, as_json, conversa
                                           config.get(vault, "card_title_max_chars"),
                                           known_types=[t["name"] for t in data["types"]], **lim,
                                           resolve=profile.template_resolver(vault, merged))
-                profile.fill_missing(parsed, merged)  # 九、十節沒有列的取設定檔的值（舊庫沒有就不寫進去，記帳 1b）
+                profile.fill_missing(parsed, merged)
             except profile.ProfileError as e:
                 raise Refused(e.message) from e
             plan.update(profile.folder_check(vault, parsed["types"], data["types"]))
@@ -1833,30 +1798,6 @@ def _write_with_tag_plan(vault, data, plan, turn_id, moves=(), renamed=()):
         dir_changed, touched = _dir_work(vault, undo, turn_id, moves, renamed)
         return sorted(set(written)), dir_changed, touched
     return entities._guarded(vault, act)
-
-
-def _typed_rows(data, old, new, merge=False):
-    """型別改名、合併、拿掉時第九節的列與第十節的地點的型別跟著改（記帳 1b）：new 是 None 是拿掉；merge 時目標已有同名欄的
-    來源那列拿掉。只回有第九、十節的鍵（舊庫沒有的不加）。"""
-    out = {}
-    k = profile._key(old)
-    if "fields" in data:
-        rows, taken = [], {(profile._key(f["type"]), profile._key(f["field"])) for f in data["fields"]}
-        for f in data["fields"]:
-            if profile._key(f["type"]) != k:
-                rows.append(f)
-            elif new is not None and not (merge and (profile._key(new), profile._key(f["field"])) in taken):
-                rows.append(dict(f, type=new))
-        out["fields"] = rows
-    if data.get("money"):
-        m = data["money"][0]
-        places = []
-        for p in m.get("places") or []:
-            p2 = (new if profile._key(p) == k else p)
-            if p2 is not None and profile._key(p2) not in {profile._key(x) for x in places}:
-                places.append(p2)
-        out["money"] = [dict(m, places=places)] + list(data["money"][1:])
-    return out
 
 
 def _refuse_payload(as_json, e, check=False, extra=None):
