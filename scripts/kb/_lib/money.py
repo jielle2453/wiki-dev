@@ -2074,6 +2074,13 @@ def panel(vault, name, today=None):
     ents, prof = _ents(vault), _profile(vault)
     got = for_entity(vault, name)
     link = agenda.linker(vault, ents, mark_removed=True)
+    year_links = {}
+
+    def year_link(year):  # 年頁那幾筆的 match 要跟年頁上寫的一樣：連結從年頁算起（#66 甲裁定）
+        if year not in year_links:
+            year_links[year] = agenda.linker(vault, ents, mark_removed=True, page=year_rel(year))
+        return year_links[year]
+
     data = load(vault)
     by_id = {i.get("id"): i for i in data["items"]}
     ucache = unit_cache(data)
@@ -2099,6 +2106,7 @@ def panel(vault, name, today=None):
         "open": [{"id": i.get("id"), "due": i.get("due"), "late": late_days(i, today) > 0, "line": panel_open_line(i, today),
                   "page": MD_POSIX, "match": open_line(i, link, today)} for i in got["open"] if i.get("dir") in ("in", "out")],
         "recent": [{"id": i.get("id"), "date": i.get("date"), "line": panel_done_line(i, prof, ents, ucache),
-                    "page": year_rel(i["date"][:4]), "match": detail_line(i, link, prof, ents, by_id, ucache)} for i in got["recent"]],
+                    "page": year_rel(i["date"][:4]), "match": detail_line(i, year_link(i["date"][:4]), prof, ents, by_id, ucache)}
+                   for i in got["recent"]],
         "total_n": got["total_done"], "page": MD_POSIX}
     return {"money": money_out, "stock": stock_out}

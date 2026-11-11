@@ -358,6 +358,13 @@ class Pages(PageBase):
         given = money.render_pages(self.V, money.load(self.V), link=lambda name: f"<{name}>")  # 帶進來的 link 整份照用
         self.assertIn("<信義王>", given[money.year_rel("2026")][0])
         self.assertNotIn("案子/信義王/信義王", given[money.year_rel("2026")][0])
+        # #66 甲裁定（money.panel）：卡底下那段給的 match，年頁那筆在年頁文字裡找得到（連結從年頁算起），帳.md 那筆在帳.md 找得到
+        self.put("收", "1800", due="2026-11-28", entities=["信義王"], text="尾款")
+        got = money.panel(self.V, "信義王", today=TODAY3)["money"]
+        self.assertIn("[[../../案子/信義王/信義王|信義王]]", got["recent"][0]["match"])
+        self.assertIn(got["recent"][0]["match"], self.page(money.year_rel("2026")).splitlines())
+        self.assertIn("[[../案子/信義王/信義王|信義王]]", got["open"][0]["match"])
+        self.assertIn(got["open"][0]["match"], self.page().splitlines())
         self.assertEqual(agenda.table_cell("[[a/b|b]]、[[c\\|c]]、[[d]]、x|y"), "[[a/b\\|b]]、[[c\\|c]]、[[d]]、x|y")
 
     def test_04_stock_table(self):
