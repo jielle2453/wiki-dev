@@ -4,6 +4,23 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.40.1 — 2026-11-11
+- **給客戶的一句話**：AI 改檔、刪檔時更不會漏掉先留一份，你說「退回」更確定救得回來；你平常要它做的事照樣一句做完，不會多被擋或多被問。
+- **改了什麼**（#25，D-348，裁定 1～16）：守門把幾種原本認不出的寫法，判得跟全名寫法一樣（會刪掉或蓋掉既有檔就擋，退回給 AI 改走會先留一份的路）：
+  - `powershell`／`pwsh` 的 `-EncodedCommand`（含 `-enc`、`-e`、`-ec`、冒號寫法、`--encodedcommand`）解碼後照裡面的指令判，解不開擋（對 AI 說改寫）。
+  - PowerShell 別名 `clc`、`epcsv`、`sp`，`iwr`／`irm`／`Invoke-WebRequest`／`Invoke-RestMethod`／`curl`／`wget` 帶 `-OutFile`。
+  - .NET 檔案靜態呼叫（`[System.IO.File]`、`[IO.File]`、`[type]'System.IO.File'`、`[IO.Directory]` 的 Delete、WriteAllText、AppendAllText、Create、CreateText、OpenWrite、AppendText、Open（寫入模式）、Replace、Move、Copy），有字面路徑的實例刪除（`(Get-Item '<p>').Delete()`、`[IO.FileInfo]::new('<p>').Delete()`）。
+  - Office 帶路徑的另存（`SaveAs`、`SaveAs2`、`SaveCopyAs`、`ExportAsFixedFormat`，PowerShell 與 python，含 `FileName=`）到既有檔。
+  - python `open(p, mode='r+b')`、`Path(p).open('rb+')`、`os.open` 帶寫入旗標。
+  - 照放：另存、下載成新檔（含做文件的工作區 `.system/temp/office/`）、開著的 Office 一起改（附著後 `.Save()`、`Range.Delete()`）、`Documents.Open`、沒有字面路徑的寫法（`$f.Delete()`，等 #67 相簿）。
+  - `CONTENT_REASON` 補兩句（下載或匯出會蓋掉既有檔：存成新檔名或先 `kb source-edit trash`；她開著的那份用 `.Save()`）。
+  - 修掉一個舊誤判：python `.Documents.Open('a.docx')` 這類以 a／w／x 開頭的路徑不再被當成寫入模式。
+- **為什麼**：AI 用這些寫法刪檔、蓋檔時守門沒先留一份，她說「退回」退不掉（#25，B-646）；放寬甲（0.2x，11-02）當時接受這些放寬，是預期之後由相簿接住（D-347），相簿還沒做，先補常見的。實測：語料 112 條改前改後對照，71 條從放行變擋（都是會刪掉或蓋掉既有檔的），客戶日常寫法沒有一條被誤擋；確認時用客戶的話跑刪檔退回、改合約存回退回、下載、批次改名、另存 PDF，十句話守門 0 次擋、都一次做完。
+- **commit**：789e2dff、a8ea3c9d、d89f7ea7、fc746f5b、32d01390、567dc92d、b6399308、0161e1d3、27f4304e、1f800307、996d33cc、f1545ee8、46161763、662ecb45、1ab7d939
+- **spec**：design/specs/2026-11-11-守門補洞.md
+- **關掉的 issue**：#25（B-646 收進）
+- **還沒驗、還沒定的**：沒有字面路徑的寫法（變數、管線餵 bash、`$f.Delete()`）照舊放行，等 #67 相簿；路徑外包括號或轉型、覆蓋旗標寫成 `'True'` 等少見寫法沒收；守門抽逗號分隔的路徑會黏上逗號（B-542）；確認落差 B-543～B-546（退回丟進回收筒的檔 kb 拿不回、`soffice --outdir` 蓋同名 PDF、`curl -o` 新檔沒記進回合、`kb output save --to` 錯誤訊息）。main 上本來就紅、不是這版改的：B-534 兩條、B-539 一條。
+
 ## 0.40.0 — 2026-11-11
 - **給客戶的一句話**：willy 不再內建記帳：你講到錢（收了、付了、售價多少）我照樣記下來、問加總也算得出來，文件上的付款期限照舊進日程提醒你；要正式記帳的，另外幫你裝記帳工具。之前記過的帳還在「系統/帳.md」，不會再更新。
 - **改了什麼**（#65，D-537，定案 1～7，裁定 1～14）：
