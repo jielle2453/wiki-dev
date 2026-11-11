@@ -882,9 +882,19 @@ def outer_plugin_dirs(vault):
     return out
 
 
+def _in_outer_plugin(path, vault):
+    """path 是上層 vault 那份外掛夾本身或底下，或正好是它上面那兩個夾本身（<上>/.obsidian/plugins、<上>/.obsidian）。
+    那兩個夾底下其他的檔（app.json、別的外掛）不算（#66 丙、裁定 7：整夾刪掉、改名、換掉，main.js 就沒了）。"""
+    for outer in outer_plugin_dirs(vault):
+        plugins = outer.rsplit("/", 1)[0]
+        if inside(path, outer) or path == plugins or path == plugins.rsplit("/", 1)[0]:
+            return True
+    return False
+
+
 def classify(path, vault, sources):
     """path、vault 都已 normalize。回 (zone, alias)；alias 只有 Z9／Z10／Z10b 有。
-    知識庫外只多認一個夾：上層 vault 那份外掛夾本身與底下照 Z7（Obsidian 開啟時會執行的程式，#66 丙）。"""
+    知識庫外只多認上層 vault 那份外掛：外掛夾本身與底下、它上面那兩個夾本身照 Z7（Obsidian 開啟時會執行的程式，#66 丙）。"""
     if inside(path, vault):
         if path == vault:
             return "Z8", None
@@ -904,7 +914,7 @@ def classify(path, vault, sources):
         if len(parts) == 3 and parts[2] == parts[1] + ".md":
             return "Z1", None
         return "Z2", None
-    if any(inside(path, outer) for outer in outer_plugin_dirs(vault)):
+    if _in_outer_plugin(path, vault):
         return "Z7", None
     status, src = sources.lookup(path)
     if status == "excluded":

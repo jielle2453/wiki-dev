@@ -87,7 +87,7 @@ class OuterPlugin(unittest.TestCase):
 
     def test_16_rest_of_outer_is_as_before(self):
         for rel in (".obsidian/app.json", ".obsidian/plugins/obsidian-git/data.json", "筆記.md",
-                    ".obsidian/plugins/wiki-with-willy2/main.js", ".obsidian/plugins"):
+                    ".obsidian/plugins/wiki-with-willy2/main.js", ".obsidian/plugins/obsidian-git", ".obsidian2", ".obsidian/plugins2"):
             d = self.decide("Write", self.tmp / rel)
             self.assertEqual((d.zone, d.decision), ("Z11", "pass"), rel)
 
@@ -196,6 +196,53 @@ class OuterPlugin(unittest.TestCase):
         self.plug.mkdir(parents=True)
         self.assertEqual(guard.classify(main_n, vault_n, src)[0], "Z7")
         self.assertIsNone(guard._OUTER_SEEN, "判斷結束就關掉")
+
+
+    def source_edit(self, *args):
+        import os
+        import subprocess
+        import sys
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT), PYTHONIOENCODING="utf-8")
+        return subprocess.run([sys.executable, f"{ROOT}/scripts/kb.py", "source-edit", *args], capture_output=True, text=True,
+                              encoding="utf-8", cwd=str(self.V), env=env)
+
+    def tree(self):
+        return sorted(f.relative_to(self.tmp).as_posix() for f in (self.tmp / ".obsidian").rglob("*"))
+
+    def test_17c_classify_the_two_folders_themselves(self):
+        """裁定 7：<上>/.obsidian、<上>/.obsidian/plugins 這兩個夾本身也歸 Z7（檔案工具、指令、source-edit 走同一個判斷）；讀放行。"""
+        for rel in (".obsidian", ".obsidian/plugins"):
+            d = self.decide("Write", self.tmp / rel)
+            self.assertEqual((d.zone, d.decision), ("Z7", "deny"), rel)
+            d = self.decide("Read", self.tmp / rel)
+            self.assertEqual((d.zone, d.decision), ("Z7", "allow"), rel)
+            self.assertNotEqual(self.decide("Bash", f'ls "{(self.tmp / rel).as_posix()}"').decision, "deny", rel)
+
+    def test_17c_source_edit_cannot_remove_or_replace_the_plugin(self):
+        evil = self.tmp / "別處" / "plugins" / "wiki-with-willy"
+        evil.mkdir(parents=True)
+        (evil / "main.js").write_text("// EVIL", encoding="utf-8")
+        before = self.tree()
+        for args in (("trash", "../.obsidian/plugins/wiki-with-willy", "--check"), ("trash", "../.obsidian/plugins", "--check"),
+                     ("trash", "../.obsidian", "--check"), ("trash", "../.obsidian/plugins"),
+                     ("rename", "../.obsidian/plugins", "plugins_old"), ("rename", "../.obsidian", "obs_old"),
+                     ("rename", "../.obsidian/plugins/wiki-with-willy", "x"),
+                     ("move", "../.obsidian/plugins", "--to", "../別處2"), ("move", "../.obsidian", "--to", "../別處2"),
+                     ("move", "../別處/plugins", "--to", "../.obsidian"), ("move", "../別處/plugins/wiki-with-willy", "--to", "../.obsidian/plugins")):
+            r = self.source_edit(*args)
+            self.assertEqual(r.returncode, 3, f"{args}\n{r.stdout}{r.stderr}")
+            self.assertIn("是 willy 自己的檔", r.stdout, args)
+            self.assertEqual(self.tree(), before, args)
+        self.assertEqual(self.main.read_text(encoding="utf-8"), "// 外掛")
+        self.assertEqual((evil / "main.js").read_text(encoding="utf-8"), "// EVIL")
+
+    def test_17c_source_edit_her_own_files_as_before(self):
+        (self.tmp / ".obsidian" / "app.json").write_text("{}", encoding="utf-8")
+        (self.tmp / "筆記.md").write_text("x", encoding="utf-8")
+        for args in (("rename", "../.obsidian/app.json", "app2.json", "--check"), ("trash", "../筆記.md", "--check"),
+                     ("trash", "../.obsidian/plugins/obsidian-git", "--check")):
+            r = self.source_edit(*args)
+            self.assertNotIn("willy 自己的檔", r.stdout, args)
 
 
 if __name__ == "__main__":
