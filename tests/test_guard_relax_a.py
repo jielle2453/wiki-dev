@@ -510,6 +510,9 @@ class Holes25(Base):
                     f"Add-Content '{t}/ext/log.txt' ([IO.File]::Move('{t}/ext/a.txt', '{v}/我的夾/[b].txt'))"):
             with self.subTest(cmd=cmd):
                 self.passes("PowerShell", cmd, cwd=self.V / "我的夾")
+        for cmd in (f"Set-Content 筆* ([IO.File]::WriteAllText('{t}/ext/n.txt','x'))", "Set-Content '筆*' ([IO.File]::Copy('a', 'b'))"):
+            with self.subTest(cmd=cmd):  # code review 第五輪：全名動詞自己的萬用字元（沒副檔名）照展開照判
+                self.denies("PowerShell", cmd, "content", cwd=self.V / "我的夾")
 
 
 if __name__ == "__main__":

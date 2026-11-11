@@ -1524,8 +1524,9 @@ def _targets_outside_calls(plan, ctx):
     drop = {p for p in (plan.get("own") or []) if p.rstrip(",") in inside and p.rstrip(",") not in outside}
     out = [p for p in (plan.get("own") or []) if p not in drop]
     for g in plan.get("globs") or []:
-        if g.rstrip(",") in outside:  # 只展開全名動詞那邊的萬用字元
-            out.extend(_expand_glob(g, hidden=ctx.powershell))
+        if g.rstrip(",") in inside and g.rstrip(",") not in outside:
+            continue  # 只出現在呼叫括號裡的萬用字元不展開；認不出在哪邊的照展開（寧可照判）
+        out.extend(_expand_glob(g, hidden=ctx.powershell))
     return list(dict.fromkeys(out))
 
 
