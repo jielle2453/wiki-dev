@@ -1467,11 +1467,11 @@ def _file_call_check(calls, saves, base, ctx):
     named = []  # 每個呼叫點名的路徑參數：Replace 三個、Move／Copy 前兩個、其餘第一個（WriteAllText 的第二個是內容，不是路徑）
     for action, args in calls:
         named += args if action == "replace" else args[:2] if action in ("move", "copy") else args[:1]
-    for raw in [cmdparse.literal_arg(a) for a in named] + saves:
+    for raw, is_save in [(cmdparse.literal_arg(a), False) for a in named] + [(s, True) for s in saves]:
         p = _norm(raw, base) if raw and not any(c in raw for c in "$%`") else None
         zone = classify(p, ctx.vault_n, ctx.sources)[0] if p is not None else None
-        if raw in saves and p is not None and in_workspace(p, ctx.vault_n):
-            continue  # 另存、匯出到工作區：寫入欄已照裁定 11 判過（新檔放行、既有檔 content）
+        if is_save and p is not None and in_workspace(p, ctx.vault_n):
+            continue  # 另存、匯出到工作區：寫入欄照裁定 11 判（_workspace_saves）
         if zone and _willy_shell_zone(zone, p, ctx.vault_n):
             return ctx.deny(zone, "willy", willy_reason(zone, p, ctx.vault_n, ctx.command))
     for action, args in calls:
@@ -1489,6 +1489,24 @@ def _file_call_check(calls, saves, base, ctx):
                 if os.path.isfile(p):
                     return ctx.overwrite(os.path.dirname(p), os.path.basename(p), z)
     return _existing_content(saves, base, ctx)
+
+
+def _workspace_saves(info, vault_n, powershell):
+    """測試第 1 輪後裁定 11：只做另存、匯出、下載的那些段（PowerShell 的 Office 另存與 -OutFile、直譯器的 Office 另存）寫到工作區
+    .system/temp/office/ 的目標：新檔照決策 3 放行、既有的照蓋掉判。同一句別段（刪、搬、Set-Content、導向…）也寫到的路徑不算（照舊 willy）。"""
+    saves, blocked = set(), set()
+    for plan in info["stages"]:
+        text = cmdparse.strip_marks(plan["text"])
+        raws = []
+        if plan["kind"] == "write" and plan.get("interp"):
+            raws = cmdparse.office_save_targets(text + "\n" + (plan.get("code") or ""))
+        elif plan["kind"] == "write" and powershell and not cmdparse.file_calls(text) and _eff_verb(plan)[0] not in _KNOWN_VERBS:
+            raws = cmdparse.office_save_targets(text) + cmdparse.outfile_targets(text, True)
+        mine = {p for p in (_norm(r, plan.get("base")) for r in raws) if p is not None and in_workspace(p, vault_n)}
+        saves |= mine
+        others = list(plan.get("redirects") or []) + ([] if mine or plan["kind"] != "write" else list(plan.get("own") or []))
+        blocked |= {o.rstrip(",") for o in others}
+    return saves - blocked
 
 
 def _existing_content(raws, base, ctx):
@@ -1512,18 +1530,21 @@ def _check_plan(plan, ctx):
     # .NET 檔案呼叫與 Office 另存（守門補洞 #25）：點名的字面路徑先判，這段別處看不出目標（$x = …、.Open('a').SaveAs2('b')）也一樣；
     # 沒擋的看不出目標照 U5，看得出的不再走下面的「其餘的寫」（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是要改的檔）
     # 這段的動詞是全名寫入動詞（Set-Content '<p>' ([IO.File]::WriteAllText(…))）時，判完 .NET 那部分照樣走下面（測試第 1 輪後裁定 13）
-    file_call = False  # 這段的寫只有 .NET 呼叫或 Office 另存：判完就不再走「其餘的寫」
+    file_call, call_args = False, set()  # 這段的寫只有 .NET 呼叫或 Office 另存：判完就不再走「其餘的寫」
     if ctx.powershell and plan["kind"] == "write":
         calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
         file_call = bool(calls or saves) and verb not in _KNOWN_VERBS
         got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
         if got is not None:
             return got
+        # .NET 呼叫與另存的參數已經判過（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是目標）：全名動詞那邊不再當目標
+        lits = [cmdparse.literal_arg(a) for _act, args in calls for a in args] + list(saves)
+        call_args = {p for p in (_norm(r, base) for r in lits if r and not any(c in r for c in "$%`")) if p is not None}
     if plan.get("unknown"):
         return _U5(_u5_words(plan, ctx))
     if plan["kind"] != "write" or file_call:
         return None
-    targets = _target_paths(plan, ctx)
+    targets = [p for p in _target_paths(plan, ctx) if p not in call_args and p.rstrip(",") not in call_args]
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
     if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
         tg = targets or ([base] if verb == "git clean" and base else [])
@@ -1952,20 +1973,12 @@ def _shell_tool(tool, command, cwd, vault, sources, depth=0):
     # D-186：每個路徑照讀判斷；只有真正被寫的（導向目標、寫入那段的參數、管線後面才寫時整個子指令）套寫入欄
     # （第八輪「整條 is_write 為真全部套寫入欄」的誤擋收在這裡，B-024）。只切目錄的目標不算 Z10b（只切目錄不讀內容）
     moves_root = _moves_root(flat, cwd, vault_n, powershell)
-    # 測試第 1 輪後裁定 11：另存、匯出、下載到做文件的工作區（.system/temp/office/）的目標，新檔照決策 3 放行、既有檔照蓋掉判
-    ws_saves = set()
-    for plan in info["stages"]:
-        raws = cmdparse.office_save_targets(plan["text"] + "\n" + (plan.get("code") or ""))
-        raws += cmdparse.outfile_targets(cmdparse.strip_marks(plan["text"]), powershell)
-        for raw in raws:
-            p = _norm(raw, plan.get("base"))
-            if p is not None and in_workspace(p, vault_n):
-                ws_saves.add(p)
+    ws_saves = _workspace_saves(info, vault_n, powershell) if writes else set()
 
     def write_column(p, zone, alias):
         ws = p if p in ws_saves else p.rstrip(",") if p.rstrip(",") in ws_saves else None  # 'a.pdf', 17 的逗號會黏在路徑上（B-542）
         if ws is not None:
-            if os.path.isfile(ws):
+            if os.path.lexists(ws):  # 既有的檔或夾：照蓋掉判
                 return deny(zone, "content", CONTENT_REASON.format(name=_display_name(command, ws)))
             return None
         if zone == "Z8" and p == vault_n and moves_root:

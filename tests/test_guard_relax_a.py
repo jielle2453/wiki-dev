@@ -443,6 +443,18 @@ class Holes25(Base):
                 self.denies("PowerShell", cmd, "content")
         self.denies("PowerShell", word + f"$d.SaveAs2('{v}/.system/新.docx')", "willy")
         self.denies("PowerShell", f"Set-Content '{w}/舊.docx' x", "willy")  # 工作區只放另存、匯出、下載，別的寫照舊
+        # code review：同一句別段寫到同一個路徑、提到另存的字串、既有夾、Bash 的 curl 都不給豁免
+        (ws / "sub").mkdir(exist_ok=True)
+        (ws / "sub" / "a.txt").write_text("a", encoding="utf-8")
+        for tool, cmd in (("PowerShell", f"Remove-Item -Recurse -Force '{w}/sub'; $d.SaveAs2('{w}/sub')"),
+                          ("PowerShell", f"Remove-Item '{w}/sub' -Recurse; iwr https://x.tw -OutFile '{w}/sub'"),
+                          ("Bash", f"rm -rf {w}/sub; echo \".SaveAs('{w}/sub')\""),
+                          ("PowerShell", f"Set-Content '{w}/新.txt' x; $d.SaveAs2('{w}/新.txt')"),
+                          ("PowerShell", f"iwr https://x.tw -OutFile '{w}/n.docx'; Move-Item '{v}/我的夾/筆記.txt' '{w}/n.docx'"),
+                          ("PowerShell", f"iwr https://x.tw/a -OutFile '{w}/sub'"),
+                          ("Bash", f"curl https://x.tw/a -OutFile '{w}/new5.docx'")):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.d(tool, cmd).decision, "deny")
 
     def test_round1_content_reason_sentences(self):
         """測試第 1 輪後裁定 12：CONTENT_REASON 補兩句；照新句子改寫後做得完（驗收 4）。"""
@@ -468,6 +480,9 @@ class Holes25(Base):
             with self.subTest(cmd=cmd):
                 self.denies("PowerShell", cmd, "content")
         self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x')")  # 只有 .NET 寫新檔照放
+        # code review：.NET 呼叫的內容參數（剛好是既有檔的路徑）不當全名動詞的目標
+        self.passes("PowerShell", f"Set-Content -Path '{v}/我的夾/new.txt' -Value ([IO.File]::WriteAllText('{v}/我的夾/n.txt', "
+                                  f"'{v}/我的夾/筆記.txt'))")
 
 
 if __name__ == "__main__":

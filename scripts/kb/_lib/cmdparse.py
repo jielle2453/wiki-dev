@@ -675,7 +675,9 @@ DOWNLOAD_VERBS = {"iwr", "irm", "invoke-webrequest", "invoke-restmethod", "curl"
 
 def outfile_targets(text, powershell=True):
     """iwr、irm、Invoke-WebRequest、Invoke-RestMethod、PowerShell 的 curl、wget 帶 -OutFile（含縮寫與 -OutFile:值）的字面目標；
-    變數或運算式不算。不是這些動詞回 []（測試第 1 輪後裁定 11）。"""
+    變數或運算式不算。不是這些動詞、或不是 PowerShell（Bash 的 curl、wget 沒有 -OutFile）回 []（測試第 1 輪後裁定 11）。"""
+    if not powershell:
+        return []
     words = raw_words(text, powershell)
     if verb_of(words) not in DOWNLOAD_VERBS:
         return []
