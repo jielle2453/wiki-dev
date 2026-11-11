@@ -176,5 +176,18 @@ class OuterPlugin(unittest.TestCase):
                 os.unlink(link)
 
 
+    def test_11_outer_is_looked_up_once_per_decision(self):
+        """第 11 條：找上層在同一次判斷裡只算一次（一條指令有很多知識庫外的路徑也一樣）；下一次判斷重新找，不留到下一次。"""
+        from unittest import mock
+        outside = " ".join(f'"{(self.tmp / f"筆記{i}.md").as_posix()}"' for i in range(8))
+        with mock.patch.object(guard, "_outer_plugin_of", wraps=guard._outer_plugin_of) as look:
+            self.decide("Bash", f"cat {outside}")
+            self.assertLessEqual(look.call_count, 2, "字面與 realpath 各一次")
+            self.assertGreaterEqual(look.call_count, 1)
+        self.assertEqual(self.decide("Write", self.main).zone, "Z7")
+        shutil.rmtree(self.tmp / ".obsidian")
+        self.assertEqual(self.decide("Write", self.main).zone, "Z11", "上層不見了，下一次判斷就不認")
+
+
 if __name__ == "__main__":
     unittest.main()
