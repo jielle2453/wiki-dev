@@ -1511,6 +1511,24 @@ def _workspace_saves(info, vault_n, powershell):
     return saves - blocked
 
 
+def _targets_outside_calls(plan, ctx):
+    """裁定 13：全名寫入動詞跟 .NET 呼叫或 Office 另存在同一段時，它的目標是 _target_paths 去掉只出現在那些呼叫括號裡的字
+    （WriteAllText 的內容、Copy 的來源、括號裡的萬用字元或 [ ] 不是它的目標）；兩邊都有的照留。逗號黏在路徑上的照拿掉比（B-542）。"""
+    rest, removed = cmdparse.strip_file_calls(cmdparse.strip_marks(plan["text"]))
+    anchor = plan.get("base") or ctx.vault_n  # 只拿來比對同一個路徑；效用 cwd 推不出來時 own 本來就只有絕對路徑
+
+    def norm_set(text):
+        return {p.rstrip(",") for p in cmdparse.extract_paths(text, anchor, powershell=True)}
+
+    outside, inside = norm_set(rest), norm_set(removed)
+    drop = {p for p in (plan.get("own") or []) if p.rstrip(",") in inside and p.rstrip(",") not in outside}
+    out = [p for p in (plan.get("own") or []) if p not in drop]
+    for g in plan.get("globs") or []:
+        if g.rstrip(",") in outside:  # 只展開全名動詞那邊的萬用字元
+            out.extend(_expand_glob(g, hidden=ctx.powershell))
+    return list(dict.fromkeys(out))
+
+
 def _existing_content(raws, base, ctx):
     """這些字面路徑裡第一個是使用者區既有檔的回 content；都不是回 None（Office 另存、寫的方法：新檔放行）。"""
     for raw in raws:
@@ -1533,27 +1551,19 @@ def _check_plan(plan, ctx):
     # 沒擋的看不出目標照 U5，看得出的不再走下面的「其餘的寫」（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是要改的檔）
     # 這段的動詞是全名寫入動詞（Set-Content '<p>' ([IO.File]::WriteAllText(…))）時，判完 .NET 那部分照樣走下面（測試第 1 輪後裁定 13）
     # 這段的動詞看第一個字（plan["verb"]），不看 .NET 參數裡剛好是 copy、cp 的字串
-    file_call, stripped = False, None  # file_call：這段的寫只有 .NET 呼叫或 Office 另存，判完就不再走「其餘的寫」
+    file_call, has_calls = False, False  # file_call：這段的寫只有 .NET 呼叫或 Office 另存，判完就不再走「其餘的寫」
     if ctx.powershell and plan["kind"] == "write":
         calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
-        file_call = bool(calls or saves) and plan["verb"] not in _KNOWN_VERBS
-        got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
+        has_calls = bool(calls or saves)
+        file_call = has_calls and plan["verb"] not in _KNOWN_VERBS
+        got = _file_call_check(calls, saves, base, ctx) if has_calls else None
         if got is not None:
             return got
-        if calls or saves:  # .NET 呼叫與另存括號裡的字（WriteAllText 的內容、Copy 的來源）只在那裡出現的，不是全名動詞的目標
-            stripped = cmdparse.strip_file_calls(cmdparse.strip_marks(plan["text"]))
     if plan.get("unknown"):
         return _U5(_u5_words(plan, ctx))
     if plan["kind"] != "write" or file_call:
         return None
-    targets = _target_paths(plan, ctx)
-    if stripped is not None:
-        rest, removed = stripped
-        anchor = base or ctx.vault_n  # 只拿來比對同一個路徑；效用 cwd 推不出來時 own 本來就只有絕對路徑
-        outside = set(cmdparse.extract_paths(rest, anchor, powershell=True))
-        inside = set(cmdparse.extract_paths(removed, anchor, powershell=True))
-        own = set(plan.get("own") or [])  # 萬用字元展開的命中照留
-        targets = [p for p in targets if p not in own or p.rstrip(",") not in inside or p in outside or p.rstrip(",") in outside]
+    targets = _target_paths(plan, ctx) if not has_calls else _targets_outside_calls(plan, ctx)
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
     if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
         tg = targets or ([base] if verb == "git clean" and base else [])

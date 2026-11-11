@@ -502,6 +502,14 @@ class Holes25(Base):
         self.denies("PowerShell", f"Set-Content '{v}/我的夾/筆*.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))", "content")
         self.denies("PowerShell", f"cd $env:TEMP; Set-Content '{v}/我的夾/筆記.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))",
                     "content")
+        # code review 第四輪：只出現在 .NET 參數裡的萬用字元或 [ ] 不當全名動詞的目標
+        t = self.tmp.as_posix()
+        (self.V / "我的夾" / "b.txt").touch()
+        for cmd in (f"Set-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/list.txt', '*.txt'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '{v}/我的夾/筆*'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::Move('{t}/ext/a.txt', '{v}/我的夾/[b].txt'))"):
+            with self.subTest(cmd=cmd):
+                self.passes("PowerShell", cmd, cwd=self.V / "我的夾")
 
 
 if __name__ == "__main__":
