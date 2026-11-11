@@ -303,10 +303,10 @@ class Config(unittest.TestCase):
                 for h in g["hooks"]:
                     self.assertIn("${PLUGIN_ROOT}/hooks/", h["command"])
 
-    def test_codex_manifest_points_to_codex_json(self):
-        """#56 決策 1：Codex 讀 manifest 指的 codex.json，Claude 讀預設的 hooks.json，兩份並存。"""
+    def test_codex_manifest_has_no_hooks(self):
+        """D-539：Codex 執行只讀預設的 hooks/hooks.json，manifest 不寫 hooks；main 上兩份並存，發行時 codex.json 改名成 hooks.json。"""
         m = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(m["hooks"], "./hooks/codex.json")
+        self.assertNotIn("hooks", m)
         cfg = json.loads((ROOT / "hooks" / "codex.json").read_text(encoding="utf-8"))["hooks"]
         self.assertEqual(set(cfg), {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"})
         self.assertEqual(cfg["SessionEnd"][0]["matcher"], "other")  # Codex 的 SessionEnd 只有 other

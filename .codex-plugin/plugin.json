@@ -6,7 +6,6 @@
     "name": "wiki-with-willy"
   },
   "license": "MIT",
-  "hooks": "./hooks/codex.json",
   "keywords": [
     "knowledge-base",
     "wiki",

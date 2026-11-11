@@ -156,9 +156,8 @@ class Versions(unittest.TestCase):
 
 
 def add_codex(root, version, hooks_ref="hooks/session.py"):
-    """Codex 版的檔（#56）：manifest 指 hooks/codex.json、本機市集、安裝說明。"""
-    write(root, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": version,
-                                                         "hooks": "./hooks/codex.json"}))
+    """Codex 版的檔（#56）：manifest 不寫 hooks（D-539）、hooks/codex.json、本機市集、安裝說明。"""
+    write(root, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": version}))
     write(root, "hooks/codex.json", json.dumps({"hooks": {"SessionStart": [{"hooks": [
         {"type": "command", "command": f'python "${{PLUGIN_ROOT}}/{hooks_ref}"'}]}]}}))
     write(root, ".agents/plugins/marketplace.json", json.dumps({"name": "wiki-with-willy", "plugins": [
@@ -185,14 +184,23 @@ class CodexBuild(Base):
             release.build(self.repo, "v0.20.0", self.tmp / "dist")
         self.assertIn(".codex-plugin/plugin.json 的版本是 0.19.0", str(cm.exception))
 
-    def test_codex_manifest_without_hooks_is_a_problem(self):
-        """沒有 hooks 欄位，Codex 會去讀 Claude 的 hooks/hooks.json（#56 review 9）。"""
+    def test_codex_manifest_with_hooks_is_a_problem(self):
+        """D-539：Codex 執行只讀預設的 hooks/hooks.json，manifest 有 hooks 會讓 /hooks 清單跟實際執行的不一致。"""
         add_codex(self.repo, "0.20.0")
-        write(self.repo, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": "0.20.0"}))
+        write(self.repo, ".codex-plugin/plugin.json", json.dumps({"name": "wiki-with-willy", "version": "0.20.0",
+                                                                  "hooks": "./hooks/codex.json"}))
         self.commit("codex", tag="v0.20.0")
         with self.assertRaises(release.ReleaseError) as cm:
             release.build(self.repo, "v0.20.0", self.tmp / "dist")
-        self.assertIn("的 hooks 要是 ./ 開頭", str(cm.exception))
+        self.assertIn(".codex-plugin/plugin.json 不能有 hooks", str(cm.exception))
+
+    def test_codex_hooks_file_must_exist(self):
+        add_codex(self.repo, "0.20.0")
+        (self.repo / "hooks" / "codex.json").unlink()
+        self.commit("codex", tag="v0.20.0")
+        with self.assertRaises(release.ReleaseError) as cm:
+            release.build(self.repo, "v0.20.0", self.tmp / "dist")
+        self.assertIn("hooks/codex.json", str(cm.exception))
 
     def test_codex_hooks_must_point_to_files_in_zip(self):
         add_codex(self.repo, "0.20.0", hooks_ref="hooks/gone.py")
@@ -906,8 +914,11 @@ class CodexPublish(PublishFixture):
         self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
         self.assertEqual(git(self.bare, "rev-parse", "codex").strip(), got["codex"])
         names = sorted(x for x in git(self.bare, "ls-tree", "-r", "--name-only", "-z", "codex").split("\0") if x)
-        self.assertEqual(names, sorted(set(self.names(got["zip"])) | {".gitattributes"}))
+        self.assertEqual(names, sorted((set(self.names(got["zip"])) - {"hooks/codex.json"}) | {".gitattributes"}))
         self.assertEqual(git(self.bare, "show", "codex:README.md"), "# Codex 安裝\n")
+        # D-539：codex 分支的 hooks/hooks.json 是 main 的 codex.json，不放 codex.json
+        self.assertEqual(git(self.bare, "show", "codex:hooks/hooks.json"),
+                         (self.repo / "hooks" / "codex.json").read_text(encoding="utf-8"))
         self.assertIsNotNone(self.remote_file("marketplace.json"))  # main 照舊有清單
         self.assertEqual(git(self.public, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
 
@@ -942,17 +953,17 @@ class CodexPublish(PublishFixture):
             with self.assertRaises(release.ReleaseError):
                 self.publish()
         self.assertEqual(git(self.public, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
-        self.assertFalse((self.public / "hooks" / "codex.json").exists(), "失敗後不留 main 沒有的檔（review 6）")
+        self.assertFalse((self.public / "hooks" / "hooks.json").exists(), "失敗後不留 main 沒有的檔（review 6）")
         self.publish()
         self.assertEqual(self.codex_log(), ["codex: 0.21.0"])
 
     def test_untracked_file_with_same_name_stops_and_is_kept(self):
         """公開 clone 裡沒追蹤、跟 Codex 版同名的檔：不蓋、不刪，先停（review 二輪 1）。"""
-        write(self.public, "hooks/codex.json", "我自己的\n")
+        write(self.public, "hooks/hooks.json", "我自己的\n")  # D-539：codex 分支寫的是 hooks.json
         with self.assertRaises(release.ReleaseError) as cm:
             self.publish()
         self.assertIn("同名", str(cm.exception))
-        self.assertEqual((self.public / "hooks" / "codex.json").read_text(encoding="utf-8"), "我自己的\n")
+        self.assertEqual((self.public / "hooks" / "hooks.json").read_text(encoding="utf-8"), "我自己的\n")
         self.assertEqual(git(self.bare, "branch", "--list", "codex").strip(), "")
 
     def test_bracket_file_name_is_pushed_literally(self):

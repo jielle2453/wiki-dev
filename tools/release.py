@@ -40,6 +40,7 @@ CODEX_MANIFEST = ".codex-plugin/plugin.json"  # 有這個檔，publish 才另推
 CODEX_BRANCH = "codex"
 PUBLIC_BRANCH = "main"  # 公開 repo 放清單與名單的分支
 CODEX_README = "安裝-Codex.md"  # codex 分支的 README.md 用它
+CODEX_HOOKS = "hooks/codex.json"  # main 上 Codex 的 hook 檔；codex 分支寫成預設的 hooks/hooks.json（D-539）
 HASH_IN_PATH = ("路徑裡有 #：{}。gh 會把 # 後面當成標籤、Codex 會把它當分支名，請換到沒有 # 的資料夾再跑。")
 PLUGIN_NAME = "wiki-with-willy"
 POLL_SECONDS = 30
@@ -350,8 +351,9 @@ def problems(files, version, previous=None):
 
 
 def _codex_problems(files, version):
-    """Codex 版（#56）：有 .codex-plugin/plugin.json 才查：版號等於 tag（跟 Claude 版同一版）、hooks 指到的檔在、
-    那份 hooks 檔引用的 ${PLUGIN_ROOT}/… 都在。"""
+    """Codex 版（#56）：有 .codex-plugin/plugin.json 才查：版號等於 tag（跟 Claude 版同一版）、manifest 不准有 hooks
+    （D-539：Codex 執行只讀預設的 hooks/hooks.json，有 hooks 會讓 /hooks 清單跟實際執行的不一致）、hooks/codex.json 在、
+    它引用的 ${PLUGIN_ROOT}/… 都在。"""
     if CODEX_MANIFEST not in files:
         return []
     out = []
@@ -361,16 +363,14 @@ def _codex_problems(files, version):
     if manifest.get("version") != version:
         out.append(f"{CODEX_MANIFEST} 的版本是 {manifest.get('version')}，tag 是 {version}（要跟 .claude-plugin 同一版）")
     _json_of(files, ".agents/plugins/marketplace.json", out)  # Codex 從 codex 分支裝要這份市集
-    ref = manifest.get("hooks")
-    if not (isinstance(ref, str) and ref.startswith("./") and ".." not in ref.split("/")):
-        out.append(f"{CODEX_MANIFEST} 的 hooks 要是 ./ 開頭、在外掛裡的路徑（現在是 {ref!r}）；沒有的話 Codex 會去讀 Claude 的 hooks/hooks.json")
-    else:
-        rel = ref[2:]
-        hooks = _json_of(files, rel, out)
-        for text in _strings(hooks) if hooks is not None else []:
-            for sub in re.findall(r"\$\{PLUGIN_ROOT\}/([^\s\"']+)", text):
-                if not _exists(files, sub):
-                    out.append(f"{rel} 引用的路徑不在 zip 裡：{sub}")
+    if "hooks" in manifest:
+        out.append(f"{CODEX_MANIFEST} 不能有 hooks：Codex 執行只讀 hooks/hooks.json（發行時由 {CODEX_HOOKS} 改名），"
+                   "寫了會讓 /hooks 清單跟實際執行的不一致（D-539）")
+    hooks = _json_of(files, CODEX_HOOKS, out)
+    for text in _strings(hooks) if hooks is not None else []:
+        for sub in re.findall(r"\$\{PLUGIN_ROOT\}/([^\s\"']+)", text):
+            if not _exists(files, sub):
+                out.append(f"{CODEX_HOOKS} 引用的路徑不在 zip 裡：{sub}")
     return out
 
 
@@ -643,7 +643,8 @@ def _release_exists(public, tag):
 
 def _push_codex(public, version, files):
     """Codex 版（#56 決策 5）：把 zip 的同一批檔推到公開 repo 的 codex 分支（Codex 的市集不認 zip，只認 git 的內容）。
-    一般 commit 接在遠端那個後面、不 force push；README.md 換成安裝-Codex.md、補 .gitattributes。內容跟遠端一樣就不 commit。
+    一般 commit 接在遠端那個後面、不 force push；README.md 換成安裝-Codex.md、hooks/codex.json 寫成 hooks/hooks.json
+    （D-539：Codex 執行只讀預設檔名；Claude 的 hooks.json 不進 codex 分支）、補 .gitattributes。內容跟遠端一樣就不 commit。
     本機的 codex 分支由這裡管：遠端有就一律從遠端那個接（上一次 commit 了卻推失敗的丟掉、這次重做同一份；本機跟遠端分岔也不卡，
     #56 review 7）。做完（或失敗）切回 main，這裡寫出來、main 沒有的檔刪掉（review 6：不留下擋住下一次切換的檔）。
     回 codex 分支的 commit。"""
@@ -653,6 +654,8 @@ def _push_codex(public, version, files):
     out = dict(files)
     if CODEX_README in out:
         out["README.md"] = out[CODEX_README]
+    if CODEX_HOOKS in out:
+        out["hooks/hooks.json"] = out.pop(CODEX_HOOKS)
     out[".gitattributes"] = b"* text=auto eol=lf\n"
     main_tracked = _tracked(public)
     clash = sorted(rel for rel in out if rel not in main_tracked and Path(public, rel).exists())
