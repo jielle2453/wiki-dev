@@ -91,13 +91,22 @@ class Add(Base):
             (swap(kind="期間"), "期間要有 --start，而且只掛一個實體"),
             (swap(start="2026-12-01"), "開始不能晚於日期"),
             (swap(entity="王宅小"), "實體清單沒有「王宅小」，先 kb entity add"),
-            (swap(kind="生日"), "種類要是 到期、會議、承諾、提醒、期間 之一"),
+            (swap(kind="生日"), "種類要是 到期、會議、提醒、期間 之一"),
+            (swap(kind="承諾"), "種類要是 到期、會議、提醒、期間 之一"),  # #68 驗收 1
+            (swap(kind="promise"), "種類要是 到期、會議、提醒、期間 之一"),
             (swap(card="f-00000000"), "清冊沒有 f-00000000"),
         ]
         for args, want in cases:
             with self.subTest(want=want):
                 self.assertEqual(self.kb(*args, code=3), [want])
         self.assertFalse((self.V / ".system" / "agenda.json").exists())
+
+    def test_help_lists_four_kinds(self):
+        """#68 驗收 2。"""
+        r = run_kb("agenda", "add", "--help", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("到期、會議、提醒、期間", r.stdout)
+        self.assertNotIn("承諾", r.stdout)
 
     def test_card_makes_it_inferred_and_repeat_returns_existing(self):
         cid, fp = self.card()
@@ -233,6 +242,16 @@ class ListRender(Base):
         self.add("--start", "2026-09-01", kind="期間", date="2026-12-01", text="施工")
         self.assertEqual(self.kb("list"), ["- 2026-09-01（週二）～2026-12-01（週二）期間 施工（信義王）",
                                            "- 2026-11-30（週一）09:30 會議 開會"])
+
+    def test_old_promise_lists_as_deadline(self):
+        """#68 驗收 3：還沒轉的舊 promise 列出來寫「到期」，list 不寫入。"""
+        it = {"id": "a-0a0b0c0d", "kind": "promise", "start": None, "date": "2026-10-01", "ended": None, "time": None,
+              "text": "給報價", "entities": ["信義王"], "status": "open", "source": "confirmed", "origin": None,
+              "lead_days": None, "created_turn": "20261001-100000-ab12", "history": []}
+        (self.V / ".system" / "agenda.json").write_text(json.dumps({"schema_version": 1, "items": [it]}, ensure_ascii=False),
+                                                        encoding="utf-8")
+        self.assertEqual(self.kb("list"), ["- 2026-10-01（週四）到期 給報價（信義王）"])
+        self.assertEqual(self.items()[0]["kind"], "promise")
 
     def test_list_json(self):
         aid = self.add()

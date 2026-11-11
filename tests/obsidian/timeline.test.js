@@ -36,7 +36,7 @@ function sample() {
             mark({ id: 'a-bar', start: '2026-10-25', end: '2026-11-20', text: '施工' }),
             mark({ id: 'a-pt', shape: 'point', kind: 'deadline', start: null, end: '2026-11-05', text: '交水電圖', late: true }),
             mark({ id: 'a-inf', shape: 'point', kind: 'meeting', start: null, end: '2026-11-08', text: '驗收會議', inferred: true }),
-            mark({ id: 'a-late', shape: 'point', kind: 'promise', start: null, end: '2026-10-28', text: '回覆報價', late: true }),
+            mark({ id: 'a-late', shape: 'point', kind: 'promise', start: null, end: '2026-10-28', text: '回覆報價', late: true }), // #68 前的舊值：照到期畫
           ],
           pauses: [{ start: '2026-10-30', end: '2026-11-03' }],
           links: [],
@@ -346,6 +346,31 @@ test('時間軸（裁定 28）：左欄一件一列（圖示、文字、日期�
   assert.strictEqual(byTag(byClass(late, 'wwh-mark')[0], 'svg').length, 1, '點是帶種類圖示的小圓');
 });
 
+test('拿掉承諾（#68）：舊值 promise 畫到期的圖示；圖例沒有承諾；新增日程的種類只有四個', () => {
+  const { view } = viewOf();
+  const row = byClass(view.root, 'wwh-row')[0];
+  const late = byClass(row, 'wwh-mark-line').find((l) => byClass(l, 'wwh-mark-text')[0].textContent === '回覆報價');
+  const paths = (el) => byTag(el, 'path').map((p) => p.getAttribute('d'));
+  const ico = byTag(byClass(late, 'wwh-kind-ico')[0], 'svg')[0];
+  assert.deepStrictEqual(paths(ico), paths(lib.icon('deadline')));
+  const legend = view.legend();
+  assert.ok(!legend.textContent.includes('承諾'));
+  assert.strictEqual(byClass(legend, 'wwh-legend-item').filter((x) => byTag(x, 'svg').length).length, 3, '會議、到期、提醒');
+  let modal = null;
+  const open = env.fake.Modal.prototype.open;
+  env.fake.Modal.prototype.open = function () {
+    modal = this;
+    return open.call(this);
+  };
+  try {
+    env.Plugin.prototype.addAgendaForm.call({ app: {}, home: { today: '2026-10-30' }, entityNames: () => [] });
+  } finally {
+    env.fake.Modal.prototype.open = open;
+  }
+  const select = byTag(modal.contentEl, 'select')[0];
+  assert.deepStrictEqual(byTag(select, 'option').map((o) => o.textContent), ['到期', '會議', '提醒', '期間']);
+});
+
 test('時間軸（裁定 28）：收起來是摘要列，期間一條色條、每件一個點；推測的條不畫在摘要的色條裡', () => {
   const { view } = viewOf();
   const sums = byClass(view.root, 'wwh-summary');
@@ -433,7 +458,7 @@ test('待辦（裁定 30）：標題、案子·種類·推測一行淡小字、�
   assert.strictEqual(byClass(inferred, 'wwh-todo-meta')[0].textContent, '會議·推測');
   assert.strictEqual(byTag(inferred, 'button').length, 0, '沒有任何按鈕');
   const first = rows[0];
-  assert.strictEqual(byClass(first, 'wwh-todo-meta')[0].textContent, '信義王·承諾');
+  assert.strictEqual(byClass(first, 'wwh-todo-meta')[0].textContent, '信義王·到期'); // 舊值 promise 照到期顯示（#68）
   assert.strictEqual(byClass(first, 'wwh-todo-when')[0].textContent, '10/28（週三）');
   assert.strictEqual(byTag(first, 'button').length, 0);
 });
@@ -1135,7 +1160,7 @@ function colorHome() {
       marks: [
         mark({ id: 'p1', start: '2026-10-05', end: '2026-10-16', text: '水電', entities: ['信義王'], children: [] }),
         mark({ id: 'q1', shape: 'point', kind: 'deadline', start: null, end: '2026-10-20', text: '交圖', entities: ['信義王'], children: [] }),
-        mark({ id: 'q2', shape: 'point', kind: 'promise', start: null, end: '2026-10-27', text: '回報價', late: true, entities: ['信義王'], children: [] }),
+        mark({ id: 'q2', shape: 'point', kind: 'deadline', start: null, end: '2026-10-27', text: '回報價', late: true, entities: ['信義王'], children: [] }),
       ],
     },
     {
@@ -1531,7 +1556,7 @@ function monthRaw() {
         mark({ id: 'q1', shape: 'point', kind: 'meeting', start: null, end: '2026-10-20', time: '14:00', text: '丈量', children: [] }),
         mark({ id: 'p1', start: '2026-10-19', end: '2026-10-22', time: '09:30', text: '放樣', children: [] }),
         mark({ id: 'q-inf', shape: 'point', kind: 'meeting', start: null, end: '2026-10-21', text: '驗收', inferred: true, children: [] }),
-        mark({ id: 'q-late', shape: 'point', kind: 'promise', start: null, end: '2026-10-15', text: '回覆', late: true, children: [] }),
+        mark({ id: 'q-late', shape: 'point', kind: 'deadline', start: null, end: '2026-10-15', text: '回覆', late: true, children: [] }),
       ],
     },
   ];

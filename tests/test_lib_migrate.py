@@ -43,7 +43,7 @@ class Table(Base):
         """lint 題：pending.json schema 1 → 2 加一列（D-226）。"""
         self.assertEqual([m.rel for m in migrate.STATE_FILES],
                          [".system/profile.json", ".system/inventory.json", ".system/entities.json", ".system/pending.json",
-                          ".system/profile.json", "暫存區", ".system/profile.json"])  # 第五列：型別夾補編號（D-249）；第六列：暫存區（D-324）；彈性區兩列 #51 拿掉；第七列：記帳開關補第十節（記帳 1b）
+                          ".system/profile.json", "暫存區", ".system/profile.json", ".system/agenda.json"])  # 第五列：型別夾補編號（D-249）；第六列：暫存區（D-324）；彈性區兩列 #51 拿掉；第七列：拿掉記帳（#65）；第八列：拿掉承諾（#68）
 
     def test_card_header_table_is_empty_for_now(self):
         self.assertEqual(migrate.CARD_HEADER_MIGRATIONS, [])
@@ -401,6 +401,84 @@ class MoneyGone(Base):
         self.assertEqual([p["rel"] for p in migrate.pending(self.V)], [".system/profile.json"])
         migrate.apply(self.V, self.turn)
         self.assertEqual(self.states()["money_unsure"][0], "closed")
+
+
+class PromiseGone(Base):
+    """#68 拿掉承諾（D-547，驗收 6～9）：舊的 promise 原地改 deadline，其餘欄位不動、不加歷程。"""
+    AG = ".system/agenda.json"
+
+    def item(self, aid, status, date, history=()):
+        return {"id": aid, "kind": "promise", "start": None, "date": date, "ended": None, "time": None, "text": f"給報價{aid}",
+                "entities": [], "status": status, "source": "confirmed", "origin": None, "lead_days": None,
+                "created_turn": "20261001-100000-ab12", "history": list(history)}
+
+    def put(self, items):
+        (self.V / self.AG).write_text(json.dumps({"schema_version": 1, "items": items}, ensure_ascii=False), encoding="utf-8")
+
+    def items(self):
+        from kb._lib import agenda
+        return agenda._load_raw(self.V)["items"]
+
+    def test_open_done_cancelled_are_converted_in_place_and_idempotent(self):
+        """驗收 7。"""
+        hist = [{"date": "2026-10-02", "change": "status open → cancelled", "by": "ai", "turn": "20261002-090000-ab12"}]
+        old = [self.item("a-00000001", "open", "2030-01-01"), self.item("a-00000002", "done", "2026-01-05"),
+               self.item("a-00000003", "cancelled", "2026-02-05", hist)]
+        self.put(old)
+        self.assertIn({"rel": self.AG, "from": 0, "to": 1}, migrate.pending(self.V))
+        got = migrate.apply(self.V, self.turn)
+        self.assertIn(self.AG, got["migrated"])
+        self.assertEqual(got["skipped"], [])
+        self.assertEqual(self.items(), [dict(i, kind="deadline") for i in old])
+        self.assertNotIn(self.AG, [p["rel"] for p in migrate.pending(self.V)])
+        self.assertTrue(self.saved(self.AG).is_file())  # 跟平常寫入一樣備進回合
+
+    def test_without_turn_is_skipped_not_marked_migrated(self):
+        """遷移列一定要帶回合：沒帶不轉，也不列進 migrated。"""
+        self.put([self.item("a-00000001", "open", "2030-01-01")])
+        got = migrate.apply(self.V, None)
+        self.assertNotIn(self.AG, got["migrated"])
+        self.assertIn(self.AG, [s["rel"] for s in got["skipped"]])
+        self.assertEqual(self.items()[0]["kind"], "promise")
+
+    def test_no_promise_or_no_file_is_left_alone(self):
+        """驗收 8。舊式整份的 agenda.json 第一次 apply 會被 migrate_streams 轉成流水檔（不是這列做的），
+        所以 mtime 在已轉過的庫上比；兩次都不叫 _mutate。"""
+        from kb._lib import agenda
+        with mock.patch.object(agenda, "_mutate") as mutate:
+            self.assertNotIn(self.AG, [p["rel"] for p in migrate.pending(self.V)])
+            migrate.apply(self.V, self.turn)
+            self.assertFalse((self.V / self.AG).exists())
+            self.put([dict(self.item("a-00000001", "open", "2030-01-01"), kind="deadline")])
+            self.assertNotIn(self.AG, [p["rel"] for p in migrate.pending(self.V)])
+            self.assertNotIn(self.AG, migrate.apply(self.V, self.turn)["migrated"])
+            stamp = (self.V / self.AG).stat().st_mtime_ns
+            self.assertNotIn(self.AG, migrate.apply(self.V, self.turn)["migrated"])
+            self.assertEqual((self.V / self.AG).stat().st_mtime_ns, stamp)
+        mutate.assert_not_called()
+
+    def test_broken_file_is_not_pending(self):
+        """驗收 9。"""
+        (self.V / self.AG).write_text("不是 json", encoding="utf-8")
+        self.assertNotIn(self.AG, [p["rel"] for p in migrate.pending(self.V)])
+
+    def test_ticked_old_promise_on_old_page_is_done_without_handedit(self):
+        """驗收 6：舊版畫的頁（寫「承諾」）上把那條打勾，apply 之後那條 done、kind deadline，沒有 handedit。"""
+        from kb._lib import agenda, pending
+        self.put([self.item("a-00000001", "open", "2030-01-01")])
+        with mock.patch.dict(agenda.KIND_TEXT, {"promise": "承諾"}):
+            agenda.render(self.V)
+        md = self.V / agenda.MD_POSIX
+        page = md.read_text(encoding="utf-8")
+        self.assertIn("承諾 給報價", page)
+        md.write_text("\n".join(ln.replace("- ", "- [x] ", 1) if "給報價" in ln else ln for ln in page.split("\n")),
+                      encoding="utf-8", newline="\n")
+        before = [i for i in pending.load(self.V)["items"] if i["kind"] == "handedit"]
+        migrate.apply(self.V, self.turn)
+        (it,) = self.items()
+        self.assertEqual((it["status"], it["kind"]), ("done", "deadline"))
+        self.assertEqual([i for i in pending.load(self.V)["items"] if i["kind"] == "handedit"], before)
+        self.assertNotIn("承諾", md.read_text(encoding="utf-8"))
 
 
 class OldExtras(Base):

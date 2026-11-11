@@ -54,7 +54,7 @@ class AgendaApply(Base):
         super().setUp()
         self.a = agenda.add(self.V, "到期", "2030-03-01", "付尾款", ["信義王"], self.t)[0]["id"]
         self.b = agenda.add(self.V, "提醒", "2030-03-02", "訂窗簾", ["信義王"], self.t)[0]["id"]
-        self.c = agenda.add(self.V, "承諾", "2030-03-03", "給報價", ["信義王"], self.t)[0]["id"]
+        self.c = agenda.add(self.V, "到期", "2030-03-03", "給報價", ["信義王"], self.t)[0]["id"]
         self.d = agenda.add(self.V, "會議", "2030-03-04", "丈量", ["信義王"], self.t)[0]["id"]
 
     def item(self, aid):

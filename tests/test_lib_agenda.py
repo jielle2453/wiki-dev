@@ -77,8 +77,9 @@ class Dates(unittest.TestCase):
             self.assertEqual(str(cm.exception), "時間要寫 HH:MM")
 
     def test_constants(self):
-        self.assertEqual(agenda.KINDS, {"到期": "deadline", "會議": "meeting", "承諾": "promise", "提醒": "reminder",
-                                       "期間": "period"})
+        self.assertEqual(agenda.KINDS, {"到期": "deadline", "會議": "meeting", "提醒": "reminder", "期間": "period"})
+        self.assertEqual(agenda.LEGACY_KINDS, {"promise": "deadline"})  # #68
+        self.assertEqual(agenda.KIND_TEXT["promise"], "到期")
         self.assertEqual((agenda.TRACKED, agenda.PASSING, agenda.STATUSES),
                          (("deadline", "promise"), ("meeting", "reminder"), ("open", "done", "cancelled")))
 
@@ -133,7 +134,8 @@ class Add(Base):
         self.refused("期間要有 --start，而且只掛一個實體", kind="期間", start="2026-09-01", entities=["信義王", "王宅"])
         self.refused("開始不能晚於日期", start="2026-12-01")
         self.refused("實體清單沒有「王小明」，先 kb entity add", entities=["王小明"])
-        self.refused("種類要是 到期、會議、承諾、提醒、期間 之一", kind="生日")
+        for kind in ("生日", "承諾", "promise"):  # #68 驗收 1
+            self.refused("種類要是 到期、會議、提醒、期間 之一", kind=kind)
         self.refused("日程要有一句說明", text="  ")
         self.assertFalse((self.V / ".system" / "agenda.json").exists())
 
@@ -409,7 +411,7 @@ class Unscanned(Base):
         cid, _fp = self.card()
         other, _ = self.card(E.ESTIMATE, "內湖李估價", ("信義王",))
         a, _ = self.add(card=cid)
-        b, _ = self.add(card=cid, text="驗收", kind="承諾", date="2026-12-01")
+        b, _ = self.add(card=cid, text="驗收", kind="會議", date="2026-12-01")
         done, _ = self.add(card=cid, text="已做完")
         agenda.set_status(self.V, done["id"], "done", self.t)
         self.add(card=other, text="別張卡的")
@@ -417,7 +419,7 @@ class Unscanned(Base):
         rows = {r["id"]: r for r in self.rows()}
         self.assertEqual(rows[cid]["existing"],
                          [{"id": a["id"], "kind": "到期", "date": "2026-11-30", "text": "交屋"},
-                          {"id": b["id"], "kind": "承諾", "date": "2026-12-01", "text": "驗收"}])
+                          {"id": b["id"], "kind": "會議", "date": "2026-12-01", "text": "驗收"}])
         self.assertEqual([x["text"] for x in rows[other]["existing"]], ["別張卡的"])
 
     def test_card_of_an_inactive_entry_is_not_listed(self):
@@ -509,7 +511,7 @@ class Counts(Base):
 
     def test_tracked_overdue_and_passing_kinds(self):
         got = self.count(item(id="a-1", kind="deadline", date="2026-10-20"),
-                         item(id="a-2", kind="promise", date="2026-10-01"),
+                         item(id="a-2", kind="promise", date="2026-10-01"),  # #68 前的舊值照到期算
                          item(id="a-3", kind="meeting", date="2026-10-20"),
                          item(id="a-4", kind="reminder", date="2026-10-20"))
         self.assertEqual(got, {"overdue": 2, "today": 0, "upcoming": 0})
@@ -576,7 +578,7 @@ class Render(Base):
 
     def test_unchanged_content_is_not_rewritten_or_backed_up(self):
         shutil.copy2(FIX / "agenda.json", self.V / ".system" / "agenda.json")
-        agenda.render(self.V, today=TODAY)
+        agenda.render(self.V, self.t, today=TODAY)  # 帶回合：fixture 的舊 promise 這次轉掉（#68）
         t2 = turn.start(self.V, None, "")["turn"]
         stamp = (self.V / "系統" / "日程.md").stat().st_mtime_ns
         agenda.render(self.V, t2, today=TODAY)
@@ -589,6 +591,51 @@ class Render(Base):
         put(self.V, [item()])
         agenda.render(self.V, t2, today=TODAY)
         self.assertEqual([r["path"] for r in turn.entries(self.V, t2)], [agenda.MD_POSIX])
+
+
+class LegacyPromise(Base):
+    """#68 拿掉承諾（D-547）：舊的 promise 讀的時候照到期看，任何一次寫入轉成 deadline，不加歷程、不算手改。"""
+    OLD = item(id="a-0a0b0c0d", kind="promise", date="2026-10-01", text="給報價", entities=["信義王"],
+               history=[{"date": "2026-09-01", "change": "date 2026-09-20 → 2026-10-01", "by": "ai", "turn": "20260901-100000-ab12"}])
+
+    def md(self):
+        return (self.V / agenda.MD_POSIX).read_text(encoding="utf-8")
+
+    def test_old_promise_reads_as_deadline_without_writing(self):
+        """驗收 3。"""
+        put(self.V, [self.OLD])
+        raw = (self.V / ".system" / "agenda.json").read_bytes()
+        data = agenda.load(self.V)
+        self.assertEqual(agenda.counts(self.V, data, TODAY)["overdue"], 1)
+        self.assertEqual([i["id"] for i in agenda.overdue_items(data, TODAY)], [self.OLD["id"]])
+        agenda.render(self.V, today=TODAY)
+        self.assertIn("- 2026-10-01（週四）到期 給報價", self.md())
+        self.assertNotIn("承諾", self.md())
+        self.assertEqual((self.V / ".system" / "agenda.json").read_bytes(), raw)
+
+    def test_any_write_converts_in_place(self):
+        """驗收 4。"""
+        put(self.V, [self.OLD])
+        self.add(text="別的事")
+        old = next(i for i in read(self.V) if i["id"] == self.OLD["id"])
+        self.assertEqual(old, dict(self.OLD, kind="deadline"))
+
+    def test_page_drawn_by_old_version_is_not_a_hand_edit(self):
+        """驗收 5：舊版畫的頁寫「承諾」，寫入之後沒有 handedit、頁改寫成「到期」。"""
+        from unittest import mock
+        from kb._lib import pending, renders
+        put(self.V, [self.OLD])
+        with mock.patch.dict(agenda.KIND_TEXT, {"promise": "承諾"}):
+            agenda.render(self.V, today=TODAY)
+        self.assertIn("到期", agenda.KIND_TEXT["promise"])
+        self.assertIn("承諾 給報價", self.md())
+        before = pending.load(self.V)
+        self.add(text="別的事")
+        self.assertEqual(pending.load(self.V), before)
+        self.assertEqual(renders.saved(self.V), [])
+        self.assertIn("- 2026-10-01（週四）到期 給報價", self.md())
+        self.assertNotIn("承諾", self.md())
+        self.assertEqual(read(self.V)[0]["kind"], "deadline")
 
 
 class RelativeLinks(Base):

@@ -197,10 +197,10 @@ class Renderers(unittest.TestCase):
 
     def test_agenda_date_change(self):
         from kb._lib import agenda
-        it, _new = agenda.add(self.V, "承諾", "2030-01-10", "給報價", ["信義王"], self.t)
+        it, _new = agenda.add(self.V, "到期", "2030-01-10", "給報價", ["信義王"], self.t)
         md = self.V / "系統" / "日程.md"
         text = md.read_text(encoding="utf-8")
-        self.assertIn("- 2030-01-10（週四）承諾 給報價", text)
+        self.assertIn("- 2030-01-10（週四）到期 給報價", text)
         md.write_text(text.replace("- 2030-01-10（週四）", "- 2030-01-12（週六）"), encoding="utf-8")
         agenda.add(self.V, "會議", "2030-02-01", "丈量", ["信義王"], self.t)
         # #22（D-263 修訂 D-223）：改日期直接照做（歷程 by hand），不再開 handedit；她那份照舊存

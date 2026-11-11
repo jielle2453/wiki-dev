@@ -201,12 +201,12 @@ class Unscanned(Base):
     def test_existing_lists_the_open_items_of_that_card(self):
         cid = self.card()
         a = self.add(cid, "交屋")
-        b = self.add(cid, "驗收", "2999-12-01", "承諾")
+        b = self.add(cid, "驗收", "2999-12-01", "會議")
         done = self.add(cid, "做完了", "2999-10-01")
         self.kb("agenda", "done", done)
         (row,) = self.one()
         self.assertEqual(row["existing"], [{"id": a, "kind": "到期", "date": "2999-11-30", "text": "交屋"},
-                                           {"id": b, "kind": "承諾", "date": "2999-12-01", "text": "驗收"}])
+                                           {"id": b, "kind": "會議", "date": "2999-12-01", "text": "驗收"}])
 
     def test_first_line_says_how_many_and_plan_orders_the_steps(self):
         cid = self.card()
@@ -379,7 +379,7 @@ class Asks(Base):
             with self.subTest(n=n):
                 self.tearDown()
                 self.setUp()
-                aid = self.add_json("--kind", "承諾", "--date", PAST, "--text", "給報價", "--entity", "信義王")
+                aid = self.add_json("--kind", "到期", "--date", PAST, "--text", "給報價", "--entity", "信義王")
                 self.run_result("overdue", n, fills)
                 self.assertEqual(self.item(aid)["status"], status)
                 if n == 2:

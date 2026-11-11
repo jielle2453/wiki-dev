@@ -121,7 +121,7 @@ class Counts(Base):
     def setUp(self):
         super().setUp()
         self.add("到期", day(-3), "逾期一")
-        self.add("承諾", day(-1), "逾期二")
+        self.add("到期", day(-1), "逾期二")
         self.add("會議", day(-1), "過去的會")  # 會議過了不算逾期
         self.add("提醒", TODAY, "今天提醒")
         self.add("到期", TODAY, "今天到期")

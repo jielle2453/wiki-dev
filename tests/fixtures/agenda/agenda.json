@@ -27,7 +27,7 @@
      "text": "再開一次會", "entities": ["信義王"], "status": "open", "source": "inferred",
      "origin": {"card": "f-bb005110", "fp": "1a2b3c4d5e6f"}, "lead_days": null,
      "created_turn": "20261001-100000-ab12", "history": []},
-    {"id": "a-1d2e3f4a", "kind": "promise", "start": null, "date": "2026-10-01", "ended": null, "time": null,
+    {"id": "a-1d2e3f4a", "kind": "deadline", "start": null, "date": "2026-10-01", "ended": null, "time": null,
      "text": "給王先生報價", "entities": ["信義王"], "status": "done", "source": "confirmed", "origin": null,
      "lead_days": null, "created_turn": "20260925-100000-ab12",
      "history": [{"date": "2026-10-02", "change": "status open → done", "by": "ai", "turn": "20261002-090000-ab12"}]},
