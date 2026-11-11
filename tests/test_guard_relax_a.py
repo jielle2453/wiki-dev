@@ -454,7 +454,9 @@ class Holes25(Base):
                           ("PowerShell", f"iwr https://x.tw/a -OutFile '{w}/sub'"),
                           ("Bash", f"curl https://x.tw/a -OutFile '{w}/new5.docx'"),
                           ("Bash", f"python -c \"import os; os.rename(r'{v}/我的夾/筆記.txt', r'{w}/nb12.txt') "
-                                   f"# .SaveAs('{w}/nb12.txt')\"")):
+                                   f"# .SaveAs('{w}/nb12.txt')\""),
+                          ("PowerShell", f"python -c \"import os; os.rename(r'{v}/我的夾/筆記.txt', r'{w}/nb12.txt') "
+                                         f"# .SaveAs('{w}/nb12.txt')\"")):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.d(tool, cmd).decision, "deny")
         for name in ("rm", "ni"):  # 檔名剛好是動詞名的新檔照放（code review 第二輪）
@@ -496,6 +498,10 @@ class Holes25(Base):
         for word in ("copy", "cp", "xcopy"):
             with self.subTest(word=word):
                 self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', '{word}')")
+        # code review 第三輪：萬用字元目標、效用 cwd 推不出來時的絕對目標照判
+        self.denies("PowerShell", f"Set-Content '{v}/我的夾/筆*.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))", "content")
+        self.denies("PowerShell", f"cd $env:TEMP; Set-Content '{v}/我的夾/筆記.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))",
+                    "content")
 
 
 if __name__ == "__main__":

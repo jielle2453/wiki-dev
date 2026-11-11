@@ -672,21 +672,31 @@ def office_save_targets(text):
 
 def strip_file_calls(text):
     """把 .NET 檔案靜態呼叫、[IO.FileInfo]::new(…)、Office 另存連同括號裡的參數換成空白：同一段的全名寫入動詞從剩下的字抽目標
-    （測試第 1 輪後裁定 13；.NET 呼叫另外由 file_calls 判）。"""
+    （測試第 1 輪後裁定 13；.NET 呼叫另外由 file_calls 判）。回 (拿掉之後的字, 拿掉的那些字)。"""
     spans = []
     for rx in (_NET_CALL, _NET_NEW, OFFICE_SAVE):
         for m in rx.finditer(text):
             args, end = _call_args(text, m.end())
             if args is not None:
                 spans.append((m.start(), end))
-    out, last = [], 0
+    for m in _GET_ITEM_GROUP.finditer(text):  # (Get-Item '<p>').Delete()
+        try:
+            _inner, end = _group(text, m.start() + 1, ")", True)
+        except Unbalanced:
+            continue
+        after = _DELETE_AFTER.match(text, end)
+        if after:
+            _args, end2 = _call_args(text, after.end())
+            spans.append((m.start(), end2 if _args is not None else after.end()))
+    out, removed, last = [], [], 0
     for a, b in sorted(spans):
         if a < last:
             continue
         out.append(text[last:a] + " ")
+        removed.append(text[a:b])
         last = b
     out.append(text[last:])
-    return "".join(out)
+    return "".join(out), "\n".join(removed)
 
 
 DOWNLOAD_VERBS = {"iwr", "irm", "invoke-webrequest", "invoke-restmethod", "curl", "wget"}

@@ -1501,7 +1501,8 @@ def _workspace_saves(info, vault_n, powershell):
         code = plan.get("code") or ""
         if plan["kind"] == "write" and plan.get("interp") and not (cmdparse.WRITE_CODE.search(text) or cmdparse.WRITE_CODE.search(code)):
             raws = cmdparse.office_save_targets(text + "\n" + code)  # 程式碼裡除了另存沒有別的寫（os.rename、shutil… 不給豁免）
-        elif plan["kind"] == "write" and powershell and not cmdparse.file_calls(text) and plan["verb"] not in _KNOWN_VERBS:
+        elif (plan["kind"] == "write" and powershell and not plan.get("interp") and not cmdparse.file_calls(text)
+              and plan["verb"] not in _KNOWN_VERBS):
             raws = cmdparse.office_save_targets(text) + cmdparse.outfile_targets(text, True)
         mine = {p for p in (_norm(r, plan.get("base")) for r in raws) if p is not None and in_workspace(p, vault_n)}
         saves |= mine
@@ -1539,16 +1540,20 @@ def _check_plan(plan, ctx):
         got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
         if got is not None:
             return got
-        if calls or saves:  # 全名動詞的目標從拿掉 .NET 呼叫與另存之後的字抽（WriteAllText 的內容、Copy 的來源不是它的目標）
+        if calls or saves:  # .NET 呼叫與另存括號裡的字（WriteAllText 的內容、Copy 的來源）只在那裡出現的，不是全名動詞的目標
             stripped = cmdparse.strip_file_calls(cmdparse.strip_marks(plan["text"]))
     if plan.get("unknown"):
         return _U5(_u5_words(plan, ctx))
     if plan["kind"] != "write" or file_call:
         return None
+    targets = _target_paths(plan, ctx)
     if stripped is not None:
-        targets = cmdparse.extract_paths(stripped, base, powershell=True) if base is not None else []
-    else:
-        targets = _target_paths(plan, ctx)
+        rest, removed = stripped
+        anchor = base or ctx.vault_n  # 只拿來比對同一個路徑；效用 cwd 推不出來時 own 本來就只有絕對路徑
+        outside = set(cmdparse.extract_paths(rest, anchor, powershell=True))
+        inside = set(cmdparse.extract_paths(removed, anchor, powershell=True))
+        own = set(plan.get("own") or [])  # 萬用字元展開的命中照留
+        targets = [p for p in targets if p not in own or p.rstrip(",") not in inside or p in outside or p.rstrip(",") in outside]
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
     if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
         tg = targets or ([base] if verb == "git clean" and base else [])
