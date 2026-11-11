@@ -3423,9 +3423,9 @@
 - 選了：main 照舊兩份（`hooks/hooks.json` Claude、`hooks/codex.json` Codex，內容跟 0.35.1 的 Codex 版逐事件相同）；`.codex-plugin/plugin.json` 不寫 `hooks`；`tools/release.py` 寫 codex 分支那步（#55 已有）把 `hooks/codex.json` 寫成 `hooks/hooks.json`、不放 `hooks/codex.json`；build 的 Codex 檢查改驗 codex.json 在、引用的檔在。zip（Claude 市集用）不變。
 - 為什麼：codex 分支本來就是一棵獨立的樹（Codex 只認 git 內容），跟 pixel-office 的 `codex/` 子資料夾同一個精神（每棵樹一份預設檔名的 hooks.json）；只動發行那一步，不動 hook 程式、不換目錄結構。
 - 放棄了：一份 hooks.json 兩邊共用（變數名、欄位不同，要驗兩邊容錯）；Codex 放子資料夾（Codex 快取只複製外掛夾，willy 的 hook 要用根目錄的 scripts/kb，pixel-office 能這樣做是因為它的 Codex 程式獨立一支）；MCP（GBrain 的路，擋不了主機的寫入、也沒有開場注入）。
-- 代價：main 上 `hooks/codex.json` 跟 Codex 實際讀的檔名不同，看程式的人要知道發行會改名；從 main 直接用 `--plugin-dir`／本機市集給 Codex 試時要自己改名。
+- 代價：main 上 `hooks/codex.json` 跟 Codex 實際讀的檔名不同，看程式的人要知道發行會改名；從 main 直接用 `--plugin-dir`／本機市集給 Codex 試時要自己改名；zip 備用安裝（安裝-Codex.md 第二節第 1 步）解開的是 main 的樹，給 Codex 用要自己把 `hooks/codex.json` 改名蓋掉 `hooks/hooks.json`，文件那步寫這句（實作第 3 輪 review 提出，willy設計二 2026-11-11 定）。
 - 重談條件：Codex 開始照 manifest 的 hooks 指標執行；Claude Code 改成只讀 manifest 指的檔。
-- 另記：確認第 2 輪在測試 home 把 codex.json 放成 hooks.json 後 hook 有跑但三個事件都 Failed，知識庫 hook-errors.log 有一筆 session 的 JSONDecodeError（Invalid \escape, col 81）；同一支程式手餵正確 JSON 正常。原因未查實（待用錄音器抓 Codex 實際餵的 stdin），實作時先不處理，確認那輪再驗。
+- 另記：確認第 2 輪在測試 home 把 codex.json 放成 hooks.json 後 hook 有跑但三個事件都 Failed，知識庫 hook-errors.log 有一筆 session 的 JSONDecodeError（Invalid \escape, col 81）；同一支程式手餵正確 JSON 正常。2026-11-11 查實：Failed 是 Codex 的 hook 信任含 `hooks/` 夾內容雜湊（`hooks/list` 的 currentHash 第二段），設計 session 測試時換過 hook 程式 → trustStatus `modified` → Codex 不執行只印 Failed、不說原因；對上雜湊後三個事件全 Completed、開場段有出來、餵的 stdin 是正常 JSON。JSONDecodeError 那筆是手測 `echo` 把 `\\` 吃掉造成，不是 Codex 的。影響：升級後 hook 內容必變，要重新 `/hooks` 信任（安裝-Codex.md 第二節第 3 步已有）。確認第 3 輪情境 2、4 過。
 ## D-538 知識庫的 skill 夾 willy 不管（#52；修訂 D-533 第 1、3、5 條）
 - 日期：2026-11-10
 - 狀態：jacky 2026-11-10 定。拿掉 D-533 的備份、指令寫擋、提醒，守門判斷變少、不是放寬到 willy 自己的檔（`.claude/` 其他照 Z7）。spec `specs/2026-11-08-skill夾放寫.md` 裁定 1、2。

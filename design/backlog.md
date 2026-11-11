@@ -476,6 +476,15 @@
 | B-665 | 2026-11-11 | 待決 | 低 | 流程與文件 | 測試期間 worktree 凍結（實作不 commit、設計不叫 merge）：背景比對第一輪測試中途進了三個 commit，整輪作廢；之後口頭照做。要不要寫進 `design/process.md`，要跟 jacky 談 | 背景比對-測試.md #7（spec 裁定 18） |
 | B-666 | 2026-11-11 | 要做 | 低 | 流程與文件 | 0.37.0 發行時，相關測試整批長跑 11 條紅（`test_hooks_session` 3 條，含 `OpeningProfile.test_broken_profile_json_other_lines_printed`；`test_versions_sessions` Revert 8 條），單獨重跑 20 條全過，記成負載；`test_versions_sessions` 是新出現的，跟 B-663 同類（時間敏感） | 0.37.0 發行（willy主管） |
 | B-664 | 2026-11-08 | 要做 | 中 | 守門與密碼 | hidden 夾的檔名擋不住：Glob 放行並列出 hidden 夾裡的檔名，AI 回答講出檔名（D-174 只管排除那一句不提）；要開 issue（#51 確認 #4） | #51 確認 |
+| B-667 | 2026-11-11 | 要做 | 高 | 架構與共通 | Codex 沙箱 `unelevated`（安裝-Codex.md 第二節第 4 步要求的設定）下 `kb build env` 印「PDF 元件被擋」、10 份 PDF 製卡失敗（含報價、合約）；沙箱外同一版 0.38.0 正常。`_pdf_probe` 哪一步被擋沒查（子行程在 %TEMP%、PYTHONPATH 指工具夾載 pypdfium2）；要開 issue，先給 jacky 看（#56 確認第 3 輪 #9） | #56 確認 |
+| B-668 | 2026-11-11 | 要做 | 低 | 守門與密碼 | `python kb.py --help \| head` 被守門問 secret_action（#52 確認 #8） | #52 確認 |
+| B-669 | 2026-11-11 | 要做 | 低 | 流程與文件 | 確認 session 的開場檔要寫 `--permission-mode default`，不然 `claude -p` 跟著父視窗的模式（#52 確認 #9）；另外 process.md 寫「`-p` 看不到 skills 清單」是錯的，#52 確認 `-p` 有載到 | #52 確認 |
+| B-670 | 2026-11-11 | 要做 | 低 | 架構與共通 | Codex 要讀知識庫外的來源夾得 `--add-dir`，安裝-Codex.md 沒寫（#56 確認 #1） | #56 確認 |
+| B-671 | 2026-11-11 | 要做 | 低 | skills | Codex 上「整理一下」先問「42 份…現在做嗎」才做，跟 Claude 直接做不一；回答夾英文規則名、念出 SKILL.md 路徑（#56 確認 #2、第 3 輪 #10） | #56 確認 |
+| B-672 | 2026-11-11 | 要做 | 低 | hooks | Codex 新庫開場誤報「守門沒在跑」（#56 確認 #4） | #56 確認 |
+| B-673 | 2026-11-11 | 要做 | 低 | skills | Codex 升級後「先跑 kb upgrade --finish」那句沒照念（#56 確認 #5） | #56 確認 |
+| B-674 | 2026-11-11 | 要做 | 低 | 流程與文件 | Codex TUI 第一次開會把 `[projects.'c:\users\user'] trust_level="trusted"` 寫進 CODEX_HOME 的 config.toml，之後把 `~\.codex\config.toml` 當專案設定讀、同名市集被換成真 repo；測試 home 要先寫成 `untrusted`。`CODEX_HOME` 太長要 `codex --no-daemon`；`codex exec` 沒 TTY 要 `< /dev/null`（#56 確認 #7、#8、第 3 輪） | #56 確認 |
+| B-675 | 2026-11-11 | 要做 | 低 | skills | Codex 第 1 次整理讀 SKILL.md 的工具呼叫卡住、AI 自己終止沒改檔，之後沒重現；Get-Content 沒帶 -Encoding UTF8 中文亂碼自己重讀（#56 確認第 3 輪 #11） | #56 確認 |
 | B-511 | 2026-10-30 | 做完 | 中 | 整理成卡 | 她在 Obsidian 手改綜合卡內文（D-256 准什麼都能改），下次 Claude 更新那張卡時「現況」照 S-22 改寫、檔頭整個換新（標籤行照 D-505 正本），她改的字可能不見、沒有提示；「紀事」只增，她加的會留、她刪的 hook 會要求補回。候選：更新前比對上次寫的版本，她改過的段先問或照她的寫；或 Obsidian 裡綜合卡內文唯讀、改要經對話。10-30 使用者選前者（A）：更新前比對上次寫的版本，她改過的段先問或照她的寫；#22 之後另開題做。10-31 擴大成 D-270：檔案卡也算，她改的算她說的、相關的跟著改，下次開對話時 Claude 先處理 | #22 實作回報待查 1 |
 | B-512 | 2026-10-30 | 要做 | 低 | 健檢與待處理 | #22 起日程、待處理、裁示重新產生時認出手改直接照做，`renders.handle_list` 沒人叫、handedit 待處理只剩升級前的舊件；`kb lint handedit` 與 lint 的 handedits 那項之後拿掉，或改成列「你加的（還沒處理）」 | #22 實作回報 |
 | B-513 | 2026-10-30 | 要做 | 中 | 守門與密碼 | `hooks/guard.py` 的 `_has_flag` 只認字面的旗標，`kb_args` 在 PowerShell 只剝整個 token 被引號包住的；`--v"ia" obsidian`（或 `--t"urn"`、`--s"ession"`）守門 allow、PowerShell 交給 python 的是 `--via`，模型做的事記成別的回合、對話退回挑不到。Bash 的 `{--via,x}`、`--via$X` 回 ask。候選：PowerShell 比對旗標前先去掉 token 裡的引號與反引號 | #22 測試第 1 輪 #1 |
