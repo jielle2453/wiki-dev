@@ -109,3 +109,15 @@
 ## 花費
 
 `claude -p`（API）：1-1 0.37＋1.09、1-2 2.98、1-3 0.39、情境 3 基準 0.13＋升級後 0.16，共約 5.12 美元（2026-11-11）。Codex 用 jacky 的 ChatGPT 登入：我跑 2 次 `codex exec`（各約 3.6 萬 input tokens），jacky 在 s2、s4 TUI 各一段對話。
+
+## 第 2 輪
+
+日期：2026-11-11。範圍：只補情境 2 的對照（設計 session 懷疑 #6 是測試環境造成：自訂 `CODEX_HOME` 時，家目錄的 `~\.codex` 被當成專案層、要專案信任，連帶 plugin hook 停用）。
+
+做法：把 `確認\s2` 的知識庫與來源複製到家目錄以外、上層沒有 `.codex`、不在 git 裡的 `C:\c56\知識庫`；`CODEX_HOME` 仍用 `codex-home-s2`（6 個 `hooks/codex.json` 已信任，jacky 重新複製 `auth.json`，`Logged in using ChatGPT`）；Codex 0.167.1。`codex exec --skip-git-repo-check --json "你有看到 wiki-with-willy 的開場段嗎"`。
+
+結果：回答「沒有，我目前沒有看到以「【wiki-with-willy】」開頭的開場段，只有你提供的 AGENTS.md 指示。這表示程式可能還沒跑起來；在恢復前，我不會修改、刪除或搬動任何檔案。」rollout（cwd `C:\c56\知識庫`）沒有任何 hook 事件。
+
+判定：對照下 hook 仍不跑，「專案根判成家目錄」這個解釋不成立；情境 2 維持**不過**，#6 不變（原因仍未查實；剩下可能：0.167.1 的 exec／TUI 行為、測試 `CODEX_HOME` 本身的其他差異）。依指示沒有再跑「整理一下」「大安陳的報價多少」。
+
+收尾：`codex-home-s2\auth.json` 測完刪掉。`C:\c56` 留著，要清再說。
