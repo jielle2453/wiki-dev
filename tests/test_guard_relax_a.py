@@ -376,6 +376,12 @@ class Holes25(Base):
         self.allowed(self.kb(f'source-edit move "{self.src}/x.txt" --to "{v}/我的夾"'))
         self.passes("PowerShell", f"[IO.File]::Copy('{self.src}/x.txt', '{v}/我的夾/筆記.txt')")  # 沒覆蓋旗標：同名會報錯、不會蓋
 
+    def test_code_review_keeps_old_behavior(self):
+        """收尾 code review：別的方法括號照舊當看不出目標、引號裡提到 .SaveAs( 不算寫、Get-Item 的裸字路徑也算字面路徑。"""
+        self.denies("PowerShell", "Remove-Item $p.Replace('b.txt','a.txt')", "delete", cwd=self.V / "我的夾")
+        self.passes("PowerShell", "git grep '.SaveAs(' -- 我的夾/筆記.txt")
+        self.denies("PowerShell", f"(Get-Item {self.V.as_posix()}/我的夾/筆記.txt).Delete()", "delete")
+
 
 if __name__ == "__main__":
     unittest.main()

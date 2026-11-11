@@ -34,8 +34,8 @@ InsertAfter 不管，Documents.Open 是讀；附著時拿來比對的路徑（-e
 Set-ItemProperty）；iwr、irm、Invoke-WebRequest、Invoke-RestMethod、PowerShell 的 curl、wget 帶 -OutFile 是寫（目標是它的值）；
 .NET 檔案靜態呼叫（[System.IO.File]、[IO.Directory]、([type]'System.IO.File')，cmdparse.file_calls）與 [IO.FileInfo]::new('<p>').Delete()、
 (Get-Item '<p>').Delete() 照刪、寫、搬、複製判（_file_call_check）；Office 帶字面路徑的另存（SaveAs、SaveAs2、SaveCopyAs、
-ExportAsFixedFormat）既有檔 content、新檔放行（PowerShell 在 _check_plan，python 在 _interp_check）；PowerShell 的 .方法(、::方法( 的括號
-是方法參數不是指令替換（_substituted_args）。沒有字面路徑的（$f.Delete()、變數）照放寬甲放行，等 #67。
+ExportAsFixedFormat）既有檔 content、新檔放行（PowerShell 在 _check_plan，python 在 _interp_check）；這兩種的 ::方法(、.方法( 括號
+是方法參數不是指令替換（_substituted_args 的 _METHOD_CALL；別的方法照舊）。沒有字面路徑的（$f.Delete()、變數）照放寬甲放行，等 #67。
 """
 import glob as globlib
 import os
@@ -439,7 +439,10 @@ def _content_value(before):
     return path_named or positional >= 1  # -Path 已經具名給了，位置參數就綁到 -Value
 
 
-_METHOD_CALL = re.compile(r"(?:\.|::)\s*\w+$")  # PowerShell 的 .方法(、::方法(：括號緊接在方法名後面
+# PowerShell 的 .方法(、::方法(（括號緊接在方法名後面）是方法參數：只認 .NET 檔案型別的靜態呼叫與 Office 帶路徑的另存，
+# 別的方法（Remove-Item $p.Replace('a','b')）照舊當看不出目標（code review：全部放掉會讓變數方法算出來的目標變成放行）
+_METHOD_CALL = re.compile(r"(?:" + cmdparse._NET_TYPE + r"\s*::\s*\w+|\.(?:saveas2?|savecopyas|exportasfixedformat))$",
+                          re.IGNORECASE)
 
 
 def _substituted_args(text, runs, powershell):
@@ -1466,8 +1469,8 @@ def _file_call_check(calls, saves, base, ctx):
         named += args if action == "replace" else args[:2] if action in ("move", "copy") else args[:1]
     for raw in [cmdparse.literal_arg(a) for a in named] + saves:
         p = _norm(raw, base) if raw and not any(c in raw for c in "$%`") else None
-        if p is not None and _willy_shell_zone(classify(p, ctx.vault_n, ctx.sources)[0], p, ctx.vault_n):
-            zone = classify(p, ctx.vault_n, ctx.sources)[0]
+        zone = classify(p, ctx.vault_n, ctx.sources)[0] if p is not None else None
+        if zone and _willy_shell_zone(zone, p, ctx.vault_n):
             return ctx.deny(zone, "willy", willy_reason(zone, p, ctx.vault_n, ctx.command))
     for action, args in calls:
         lits = [cmdparse.literal_arg(a) for a in args]
@@ -1476,15 +1479,19 @@ def _file_call_check(calls, saves, base, ctx):
                 if _exists_with_content(p):
                     return ctx.delete(p, z)
         elif action in ("write", "replace"):  # Replace(來源, 目的地, 備份)：三個都會動到；其餘的第一個參數是目標
-            for raw in (lits if action == "replace" else lits[:1]):
-                for p, z in _user_files(raw, base, ctx, anc=False):
-                    if os.path.isfile(p):
-                        return ctx.content(p, z)
+            got = _existing_content(lits if action == "replace" else lits[:1], base, ctx)
+            if got is not None:
+                return got
         elif len(args) >= 3 and args[2].strip().lower() in ("$true", "1") and len(lits) >= 2:
             for p, z in _user_files(lits[1], base, ctx):
                 if os.path.isfile(p):
                     return ctx.overwrite(os.path.dirname(p), os.path.basename(p), z)
-    for raw in saves:
+    return _existing_content(saves, base, ctx)
+
+
+def _existing_content(raws, base, ctx):
+    """這些字面路徑裡第一個是使用者區既有檔的回 content；都不是回 None（Office 另存、寫的方法：新檔放行）。"""
+    for raw in raws:
         for p, z in _user_files(raw, base, ctx, anc=False):
             if os.path.isfile(p):
                 return ctx.content(p, z)
@@ -1698,10 +1705,9 @@ def _interp_check(plan, ctx, recurse):
             if d is not None and d.decision == "deny":
                 return d
         # Office 附著後帶路徑的另存：既有檔 content、新檔放行（守門補洞 #25）；腳本檔的內容照現狀（spec 不做）
-        for raw in (cmdparse.office_save_targets(snip) if snip is not script else []):
-            for p, z in _user_files(raw, base, ctx, anc=False):
-                if os.path.isfile(p):
-                    return ctx.content(p, z)
+        got = _existing_content(cmdparse.office_save_targets(snip), base, ctx) if snip is not script else None
+        if got is not None:
+            return got
         argw = _arg_words(plan, inline, path)
         if cmdparse.DESTRUCTIVE_CODE.search(snip) and _code_touches(snip, base, ctx, argw):
             return ctx.deny("", "code", CODE_REASON)

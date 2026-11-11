@@ -570,6 +570,10 @@ class Holes25(unittest.TestCase):
                       ["node", "-e", b64], ["perl", "-e", b64]):
             with self.subTest(words=words):
                 self.assertIsNone(cmdparse.encoded_command(words))
+        for words in (["pwsh", "./x.ps1", "-e", "prod"], ["powershell", "-co", "Get-Date", "-e", "x"],
+                      ["powershell", "-fi", "a.ps1", "-enc", "x"]):  # code review：-Command／-File 縮寫與腳本之後是參數
+            with self.subTest(words=words):
+                self.assertIsNone(cmdparse.encoded_command(words))
         for words in (["powershell", "-enc", "這不是base64###"], ["powershell", "-enc"], ["pwsh", "-e", "abc"]):
             with self.subTest(words=words), self.assertRaises(cmdparse.Unbalanced):
                 cmdparse.encoded_command(words)
@@ -601,6 +605,11 @@ class Holes25(unittest.TestCase):
         self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Truncate')")[0][0], "write")
         self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', [IO.FileMode]::Append)")[0][0], "write")
         self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Open', 'Read')"), [])
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 5)")[0][0], "write")  # 數字的 FileMode Truncate
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 3, 2)")[0][0], "write")  # FileAccess Write
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 3, 1)"), [])
+        self.assertEqual(calls("(Get-Item C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])  # 裸字也是字面路徑
+        self.assertEqual(calls("(gi -LiteralPath $p).Delete()"), [("delete", ["$p"])])
         self.assertEqual(calls("[IO.File]::Copy('C:/x/a', 'C:/x/b', $true)"), [("copy", ["'C:/x/a'", "'C:/x/b'", "$true"])])
         self.assertEqual(calls("[System.IO.File]::Move('C:/x/a', 'C:/x/b')"), [("move", ["'C:/x/a'", "'C:/x/b'"])])
         for text in ("[regex]::Replace($s, 'a', 'b')", "[Array]::Copy($a, $b, 3)", "[string]::Copy('x')", "$f.Delete()",
@@ -628,7 +637,8 @@ class Holes25(unittest.TestCase):
                 verb = cmdparse.verb_of(text.replace("(", " ").split())
                 self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "write")
         for text in ("$w.Documents.Open('C:/x/a.docx')", "$d.Range(0, 5).Delete()", "$f.Delete()", "iwr https://x.tw",
-                     "[regex]::Replace($s, 'a', 'b')", "Get-Item 'C:/x/a'"):
+                     "[regex]::Replace($s, 'a', 'b')", "Get-Item 'C:/x/a'",
+                     "git grep '.SaveAs(' -- C:/x/a.txt", "git grep '(Get-Item x).Delete(' -- C:/x/a.txt"):  # 引號裡提到的不算
             with self.subTest(text=text):
                 verb = cmdparse.verb_of(text.replace("(", " ").split())
                 self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "read")
