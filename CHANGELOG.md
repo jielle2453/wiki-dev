@@ -4,6 +4,19 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.39.0 — 2026-11-11
+- **給客戶的一句話**：卡片多了以後找東西也很快：在搜尋框打字、或問 willy「哪份檔有提到交期」，幾千張卡也在一兩秒內找到，兩個字的詞也找得到；你在 Obsidian 改了卡、退回、同事同步進來的，下一次找就是新的。
+- **改了什麼**（#57，D-345，裁定 1～17）：
+  - 新 `scripts/kb/_lib/card_index.py`：檔案卡的檔頭與正規化後的標題、內文存進知識庫外的 SQLite 快取（`%LOCALAPPDATA%\wiki-with-willy\index\<vault id>-<路徑雜湊>.sqlite`，測試用 `WIKI_WITH_WILLY_INDEX_DIR`）；每次讀全部的卡先走 `檔案索引/` 比修改時間與大小，只重讀有變的，剛改不到 2 秒的下次一定重讀；讀卡暫時失敗（被鎖、OneDrive 還沒下載）不寫進索引；索引沒有、壞了、鎖住就照舊逐卡讀、不報錯，壞了當場刪掉重建。
+  - `cards._scan_groups` 改走索引（原本的逐卡讀搬成 `_scan_groups_files`）；`_render_index` 用它的結果。`kb find` 與 `kb lookup` 找內文用 SQLite `instr`；`kb find`、`kb lookup`、`kb cards list` 一個指令只走一遍目錄（`card_index.once`）。背景比對（`kb changes --background`）順便更新索引。新指令 `kb index rebuild`。
+  - `paths.plugin_root()`、`config.defaults()` 同一個行程記住，不再每次重讀（裁定 1）；`config.get` 對清單、字典型預設值回複本。
+  - 寫卡的程式一個都沒改：不管誰改的卡（AI、程式、退回、Obsidian 手改、git pull），下一次讀就對。
+- **為什麼**：壓力測試（2026-11-09）3 萬張卡 `kb find` 47～122 s、`kb lookup` 84～111 s，慢在每查一次都把每張卡打開解析；設定檔每張卡重讀一次又多 18 s。實測（測試第 1 輪，3 萬張）：`kb find` 2.3～5.1 s、1 萬張 ≤ 1.8 s、1 千張約 0.3 s；`kb lookup` 3 萬張 13～16 s（B-535）；寫一張卡後的 hook 11.6 → 5.8 s；背景比對 37.5 → 19.6 s。
+- **commit**：2b242a16、cb44fdc0、b8dbd069
+- **spec**：design/specs/2026-11-11-卡片索引.md
+- **關掉的 issue**：#57（B-104 收進）；同一張的第二份「主機補做沒整理的檔」（D-346）另記 B-533，還沒做
+- **還沒驗、還沒定的**：Mac 沒跑過（路徑算法有非 Windows 分支）；知識庫刪掉後 LOCALAPPDATA 裡的索引檔留著；`kb lookup` 3 萬張仍要十幾秒（`cards.wip` 逐張跑 problems，B-535）；確認時 AI 同一個對話接著問沒先跑 `kb find`（B-536）。main 上本來就紅、不是這版改的：`test_skill_answer::Body::test_size`、`test_small_fixes_1026::SkillText::test_14_ingest_body_size`（B-534）、`test_lib_restore::Apply::test_restored_state_equals_backup_time_except_preserved`（B-539）。
+
 ## 0.38.0 — 2026-11-11
 - **給客戶的一句話**：現在可以叫 willy 在知識庫裡幫你做 skill（例如「幫我做一個查報價的 skill」），第一次寫進去時 Claude 會問你允不允許，按允許就好。用 Codex 的：升級到這版後，在 Codex 打一次 `/hooks` 重新信任 willy，不然 willy 不會動。
 - **改了什麼**：

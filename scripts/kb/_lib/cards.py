@@ -318,6 +318,13 @@ def _read(vault, rel):
 
 
 def _scan_groups(vault, deadline=None):
+    """回 (groups, broken)，格式見 _scan_groups_files。先走卡片索引（#57，D-345：只重讀變了的卡）；索引這次不能用就逐卡讀。"""
+    from kb._lib import card_index
+    got = card_index.groups(vault, deadline)
+    return got if got is not None else _scan_groups_files(vault, deadline)
+
+
+def _scan_groups_files(vault, deadline=None):
     """回 (groups, broken)：groups {編號: [{"path", "front"}, …]}（照路徑排）；解析不了、沒有編號的進 broken。
     deadline（time.monotonic 的時刻）給開場 hook：讀每張卡之前看一次，過了丟 TimeoutError（answer 裁定 17）。"""
     import time
@@ -1646,25 +1653,42 @@ def _summary_lines(vault):
     return out
 
 
+def _broken_front(vault, b):
+    """總目錄用：檔頭解析不了的卡回 None；解析得了只是沒有編號、編號格式不對的，標題與圖示照樣用它的檔頭（少數，讀一下檔）。"""
+    if b["reason"].startswith("檔頭解析不了"):
+        return None
+    try:
+        return parse_front(_read(vault, b["path"]))
+    except (ValueError, OSError, UnicodeDecodeError):
+        return None
+
+
 def _render_index(vault, turn_id):
     tree = {}
     count = 0
     icons = config.get(vault, "index_icons")
-    for rel in _walk_cards(vault):
+    groups, broken = _scan_groups(vault)  # 讀的是卡片索引（#57）；每張卡只有這一處讀檔頭
+    shown = {}
+    for group in groups.values():
+        for c in group:
+            shown[c["path"]] = c["front"]
+    for b in broken:
+        shown[b["path"]] = _broken_front(vault, b)
+    for rel in sorted(shown):
         parts = rel.split("/")[1:]
         node = tree
         for folder in parts[:-1]:
             node = node.setdefault(("d", folder), {})
         mark = ""
-        try:
-            front = parse_front(_read(vault, rel))
+        front = shown[rel]
+        if front is None:
+            title = None
+            mark = (DEFAULT_ICON + " ") if icons else ""
+        else:
             title = front.get("標題")
             first = (front.get("原檔") or [""])[0] if isinstance(front.get("原檔"), list) else ""
             if icons:
                 mark = icon_of(first) + " "
-        except (ValueError, OSError, UnicodeDecodeError):
-            title = None
-            mark = (DEFAULT_ICON + " ") if icons else ""
         if not _filled(title):
             title = parts[-1][:-3]
         node[("c", parts[-1])] = (title, rel, mark)

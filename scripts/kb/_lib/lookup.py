@@ -13,7 +13,7 @@ tags（標籤字典第四節第 6 點）：實體清單的標籤正本 [{"field"
 """
 from pathlib import Path
 
-from kb._lib import config, entities, profile
+from kb._lib import card_index, config, entities, profile
 
 NOTHING = "沒有登記這個名稱，也沒有卡提到它"
 REDO = "依據變了，要用就重算："
@@ -58,11 +58,17 @@ def mentions(vault, word):
     if not k:
         return []
     by_title, by_body = [], []
-    for entry, card in cards.active_cards(vault):
+    active = cards.active_cards(vault)  # 先讀卡（卡片索引在這裡跟上，#57），再問內文
+    hits = card_index.body_hits(vault, [k])
+    for entry, card in active:
         title = cards._title(card)
         row = {"id": entry["id"], "title": title, "path": card["path"]}
         if k in entities.key(title):
             by_title.append(dict(row, where="標題"))
+            continue
+        if hits is not None:
+            if card["path"] in hits[k]:
+                by_body.append(dict(row, where="正文"))
             continue
         try:
             text = (Path(vault) / card["path"]).read_text(encoding="utf-8")
