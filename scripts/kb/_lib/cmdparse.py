@@ -50,10 +50,13 @@ PS_INSTANCE_DELETE = re.compile(_INSTANCE_DELETE, re.IGNORECASE)
 OFFICE_SAVE_METHODS = r"(?:saveas2?|savecopyas|exportasfixedformat)"
 _OFFICE_SAVE = r"\." + OFFICE_SAVE_METHODS + r"\s*\("
 OFFICE_SAVE = re.compile(_OFFICE_SAVE, re.IGNORECASE)
+# 整個字串是開檔模式（裁定 3）：r+b、rb+、w、wt…，後面可接 tarfile 的 :gz、|gz、:（空）或 ruby 的 :UTF-8、:ASCII-8BIT；
+# .open('raw/…')、.Open('a.docx')、zip 成員名 .open('a:b') 不算
+_MODE_STR = r"['\"][rb]*[wax+][bt+]*(?:[:|](?:gz|bz2|xz|[\w.-]*[\d_-][\w.-]*)?)?['\"]"
 # 程式碼裡的寫入（python -c、heredoc 餵給直譯器、inline script）：引號內也算。
 # 密碼與守門（D-186 (c)）：直譯器的程式碼只看這個，不再看裡面的 > 與寫入動詞，所以這裡要收齊開檔寫、刪、搬、建、開子行程
 WRITE_CODE = re.compile(
-    r"(open\([^)]*['\"][wax+]|\.open\(\s*['\"][wax+]|\bmode\s*=\s*['\"][wax+]|"
+    r"(open\([^)]*['\"][wax+]|\.open\(\s*(?:['\"][wax+]|" + _MODE_STR + r")|\bmode\s*=\s*(?:['\"][wax+]|" + _MODE_STR + r")|"
     r"(?:zipfile|tarfile|io|codecs|gzip|bz2|lzma)\.\w*\(?[^)]*['\"][wax]|\bZipFile\([^)]*['\"][wax]|"
     r"\.write_text|\.write_bytes|\.(?:unlink|rmdir|mkdir|touch|rename|replace|symlink_to|hardlink_to|chmod)\(|"
     r"writealltext|writeallbytes|appendalltext|writealllines|appendalllines|"
@@ -68,12 +71,10 @@ WRITE_CODE = re.compile(
 )
 # open( 的第二個位置參數是寫入模式才算（open('x.md') 的檔名第一個字母不是模式）；第一個參數允許一層括號與引號字串
 _OPEN_ARGS = r"\((?:[^,()'\"]|'[^']*'|\"[^\"]*\"|\([^()]*\))*,\s*['\"][rb]*[wax+]"
-# 整個字串是開檔模式（裁定 3）：r+b、rb+、w、wt…，後面可接 tarfile 的 :gz、|gz 或 ruby 的 :UTF-8；.open('raw/…')、.Open('a.docx') 不算
-_MODE_STR = r"['\"][rb]*[wax+][bt+]*(?:[:|][\w.-]*)?['\"]"
 # 放寬甲 U6：直譯器程式碼只看刪檔與覆蓋寫法；搬、改名、建夾、touch、開子行程不算（搬檔改名可以照跑）。
 # 跑別的指令的（subprocess、os.system…）另外抽字串常數照指令判（guard._code_commands），不是常數的照 U5
-# 守門補洞 #25：mode= 與 .open( 收 r+b、rb+（[rb]* 開頭），整個字串都是模式才算（結尾是引號，裁定 3：.open('raw/…')、
-# .Open('a.docx') 的路徑不是模式）；os.open 帶 O_WRONLY／O_RDWR／O_TRUNC
+# 守門補洞 #25：mode= 與 .open( 收 r+b、rb+（[rb]* 開頭），整個字串都是模式才算（_MODE_STR，可帶 :gz、:UTF-8 這類後綴，裁定 3：
+# .open('raw/…')、.Open('a.docx') 的路徑不是模式）；os.open 帶 O_WRONLY／O_RDWR／O_TRUNC
 DESTRUCTIVE_CODE = re.compile(
     r"(open" + _OPEN_ARGS + r"|\.open\(\s*" + _MODE_STR + r"|\bmode\s*=\s*" + _MODE_STR + r"|"
     r"os\.open\((?:[^()'\"]|'[^']*'|\"[^\"]*\"|\([^()]*\))*?\bO_(?:WRONLY|RDWR|TRUNC)\b|"
@@ -542,7 +543,7 @@ def encoded_command(words):
             continue
         name, colon, value = w[2 if w.startswith("--") else 1:].partition(":")
         name = name.lower()
-        if name and not colon and ("command".startswith(name) or "file".startswith(name)):
+        if name and ("command".startswith(name) or "file".startswith(name)):
             return None
         if name in ("e", "ec") or (len(name) >= 2 and "encodedcommand".startswith(name)):
             if not value:  # -EncodedCommand <b64>、-e: <b64>；-EncodedCommand:<b64> 冒號寫法的值在同一個字（裁定 5）

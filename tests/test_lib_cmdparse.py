@@ -588,19 +588,25 @@ class Holes25(unittest.TestCase):
                 self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
         self.assertIsNone(cmdparse.encoded_command(["pwsh", "--command", "x", "-e", b64]))
         self.assertEqual(cmdparse.encoded_command(["powershell", "-e:", b64]), "Remove-Item x.md")  # 冒號後沒值：取下一個字
-        self.assertEqual(cmdparse.encoded_command(["pwsh", "-c:x", "-e", b64]), "Remove-Item x.md")  # -c:x 不當停止點
+        for words in (["pwsh", "-c:x", "-e", b64], ["powershell", "-c:Get-Date", "-e", "prod"],
+                      ["powershell", "-Command:", "Get-Date", "-e", "prod"], ["powershell", "-File:run", "-e", "prod"]):
+            with self.subTest(words=words):  # -Command:、-File: 冒號寫法之後是指令或腳本的參數（code review）
+                self.assertIsNone(cmdparse.encoded_command(words))
         with self.assertRaises(cmdparse.Unbalanced):
             cmdparse.encoded_command(["powershell", "-EncodedCommand:這不是###"])
 
     def test_ruling3_open_mode_whole_string(self):
         """實作疑義裁定 3：開檔模式要整個字串是模式（結尾是引號）。"""
         for code in ("Path('raw/a.txt').open()", "open('bar.txt')", "w.Documents.Open('a.docx')", "w.Documents.Open('raw/x.docx')",
-                     "Path(p).open('rb')", "open(p, mode='rb')"):
+                     "Path(p).open('rb')", "open(p, mode='rb')", "zipfile.ZipFile(p).open('a:b')", "z.open('a:x')"):
             with self.subTest(code=code):
                 self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code))
+        for code in ("open(p, mode='r+')", "Path(p).open('r+b')", "x.open(mode='rb+')", "Path(p).open('w')"):
+            with self.subTest(code=code):  # WRITE_CODE 也認整串模式：寫 willy 的檔照 willy（code review）
+                self.assertIsNotNone(cmdparse.WRITE_CODE.search(code))
         for code in ("Path(p).open('w')", "Path(p).open('w+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode='wt')",
                      "open(p, mode=\"a\")", "tf.open('a.tar', mode='w:gz')", "tf.open('a.tar', mode='w|gz')",
-                     "Pathname.new('a.txt').open('w:UTF-8')", "Pathname('a').open('wb:ASCII-8BIT')"):
+                     "Pathname.new('a.txt').open('w:UTF-8')", "Pathname('a').open('wb:ASCII-8BIT')", "tf.open(p, mode='w:')"):
             with self.subTest(code=code):
                 self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code))
 
