@@ -215,6 +215,15 @@ Codex 版現在放在 wiki-dev 的長期分支 `codex`，main 每發一版都要
 1. 確認落差（高）：Codex 0.34.0 照 `安裝-Codex.md` 升不上來。0.34.0 的市集名是 `wiki-with-willy-local`，這版是 `wiki-with-willy`，`marketplace upgrade` 兩個名字都報錯。→ 只補文件、不改程式（jacky 經 willy主管 2026-11-11）：`安裝-Codex.md` 升級那節加「從 0.34.0（市集名 `wiki-with-willy-local`）升上來的那一次：先 `codex plugin remove wiki-with-willy@wiki-with-willy-local`、`codex plugin marketplace remove wiki-with-willy-local`，再照第二節重新 `marketplace add`（`--ref codex`）、`plugin add`，最後照第 3 步重新信任 hook」。確認情境 4 照新文件回測。
 2. 測試與確認用終端機（jacky 2026-11-11）：Claude 的情境 3 用 `claude --permission-mode default` 在終端機驗；Codex 的情境 2、4 用終端機的 codex。
 
+### 確認裁定（2026-11-11，第 2 輪）
+
+3. 確認情境 2 不過（高）→ D-539（jacky 2026-11-11）：Codex 執行時只讀預設的 `hooks/hooks.json`，manifest 的 `hooks` 指標只管 `/hooks` 清單；Claude Code 則兩份都讀。改法只動發行：
+   - `.codex-plugin/plugin.json`：拿掉 `"hooks"` 那行。
+   - `tools/release.py`：`_push_codex` 組 codex 分支的檔時，`hooks/codex.json` 的內容寫成 `hooks/hooks.json`，不放 `hooks/codex.json`（Claude 的 hooks.json 不進 codex 分支）；`_codex_problems` 改成：`hooks/codex.json` 要在、它引用的 `${PLUGIN_ROOT}/…` 都在、manifest **不准**有 `hooks`（有就報，因為會讓 /hooks 清單跟實際執行的不一致）。zip 不變。
+   - 測試：`tests/test_tools_release.py`（codex 分支的檔案清單：有 `hooks/hooks.json` 且內容等於 main 的 codex.json、沒有 `hooks/codex.json`；manifest 有 hooks 時 build 停）、`tests/test_codex_adapter.py` 的 manifest 檢查跟著改；`test_repo_hygiene`。
+   - 驗收 5、17 改：`hooks/list` 的 key 變成 `wiki-with-willy@…:hooks/hooks.json:…`，6 個事件；確認情境 2 回測時另記 hook 有沒有 Failed（第 2 輪在快取手動改名後三個事件都 Failed、session 記 JSONDecodeError，原因未查實，見 D-539 另記）。
+   - `安裝-Codex.md` 第三節信任那段的 key 例子改回 `hooks/hooks.json`。
+
 ## 紀錄（設計 session 結案時填）
 - 實作 commit：
 - 測試報告：
