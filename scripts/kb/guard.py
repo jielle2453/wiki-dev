@@ -1513,19 +1513,24 @@ def _workspace_saves(info, vault_n, powershell):
 
 def _targets_outside_calls(plan, ctx):
     """裁定 13：全名寫入動詞跟 .NET 呼叫或 Office 另存在同一段時，它的目標是 _target_paths 去掉只出現在那些呼叫括號裡的字
-    （WriteAllText 的內容、Copy 的來源、括號裡的萬用字元或 [ ] 不是它的目標）；兩邊都有的照留。逗號黏在路徑上的照拿掉比（B-542）。"""
+    （WriteAllText 的內容、Copy 的來源、只在括號裡的萬用字元或 [ ] 不是它的目標）；兩邊都有的照留；萬用字元照 _analyze 的切法（_tokens_q）比。逗號黏在路徑上的照拿掉比（B-542）。"""
     rest, removed = cmdparse.strip_file_calls(cmdparse.strip_marks(plan["text"]))
     anchor = plan.get("base") or ctx.vault_n  # 只拿來比對同一個路徑；效用 cwd 推不出來時 own 本來就只有絕對路徑
 
     def norm_set(text):
         return {p.rstrip(",") for p in cmdparse.extract_paths(text, anchor, powershell=True)}
 
+    def glob_set(text):  # 跟 _analyze 收 plan["globs"] 同一套切法（_tokens_q），才對得上
+        found = (_norm(t, plan.get("base")) for t, _q, g, _a in _tokens_q(text, globs_in_quotes=ctx.powershell) if g)
+        return {p.rstrip(",") for p in found if p is not None}
+
     outside, inside = norm_set(rest), norm_set(removed)
     drop = {p for p in (plan.get("own") or []) if p.rstrip(",") in inside and p.rstrip(",") not in outside}
     out = [p for p in (plan.get("own") or []) if p not in drop]
+    g_out, g_in = glob_set(rest), glob_set(removed)
     for g in plan.get("globs") or []:
-        if g.rstrip(",") in inside and g.rstrip(",") not in outside:
-            continue  # 只出現在呼叫括號裡的萬用字元不展開；認不出在哪邊的照展開（寧可照判）
+        if g.rstrip(",") in g_in and g.rstrip(",") not in g_out:
+            continue  # 只出現在呼叫括號裡的萬用字元（WriteAllText 的內容 '*'）不展開
         out.extend(_expand_glob(g, hidden=ctx.powershell))
     return list(dict.fromkeys(out))
 

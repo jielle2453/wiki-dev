@@ -506,6 +506,9 @@ class Holes25(Base):
         t = self.tmp.as_posix()
         (self.V / "我的夾" / "b.txt").touch()
         for cmd in (f"Set-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/list.txt', '*.txt'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '*'))",  # 第六輪：沒斜線的萬用字元
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '筆*'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '*a*'))",
                     f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '{v}/我的夾/筆*'))",
                     f"Add-Content '{t}/ext/log.txt' ([IO.File]::Move('{t}/ext/a.txt', '{v}/我的夾/[b].txt'))"):
             with self.subTest(cmd=cmd):
