@@ -93,10 +93,11 @@ class Add(Base):
 
 class ConfirmListRender(Base):
     def test_panel_read_only_and_empty(self):
-        """記帳 3（D-340）：kb entity panel 唯讀；沒有日程也沒有帳時兩個都空。內容的測試在 test_lib_money.Panel。"""
+        """kb entity panel 唯讀（D-340）；#65 起只回日程：沒有日程時 agenda 是空的，沒有 money、stock 這兩個鍵。"""
         r = run_kb("entity", "panel", "信義王", "--json", cwd=self.V)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"entity": "信義王", "type": "案子", "agenda": [], "money": None, "stock": None})
+        self.assertEqual(json.loads(r.stdout), {"entity": "信義王", "type": "案子", "agenda": []})
+        self.assertEqual(self.kb("panel", "信義王"), ["信義王的日程"])
         self.assertEqual(self.kb("panel", "沒有", code=3), ["實體清單沒有「沒有」"])
 
     def test_confirm(self):

@@ -157,11 +157,11 @@ test('游標移到別行（沒打字）才叫；切到別頁也叫；不是這�
 
 test('Obsidian 視窗失去焦點（切到 Claude）：還沒套用的受管頁也套用；沒改的不叫（記帳 3 確認 #5）', async () => {
   const { plugin, out } = makePlugin();
-  plugin.onEditorChange(editorAt(4), { file: { path: '系統/帳.md' } }); // 刪了一行，游標還在那行
+  plugin.onEditorChange(editorAt(4), { file: { path: '系統/日程.md' } }); // 刪了一行，游標還在那行
   plugin.onWindowBlur();
   await tick();
   await tick();
-  assert.deepStrictEqual(out.runs, [['renders', 'apply', '系統/帳.md', '--json']]);
+  assert.deepStrictEqual(out.runs, [['renders', 'apply', '系統/日程.md', '--json']]);
   plugin.onWindowBlur();
   await tick();
   assert.strictEqual(out.runs.length, 1, '套用過了，再失去焦點不重叫');
