@@ -67,6 +67,46 @@ test('找 kb：多筆時先挑 projectPath 等於知識庫的', () => {
   assert.strictEqual(got.installPath, '/p/mine');
 });
 
+test('找 kb（#66 乙確認後裁定 6）：自己沒有紀錄時，先挑同一個 vault 裡另一個知識庫的，再挑跟外掛同版本的（user 優先），再 user，最後一筆', () => {
+  const find = (records, extra) => lib.findKb(Object.assign({
+    env: {}, home: '/h', vaultPath: '/vault/B', platform: 'linux', exists: () => true,
+    readFile: () => installedFile({ 'wiki-with-willy@market': records }),
+  }, extra)).installPath;
+  const opts = { siblings: ['/vault/A'], version: '0.41.0' };
+
+  // (a) A 有 local 紀錄、B 沒有、另有一筆別處的舊版紀錄（排最後）→ B 用 A 那筆
+  const a = [
+    rec({ scope: 'local', installPath: '/p/a', version: '0.41.0', projectPath: '/vault/A' }),
+    rec({ scope: 'local', installPath: '/p/old', version: '0.37.0', projectPath: '/elsewhere' }),
+  ];
+  assert.strictEqual(find(a, opts), '/p/a');
+  assert.strictEqual(find(a, {}), '/p/old', '沒給 siblings、version 時挑法照舊');
+  // 同 vault 另一個知識庫的那筆排在 user 與同版本之前；自己的那筆仍最先
+  const order = [
+    rec({ scope: 'user', installPath: '/p/user', version: '0.41.0' }),
+    rec({ scope: 'local', installPath: '/p/a', version: '0.37.0', projectPath: '/vault/A' }),
+  ];
+  assert.strictEqual(find(order, opts), '/p/a');
+  assert.strictEqual(find(order.concat([rec({ scope: 'local', installPath: '/p/b', version: '0.30.0', projectPath: '/vault/B' })]), opts), '/p/b');
+
+  // (b) 都沒有 projectPath 相符：版本跟外掛一樣的 local 紀錄贏過舊版 user 紀錄
+  const b = [
+    rec({ scope: 'user', installPath: '/p/user-old', version: '0.37.0' }),
+    rec({ scope: 'local', installPath: '/p/same', version: '0.41.0', projectPath: '/x' }),
+    rec({ scope: 'local', installPath: '/p/last', version: '0.37.0', projectPath: '/y' }),
+  ];
+  assert.strictEqual(find(b, opts), '/p/same');
+  // 同版本有好幾筆時 user 範圍優先
+  const sameTwo = [
+    rec({ scope: 'local', installPath: '/p/same-local', version: '0.41.0', projectPath: '/x' }),
+    rec({ scope: 'user', installPath: '/p/same-user', version: '0.41.0' }),
+  ];
+  assert.strictEqual(find(sameTwo, opts), '/p/same-user');
+  // 沒有同版本的：user，再沒有就最後一筆
+  assert.strictEqual(find(b, { siblings: ['/vault/A'], version: '0.99.0' }), '/p/user-old');
+  assert.strictEqual(find(b.slice(1), { siblings: ['/vault/A'], version: '0.99.0' }), '/p/last');
+});
+
 test('找 kb：沒有對上知識庫的就挑 scope user，再沒有就挑最後一筆', () => {
   const plugins = {
     'wiki-with-willy@market': [

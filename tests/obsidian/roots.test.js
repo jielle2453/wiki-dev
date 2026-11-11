@@ -380,6 +380,27 @@ test('驗收 14：兩個知識庫有下拉選單、兩個選項；data.json 沒�
   });
 });
 
+test('確認後裁定 6：A 有 local 安裝紀錄、B 沒有、最後一筆是別處的舊版 → B 用 A 那筆的 kb；跟外掛同版本的贏過舊版 user', async () => {
+  const records = (vault, root) => [
+    { scope: 'local', installPath: path.join(root, 'inst-a'), version: '0.37.0', projectPath: path.join(vault, 'A') },
+    { scope: 'local', installPath: path.join(root, 'inst-old'), version: '0.30.0', projectPath: path.join(root, 'elsewhere') },
+  ];
+  await withSetup({ kbs: ['A', 'B'], records }, async (s) => {
+    await s.start();
+    await s.plugin.switchRoot('B');
+    assert.strictEqual(s.plugin.kbInfo.installPath, path.join(s.root, 'inst-a'));
+    assert.strictEqual(s.plugin.infos.get('A').installPath, path.join(s.root, 'inst-a'));
+  });
+  const byVersion = (vault, root) => [
+    { scope: 'user', installPath: path.join(root, 'inst-user-old'), version: '0.30.0' },
+    { scope: 'local', installPath: path.join(root, 'inst-same'), version: '0.37.0', projectPath: path.join(root, 'elsewhere') },
+  ];
+  await withSetup({ kbs: ['willy'], records: byVersion }, async (s) => {
+    await s.start();
+    assert.strictEqual(s.plugin.kbInfo.installPath, path.join(s.root, 'inst-same'), '外掛自己是 0.37.0');
+  });
+});
+
 test('驗收 15：選 B 之後 kb home 的 cwd 是 <vault>/B、data.json 記 current、重新載入還是 B；監看跟著換', async () => {
   await withSetup({ kbs: ['A', 'B'], store: NOTES }, async (s) => {
     const view = await s.start();

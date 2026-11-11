@@ -919,7 +919,8 @@ function claudeDir(env, home) {
 
 /**
  * 照 installed_plugins.json 找 wiki-with-willy 的 kb.py（D-258）。
- * 多筆時先挑 projectPath 是這個知識庫的，再挑 scope user 的，最後一筆。回 {ok, kbPath, …} 或 {ok:false, reason}。
+ * 多筆時依序挑（#66 乙確認後裁定 6）：projectPath 是這個知識庫的；是同一個 vault 裡另一個知識庫的（opts.siblings）；
+ * version 跟這個外掛一樣的（opts.version，user 範圍優先）；scope user 的；最後一筆。回 {ok, kbPath, …} 或 {ok:false, reason}。
  */
 function findKb(opts) {
   const o = opts || {};
@@ -948,9 +949,14 @@ function findKb(opts) {
     .map((r) => ({ rec: r, kbPath: path.join(r.installPath, 'scripts', 'kb.py') }))
     .filter((x) => exists(x.kbPath));
   if (!withKb.length) return { ok: false, reason: 'no-kb' };
-  const mine = withKb.find((x) => x.rec.projectPath && o.vaultPath && samePath(x.rec.projectPath, o.vaultPath, platform));
-  const user = withKb.find((x) => (x.rec.scope || 'user') === 'user');
-  const pick = mine || user || withKb[withKb.length - 1];
+  const isUser = (x) => (x.rec.scope || 'user') === 'user';
+  const at = (dir) => withKb.find((x) => x.rec.projectPath && dir && samePath(x.rec.projectPath, dir, platform));
+  const mine = at(o.vaultPath);
+  let sibling;
+  for (const dir of asArray(o.siblings)) sibling = sibling || at(dir);
+  const same = o.version ? withKb.filter((x) => x.rec.version === o.version) : [];
+  const user = withKb.find(isUser);
+  const pick = mine || sibling || same.find(isUser) || same[same.length - 1] || user || withKb[withKb.length - 1];
   return {
     ok: true,
     kbPath: pick.kbPath,
@@ -3413,7 +3419,8 @@ class WikiWithWillyPlugin extends Plugin {
     if (!this.infos) this.infos = new Map();
     if (this.runners.has(root)) return this.runners.get(root);
     const dir = this.rootDir(root);
-    const info = findKb({ vaultPath: dir });
+    const siblings = this.rootsList().filter((r) => r !== root).map((r) => this.rootDir(r));
+    const info = findKb({ vaultPath: dir, siblings, version: this.loadedVersion });
     let runner = null;
     if (info.ok) {
       runner = createKbRunner({ kbPath: info.kbPath, cwd: dir, execFile: this.execFileOverride });
