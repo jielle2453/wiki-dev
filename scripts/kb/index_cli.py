@@ -24,7 +24,7 @@ def run(args):
     try:
         count, seconds = card_index.rebuild(vault)
     except card_index.Unusable as e:
-        print(f"索引沒建成：{e}")
+        print(str(e))
         return 1
     except Exception as e:  # noqa: BLE001  TimeoutError 之外的 OSError 這類：一句白話
         print(f"索引沒建成：{type(e).__name__}: {e}")

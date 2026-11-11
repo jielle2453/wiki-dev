@@ -54,6 +54,16 @@ class IndexCli(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("沒有編號", r.stdout)
 
+    def test_rebuild_index_in_use_exits_1(self):  # 實作疑義 12
+        run_kb("index", "rebuild", cwd=self.V)
+        con = sqlite3.connect(card_index.db_path(self.V))
+        try:
+            con.execute("select count(*) from cards").fetchone()
+            r = run_kb("index", "rebuild", cwd=self.V)
+        finally:
+            con.close()
+        self.assertEqual((r.returncode, r.stdout.strip()), (1, "索引正在被別的程式使用，等一下再重建"), r.stdout + r.stderr)
+
     def test_two_char_word_only_in_body(self):  # 驗收 3
         out = json.loads(run_kb("find", "交期", "--json", cwd=self.V).stdout)
         self.assertEqual([(f["card_path"], f["hit"]) for f in out["files"]], [(self.rel, "body")])

@@ -302,10 +302,56 @@ class Rebuild(Base):
         self.assertEqual(n, len(cards._walk_cards(self.V)))
         self.assertGreaterEqual(secs, 0)
 
+    def test_rebuild_when_index_in_use(self):  # 實作疑義 12：刪不掉索引檔
+        put(self.V, "檔案索引/a.md", card("f-1", "報價單"), OLD)
+        card_index.groups(self.V)
+        con = sqlite3.connect(card_index.db_path(self.V))  # 別的程式開著
+        try:
+            con.execute("select count(*) from cards").fetchone()
+            with self.assertRaises(card_index.Unusable) as cm:
+                card_index.rebuild(self.V)
+            self.assertEqual(str(cm.exception), "索引正在被別的程式使用，等一下再重建")
+        finally:
+            con.close()
+
     def test_rebuild_unusable_raises(self):
         os.remove(self.V / ".system" / "vault.json")
         with self.assertRaises(card_index.Unusable):
             card_index.rebuild(self.V)
+
+
+class Unreadable(Base):
+    def test_oserror_not_stored_and_read_again(self):  # 實作疑義 10：被鎖、拒讀、OneDrive 還沒下載
+        p = put(self.V, "檔案索引/a.md", card("f-1", "報價單"), OLD)
+        put(self.V, "檔案索引/b.md", card("f-2", "別張"), OLD)
+        real = Path.read_text
+
+        def deny(self, *a, **k):
+            if self.name == "a.md":
+                raise PermissionError(13, "拒絕存取")
+            return real(self, *a, **k)
+
+        with mock.patch.object(Path, "read_text", deny):
+            groups, broken = card_index.groups(self.V)
+        self.assertEqual(sorted(groups), ["f-2"])
+        self.assertEqual([b["path"] for b in broken], ["檔案索引/a.md"])
+        self.assertTrue(broken[0]["reason"].startswith("檔頭解析不了："))
+        con = sqlite3.connect(card_index.db_path(self.V))
+        self.assertEqual(con.execute("select path from cards").fetchall(), [("檔案索引/b.md",)])
+        con.close()
+        self.same()  # 恢復讀取：修改時間沒變，下一次也回到 groups
+        self.assertIn("f-1", card_index.groups(self.V)[0])
+
+    def test_oserror_drops_old_row(self):  # 本來讀得到、後來讀不到：舊的那列不能留
+        put(self.V, "檔案索引/a.md", card("f-1", "報價單"), OLD)
+        self.same()
+        p = self.V / "檔案索引/a.md"
+        os.utime(p, (OLD + 1, OLD + 1))  # 讓它被當成變了
+        real = Path.read_text
+        with mock.patch.object(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(PermissionError(13, "x")) if self.name == "a.md" else real(self, *a, **k)):
+            groups, broken = card_index.groups(self.V)
+        self.assertEqual((groups, [b["path"] for b in broken]), ({}, ["檔案索引/a.md"]))
+        self.same()
 
 
 class Deadline(Base):

@@ -45,6 +45,10 @@ class Unusable(Exception):
         self.quiet = quiet
 
 
+class _Unread(Exception):
+    """這張卡這次讀不到（OSError）：不寫進索引。"""
+
+
 class _Corrupt(Exception):
     """索引檔壞了或版本不對：刪掉重建。"""
 
@@ -144,11 +148,16 @@ def _connect(vault):
 
 
 def _drop(path):
+    """刪索引檔（含 -wal、-shm）；刪不掉（別的程式開著）回 False。"""
+    ok = True
     for suffix in ("", "-wal", "-shm"):
         try:
             os.remove(str(path) + suffix)
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError:
+            ok = False
+    return ok
 
 
 def _log(vault, text):
@@ -173,7 +182,9 @@ def _read_card(vault, rel):
     try:
         text = (Path(vault) / rel).read_text(encoding="utf-8")
         front = cards.parse_front(text)
-    except (ValueError, OSError, UnicodeDecodeError) as e:
+    except OSError as e:  # 被鎖、拒讀、OneDrive 還沒下載：檔案本身可能沒問題，不存進索引，這次進 broken、下次再讀
+        raise _Unread(f"檔頭解析不了：{e}") from e
+    except (ValueError, UnicodeDecodeError) as e:
         return None, f"檔頭解析不了：{e}", "", ""
     title = front.get("標題")
     text = text.lstrip(BOM)
@@ -230,14 +241,19 @@ def _run(vault, con, deadline):
     for path, mtime, size, seen_ns, front, error in con.execute("SELECT path, mtime_ns, size, seen_ns, front, error FROM cards"):
         have[path] = (mtime, size, seen_ns, front, error)
     new, gone, seen = changed(vault, {p: v[:3] for p, v in have.items()}, deadline)
-    fresh, late = [], None
+    fresh, late, unread = [], None, {}
     for rel in sorted(new):
         if deadline is not None and time.monotonic() > deadline:
             late = TimeoutError("讀卡讀太久")
             break
         stamp = time.time_ns()
-        front, error, title, body = _read_card(vault, rel)
+        try:
+            front, error, title, body = _read_card(vault, rel)
+        except _Unread as e:
+            unread[rel] = str(e)
+            continue
         fresh.append((rel, seen[rel][0], seen[rel][1], stamp, front, error, title, body))
+    gone = gone + [p for p in unread if p in have]  # 舊的那列不能留：修改時間沒變下次會直接用它
     if fresh or gone:
         con.execute("BEGIN IMMEDIATE")
         try:
@@ -254,6 +270,9 @@ def _run(vault, con, deadline):
         have[row[0]] = (row[1], row[2], row[3], row[4], row[5])
     groups, broken = {}, []
     for rel in sorted(seen):
+        if rel in unread:
+            broken.append({"path": rel, "reason": unread[rel]})
+            continue
         _m, _s, _n, front, error = have[rel]
         if error is not None or front is None:
             broken.append({"path": rel, "reason": error})
@@ -288,7 +307,8 @@ def rebuild(vault):
     if path is None:
         raise Unusable("這個知識庫沒有編號（.system/vault.json），不建索引")
     start = time.monotonic()
-    _drop(path)
+    if not _drop(path):
+        raise Unusable("索引正在被別的程式使用，等一下再重建")
     found, broken = _groups(vault, None)
     return sum(len(g) for g in found.values()) + len(broken), time.monotonic() - start
 
