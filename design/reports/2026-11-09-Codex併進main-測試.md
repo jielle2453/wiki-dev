@@ -101,3 +101,24 @@
 | 11 | 過 | `test_codex_adapter.py::Config::test_codex_manifest_version_matches` 1 passed；`.claude-plugin`、`.codex-plugin` 的 version 都是 0.36.0 |
 
 發現：沒有新的。#1 已修；「bump 要兩份 plugin.json 一起改」轉給發行（willy設計二 2026-11-10）。
+
+## 第 3 輪回測
+
+日期：2026-11-11。測的版本：`06d6e24d`（D-539 實作 `80ec0834`＋只改 `安裝-Codex.md` 備用那步的 `06d6e24d`；中間的 `ab9db565` 是 merge main，main 已到 0.37.0，兩份 plugin.json 都是 0.37.0）。範圍（willy設計二 2026-11-11 指定，D-524）：驗收 5、17、release 相關三個測試檔、假公開 repo 重 build；其他不重跑。這台的 Codex CLI 已是 0.167.1。
+
+**結論：可以進確認回測。** release 測試全過；codex 分支裡是 `hooks/hooks.json`（＝main 的 `hooks/codex.json`）、沒有 `hooks/codex.json`；從 codex 分支或照文件改名後的 zip 裝，Codex 都只登記 6 個 `hooks/hooks.json` key。驗收 5 照 spec 原來的做法（從 worktree 直接裝）已經不成立，見 #9。
+
+| 項目 | 判定 | 證據 |
+|---|---|---|
+| release 相關測試 | 過 | `python -m pytest -q tests/test_tools_release.py tests/test_codex_adapter.py tests/test_repo_hygiene.py`：139 passed、1437 subtests passed，exit 0（10:01），開跑前後 HEAD 都是 `06d6e24d`。新測試有查 codex 分支 `hooks/hooks.json`＝main 的 codex.json、沒有 codex.json，manifest 有 `hooks`、`codex.json` 不在都會讓 build 停 |
+| 假公開 repo 重 build | 過 | 拋棄 clone 更新到 `06d6e24d`、模擬 0.39.0，`pubharness.py` publish 到第 1 輪那個假公開 repo（codex 分支原本是 0.38.0、裡面是 `hooks/codex.json`）。結果：codex 多一個「codex: 0.39.0」（父 commit 是 0.38.0 那個，沒有 force push）；`hooks/hooks.json` 有、內容＝zip 的 `hooks/codex.json`＝worktree 的 `hooks/codex.json`，跟 zip 裡 Claude 版的 `hooks/hooks.json` 不同；`hooks/codex.json` 沒有（0.38.0 留下的那份也拿掉了）；檔案清單＝zip − `hooks/codex.json` ＋ `.gitattributes`；`.codex-plugin/plugin.json` 沒有 `hooks`、version 0.39.0；README.md＝`安裝-Codex.md`；做完 clone 回到 main、沒有殘留檔。zip 本身兩份 hook 檔都在（D-539：zip 不變） |
+| 驗收 17 | 過 | 新的空 CODEX_HOME（`codex-home4`），同第 1 輪用暫時的 `GIT_CONFIG_GLOBAL` 把不存在的 github 網址轉到本機 bare：`marketplace add … --ref codex`、`plugin add` 裝到 0.39.0。`hooks/list`：6 個 key，全是 `wiki-with-willy@wiki-with-willy:hooks/hooks.json:{pre_tool_use,post_tool_use,session_start,session_end,user_prompt_submit,stop}:0:0`，matcher 是 Codex 版的（`^(Bash\|apply_patch\|view_image)$`、`^apply_patch$`、`…\|fork`、`other`），trustStatus 都是 untrusted（剛裝），warnings、errors 空 |
+| 驗收 5 | 過（照 D-539 改過的意思） | ①照 `安裝-Codex.md` 備用步驟：0.39.0 的 zip 解到 `第二組-56測試\zipplugin`、`hooks\codex.json` 改名蓋掉 `hooks.json`、空 CODEX_HOME（`codex-home5`）`marketplace add <夾>`、`plugin add`：`hooks/list` 6 個 `hooks/hooks.json` key、matcher 同上、warnings 空。②照 spec 原來的字面（空 CODEX_HOME `codex-home3` 直接加 worktree 當市集）：key 雖然是 `hooks/hooks.json`，讀到的卻是 **Claude 版**那份：8 個事件（多 `subagent_start`、`subagent_stop`）、matcher 是 Claude 的，還有一條警告「clamping SessionEnd hook timeout to 3s」。這是 D-539 的預期結果（main 上 `hooks.json` 是 Claude 的），見 #9 |
+
+### 發現（接第 1 輪）
+
+| # | 嚴重 | 內容 | 證據 |
+|---|---|---|---|
+| 9 | 中 | D-539 之後，main（worktree、開發 repo）的檔案配置不能直接給 Codex 裝：直接 `marketplace add <repo>` 會讓 Codex 跑 Claude 版的 `hooks.json`（8 個事件、Claude 的 matcher）。客戶從 codex 分支或照文件改名後的 zip 裝不受影響。受影響的是開發與確認的人：①spec 驗收 5 的做法（「從 worktree 加本機市集」）要改成從 codex 分支或改名後的夾驗；②main 上的 `.agents/plugins/marketplace.json`（source `local` `./`）讓 repo 看起來可以直接裝，`安裝-Codex.md` 以外沒有地方提醒。建議 spec 驗收 5 改寫，`CLAUDE.md`（repo 的）那句 Codex 說明補「main 不能直接給 Codex 裝，要從 codex 分支或改名」 | 上表驗收 5 ② |
+
+花費：這輪沒有跑 `claude -p`，0 美元。
