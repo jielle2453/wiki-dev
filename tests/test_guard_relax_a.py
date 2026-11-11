@@ -288,5 +288,94 @@ class HookRun(unittest.TestCase):
                 for ln in p.read_text(encoding="utf-8").splitlines()[1:]] if p.is_file() else []
 
 
+class Holes25(Base):
+    """守門補洞 #25（D-348）驗收 3、4：新擋的寫法照理由句改走會先留一份的路，再判一次是 allow 或 pass（客戶要的做得完）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        (cls.V / "暫存區" / "報價.docx").write_bytes(b"x")
+        (cls.V / "暫存區" / "報價.pdf").write_bytes(b"x")
+        (cls.V / "我的夾" / "筆記.txt").write_text("n", encoding="utf-8")
+        cls.src = (cls.tmp / "src").as_posix()
+
+    def kb(self, rest):
+        return self.d("Bash", f'python "{KB.as_posix()}" {rest}')
+
+    def allowed(self, d):
+        self.assertIn(d.decision, ("allow", "pass"), d)
+
+    def test_encoded_command(self):
+        """驗收 3：解出來是 Get-Content → pass；是 Remove-Item → deny delete；解不開 → deny unparsed、句子對 AI 說。"""
+        import base64
+
+        def enc(s):
+            return base64.b64encode(s.encode("utf-16-le")).decode()
+
+        self.passes("PowerShell", f"powershell -enc {enc('Get-Content ../src/x.txt')}")
+        d = self.denies("PowerShell", f"powershell -EncodedCommand {enc('Remove-Item ../src/x.txt')}", "delete")
+        self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{self.src}/x.txt"'))
+        d = self.denies("PowerShell", "powershell -enc 這不是base64###", "unparsed")
+        self.assertIn("改寫成簡單的指令", d.reason)
+        self.passes("PowerShell", "Get-Content ../src/x.txt")  # 改寫成一般指令
+
+    def test_delete_goes_to_trash(self):
+        v = self.V.as_posix()
+        for cmd in (f"[System.IO.File]::Delete('{v}/暫存區/報價.docx')", f"([type]'System.IO.File')::Delete('{self.src}/x.txt')",
+                    f"[IO.FileInfo]::new('{v}/我的夾/筆記.txt').Delete()", f"(Get-Item '{v}/暫存區/報價.docx').Delete()",
+                    f"[IO.Directory]::Delete('{v}/我的夾', $true)"):
+            with self.subTest(cmd=cmd):
+                d = self.denies("PowerShell", cmd, "delete")
+                self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{v}/暫存區/報價.docx" "{v}/我的夾"'))
+
+    def test_office_save_as_goes_to_kb_office(self):
+        v = self.V.as_posix()
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        for tool, cmd in (("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價.docx')"),
+                          ("PowerShell", word + f"$d.ExportAsFixedFormat('{v}/暫存區/報價.pdf', 17)"),
+                          ("Bash", "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; "
+                                   f"d.SaveAs2(r'{v}/暫存區/報價.docx')\"")):
+            with self.subTest(cmd=cmd):
+                d = self.denies(tool, cmd, "content")
+                self.assertIn("kb office", d.reason)
+        self.allowed(self.kb(f'office copy "{v}/暫存區/報價.docx" --unpack'))
+        self.allowed(self.kb(f'output save "{v}/.system/temp/office/報價_unpacked" --to "{v}/暫存區/報價.docx"'))
+        self.passes("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價（新）.docx')")  # 另存成新檔照放
+
+    def test_text_write_goes_to_edit_write(self):
+        v = self.V.as_posix()
+        for tool, cmd, code in (("PowerShell", f"[IO.File]::WriteAllText('{v}/我的夾/筆記.txt', 'x')", "content"),
+                                ("PowerShell", f"clc '{v}/我的夾/筆記.txt'", "content"),
+                                ("PowerShell", f"Get-Process | epcsv '{v}/我的夾/筆記.txt'", "content"),
+                                ("Bash", f"python -c \"open(r'{v}/我的夾/筆記.txt', mode='r+b').truncate(0)\"", "code"),
+                                ("Bash", f"python -c \"import os; os.open(r'{v}/我的夾/筆記.txt', os.O_WRONLY | os.O_TRUNC)\"", "code")):
+            with self.subTest(cmd=cmd):
+                d = self.denies(tool, cmd, code)
+                self.assertIn("Edit", d.reason)
+        self.allowed(self.d("Write", self.V / "我的夾" / "筆記.txt"))
+        self.allowed(self.d("Edit", self.V / "我的夾" / "筆記.txt"))
+
+    def test_outfile_overwrite_trash_or_new_name(self):
+        v = self.V.as_posix()
+        target = self.V / "我的夾" / "下載.txt"
+        target.write_text("舊", encoding="utf-8")
+        for verb in ("iwr", "irm", "Invoke-WebRequest", "Invoke-RestMethod", "curl"):
+            with self.subTest(verb=verb):
+                self.denies("PowerShell", f"{verb} https://example.com/a.txt -OutFile '{v}/我的夾/下載.txt'", "content")
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載（新）.txt'")  # 下載成新檔名
+        self.allowed(self.kb(f'source-edit trash "{v}/我的夾/下載.txt"'))  # 或先丟進回收筒
+        target.unlink()
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載.txt'")  # 回收之後再下載
+
+    def test_net_copy_overwrite_goes_to_move(self):
+        v = self.V.as_posix()
+        d = self.denies("PowerShell", f"[IO.File]::Copy('{self.src}/x.txt', '{v}/我的夾/筆記.txt', $true)", "overwrite")
+        self.assertIn("kb source-edit move", d.reason)
+        self.allowed(self.kb(f'source-edit move "{self.src}/x.txt" --to "{v}/我的夾"'))
+        self.passes("PowerShell", f"[IO.File]::Copy('{self.src}/x.txt', '{v}/我的夾/筆記.txt')")  # 沒覆蓋旗標：同名會報錯、不會蓋
+
+
 if __name__ == "__main__":
     unittest.main()

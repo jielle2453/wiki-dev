@@ -20,15 +20,22 @@ skill 夾（D-533、D-538）：知識庫 .claude/skills/ 底下（不含夾本�
 - 照 shell 語法拆（D-186）：heredoc 與 here-string 內文是資料（cmdparse.split_bodies），只抽絕對路徑照讀判斷；
   每一段照動詞分讀寫（cmdparse.stage_kind）：已知只讀指令只有導向才是寫，直譯器只看程式碼有沒有寫檔，殼照舊整段看；
   寫入欄只套真正被寫的路徑（導向目標、寫入那段的參數；寫入那段沒有自己的路徑時整個子指令），其餘照讀（收 B-024）。
-- AI 產出（D-186 補）：寫進去、非 kb 執行檔的參數或效用 cwd、餵給直譯器的內文碰到就擋（OUTPUT_SHELL）；
-  已知只讀指令、echo 的字串、餵給 cat／tee 的內文裡提到的當讀。
+- AI 產出（D-186 補）：放寬甲起併進暫存區（Z4），照使用者區規則判（OUTPUT_SHELL 拿掉了）。
 - 只列檔名、只切目錄（D-185、B-093 (b)）：第三道不走訪；cd 的目標不算 Z10b；排除夾照擋。
 - 「可以讀」裁示（D-183、D-184）：憑證命中時才查 rulings.json 與清冊，命中的那一份是有效裁示掛的條目就放讀；寫照各區；
   排除最優先；資料夾範圍裡的密碼檔全部有裁示才放行。
 - 工具夾與 plugin 夾不比憑證樣式（B-088、B-093 (a)，credentials.exempt）。
 開檔（D-514）：Start-Process、Invoke-Item、start、explorer 開的是文件、資料夾或網址（cmdparse.open_stage）→ 目標照讀判、不算碰 AI 產出，
 開一個夾不走第三道也不算 Z10b；-RedirectStandardOutput／Error 照寫判；開的是程式 → 程式檔在知識庫或來源裡擋 run_file，
-其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態；附著時 AI 產出的路徑只拿來比對（-eq、-like、==）照讀（裁定 29）。
+其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態：沒有路徑的 .Save()、Range.Delete()、
+InsertAfter 不管，Documents.Open 是讀；附著時拿來比對的路徑（-eq、-like、==）照一般規則判，沒有另外的豁免（放寬甲）。
+守門補洞（#25、D-348）：跟全名寫法同一套判斷，新擋的理由句都指到會先留一份的路——
+-EncodedCommand（-e、-ec、-en… 與 / 開頭）解開當 -Command 的內容遞迴判，解不開擋 unparsed；別名 clc、epcsv（content）、sp（照
+Set-ItemProperty）；iwr、irm、Invoke-WebRequest、Invoke-RestMethod、PowerShell 的 curl、wget 帶 -OutFile 是寫（目標是它的值）；
+.NET 檔案靜態呼叫（[System.IO.File]、[IO.Directory]、([type]'System.IO.File')，cmdparse.file_calls）與 [IO.FileInfo]::new('<p>').Delete()、
+(Get-Item '<p>').Delete() 照刪、寫、搬、複製判（_file_call_check）；Office 帶字面路徑的另存（SaveAs、SaveAs2、SaveCopyAs、
+ExportAsFixedFormat）既有檔 content、新檔放行（PowerShell 在 _check_plan，python 在 _interp_check）；PowerShell 的 .方法(、::方法( 的括號
+是方法參數不是指令替換（_substituted_args）。沒有字面路徑的（$f.Delete()、變數）照放寬甲放行，等 #67。
 """
 import glob as globlib
 import os
@@ -432,6 +439,9 @@ def _content_value(before):
     return path_named or positional >= 1  # -Path 已經具名給了，位置參數就綁到 -Value
 
 
+_METHOD_CALL = re.compile(r"(?:\.|::)\s*\w+$")  # PowerShell 的 .方法(、::方法(：括號緊接在方法名後面
+
+
 def _substituted_args(text, runs, powershell):
     """寫入那段的參數是指令替換（$(…)、反引號、<(…)；PowerShell 的 (…)、$(…)、@(…)）：目標推不出來（測試 28 N6）。
     替換本身另外遞迴判；這裡把替換換成一個佔位字後這段還是寫，才算目標來自替換（kb.py version @(Remove-Item x) 的寫在替換裡，不算）。
@@ -448,6 +458,8 @@ def _substituted_args(text, runs, powershell):
         seen.append((pos, end))
         if powershell and not (text.startswith(("$(", "@("), pos) or text[pos] == "("):
             continue
+        if powershell and text[pos] == "(" and _METHOD_CALL.search(text[:pos]):
+            continue  # .方法(、::方法( 的括號是方法參數，字面路徑留成目標（守門補洞 #25）
         if powershell and (_VALUE_PARAM.search(text[:pos]) or _content_value(text[:pos])):
             continue
         spans.append((pos, end))
@@ -1165,9 +1177,9 @@ _DELETE_VERBS = {"rm", "del", "erase", "ri", "remove-item", "unlink", "shred", "
 _MOVE_VERBS = {"mv", "move", "move-item", "mi"}
 _COPY_VERBS = {"cp", "copy", "copy-item", "cpi", "robocopy", "xcopy", "rsync", "install"}
 _CONTENT_VERBS = {"set-content", "sc", "add-content", "ac", "out-file", "tee", "tee-object", "truncate", "dd", "export-csv",
-                  "export-clixml", "clear-content"}
+                  "export-clixml", "clear-content", "clc", "epcsv"}  # clc、epcsv：別名照全名（守門補洞 #25）
 _PASS_VERBS = {"mkdir", "md", "touch", "ren", "rename", "rename-item", "rni", "ln", "chmod", "chown", "attrib", "icacls", "cd",
-               "set-itemproperty", "new-item", "ni", "pushd", "popd", "set-location", "sl", "chdir"}
+               "set-itemproperty", "sp", "new-item", "ni", "pushd", "popd", "set-location", "sl", "chdir"}
 _KNOWN_VERBS = _DELETE_VERBS | _MOVE_VERBS | _COPY_VERBS | _CONTENT_VERBS | _PASS_VERBS | {"sed", "perl", "git", "find"}
 _SHELL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "{", "}", "(", ")", "!", "foreach", "for"}
 _NO_CLOBBER = {"-n", "--no-clobber", "--ignore-existing"}
@@ -1434,6 +1446,51 @@ def _u5_words(plan, ctx):
     return None
 
 
+def _user_files(raw, base, ctx, anc=True):
+    """一個字面路徑接效用 cwd 展開後，落在使用者區的 [(路徑, 區)]；anc=False 不收 ANC（來源或知識庫的上層夾）。"""
+    out = []
+    for p in (_resolved(raw, base) or []) if raw else []:
+        z = _user_zone_of(p, ctx.vault_n, ctx.sources)
+        if z and (anc or z != "ANC"):
+            out.append((p, z))
+    return out
+
+
+def _file_call_check(calls, saves, base, ctx):
+    """守門補洞 #25（D-348）：PowerShell 的 .NET 檔案呼叫與 Office 帶路徑的另存，照對應的全名寫法判。
+    Delete → 照 Remove-Item（delete）；寫的方法、Office 另存 → 既有檔 content、新檔放行；Move、Copy → 覆蓋旗標 $true 時
+    目的地已有檔 overwrite，沒帶旗標同名只會報錯，放行（照 Move-Item 不加 -Force）。參數不是字面路徑的看不出目標，照放寬甲放行（決策 6）。
+    字面路徑是 willy 自己的檔照 willy（'<夾>', $true 的逗號會黏在抽出的路徑上，這裡照參數本身再判一次）。"""
+    named = []  # 每個呼叫點名的路徑參數：Replace 三個、Move／Copy 前兩個、其餘第一個（WriteAllText 的第二個是內容，不是路徑）
+    for action, args in calls:
+        named += args if action == "replace" else args[:2] if action in ("move", "copy") else args[:1]
+    for raw in [cmdparse.literal_arg(a) for a in named] + saves:
+        p = _norm(raw, base) if raw and not any(c in raw for c in "$%`") else None
+        if p is not None and _willy_shell_zone(classify(p, ctx.vault_n, ctx.sources)[0], p, ctx.vault_n):
+            zone = classify(p, ctx.vault_n, ctx.sources)[0]
+            return ctx.deny(zone, "willy", willy_reason(zone, p, ctx.vault_n, ctx.command))
+    for action, args in calls:
+        lits = [cmdparse.literal_arg(a) for a in args]
+        if action == "delete":
+            for p, z in _user_files(lits[0] if lits else None, base, ctx):
+                if _exists_with_content(p):
+                    return ctx.delete(p, z)
+        elif action in ("write", "replace"):  # Replace(來源, 目的地, 備份)：三個都會動到；其餘的第一個參數是目標
+            for raw in (lits if action == "replace" else lits[:1]):
+                for p, z in _user_files(raw, base, ctx, anc=False):
+                    if os.path.isfile(p):
+                        return ctx.content(p, z)
+        elif len(args) >= 3 and args[2].strip().lower() in ("$true", "1") and len(lits) >= 2:
+            for p, z in _user_files(lits[1], base, ctx):
+                if os.path.isfile(p):
+                    return ctx.overwrite(os.path.dirname(p), os.path.basename(p), z)
+    for raw in saves:
+        for p, z in _user_files(raw, base, ctx, anc=False):
+            if os.path.isfile(p):
+                return ctx.content(p, z)
+    return None
+
+
 def _check_plan(plan, ctx):
     """一段指令照使用者區規則判。回 Decision、("u5", 動詞或 None)（看不出目標，之後看整句有沒有碰到使用者區）或 None。"""
     verb, idx = _eff_verb(plan)
@@ -1447,6 +1504,10 @@ def _check_plan(plan, ctx):
         return _U5(_u5_words(plan, ctx))
     if plan["kind"] != "write":
         return None
+    if ctx.powershell:
+        calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
+        if calls or saves:
+            return _file_call_check(calls, saves, base, ctx)
     targets = _target_paths(plan, ctx)
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
     if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
@@ -1613,6 +1674,13 @@ def _interp_check(plan, ctx, recurse):
     if status == "unread":
         ctx.rows.append(_row(ctx.tool, "pass", "", SCRIPT_UNREAD, ctx.command))
     inline = _code_arg(plan)
+    if runs in cmdparse._PS_HOSTS:  # -EncodedCommand：解開當 -Command 的內容判，解不開擋 unparsed（守門補洞 #25）
+        try:
+            decoded = cmdparse.encoded_command(plan["args"])
+        except cmdparse.Unbalanced:
+            return ctx.deny("", "unparsed", UNPARSED_REASON)
+        if decoded is not None:
+            inline = decoded
     bodies = plan.get("code") or ""
     shell_like = runs in cmdparse.SHELL_WRAPPERS
     ext = (path or "").lower()
@@ -1629,6 +1697,11 @@ def _interp_check(plan, ctx, recurse):
             d = recurse("PowerShell" if runs in ("powershell", "pwsh") else "Bash", c, base)
             if d is not None and d.decision == "deny":
                 return d
+        # Office 附著後帶路徑的另存：既有檔 content、新檔放行（守門補洞 #25）；腳本檔的內容照現狀（spec 不做）
+        for raw in (cmdparse.office_save_targets(snip) if snip is not script else []):
+            for p, z in _user_files(raw, base, ctx, anc=False):
+                if os.path.isfile(p):
+                    return ctx.content(p, z)
         argw = _arg_words(plan, inline, path)
         if cmdparse.DESTRUCTIVE_CODE.search(snip) and _code_touches(snip, base, ctx, argw):
             return ctx.deny("", "code", CODE_REASON)

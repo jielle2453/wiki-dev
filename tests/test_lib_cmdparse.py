@@ -542,6 +542,97 @@ class DestructiveCodeOpenMode(unittest.TestCase):
                      "open(p, mode='w')", "fopen('x.txt', 'w')"):
             self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
 
+    def test_holes25_open_modes(self):
+        """守門補洞 #25 要做的事 5：r+b、rb+ 與 os.open 寫入旗標。"""
+        for code in ("open(p, mode='r+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode=\"rb+\")",
+                     "os.open(p, os.O_WRONLY | os.O_TRUNC)", "os.open(p, os.O_RDWR)", "os.open(p, O_TRUNC)"):
+            self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+        for code in ("open(p, mode='rb')", "Path(p).open('rb')", "os.open(p, os.O_RDONLY)"):
+            self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+
+
+class Holes25(unittest.TestCase):
+    """守門補洞 #25（D-348）：-EncodedCommand、PowerShell 別名、.NET 檔案靜態呼叫、Office 帶路徑的另存。"""
+
+    @staticmethod
+    def enc(text):
+        import base64
+        return base64.b64encode(text.encode("utf-16-le")).decode()
+
+    def test_encoded_command(self):
+        b64 = self.enc("Remove-Item x.md")
+        for words in (["powershell", "-EncodedCommand", b64], ["powershell", "-enc", b64], ["powershell", "-e", b64],
+                      ["pwsh", "-ec", b64], ["powershell.exe", "-NoProfile", "/enc", b64], ["pwsh", "-En", b64],
+                      ["powershell", "-ENCODEDCOMMAND", b64]):
+            with self.subTest(words=words):
+                self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
+        for words in (["powershell", "-Command", "Remove-Item x"], ["powershell", "-ExecutionPolicy", "Bypass", "-File", "a.ps1"],
+                      ["node", "-e", b64], ["perl", "-e", b64]):
+            with self.subTest(words=words):
+                self.assertIsNone(cmdparse.encoded_command(words))
+        for words in (["powershell", "-enc", "這不是base64###"], ["powershell", "-enc"], ["pwsh", "-e", "abc"]):
+            with self.subTest(words=words), self.assertRaises(cmdparse.Unbalanced):
+                cmdparse.encoded_command(words)
+
+    def test_alias_write_words(self):
+        for text in ("clc a.txt", "epcsv a.csv", "sp a.txt -Name IsReadOnly -Value $true",
+                     "iwr https://x.tw/a -OutFile a.docx", "irm https://x.tw/a -OutFile:a.json",
+                     "Invoke-WebRequest https://x.tw -OutFile a", "Invoke-RestMethod -Uri https://x.tw -OutF a",
+                     "curl https://x.tw/a -OutFile a", "wget https://x.tw/a -OutFile a"):
+            with self.subTest(text=text):
+                self.assertTrue(cmdparse.WRITE_WORDS.search(text))
+        for text in ("iwr https://x.tw/a", "Invoke-RestMethod https://x.tw/api", "irm https://x.tw/a | ConvertTo-Json"):
+            with self.subTest(text=text):
+                self.assertIsNone(cmdparse.WRITE_WORDS.search(text))
+        self.assertIn("epcsv", cmdparse.CONTENT_SINKS)
+
+    def test_file_calls(self):
+        calls = cmdparse.file_calls
+        self.assertEqual(calls("[System.IO.File]::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("([type]'System.IO.File')::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("([type]\"System.IO.File\")::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("[IO.Directory]::Delete('C:/x', $true)"), [("delete", ["'C:/x'", "$true"])])
+        self.assertEqual(calls("[IO.FileInfo]::new('C:/x/a.docx').Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("(Get-Item 'C:/x/a.docx').Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        for method in ("WriteAllText", "WriteAllBytes", "WriteAllLines", "AppendAllText", "AppendAllLines", "Create"):
+            with self.subTest(method=method):
+                self.assertEqual(calls(f"[IO.File]::{method}('C:/x/a.txt', 'y')")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Replace('C:/x/a', 'C:/x/b', $null)"), [("replace", ["'C:/x/a'", "'C:/x/b'", "$null"])])
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Truncate')")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', [IO.FileMode]::Append)")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Open', 'Read')"), [])
+        self.assertEqual(calls("[IO.File]::Copy('C:/x/a', 'C:/x/b', $true)"), [("copy", ["'C:/x/a'", "'C:/x/b'", "$true"])])
+        self.assertEqual(calls("[System.IO.File]::Move('C:/x/a', 'C:/x/b')"), [("move", ["'C:/x/a'", "'C:/x/b'"])])
+        for text in ("[regex]::Replace($s, 'a', 'b')", "[Array]::Copy($a, $b, 3)", "[string]::Copy('x')", "$f.Delete()",
+                     "$d.Range(0, 5).Delete()", "[IO.File]::ReadAllText('C:/x/a.txt')", "[IO.Path]::Combine('a', 'b')"):
+            with self.subTest(text=text):
+                self.assertEqual(calls(text), [])
+
+    def test_office_save_targets(self):
+        targets = cmdparse.office_save_targets
+        self.assertEqual(targets("$d.SaveAs2('C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        self.assertEqual(targets("$d.SaveAs(\"C:/x/a.docx\")"), ["C:/x/a.docx"])
+        self.assertEqual(targets("$b.SaveCopyAs('C:/x/b.xlsx')"), ["C:/x/b.xlsx"])
+        self.assertEqual(targets("$d.ExportAsFixedFormat('C:/x/a.pdf', 17)"), ["C:/x/a.pdf"])
+        self.assertEqual(targets("d.SaveAs2(r'C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        for text in ("$d.Save()", "$d.SaveAs2($p)", "$w.Documents.Open('C:/x/a.docx')", "$d.Range().Delete()", "$d.Close()"):
+            with self.subTest(text=text):
+                self.assertEqual(targets(text), [])
+
+    def test_stage_kind(self):
+        for text in ("[System.IO.File]::Delete('C:/x/a.docx')", "([type]'System.IO.File')::Delete('C:/x/a')",
+                     "[IO.Directory]::Delete('C:/x', $true)", "[IO.FileInfo]::new('C:/x/a').Delete()",
+                     "(Get-Item 'C:/x/a').Delete()", "$d.SaveAs2('C:/x/a.docx')", "$b.SaveCopyAs('C:/x/a.xlsx')",
+                     "$d.ExportAsFixedFormat('C:/x/a.pdf', 17)", "clc C:/x/a.txt", "iwr https://x.tw -OutFile C:/x/a"):
+            with self.subTest(text=text):
+                verb = cmdparse.verb_of(text.replace("(", " ").split())
+                self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "write")
+        for text in ("$w.Documents.Open('C:/x/a.docx')", "$d.Range(0, 5).Delete()", "$f.Delete()", "iwr https://x.tw",
+                     "[regex]::Replace($s, 'a', 'b')", "Get-Item 'C:/x/a'"):
+            with self.subTest(text=text):
+                verb = cmdparse.verb_of(text.replace("(", " ").split())
+                self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "read")
+
 
 if __name__ == "__main__":
     unittest.main()
