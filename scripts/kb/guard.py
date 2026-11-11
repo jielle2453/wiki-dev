@@ -30,11 +30,11 @@ skill 夾（D-533、D-538）：知識庫 .claude/skills/ 底下（不含夾本�
 其餘把「程式名加參數」那行當內層指令遞迴判。COM 附著到開著的 Office 改（D-515）守門不表態：沒有路徑的 .Save()、Range.Delete()、
 InsertAfter 不管，Documents.Open 是讀；附著時拿來比對的路徑（-eq、-like、==）照一般規則判，沒有另外的豁免（放寬甲）。
 守門補洞（#25、D-348）：跟全名寫法同一套判斷，新擋的理由句都指到會先留一份的路——
--EncodedCommand（-e、-ec、-en… 與 / 開頭）解開當 -Command 的內容遞迴判，解不開擋 unparsed；別名 clc、epcsv（content）、sp（照
+-EncodedCommand（-e、-ec、-en…，-、-- 或 / 開頭，值可用冒號接）解開當 -Command 的內容遞迴判，解不開擋 unparsed；別名 clc、epcsv（content）、sp（照
 Set-ItemProperty）；iwr、irm、Invoke-WebRequest、Invoke-RestMethod、PowerShell 的 curl、wget 帶 -OutFile 是寫（目標是它的值）；
 .NET 檔案靜態呼叫（[System.IO.File]、[IO.Directory]、([type]'System.IO.File')，cmdparse.file_calls）與 [IO.FileInfo]::new('<p>').Delete()、
 (Get-Item '<p>').Delete() 照刪、寫、搬、複製判（_file_call_check）；Office 帶字面路徑的另存（SaveAs、SaveAs2、SaveCopyAs、
-ExportAsFixedFormat）既有檔 content、新檔放行（PowerShell 在 _check_plan，python 在 _interp_check）；這兩種的 ::方法(、.方法( 括號
+ExportAsFixedFormat；Excel 匯出的路徑在第二個參數、python 可用 FileName=）既有檔 content、新檔放行（PowerShell 在 _check_plan，python 在 _interp_check）；這兩種的 ::方法(、.方法( 括號
 是方法參數不是指令替換（_substituted_args 的 _METHOD_CALL；別的方法照舊）。沒有字面路徑的（$f.Delete()、變數）照放寬甲放行，等 #67。
 """
 import glob as globlib

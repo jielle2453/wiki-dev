@@ -579,6 +579,28 @@ class Holes25(unittest.TestCase):
             with self.subTest(words=words), self.assertRaises(cmdparse.Unbalanced):
                 cmdparse.encoded_command(words)
 
+    def test_ruling5_encoded_forms(self):
+        """實作疑義裁定 5：-EncodedCommand:<b64> 冒號寫法、pwsh --encodedcommand。"""
+        b64 = self.enc("Remove-Item x.md")
+        for words in (["powershell", "-EncodedCommand:" + b64], ["pwsh", "--encodedcommand", b64], ["pwsh", "-ec:" + b64],
+                      ["pwsh", "--EncodedCommand:" + b64]):
+            with self.subTest(words=words):
+                self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
+        self.assertIsNone(cmdparse.encoded_command(["pwsh", "--command", "x", "-e", b64]))
+        with self.assertRaises(cmdparse.Unbalanced):
+            cmdparse.encoded_command(["powershell", "-EncodedCommand:這不是###"])
+
+    def test_ruling3_open_mode_whole_string(self):
+        """實作疑義裁定 3：開檔模式要整個字串是模式（結尾是引號）。"""
+        for code in ("Path('raw/a.txt').open()", "open('bar.txt')", "w.Documents.Open('a.docx')", "w.Documents.Open('raw/x.docx')",
+                     "Path(p).open('rb')", "open(p, mode='rb')"):
+            with self.subTest(code=code):
+                self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code))
+        for code in ("Path(p).open('w')", "Path(p).open('w+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode='wt')",
+                     "open(p, mode=\"a\")"):
+            with self.subTest(code=code):
+                self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code))
+
     def test_alias_write_words(self):
         for text in ("clc a.txt", "epcsv a.csv", "sp a.txt -Name IsReadOnly -Value $true",
                      "iwr https://x.tw/a -OutFile a.docx", "irm https://x.tw/a -OutFile:a.json",
@@ -614,6 +636,11 @@ class Holes25(unittest.TestCase):
         self.assertEqual(calls("(Get-Item -Path:C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])
         self.assertEqual(calls("(Get-Item C:/x/a,C:/x/b).Delete()"), [("delete", ["C:/x/a,C:/x/b"])])  # 陣列不當一個路徑
         self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', '5')")[0][0], "write")
+        for method in ("CreateText", "OpenWrite", "AppendText"):  # 實作疑義裁定 5
+            with self.subTest(method=method):
+                self.assertEqual(calls(f"[IO.File]::{method}('C:/x/a.txt').Close()"), [("write", ["'C:/x/a.txt'"])])
+                self.assertEqual(cmdparse.stage_kind("[io.file]::x", f"[IO.File]::{method}('C:/x/a.txt')", powershell=True),
+                                 "write")
         self.assertTrue(cmdparse.is_write("(Get-Item a.txt).Delete()", True))
         self.assertTrue(cmdparse.is_write("$d.SaveAs2('a.docx')", True))
         self.assertEqual(cmdparse.stage_kind("pwsh", "pwsh -c \"(Get-Item 'C:/x').Delete()\"", powershell=False), "write")
@@ -631,6 +658,14 @@ class Holes25(unittest.TestCase):
         self.assertEqual(targets("$b.SaveCopyAs('C:/x/b.xlsx')"), ["C:/x/b.xlsx"])
         self.assertEqual(targets("$d.ExportAsFixedFormat('C:/x/a.pdf', 17)"), ["C:/x/a.pdf"])
         self.assertEqual(targets("d.SaveAs2(r'C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        # 實作疑義裁定 5：Excel 的 ExportAsFixedFormat(<型別>, <路徑>)、python 的 FileName= 具名參數
+        self.assertEqual(targets("$b.ExportAsFixedFormat(0, 'C:/x/a.pdf')"), ["C:/x/a.pdf"])
+        self.assertEqual(targets("$b.ExportAsFixedFormat([Microsoft.Office.Interop.Excel.XlFixedFormatType]::xlTypePDF, 'C:/x/a.pdf')"),
+                         ["C:/x/a.pdf"])
+        self.assertEqual(targets("wb.ExportAsFixedFormat(0, r'C:\\x\\a.pdf')"), ["C:\\x\\a.pdf"])
+        self.assertEqual(targets("d.SaveAs2(FileName=r'C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        self.assertEqual(targets("d.SaveAs2(FileName='C:/x/a.docx', FileFormat=16)"), ["C:/x/a.docx"])
+        self.assertEqual(targets("$b.ExportAsFixedFormat(0, $p)"), [])
         for text in ("$d.Save()", "$d.SaveAs2($p)", "$w.Documents.Open('C:/x/a.docx')", "$d.Range().Delete()", "$d.Close()"):
             with self.subTest(text=text):
                 self.assertEqual(targets(text), [])

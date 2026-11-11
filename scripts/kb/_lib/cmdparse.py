@@ -53,11 +53,11 @@ OFFICE_SAVE = re.compile(_OFFICE_SAVE, re.IGNORECASE)
 # 程式碼裡的寫入（python -c、heredoc 餵給直譯器、inline script）：引號內也算。
 # 密碼與守門（D-186 (c)）：直譯器的程式碼只看這個，不再看裡面的 > 與寫入動詞，所以這裡要收齊開檔寫、刪、搬、建、開子行程
 WRITE_CODE = re.compile(
-    r"(open\([^)]*['\"][wax+]|\.open\(\s*['\"][wax+]|\bmode\s*=\s*['\"][wax+]|"
+    r"(open\([^)]*['\"][wax+]|\.open\(\s*['\"][rb]*[wax+][bt+]*['\"]|\bmode\s*=\s*['\"][rb]*[wax+][bt+]*['\"]|"
     r"(?:zipfile|tarfile|io|codecs|gzip|bz2|lzma)\.\w*\(?[^)]*['\"][wax]|\bZipFile\([^)]*['\"][wax]|"
     r"\.write_text|\.write_bytes|\.(?:unlink|rmdir|mkdir|touch|rename|replace|symlink_to|hardlink_to|chmod)\(|"
     r"writealltext|writeallbytes|appendalltext|writealllines|appendalllines|"
-    + _NET_TYPE + r"\s*::\s*(?:delete|move|copy|create|open|replace)\b|"
+    + _NET_TYPE + r"\s*::\s*(?:delete|move|copy|create|open|replace|createtext|openwrite|appendtext)\b|"
     r"shutil\.|os\.(?:remove|rename|replace|unlink|makedirs|mkdir|rmdir|removedirs|truncate|link|symlink|chmod|system|popen|startfile)|"
     r"\bunlink\(|subprocess|\bpopen\b|"
     r"writefile|appendfile|unlinksync|renamesync|mkdirsync|rmsync|rmdirsync|copyfile|createwritestream|truncatesync|"
@@ -70,9 +70,10 @@ WRITE_CODE = re.compile(
 _OPEN_ARGS = r"\((?:[^,()'\"]|'[^']*'|\"[^\"]*\"|\([^()]*\))*,\s*['\"][rb]*[wax+]"
 # 放寬甲 U6：直譯器程式碼只看刪檔與覆蓋寫法；搬、改名、建夾、touch、開子行程不算（搬檔改名可以照跑）。
 # 跑別的指令的（subprocess、os.system…）另外抽字串常數照指令判（guard._code_commands），不是常數的照 U5
-# 守門補洞 #25：mode= 與 .open( 收 r+b、rb+（[rb]* 開頭）；os.open 帶 O_WRONLY／O_RDWR／O_TRUNC
+# 守門補洞 #25：mode= 與 .open( 收 r+b、rb+（[rb]* 開頭），整個字串都是模式才算（結尾是引號，裁定 3：.open('raw/…')、
+# .Open('a.docx') 的路徑不是模式）；os.open 帶 O_WRONLY／O_RDWR／O_TRUNC
 DESTRUCTIVE_CODE = re.compile(
-    r"(open" + _OPEN_ARGS + r"|\.open\(\s*['\"][rb]*[wax+]|\bmode\s*=\s*['\"][rb]*[wax+]|"
+    r"(open" + _OPEN_ARGS + r"|\.open\(\s*['\"][rb]*[wax+][bt+]*['\"]|\bmode\s*=\s*['\"][rb]*[wax+][bt+]*['\"]|"
     r"os\.open\((?:[^()'\"]|'[^']*'|\"[^\"]*\"|\([^()]*\))*?\bO_(?:WRONLY|RDWR|TRUNC)\b|"
     r"(?:zipfile|tarfile|io|codecs|gzip|bz2|lzma)\.\w*\(?[^)]*['\"][wax]|\bZipFile\([^)]*['\"][wax]|"
     r"\.write_text|\.write_bytes|\.(?:unlink|rmdir|replace)\(|"
@@ -521,7 +522,7 @@ def stage_kind(verb, text, code="", args=None, powershell=False):
     return "read"
 
 
-# 守門補洞 #25（D-348）：-EncodedCommand（-e、-ec、-en… 到 -encodedcommand，- 或 / 開頭）解開當 -Command 的內容判
+# 守門補洞 #25（D-348）：-EncodedCommand（-e、-ec、-en… 到 -encodedcommand，-、-- 或 / 開頭，值可用冒號接）解開當 -Command 的內容判
 _PS_HOSTS = ("powershell", "pwsh")
 
 
@@ -537,16 +538,20 @@ def encoded_command(words):
             return None  # pwsh ./x.ps1 -e prod、pwsh /c/x.ps1 -e prod：後面是腳本的參數
         if len(w) < 2 or w[0] not in "-/":
             continue
-        name = w[1:].lower()
-        if "command".startswith(name) or "file".startswith(name):
+        name, colon, value = w[2:].lower().partition(":") if w.startswith("--") else w[1:].lower().partition(":")
+        if colon:
+            value = w[len(w) - len(value):]  # 冒號後的值照原樣（base64 分大小寫）
+        if name and ("command".startswith(name) or "file".startswith(name)):
             return None
         if name in ("e", "ec") or (len(name) >= 2 and "encodedcommand".startswith(name)):
-            if k + 1 >= len(rest):
-                raise Unbalanced(w)
+            if not colon:  # -EncodedCommand <b64>；-EncodedCommand:<b64> 冒號寫法的值在同一個字（裁定 5）
+                if k + 1 >= len(rest):
+                    raise Unbalanced(w)
+                value = rest[k + 1]
             try:
-                return base64.b64decode(rest[k + 1], validate=True).decode("utf-16-le")
+                return base64.b64decode(value, validate=True).decode("utf-16-le")
             except (ValueError, UnicodeDecodeError) as exc:  # binascii.Error 是 ValueError
-                raise Unbalanced(rest[k + 1][:40]) from exc
+                raise Unbalanced(value[:40]) from exc
     return None
 
 
@@ -554,13 +559,18 @@ def encoded_command(words):
 _NET_CALL = re.compile(_NET_TYPE + r"\s*::\s*(\w+)\s*\(", re.IGNORECASE)
 _NET_METHODS = {"delete": "delete", "writealltext": "write", "writeallbytes": "write", "writealllines": "write",
                 "appendalltext": "write", "appendalllines": "write", "create": "write", "replace": "replace", "open": "open",
-                "move": "move", "copy": "copy"}
+                "move": "move", "copy": "copy", "createtext": "write", "openwrite": "write", "appendtext": "write"}
 _OPEN_WRITE_MODE = re.compile(r"truncate|append|create|write", re.IGNORECASE)
 _OPEN_WRITE_NUM = ({"2", "4", "5", "6"}, {"2", "3"})  # 寫成數字時：第二個參數 FileMode（Create、OpenOrCreate、Truncate、Append）、第三個 FileAccess（Write、ReadWrite）
 _NET_NEW = re.compile(r"\[\s*(?:system\.)?io\.(?:fileinfo|directoryinfo)\s*\]\s*::\s*new\s*\(", re.IGNORECASE)
 _GET_ITEM_GROUP = re.compile(r"\(\s*(?:get-item|gi)\s", re.IGNORECASE)
 _DELETE_AFTER = re.compile(r"\s*\.\s*delete\s*\(", re.IGNORECASE)
-_OFFICE_TARGET = re.compile(_OFFICE_SAVE + r"\s*(?:\[ref\]\s*)?[rRuU]?(?:'([^'\n]+)'|\"([^\"\n]+)\")", re.IGNORECASE)
+# 第一個參數是字面路徑；Excel 的 ExportAsFixedFormat(<型別>, <路徑>) 路徑在第二個；python 的 FileName=、OutputFileName= 具名參數（裁定 5）
+_OFFICE_TARGET = re.compile(
+    r"\.(?:(?:saveas2?|savecopyas|exportasfixedformat)\s*\(\s*(?:\[ref\]\s*)?"
+    r"|exportasfixedformat\s*\(\s*[^,()'\"]+,\s*(?:\[ref\]\s*)?"
+    r"|(?:saveas2?|savecopyas|exportasfixedformat)\s*\([^()]*?\b(?:output)?filename\s*=\s*)"
+    r"[rRuU]?(?:'([^'\n]+)'|\"([^\"\n]+)\")", re.IGNORECASE)
 
 
 def _split_args(inner):
@@ -646,7 +656,8 @@ def _bare_literal(word):
 
 
 def office_save_targets(text):
-    """Office 附著後帶路徑的另存（.SaveAs、.SaveAs2、.SaveCopyAs、.ExportAsFixedFormat）第一個參數是字面路徑時，回那些路徑。
+    """Office 附著後帶路徑的另存（.SaveAs、.SaveAs2、.SaveCopyAs、.ExportAsFixedFormat）的目標是字面路徑時，回那些路徑：
+    第一個參數、Excel ExportAsFixedFormat(<型別>, <路徑>) 的第二個、python 的 FileName=／OutputFileName=。
     PowerShell 雙引號裡有 $ 或反引號的會展開，不算字面。"""
     out = []
     for m in _OFFICE_TARGET.finditer(text):

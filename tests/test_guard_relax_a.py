@@ -388,6 +388,34 @@ class Holes25(Base):
         self.denies("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價.pdf', 17)", "content")
         self.passes("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價（新）.pdf', 17)")
 
+    def test_ruling5_rewrites_finish(self):
+        """實作疑義裁定 5：補進來的寫法擋下後，照理由句改寫再判一次是 allow 或 pass（驗收 4）。"""
+        import base64
+        v = self.V.as_posix()
+        for m in ("CreateText", "OpenWrite", "AppendText"):  # 寫文字檔 → Edit／Write
+            with self.subTest(method=m):
+                d = self.denies("PowerShell", f"[IO.File]::{m}('{v}/我的夾/筆記.txt').Close()", "content")
+                self.assertIn("Edit", d.reason)
+        self.allowed(self.d("Write", self.V / "我的夾" / "筆記.txt"))
+        excel = "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+        for tool, cmd in (("PowerShell", excel + f"$e.ActiveWorkbook.ExportAsFixedFormat(0, '{v}/暫存區/報價.pdf')"),
+                          ("Bash", "python -c \"import win32com.client as c; c.GetActiveObject('Excel.Application').ActiveWorkbook."
+                                   f"ExportAsFixedFormat(0, r'{v}/暫存區/報價.pdf')\""),
+                          ("Bash", "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; "
+                                   f"d.SaveAs2(FileName=r'{v}/暫存區/報價.docx')\"")):
+            with self.subTest(cmd=cmd):  # 改 Office 既有檔 → kb office
+                d = self.denies(tool, cmd, "content")
+                self.assertIn("kb office", d.reason)
+        self.allowed(self.kb(f'office copy "{v}/暫存區/報價.docx" --unpack'))
+        self.allowed(self.kb(f'output save "{v}/.system/temp/office/報價_unpacked" --to "{v}/暫存區/報價.docx"'))
+        self.passes("PowerShell", excel + f"$e.ActiveWorkbook.ExportAsFixedFormat(0, '{v}/暫存區/報價（新）.pdf')")  # 匯出成新檔照放
+        b64 = base64.b64encode("Remove-Item ../src/x.txt".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -EncodedCommand:{b64}", f"pwsh --encodedcommand {b64}"):  # 刪 → kb source-edit trash
+            with self.subTest(cmd=cmd):
+                d = self.denies("PowerShell", cmd, "delete")
+                self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{self.src}/x.txt"'))
+
 
 if __name__ == "__main__":
     unittest.main()
