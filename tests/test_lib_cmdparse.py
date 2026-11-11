@@ -587,6 +587,8 @@ class Holes25(unittest.TestCase):
             with self.subTest(words=words):
                 self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
         self.assertIsNone(cmdparse.encoded_command(["pwsh", "--command", "x", "-e", b64]))
+        self.assertEqual(cmdparse.encoded_command(["powershell", "-e:", b64]), "Remove-Item x.md")  # 冒號後沒值：取下一個字
+        self.assertEqual(cmdparse.encoded_command(["pwsh", "-c:x", "-e", b64]), "Remove-Item x.md")  # -c:x 不當停止點
         with self.assertRaises(cmdparse.Unbalanced):
             cmdparse.encoded_command(["powershell", "-EncodedCommand:這不是###"])
 
@@ -597,7 +599,8 @@ class Holes25(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code))
         for code in ("Path(p).open('w')", "Path(p).open('w+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode='wt')",
-                     "open(p, mode=\"a\")"):
+                     "open(p, mode=\"a\")", "tf.open('a.tar', mode='w:gz')", "tf.open('a.tar', mode='w|gz')",
+                     "Pathname.new('a.txt').open('w:UTF-8')", "Pathname('a').open('wb:ASCII-8BIT')"):
             with self.subTest(code=code):
                 self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code))
 

@@ -1684,18 +1684,20 @@ def _interp_check(plan, ctx, recurse):
     path, script, status = _script_of(plan, base, ctx)
     if status == "unread":
         ctx.rows.append(_row(ctx.tool, "pass", "", SCRIPT_UNREAD, ctx.command))
-    inline = _code_arg(plan)
+    inline, extra = _code_arg(plan), []
     if runs in cmdparse._PS_HOSTS:  # -EncodedCommand：解開當 -Command 的內容判，解不開擋 unparsed（守門補洞 #25）
         try:
             decoded = cmdparse.encoded_command(plan["args"])
         except cmdparse.Unbalanced:
             return ctx.deny("", "unparsed", UNPARSED_REASON)
-        if decoded is not None:
+        if decoded is not None:  # 同一行另外帶的 -c／-Command 內容也照判（不讓解開的指令蓋掉它）
+            args = plan["args"]
             inline = decoded
+            extra = [args[i + 1] for i, w in enumerate(args) if w.lower() in ("-c", "-command") and i + 1 < len(args)]
     bodies = plan.get("code") or ""
     shell_like = runs in cmdparse.SHELL_WRAPPERS
     ext = (path or "").lower()
-    snippets = [s for s in (inline, bodies if bodies.strip() else "", script) if s]
+    snippets = [s for s in (inline, *extra, bodies if bodies.strip() else "", script) if s]
     sh_tool = "PowerShell" if (runs in ("powershell", "pwsh", "cmd") or ext.endswith((".ps1", ".bat", ".cmd"))) else "Bash"
     for snip in snippets:
         if shell_like or (ext.endswith(cmdparse.SHELL_SCRIPT_EXTS) and snip is script):

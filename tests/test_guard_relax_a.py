@@ -415,6 +415,11 @@ class Holes25(Base):
                 d = self.denies("PowerShell", cmd, "delete")
                 self.assertIn("kb source-edit trash", d.reason)
         self.allowed(self.kb(f'source-edit trash "{self.src}/x.txt"'))
+        hi = base64.b64encode("echo hi".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -ec:{hi} -c \"Remove-Item 我的夾/筆記.txt\"",  # code review：解開的不蓋掉同一行的 -c
+                    "powershell -e: -c \"Remove-Item 我的夾/筆記.txt\""):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.d("PowerShell", cmd).decision, "deny")
 
 
 if __name__ == "__main__":
