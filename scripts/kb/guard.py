@@ -1508,15 +1508,16 @@ def _check_plan(plan, ctx):
             return ctx.content(p, z)
     # .NET 檔案呼叫與 Office 另存（守門補洞 #25）：點名的字面路徑先判，這段別處看不出目標（$x = …、.Open('a').SaveAs2('b')）也一樣；
     # 沒擋的看不出目標照 U5，看得出的不再走下面的「其餘的寫」（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是要改的檔）
-    calls = saves = ()
+    file_call = False  # 這段的寫是 .NET 呼叫或 Office 另存：判完就不再走「其餘的寫」
     if ctx.powershell and plan["kind"] == "write":
         calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
-        got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
+        file_call = bool(calls or saves)
+        got = _file_call_check(calls, saves, base, ctx) if file_call else None
         if got is not None:
             return got
     if plan.get("unknown"):
         return _U5(_u5_words(plan, ctx))
-    if plan["kind"] != "write" or calls or saves:
+    if plan["kind"] != "write" or file_call:
         return None
     targets = _target_paths(plan, ctx)
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])

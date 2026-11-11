@@ -635,9 +635,12 @@ def _get_item_path(words):
     return []
 
 
+_PS_NOT_LITERAL = frozenset("$@,{}()`")  # 裸字有這些就不是一個字面路徑（變數、陣列逗號、運算式、反引號）
+
+
 def _bare_literal(word):
     """PowerShell 指令參數的裸字（Get-Item C:/x/a.txt）也是字面路徑：包成單引號；有引號、變數、陣列逗號、括號、反引號的照原樣。"""
-    if word[:1] in "'\"" or any(c in word for c in _BARE_UNCERTAIN[True] | set("`)}")):
+    if word[:1] in "'\"" or any(c in _PS_NOT_LITERAL for c in word):
         return word
     return "'" + word.replace("'", "''") + "'"
 
@@ -1375,8 +1378,9 @@ def is_write(command, powershell=False):
     wrapped = bare is None or WRAPPER.search(bare)
     scope = cleaned if wrapped else bare
     return bool(REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(cleaned)
-                or (wrapped and (WRAPPED_OPEN.search(scope) or OFFICE_SAVE.search(scope)))
-                or (powershell and (PS_INSTANCE_DELETE.search(scope) or OFFICE_SAVE.search(scope))))  # 守門補洞 #25
+                or (wrapped and WRAPPED_OPEN.search(scope))
+                or ((wrapped or powershell) and OFFICE_SAVE.search(scope))  # 守門補洞 #25：Office 另存、實例刪除
+                or (powershell and PS_INSTANCE_DELETE.search(scope)))
 
 
 def _interpreter_ok(token):
