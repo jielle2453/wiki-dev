@@ -573,6 +573,46 @@ test('開首頁時再找一次：多了一個知識庫才重畫；目前看的�
   });
 });
 
+test('便條沒存成就不切，字還在；原來那個庫不見了就不寫（不把搬走的夾建回來）', async () => {
+  await withSetup({ kbs: ['A', 'B'], store: NOTES }, async (s) => {
+    const view = await s.start();
+    s.plugin.noteEdited('還沒存的字');
+    const adapter = s.plugin.app.vault.adapter;
+    const write = adapter.write;
+    adapter.write = async () => { throw new Error('EPERM'); };
+    await pick(view, 'B');
+    assert.strictEqual(s.plugin.current, 'A');
+    assert.strictEqual(s.plugin.ui.note.text, '還沒存的字');
+    assert.strictEqual(byTag(view.root, 'select')[0].value, 'A');
+    assert.deepStrictEqual(s.st.toasts, ['隨手記沒存成']);
+    adapter.write = write;
+    fs.rmSync(path.join(s.vault, 'A'), { recursive: true, force: true });
+    await s.plugin.activateHome();
+    await wait(120);
+    assert.strictEqual(s.plugin.current, 'B');
+    assert.deepStrictEqual(s.writes, [], 'A 已經不在，不寫 A/系統/隨手記.md');
+    assert.strictEqual(s.plugin.ui.note.text, 'B 的便條');
+  });
+});
+
+test('點案子名稱查到一半切到別的庫：不拿 A 的路徑去開 B 的檔', async () => {
+  await withSetup({ kbs: ['A', 'B'], reply: (args) => (args[0] === 'lookup' ? { synthesis: '01 顧客/王先生/王先生.md' } : undefined) }, async (s) => {
+    await s.start();
+    const run = s.plugin.runner.run.bind(s.plugin.runner);
+    let release = null;
+    s.plugin.runner.run = (args) => (args[0] === 'lookup' ? new Promise((r) => { release = () => run(args).then(r); }) : run(args));
+    const opening = s.plugin.openSynthesis('王先生');
+    await wait(20);
+    const switching = s.plugin.switchRoot('B');
+    await wait(20);
+    release();
+    await opening;
+    await switching;
+    assert.deepStrictEqual(s.st.opened, []);
+    assert.strictEqual(s.plugin.ui.drawer.open, false);
+  });
+});
+
 // ---- data.json ----
 
 test('驗收 23：舊格式讀進來，存檔寫出新格式，那幾筆在 roots[current].opened、timelineDays 還在', async () => {

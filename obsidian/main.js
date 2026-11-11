@@ -3458,14 +3458,21 @@ class WikiWithWillyPlugin extends Plugin {
     this.roots = found;
     this.cardIndexes = null;
     this.syncTreeStyle();
-    if (!found.includes(this.current)) this.switchRoot(found.length ? found[0] : null, false);
+    if (!found.includes(this.current)) this.switchRoot(found.length ? found[0] : null, false, true);
     return true;
   }
 
   /** 首頁上方選了別的知識庫（#66 乙第 10 條）：便條還沒存的字先寫回原來那個庫，再換、重讀。 */
-  async switchRoot(root, remember) {
+  async switchRoot(root, remember, gone) {
     if (root === this.current || (root !== null && !this.rootsList().includes(root))) return;
-    await this.flushNote();
+    if (gone) {
+      // 原來那個庫已經不在了：不寫便條（寫了會把她搬走的夾建回來）
+      if (this.noteTimer) clearTimeout(this.noteTimer);
+      this.noteTimer = null;
+    } else if (!(await this.flushNote())) {
+      this.renderAll(); // 便條沒存成就留在原來那個庫（選單選回去），字還在
+      return;
+    }
     this.stopWatch();
     this.useRoot(root);
     if (remember !== false && root !== null) {
@@ -3969,7 +3976,7 @@ class WikiWithWillyPlugin extends Plugin {
     d.loading = true;
     if (showLoading) this.renderAll();
     const res = await this.kb(['lookup', name, '--json']);
-    if (d.stack[d.stack.length - 1] !== name) return; // 她已經點去別的
+    if (d !== this.ui.drawer || d.stack[d.stack.length - 1] !== name) return; // 她已經點去別的、或切到別的知識庫
     const c = classify(res);
     d.loading = false;
     if (c.kind === 'ok') {
@@ -4031,10 +4038,12 @@ class WikiWithWillyPlugin extends Plugin {
 
   /** 點案子名稱開它的綜合卡；還沒有綜合卡就開旁邊的小預覽。 */
   async openSynthesis(name) {
-    const res = await this.kb(['lookup', name, '--json']);
+    const root = this.cur();
+    const res = await this.kb(['lookup', name, '--json'], root);
+    if (root !== this.cur()) return; // 等的時候她切到別的知識庫了
     const got = classify(res).kind === 'ok' ? parseJson(res.stdout) : null;
     if (got && got.synthesis) {
-      this.openPathInVault(got.synthesis);
+      this.openPathInVault(got.synthesis, root);
       return;
     }
     this.openEntity(name);
