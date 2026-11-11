@@ -37,6 +37,11 @@ class Base(unittest.TestCase):
             args = ("--session", SID) + args
         return run_kb(*args, cwd=self.V)
 
+    def stopped(self, *args):
+        """「這批已經停了或做完了」：exit 3（併 main 後跟 #48 self 批次一致）。"""
+        r = self.kb(*args)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, batches.STOPPED), r.stderr)
+
     def ok(self, *args):
         r = self.kb(*args)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -62,6 +67,44 @@ class Dispatch(Base):
                                           "--json，照它做，做完照你的說明回報。")
         again = self.js("cards", "dispatch")
         self.assertEqual((again["batches"], again["running"]), ([], 3))
+
+    def test_codex_session_gets_codex_prompt(self):
+        """#56 決策 2：turn.py 標了 codex 的對話，prompt 自己指到 card-maker.md、交代 --done 收尾（Codex版 spec 裁定 8）。"""
+        self.assertTrue(turn.mark_session(self.V, SID, "codex"))
+        got = self.js("cards", "dispatch")
+        maker = f'"{plugin_root().as_posix()}/agents/card-maker.md"'
+        for b in got["batches"]:
+            self.assertEqual(b["prompt"], f"批次 {b['batch']}：做卡 {b['items']} 份。你是製卡者：先讀 {maker}，照它做；"
+                                          f"第一步跑 {PREFIX} cards batch {b['batch']} --json。做完跑 {PREFIX} cards batch "
+                                          f"{b['batch']} --done（沒做成的每份加一個 --failed \"<編號>：<原因一句>\"），"
+                                          "最後一則照 card-maker.md 的回報格式。")
+        self.assertTrue((plugin_root() / "agents" / "card-maker.md").is_file())
+
+    def test_codex_done_closes_batch_then_dispatch_continues(self):
+        """Codex（Codex版 spec 裁定 8）：子代理或主對話自己 --done 收尾；--failed 只收這批的編號；收過的再收印停了。"""
+        got = self.js("cards", "dispatch")
+        first, second = got["batches"][0]["batch"], got["batches"][1]["batch"]
+        items = batches.load(self.V)["batches"][0]["items"]
+        r = self.ok("cards", "batch", first, "--done", "--failed", f"{items[0]}：讀不到", "--failed", "f-別批：不收")
+        self.assertEqual(r, f"批次 {first} 記成做完：做好 19、沒做成 1（不是這批的編號沒記：f-別批）；接著跑 kb cards dispatch --json")
+        b = next(x for x in batches.load(self.V)["batches"] if x["batch"] == first)
+        self.assertEqual((b["status"], b["failed"]), ("done", {items[0]: "讀不到"}))
+        self.stopped("cards", "batch", first, "--done")  # 重複收：不改
+        self.stopped("cards", "batch", "b-沒有這批", "--done")
+        self.assertEqual(self.js("cards", "dispatch")["running"], 2)
+        self.ok("cards", "stop")
+        self.stopped("cards", "batch", second, "--done")  # 停掉（放掉）的不收
+
+    def test_codex_done_refuses_expired_and_failed_alone(self):
+        """review：過期的批次 --done 不收（放回去重派，不把沒做的記成沒做成）；--failed 沒帶 --done 報錯。"""
+        b = self.js("cards", "dispatch")["batches"][0]["batch"]
+        r = run_kb("--session", SID, "--turn", self.t, "cards", "batch", b, "--failed", "x：y", cwd=self.V)
+        self.assertEqual((r.returncode, r.stdout.startswith("--failed 要跟 --done 一起用")), (2, True))
+        data = batches.load(self.V)
+        data["batches"][0]["created"] = "2026-01-01T00:00:00"
+        (self.V / ".system" / "batches.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.stopped("cards", "batch", b, "--done")
+        self.assertEqual(batches.load(self.V)["batches"][0]["status"], "open")
 
     def test_human_lines(self):
         self.assertEqual(self.ok("cards", "dispatch"), "派了 3 批（做卡 20、20、5）；還在跑 0 批；還剩 0")
