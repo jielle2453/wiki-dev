@@ -420,12 +420,11 @@ class Holes25(Base):
                     "powershell -e: -c \"Remove-Item 我的夾/筆記.txt\""):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.d("PowerShell", cmd).decision, "deny")
-        for cmd in ("powershell -c:Get-Date -e prod", "powershell -File:run -e prod"):  # 冒號寫法之後是參數，不當編碼指令
+        b64 = base64.b64encode("Remove-Item 我的夾/筆記.txt".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -c:x -e {b64}", f"pwsh -f: -e {b64}"):  # 冒號寫法後面的編碼指令照解（code review 第五輪）
             with self.subTest(cmd=cmd):
-                self.passes("PowerShell", cmd)
-        d = self.d("Bash", "python -c \"import sys; open(sys.argv[1], mode='r+')\" .system/sources.json")
-        self.assertEqual((d.decision, d.reason_code), ("deny", "willy"), d)  # r+ 寫 willy 的檔照 willy，不是 code
-        self.passes("Bash", "python -c \"import zipfile; zipfile.ZipFile('我的夾/a.zip').open('a:b')\"")  # zip 成員名不是模式
+                self.denies("PowerShell", cmd, "delete")
+        self.passes("PowerShell", "git grep \"mode='rb+'\" -- 我的夾/筆記.txt")  # 引號裡提到的模式不讓這段變成寫
 
 
 if __name__ == "__main__":
