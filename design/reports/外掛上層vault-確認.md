@@ -246,6 +246,23 @@
 |---|---|---|
 | 4 | 中 | 乙 3 從首頁加日程後，`willyB\系統\日程.md` 被重寫成舊寫法 `[[01 客戶/李美華/李美華|…]]`；在確認vault 裡解析成 `01 客戶/李美華/李美華.md`（**根目錄的假檔**）與 `willyA/01 客戶/王大明/王大明.md`（**另一個庫**）——正是甲要防的。根因：首頁外掛照 `installed_plugins.json` 找 kb.py（`findKb`：先挑 projectPath 等於這個知識庫的，再挑 user 範圍，都沒有就拿最後一筆），這台沒有任何一筆登記給 willyB，挑到別題留下的 `willy-c56 0.37.0` 快取，用的是已發行的舊 kb，不是 worktree。這是確認環境沒照 process 第六節做本機市集 local 安裝造成的（開場說人眼在 Obsidian 不用裝），worktree 程式本身沒錯。但客戶那邊也可能遇到：plugin 用 local 範圍只裝在 willyA 時，首頁切到 willyB 會找不到「自己的」那筆，退到別的版本（例如另一個知識庫裝的舊版）去寫 willyB。請設計判斷 `findKb` 在上層 vault 多庫時要不要改挑法。已用 worktree 的 `kb agenda render` 把 willyB 日程頁重寫回 `../` 寫法，Obsidian 解析回到 willyB 自己的卡。 |
 
+### 丙 6（人眼）過（jacky）
+
+1. 上層外掛換成 0.36.0（`git show 5d0b8f23:obsidian/…`；0.37.0 原檔備在 `確認\備份-上層外掛-0.37.0\`），用 CLI 對確認vault 停用再啟用外掛讓 0.36.0 跑起來（0.36.0 不認得上層，報 `[wiki-with-willy] 沒辦法看 .system 的變動 … 確認vault\.system`，舊版的預期行為）。
+2. 在 willyA 跑 `kb upgrade --finish` → `已經是 0.37.0`，上層外掛沒換：`--finish` 照知識庫的 `.system/upgrade-history.json` 判斷，willyA 本來就記 0.37.0。真的升級時知識庫會記舊版，所以把 `current` 改成 `0.36.0`（改測試資料，不是程式）再跑 → `已升到 0.37.0：檔案很多時也不會慢下來：…`，上層 manifest 0.36.0 → 0.37.0（20:31:55）。
+3. jacky：首頁上方出現「首頁更新了，按這裡重新載入」。
+
+### 落差 #4 修後重跑乙 3（`514c89b3`，含 c7aea2bb findKb 修正）
+
+照 willy設計三 裁定的做法 A：
+- 快照市集 `#66-外掛上層vault\確認\快照市集\`（`git archive 514c89b3`，市集名 `willy-66`），在 `確認vault\willyA` 跑 `claude plugin marketplace add "<快照市集>" --scope local`、`claude plugin install wiki-with-willy@willy-66 --scope local`，都成功。`installed_plugins.json` 多一筆 local 0.37.0、`projectPath`＝`確認vault\willyA`；`~\.claude\settings.json` sha256 前後都是 a24f8eff…。willyB 沒裝。
+- `kb init "確認vault\willyA"`：上層外掛已跟 worktree 的 `obsidian/main.js` 相同（丙 6 升級時放的）；CLI 停用再啟用外掛，`dev:errors` 沒有錯誤。
+- jacky 在確認vault 首頁切到 willyB 加「12/16 重測」。第一次回「加好了」時檔案沒變，截圖看到「新增日程」視窗還開著、「要做什麼」空白沒送出，請他重加。
+
+結果：**過**。20:59:02 只有 `willyB\.system\agenda.json`、`willyB\系統\日程.md` 變（工作日誌「你在 Obsidian 按的／做了：加進日程：2026-12-16 12/16 重測」），willyA 沒動。日程頁整頁是 `../` 寫法（例：`[[../01 客戶/李美華/李美華|李美華]]`），Obsidian 解析 `{"willyB/01 客戶/李美華/李美華.md":1,"willyB/01 客戶/王大明/王大明.md":2}`，都在 willyB 裡。`dev:errors` 沒有錯誤。（頁上另有 jacky 試加的「你好ˇ」「不要不要」兩條，也都只在 willyB。）落差 #4 這輪看修好了。
+
+清掉：在 willyA 跑 `claude plugin uninstall wiki-with-willy@willy-66 --scope local`、`claude plugin marketplace remove willy-66 --scope local`，都成功；`willyA\.claude\settings.local.json` 剩 `{"enabledPlugins": {}, "extraKnownMarketplaces": {}}`；`installed_plugins.json`、`known_marketplaces.json` 沒有 willy-66；`~\.claude\settings.json` 仍 a24f8eff…。**還留著**：`~\.claude\plugins\cache\willy-66\wiki-with-willy\0.37.0\`（uninstall 留成孤兒，跟 B-093 3-4b 一樣，等 Claude Code 自己清）、`確認\快照市集\`。
+
 ### 第 2 輪花費
 
 0.45 美元（丙 1 0.28、丙 2 0.17）；累計 7.44 美元。沒有新落差。
