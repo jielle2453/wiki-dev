@@ -380,7 +380,13 @@ class Holes25(Base):
         """收尾 code review：別的方法括號照舊當看不出目標、引號裡提到 .SaveAs( 不算寫、Get-Item 的裸字路徑也算字面路徑。"""
         self.denies("PowerShell", "Remove-Item $p.Replace('b.txt','a.txt')", "delete", cwd=self.V / "我的夾")
         self.passes("PowerShell", "git grep '.SaveAs(' -- 我的夾/筆記.txt")
-        self.denies("PowerShell", f"(Get-Item {self.V.as_posix()}/我的夾/筆記.txt).Delete()", "delete")
+        v = self.V.as_posix()
+        self.denies("PowerShell", f"(Get-Item {v}/我的夾/筆記.txt).Delete()", "delete")
+        self.denies("PowerShell", f"(Get-Item -Path:{v}/我的夾/筆記.txt).Delete()", "delete")
+        self.denies("PowerShell", f"$x = (Get-Item '{v}/我的夾/筆記.txt').Delete()", "delete")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+        self.denies("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價.pdf', 17)", "content")
+        self.passes("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價（新）.pdf', 17)")
 
 
 if __name__ == "__main__":

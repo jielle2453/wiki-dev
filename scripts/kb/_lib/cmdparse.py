@@ -47,7 +47,8 @@ _INSTANCE_DELETE = (r"(?:\[\s*(?:system\.)?io\.(?:fileinfo|directoryinfo)\s*\]\s
 PS_INSTANCE_DELETE = re.compile(_INSTANCE_DELETE, re.IGNORECASE)
 # Office 帶路徑的另存（PowerShell 與 python 附著後）：第一個參數是寫入目標。實例刪除與另存不放進 WRITE_CODE（引號裡提到的
 # git grep '.SaveAs(' 不算寫）：PowerShell 在 stage_kind 看引號外，直譯器與殼看程式碼
-_OFFICE_SAVE = r"\.(?:saveas2?|savecopyas|exportasfixedformat)\s*\("
+OFFICE_SAVE_METHODS = r"(?:saveas2?|savecopyas|exportasfixedformat)"
+_OFFICE_SAVE = r"\." + OFFICE_SAVE_METHODS + r"\s*\("
 OFFICE_SAVE = re.compile(_OFFICE_SAVE, re.IGNORECASE)
 # 程式碼裡的寫入（python -c、heredoc 餵給直譯器、inline script）：引號內也算。
 # 密碼與守門（D-186 (c)）：直譯器的程式碼只看這個，不再看裡面的 > 與寫入動詞，所以這裡要收齊開檔寫、刪、搬、建、開子行程
@@ -508,7 +509,8 @@ def stage_kind(verb, text, code="", args=None, powershell=False):
     if verb in SHELL_WRAPPERS:
         scope = text + "\n" + code
         return "write" if (REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(scope)
-                           or WRAPPED_OPEN.search(scope) or OFFICE_SAVE.search(scope)) else "read"
+                           or WRAPPED_OPEN.search(scope) or OFFICE_SAVE.search(scope) or PS_INSTANCE_DELETE.search(scope)) \
+            else "read"
     if verb in INTERPRETERS:
         if verb in SCRIPT_BUILTIN_VERBS and (SCRIPT_BUILTIN_WRITE.search(text) or SCRIPT_BUILTIN_WRITE.search(code)):
             return "write"  # perl -e 'unlink q(…)'（F2-4）：perl、ruby、php 的內建刪改檔與跑指令
@@ -531,9 +533,9 @@ def encoded_command(words):
         return None
     rest = words[i + 1:]
     for k, w in enumerate(rest):
+        if w.lower().endswith(".ps1"):
+            return None  # pwsh ./x.ps1 -e prod、pwsh /c/x.ps1 -e prod：後面是腳本的參數
         if len(w) < 2 or w[0] not in "-/":
-            if w.lower().endswith(".ps1"):
-                return None  # pwsh ./x.ps1 -e prod：後面是腳本的參數
             continue
         name = w[1:].lower()
         if "command".startswith(name) or "file".startswith(name):
@@ -602,7 +604,7 @@ def file_calls(text):
         if action is None or args is None:
             continue
         if action == "open":
-            nums = any(a.strip() in allowed for a, allowed in zip(args[1:3], _OPEN_WRITE_NUM))
+            nums = any(a.strip().strip("'\"") in allowed for a, allowed in zip(args[1:3], _OPEN_WRITE_NUM))
             if not nums and not any(_OPEN_WRITE_MODE.search(a) for a in args[1:]):
                 continue
             action = "write"
@@ -617,14 +619,25 @@ def file_calls(text):
         except Unbalanced:
             continue
         if _DELETE_AFTER.match(text, end):
-            words = [w for w in raw_words(inner, True)[1:] if not w.startswith("-")][:1]
-            out.append(("delete", [_bare_literal(w) for w in words]))
+            out.append(("delete", _get_item_path(raw_words(inner, True)[1:])))
     return out
 
 
+def _get_item_path(words):
+    """Get-Item 的路徑參數：第一個位置參數，或 -Path:<p>、-LiteralPath:<p> 冒號後的值（-Path <p> 的值就是下一個位置參數）。"""
+    for w in words:
+        if w.startswith("-"):
+            name, colon, value = w.partition(":")
+            if colon and value and name.lower() in ("-path", "-literalpath", "-lp", "-pspath"):
+                return [_bare_literal(value)]
+            continue
+        return [_bare_literal(w)]
+    return []
+
+
 def _bare_literal(word):
-    """PowerShell 指令參數的裸字（Get-Item C:/x/a.txt）也是字面路徑：包成單引號；有引號、變數、括號、反引號的照原樣。"""
-    if word[:1] in "'\"" or any(c in word for c in "$`()@{}"):
+    """PowerShell 指令參數的裸字（Get-Item C:/x/a.txt）也是字面路徑：包成單引號；有引號、變數、陣列逗號、括號、反引號的照原樣。"""
+    if word[:1] in "'\"" or any(c in word for c in _BARE_UNCERTAIN[True] | set("`)}")):
         return word
     return "'" + word.replace("'", "''") + "'"
 
@@ -1362,7 +1375,8 @@ def is_write(command, powershell=False):
     wrapped = bare is None or WRAPPER.search(bare)
     scope = cleaned if wrapped else bare
     return bool(REDIRECT.search(scope) or WRITE_WORDS.search(scope) or WRITE_CODE.search(cleaned)
-                or (wrapped and WRAPPED_OPEN.search(scope)))
+                or (wrapped and (WRAPPED_OPEN.search(scope) or OFFICE_SAVE.search(scope)))
+                or (powershell and (PS_INSTANCE_DELETE.search(scope) or OFFICE_SAVE.search(scope))))  # 守門補洞 #25
 
 
 def _interpreter_ok(token):

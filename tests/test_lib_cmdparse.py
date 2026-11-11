@@ -570,7 +570,8 @@ class Holes25(unittest.TestCase):
                       ["node", "-e", b64], ["perl", "-e", b64]):
             with self.subTest(words=words):
                 self.assertIsNone(cmdparse.encoded_command(words))
-        for words in (["pwsh", "./x.ps1", "-e", "prod"], ["powershell", "-co", "Get-Date", "-e", "x"],
+        for words in (["pwsh", "./x.ps1", "-e", "prod"], ["pwsh", "/c/proj/run.ps1", "-e", "prod"],
+                      ["powershell", "-co", "Get-Date", "-e", "x"],
                       ["powershell", "-fi", "a.ps1", "-enc", "x"]):  # code review：-Command／-File 縮寫與腳本之後是參數
             with self.subTest(words=words):
                 self.assertIsNone(cmdparse.encoded_command(words))
@@ -610,6 +611,12 @@ class Holes25(unittest.TestCase):
         self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 3, 1)"), [])
         self.assertEqual(calls("(Get-Item C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])  # 裸字也是字面路徑
         self.assertEqual(calls("(gi -LiteralPath $p).Delete()"), [("delete", ["$p"])])
+        self.assertEqual(calls("(Get-Item -Path:C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("(Get-Item C:/x/a,C:/x/b).Delete()"), [("delete", ["C:/x/a,C:/x/b"])])  # 陣列不當一個路徑
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', '5')")[0][0], "write")
+        self.assertTrue(cmdparse.is_write("(Get-Item a.txt).Delete()", True))
+        self.assertTrue(cmdparse.is_write("$d.SaveAs2('a.docx')", True))
+        self.assertEqual(cmdparse.stage_kind("pwsh", "pwsh -c \"(Get-Item 'C:/x').Delete()\"", powershell=False), "write")
         self.assertEqual(calls("[IO.File]::Copy('C:/x/a', 'C:/x/b', $true)"), [("copy", ["'C:/x/a'", "'C:/x/b'", "$true"])])
         self.assertEqual(calls("[System.IO.File]::Move('C:/x/a', 'C:/x/b')"), [("move", ["'C:/x/a'", "'C:/x/b'"])])
         for text in ("[regex]::Replace($s, 'a', 'b')", "[Array]::Copy($a, $b, 3)", "[string]::Copy('x')", "$f.Delete()",

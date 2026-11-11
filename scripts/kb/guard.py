@@ -441,8 +441,7 @@ def _content_value(before):
 
 # PowerShell 的 .方法(、::方法(（括號緊接在方法名後面）是方法參數：只認 .NET 檔案型別的靜態呼叫與 Office 帶路徑的另存，
 # 別的方法（Remove-Item $p.Replace('a','b')）照舊當看不出目標（code review：全部放掉會讓變數方法算出來的目標變成放行）
-_METHOD_CALL = re.compile(r"(?:" + cmdparse._NET_TYPE + r"\s*::\s*\w+|\.(?:saveas2?|savecopyas|exportasfixedformat))$",
-                          re.IGNORECASE)
+_METHOD_CALL = re.compile(r"(?:" + cmdparse._NET_TYPE + r"\s*::\s*\w+|\." + cmdparse.OFFICE_SAVE_METHODS + r")$", re.IGNORECASE)
 
 
 def _substituted_args(text, runs, powershell):
@@ -1507,14 +1506,18 @@ def _check_plan(plan, ctx):
         z = _user_zone_of(p, ctx.vault_n, ctx.sources)
         if z and os.path.isfile(p):
             return ctx.content(p, z)
+    # .NET 檔案呼叫與 Office 另存（守門補洞 #25）：點名的字面路徑先判，這段別處看不出目標（$x = …、.Open('a').SaveAs2('b')）也一樣；
+    # 沒擋的看不出目標照 U5，看得出的不再走下面的「其餘的寫」（WriteAllText 的內容、Copy 沒覆蓋旗標的來源不是要改的檔）
+    calls = saves = ()
+    if ctx.powershell and plan["kind"] == "write":
+        calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
+        got = _file_call_check(calls, saves, base, ctx) if calls or saves else None
+        if got is not None:
+            return got
     if plan.get("unknown"):
         return _U5(_u5_words(plan, ctx))
-    if plan["kind"] != "write":
+    if plan["kind"] != "write" or calls or saves:
         return None
-    if ctx.powershell:
-        calls, saves = cmdparse.file_calls(plan["text"]), cmdparse.office_save_targets(plan["text"])
-        if calls or saves:
-            return _file_call_check(calls, saves, base, ctx)
     targets = _target_paths(plan, ctx)
     find_del = verb == "find" and re.search(r"(?:^|\s)(?:-delete\b|-(?:exec|execdir|ok|okdir)\s+(?:rm|unlink|shred)\b)", plan["text"])
     if verb in _DELETE_VERBS or verb in ("git rm", "git clean") or find_del:
