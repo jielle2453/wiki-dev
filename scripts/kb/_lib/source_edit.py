@@ -277,6 +277,10 @@ def _zone(vault, sources, path):
     if zone == "Z10b":  # 底下有不讀的子夾：本身是登記的就照登記的看（搬整個夾時 spec 跟著改寫）
         status, _src = sources.lookup(normalize(str(path), None))
         zone = "Z9" if status == "registered" else "Z11"
+    if zone == "Z11" and guard.above_willy(normalize(str(path), None), normalize(str(vault), None)):
+        # 知識庫或上層 vault 那份外掛夾的上層夾：整夾丟掉、改名，裡面 willy 的檔跟著走（#66 丙裁定 10）。
+        # 不用 _ancestor_zone 的回傳判：那個夾同時是某個來源根的上層時它先回 Z9。只是來源根的上層（不含知識庫）不算。
+        zone = "Z7"
     return zone
 
 

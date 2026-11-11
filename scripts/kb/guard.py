@@ -1105,15 +1105,19 @@ def _pattern_head(pattern):
     return head.rsplit("/", 1)[0] if "/" in head else head
 
 
+def above_willy(path, vault_n):
+    """path 是知識庫的上層，或上層 vault 那份外掛夾的上層（<上>/.obsidian、<上>/.obsidian/plugins 與更上面）：整夾刪掉、改名、搬走，
+    裡面 willy 的檔跟著走。path、vault_n 都已 normalize。_ancestor_zone 與 kb source-edit（#66 丙裁定 10）共用。"""
+    return inside(vault_n, path) or any(inside(outer, path) for outer in outer_plugin_dirs(vault_n))
+
+
 def _ancestor_zone(path, vault_n, sources):
     """path 是不是某個來源根或總資料夾的上層（rm -rf 整個上層）。是就回它會動到的區。排除夾的上層由 classify 的 Z10b 處理。
     上層 vault 那份外掛夾的上層（<上>/.obsidian、<上>/.obsidian/plugins）也算：整夾換掉或刪掉，main.js 就沒了（#66 丙裁定 1）。"""
     for src in sources.entries:
         if inside(src["root"], path):
             return "Z9", src["alias"]
-    if inside(vault_n, path):
-        return "Z7", None
-    if any(inside(outer, path) for outer in outer_plugin_dirs(vault_n)):
+    if above_willy(path, vault_n):
         return "Z7", None
     return None, None
 

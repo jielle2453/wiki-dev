@@ -245,5 +245,36 @@ class OuterPlugin(unittest.TestCase):
             self.assertNotIn("willy 自己的檔", r.stdout, args)
 
 
+    def test_17d_source_edit_cannot_take_the_folders_above_the_vault(self):
+        """裁定 10：kb source-edit 的目標是知識庫（或上層外掛夾）的上層夾時拒絕——整夾丟掉或改名，知識庫與上層外掛都跟著走。
+        有上層 vault、沒有上層 vault 都一樣。全部用 --check，另外不帶 --check 的改名也要被擋、夾還在。"""
+        import os
+        import subprocess
+        import sys
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT), PYTHONIOENCODING="utf-8")
+
+        def run(cwd, *args):
+            return subprocess.run([sys.executable, f"{ROOT}/scripts/kb.py", "source-edit", *args], capture_output=True, text=True,
+                                  encoding="utf-8", cwd=str(cwd), env=env)
+        with_outer = self.tmp / "外" / "上層" / "willy"
+        shutil.copytree(self.V, with_outer)
+        (with_outer.parent / ".obsidian" / "plugins" / "wiki-with-willy").mkdir(parents=True)
+        without = self.tmp / "無" / "夾" / "kb"
+        shutil.copytree(self.V, without)
+        (without.parent / "她的.md").write_text("x", encoding="utf-8")
+        for kb_dir in (with_outer, without):
+            for args in (("trash", "..", "--check"), ("rename", "..", "x", "--check"), ("trash", "../..", "--check"),
+                         ("move", "..", "--to", "../../..", "--check"), ("rename", "..", "x")):
+                r = run(kb_dir, *args)
+                self.assertEqual(r.returncode, 3, f"{kb_dir.parent.name} {args}\n{r.stdout}{r.stderr}")
+                self.assertIn("是 willy 自己的檔", r.stdout, args)
+            self.assertTrue(kb_dir.is_dir(), kb_dir)
+        # 上層夾裡她自己的檔照舊
+        for args in (("trash", "../她的.md", "--check"), ("rename", "../她的.md", "改名.md", "--check")):
+            r = run(without, *args)
+            self.assertNotIn("willy 自己的檔", r.stdout, args)
+            self.assertEqual(r.returncode, 0, f"{args}\n{r.stdout}{r.stderr}")
+
+
 if __name__ == "__main__":
     unittest.main()
