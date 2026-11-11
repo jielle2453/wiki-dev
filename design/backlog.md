@@ -16,7 +16,7 @@
 |---|---|---|
 | 清冊與來源 | 登記來源、不讀、清冊、搬、改名、刪、purge（manage） | 25 |
 | 整理成卡 | 檔案卡、綜合卡、實體、card-maker（ingest） | 37 |
-| 設定與知識 | 客戶設定檔、型別、偏好、口述、裁示、別名、糾正（note） | 20 |
+| 設定與知識 | 客戶設定檔、型別、偏好、口述、裁示、別名、糾正（note） | 21 |
 | 日程 | 日程、事類狀態、從卡抽日期、逾期 | 15 |
 | 記帳 | 帳、庫存、數字欄 | 2 |
 | 回答 | 查資料、數字、出處、推算（answer） | 7 |
@@ -129,6 +129,7 @@
 - B-508（要做、低）她改了型別夾名、還沒 apply 時，開場同時印「變動：實體夾有變 1」…
 - B-509（要做、低）AI 兩次主動問要不要查她自訂名字的型別夾（師傅）為什麼沒有編號；not…
 - B-529（延後、－）常駐問題：客戶設定檔寫了要一直追蹤的問題才做，答案整理成一頁、首頁顯示…
+- B-540（要做、低）kb statement list --money 沒掛實體的那筆括號多一個逗號
 
 **日程**
 
@@ -462,7 +463,7 @@
 | B-637 | 2026-10-30 | 要做 | 低 | 升級與發行 | 升級前已有來源別名叫 `_extras`（0.28.0 起別名不能叫這個）：升級不處理，機率低 | spec 裁定 6 (8) |
 | B-639 | 2026-10-30 | 要做 | 低 | 守門與密碼 | 製卡助手 Grep／Glob 起點在知識庫根或上層就擋（裁定 8）的判斷寫在 `hooks/guard.py` 的 `scope`，code-review 兩次建議收進 `kb.guard.decide`、跟它算的讀取起點共用 | spec 裁定 7、8、11 |
 | B-645 | 2026-10-30 | 要做 | 低 | 流程與文件 | 測試順序污染：`test_scripts_upgrade_cli` 排在前面時 `test_lib_turn` 兩個鎖測試（`test_held_lock_*`）紅，鎖等待變 30 秒；單獨跑綠，main 也有 | 彈性區-測試.md（spec 裁定 10） |
-| B-646 | 2026-10-31 | 要做 | 高 | 守門與密碼 | 守門：直譯器與編碼指令。`powershell -EncodedCommand／-enc` 不解碼就放行；python win32com 附著後 `Documents.Open`、`SaveAs2` 進 AI 產出、`open(…,"r+b").truncate(0)` 不被 `WRITE_CODE` 收；PowerShell 別名 `clc`、`epcsv`、`iwr -OutFile`、`([type]"System.IO.File")::Delete` 寫知識庫與原檔都放行（全名會擋）；順手收窄 FullName 比對豁免的左邊（測試 #10）。main 本來就有，issue #25 | 開檔與Office一起改（spec 裁定 12、32～34） |
+| B-646 | 2026-10-31 | 要做 | 高 | 守門與密碼 | 守門：直譯器與編碼指令。`powershell -EncodedCommand／-enc` 不解碼就放行；python win32com 附著後 `Documents.Open`、`SaveAs2` 進 AI 產出、`open(…,"r+b").truncate(0)` 不被 `WRITE_CODE` 收；PowerShell 別名 `clc`、`epcsv`、`iwr -OutFile`、`([type]"System.IO.File")::Delete` 寫知識庫與原檔都放行（全名會擋）；順手收窄 FullName 比對豁免的左邊（測試 #10）。main 本來就有，issue #25。2026-11-11 jie 接手：D-348、spec `2026-11-11-守門補洞`（第 4 項放寬甲已拿掉、`truncate(0)` 已修） | 開檔與Office一起改（spec 裁定 12、32～34） |
 | B-647 | 2026-10-31 | 要做 | 低 | 守門與密碼 | 包在殼字串裡的 `start`（`bash -c "start …bat"`、`cmd //c "start …"`）、`rundll32 url.dll,FileProtocolHandler <檔>`、Bash 跳脫空白 `start a\ b.docx <bat>`、大括號展開、`cmd /v:on` 的 `!X!` 開到執行檔會放行，跟 B-423 同一族；main 本來就放行 | 開檔與Office一起改（spec 裁定 8、11） |
 | B-648 | 2026-10-31 | 要做 | 低 | 流程與文件 | main 本來就紅：`test_skill_answer` Round3::test_33、`test_skill_manage` RepoClaudeMd（原始碼地圖拆到 ops/ 後沒跟上） | 開檔與Office一起改（spec 裁定 8） |
 | B-649 | 2026-10-31 | 要做 | 中 | 做文件 | `kb office render` 被中斷時 `.system/temp/office/<回合>/` 留同名唯讀檔，附著用檔名找會抓錯份；render 用 `New-Object -ComObject Word.Application` 做完 `Quit()`，客戶 Word 開著時會不會連她的一起關沒驗。issue #26 | 開檔與Office一起改（spec 裁定 19） |
@@ -518,6 +519,7 @@
 | B-537 | 2026-11-11 | 要做 | 低 | 守門與密碼 | 卡片索引確認 #3：AI 在 kb 指令前加 `PYTHONUTF8=1`，守門把 `--session` 插到 `python` 與 `kb.py` 中間，判成「可能是密碼相關的動作」、要她按允許；AI 拿掉前綴重跑就過。桌面版預設權限下她會在整理途中看到看不懂的詢問。前綴的環境變數要先剝掉再判斷 | #57 確認 |
 | B-538 | 2026-11-11 | 要做 | 低 | 整理成卡 | 卡片索引確認 #4：她只指定一兩份要整理時，`kb cards todo --json` 還是印全部（約 40 份、41 KB），AI 自己寫程式篩、繞好幾次，還試了不存在的 `--brief`；B-537 的亂碼也是這樣來的。要不要給 `cards todo` 加 `--ids`／照檔名篩，或 ingest 寫明少量時直接用 `cards batch` | #57 確認 |
 | B-539 | 2026-11-11 | 要做 | 中 | 流程與文件 | main 0.38.0 起 `tests/test_lib_restore.py::Apply::test_restored_state_equals_backup_time_except_preserved` 紅：還原後的差異多了 `AGENTS.md`（0.38.0 #56 新加的骨架檔）。設計 2026-11-11 在 main 4fab3b9a 重跑確認。跟 B-534 一樣是發行沒跑到的測試；要查還原該不該把 AGENTS.md 算進「保留」，以及發行的相關測試為什麼沒挑到 | #65 乙段實作回報 |
+| B-540 | 2026-11-11 | 要做 | 低 | 設定與知識 | `kb statement list --money` 沒掛實體的那筆，括號印成「（，11/11 說的）」，多一個逗號（main 本來就有） | #65 測試 #7 |
 | B-614 | 2026-10-26 | 要做 | 中 | 整理成卡 | 卡上 `YYYY-MM-DD（X）` 的星期是 AI 心算、程式不驗；演練庫舊卡把 2026-10-15、10-29 寫成「三」（實為週四）。D-503 讓「日期帶星期」每次照做，錯的會長留卡上。建議 kb 驗卡檢查星期 | 製卡帶偏好-測試 中 1 |
 | B-615 | 2026-10-26 | 要做 | 低 | 整理成卡 | 綜合卡新加的紀事行與開頭句裡的人名沒有照偏好用連結（S-14 只定日期格式） | 製卡帶偏好-確認 |
 | B-616 | 2026-10-26 | 要做 | 低 | 整理成卡 | card-maker 回報「沒照做的偏好」照抄偏好原句，偏好帶人名時會帶出人名（同字典外那行） | 製卡帶偏好 實作 spec 外 2 |
