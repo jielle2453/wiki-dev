@@ -127,5 +127,54 @@ class OuterPlugin(unittest.TestCase):
         self.assertEqual(self.decide("Write", self.main).zone, "Z11", "沒有上層 vault：照舊")
 
 
+    def test_17b_folders_above_the_plugin_folder(self):
+        """裁定 1：指令寫的目標是 <上>/.obsidian、<上>/.obsidian/plugins 這兩個夾本身也擋（整夾換掉或刪掉 main.js 就沒了）。"""
+        obs, plugins = (self.tmp / ".obsidian").as_posix(), (self.tmp / ".obsidian" / "plugins").as_posix()
+        inner = self.decide("Bash", f'rm -r "{self.plug.as_posix()}"')
+        for cmd in (f'cp -r /tmp/evil/wiki-with-willy "{plugins}/"', f'rm -rf "{plugins}"', f'mv "{obs}" "{self.tmp.as_posix()}/x"',
+                    f'cp x.json "{obs}/"', "rm -rf ../.obsidian/plugins"):
+            d = self.decide("Bash", cmd)
+            self.assertEqual((d.decision, d.zone, d.reason_code), ("deny", "Z7", inner.reason_code), cmd)
+        for cmd in (f'Copy-Item -Recurse C:/evil/wiki-with-willy -Destination "{plugins}"', f'Remove-Item -Recurse "{obs}"'):
+            d = self.decide("PowerShell", cmd)
+            self.assertEqual((d.decision, d.zone), ("deny", "Z7"), cmd)
+        # 寫明確檔名的照舊放行
+        for cmd in (f'cp x.json "{obs}/app.json"', f'echo x > "{plugins}/obsidian-git/data.json"', f'rm "{obs}/workspace.json"',
+                    f'rm -r "{plugins}/obsidian-git"'):
+            self.assertNotEqual(self.decide("Bash", cmd).decision, "deny", cmd)
+
+    def test_junction_in_the_vault_path(self):
+        """裁定 2：知識庫路徑經過 junction／symlink 時，kb 用 realpath 放外掛；守門用 normalize 與 realpath 各找一次，任一個符合就認。"""
+        import os
+        import subprocess
+        real_up = self.tmp / "real" / "我的筆記"
+        (real_up / ".obsidian" / "plugins" / "wiki-with-willy").mkdir(parents=True)
+        shutil.copytree(self.V, real_up / "willy")
+        link = self.tmp / "side" / "link"
+        link.parent.mkdir()
+        try:
+            if os.name == "nt":
+                r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(real_up / "willy")], capture_output=True)
+                if r.returncode != 0:
+                    raise OSError(r.stderr.decode(errors="replace"))
+            else:
+                os.symlink(real_up / "willy", link, target_is_directory=True)
+        except OSError as e:
+            self.skipTest(f"這台建不了 junction／symlink：{e}")
+        target = real_up / ".obsidian" / "plugins" / "wiki-with-willy" / "main.js"
+        try:
+            d = guard.decide(payload("Write", target, link))
+            self.assertEqual((d.zone, d.decision), ("Z7", "deny"))
+            d = guard.decide(payload("Bash", f'rm -rf "{(real_up / ".obsidian" / "plugins").as_posix()}"', link))
+            self.assertEqual((d.zone, d.decision), ("Z7", "deny"))
+            d = guard.decide(payload("Write", real_up / ".obsidian" / "app.json", link))
+            self.assertEqual((d.zone, d.decision), ("Z11", "pass"))
+        finally:
+            if os.name == "nt":
+                os.rmdir(link)  # 只拿掉 junction，不動它指到的夾
+            else:
+                os.unlink(link)
+
+
 if __name__ == "__main__":
     unittest.main()

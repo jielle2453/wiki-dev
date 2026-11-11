@@ -86,9 +86,9 @@
 這一步沒有前提，她不用 Obsidian 也能建完（D-259）：問一句、她說不用就直接 `kb build done obsidian`。沒登記資料夾的建置也走這一步。
 
 - 先問她平常會不會用 Obsidian 看這些資料（首頁會把手上的事、待辦、要她確認的放在一起，也能用一個框找檔）；不用就跳過。
-- 跑 `kb obsidian status --json`，三項講白話：`installed` 這台電腦有沒有裝 Obsidian、`registered` 這個知識庫 Obsidian 登記了沒、`plugin` 首頁外掛放了沒（`kb init` 會放，沒放好 `open` 會補）。`outer` 不是 `null`（知識庫在她原本的 Obsidian 資料夾裡）時跟她說「你原本的 Obsidian 資料夾裡就看得到，不用另外開一個」，其餘照舊。
+- 跑 `kb obsidian status --json`，四項講白話：`installed` 這台電腦有沒有裝 Obsidian、`registered` 這個知識庫 Obsidian 登記了沒、`plugin` 首頁外掛放了沒（`kb init` 會放，沒放好 `open` 會補）、`outer` 知識庫是不是在她原本的 Obsidian 資料夾裡（不是 `null` 就是）。`outer` 不是 `null` 時跟她說「你原本的 Obsidian 資料夾裡就看得到，不用另外開一個」。
 - 沒裝：請她到 obsidian.md 下載安裝，裝好再說一次；不替她裝。
-- 裝了：先說一聲「Obsidian 第一次打開會問要不要信任這個資料夾的外掛，請按『信任』」，她說好才跑 `kb obsidian open`；它會替她把知識庫加進 Obsidian 並打開，她不用自己挑資料夾（選到上一層資料夾外掛和設定都讀不到）。
+- 裝了：先說一聲「Obsidian 第一次打開會問要不要信任這個資料夾的外掛，請按『信任』」，她說好才跑 `kb obsidian open`。`outer` 是 `null`：它會替她把知識庫加進 Obsidian 並打開，她不用自己挑資料夾（選到上一層資料夾外掛和設定都讀不到）。`outer` 不是 `null`：跟她說「會打開你原本的 Obsidian 資料夾，按左邊的首頁按鈕就看得到」。
 - 被擋「先關掉 Obsidian 再說一次」：Obsidian 開著的時候加不進去，請她關掉再說一次；其他被擋照印的那句講。
 - 打開後請她看一眼：首頁出現了、左邊檔案樹看得到她的資料夾；做完或她說不用，跑 `kb build done obsidian`。
 

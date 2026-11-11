@@ -847,9 +847,7 @@ OUTER_DEPTH = 2  # 上層 vault 往上找幾層（同 kb._lib.obsidian.OUTER_DEP
 OUTER_PLUGIN_REL = ".obsidian/plugins/wiki-with-willy"
 
 
-def outer_plugin_dir(vault):
-    """上層 vault 那份外掛夾（#66 丙，D-545）：vault 已 normalize；從知識庫根往上最多兩層、最近一個有 .obsidian/ 資料夾的夾底下的
-    .obsidian/plugins/wiki-with-willy（照 normalize 在 Windows 的小寫）。沒有上層回 None。每次現找（只多兩次 isdir），不寫狀態檔。"""
+def _outer_plugin_of(vault):
     cur = vault.rstrip("/")
     for _ in range(OUTER_DEPTH):
         if "/" not in cur:
@@ -858,6 +856,22 @@ def outer_plugin_dir(vault):
         if os.path.isdir(cur + "/.obsidian"):
             return normalize(cur + "/" + OUTER_PLUGIN_REL, None)
     return None
+
+
+def outer_plugin_dirs(vault):
+    """上層 vault 那份外掛夾（#66 丙，D-545）：vault 已 normalize；從知識庫根往上最多兩層、最近一個有 .obsidian/ 資料夾的夾底下的
+    .obsidian/plugins/wiki-with-willy（照 normalize 在 Windows 的小寫）。知識庫路徑照字面找一次、realpath 後再找一次（kb 放外掛用的是
+    realpath；路徑中間有 junction／symlink 時兩邊不同，裁定 2），回找到的（0～2 個，不重複）。每次現找（只多幾次 isdir），不寫狀態檔。"""
+    out = []
+    try:
+        real = normalize(os.path.realpath(vault), None)
+    except (OSError, ValueError):
+        real = vault
+    for v in dict.fromkeys((vault, real)):
+        got = _outer_plugin_of(v)
+        if got is not None and got not in out:
+            out.append(got)
+    return out
 
 
 def classify(path, vault, sources):
@@ -882,8 +896,7 @@ def classify(path, vault, sources):
         if len(parts) == 3 and parts[2] == parts[1] + ".md":
             return "Z1", None
         return "Z2", None
-    outer = outer_plugin_dir(vault)
-    if outer is not None and inside(path, outer):
+    if any(inside(path, outer) for outer in outer_plugin_dirs(vault)):
         return "Z7", None
     status, src = sources.lookup(path)
     if status == "excluded":
@@ -1075,11 +1088,14 @@ def _pattern_head(pattern):
 
 
 def _ancestor_zone(path, vault_n, sources):
-    """path 是不是某個來源根或總資料夾的上層（rm -rf 整個上層）。是就回它會動到的區。排除夾的上層由 classify 的 Z10b 處理。"""
+    """path 是不是某個來源根或總資料夾的上層（rm -rf 整個上層）。是就回它會動到的區。排除夾的上層由 classify 的 Z10b 處理。
+    上層 vault 那份外掛夾的上層（<上>/.obsidian、<上>/.obsidian/plugins）也算：整夾換掉或刪掉，main.js 就沒了（#66 丙裁定 1）。"""
     for src in sources.entries:
         if inside(src["root"], path):
             return "Z9", src["alias"]
     if inside(vault_n, path):
+        return "Z7", None
+    if any(inside(outer, path) for outer in outer_plugin_dirs(vault_n)):
         return "Z7", None
     return None, None
 
