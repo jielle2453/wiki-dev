@@ -8,7 +8,7 @@
 import argparse
 import json
 
-from kb._lib import agenda, cards, entities, rulings
+from kb._lib import agenda, card_index, cards, entities, rulings
 from kb._lib import lookup as lookup_lib
 from kb.inventory_cli import NOT_IN_VAULT, find_vault
 
@@ -169,6 +169,11 @@ def run(args):
     if vault is None:
         print(NOT_IN_VAULT)
         return 3
+    with card_index.once(vault):  # 只讀：卡只走一遍（#57）
+        return _run(vault, args)
+
+
+def _run(vault, args):
     if getattr(args, "id", None):
         try:
             return _by_id(vault, args)
