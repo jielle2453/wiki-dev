@@ -152,6 +152,6 @@
 
 沒確認到的：#9 的根因；`/hooks` 抬頭那行；`kb upgrade` 的下載（更新網址清空，同第 1 輪）。
 
-花費：這一輪沒用 `claude -p`，API 總額維持約 5.12 美元。Codex 用 jacky 的 ChatGPT：8 次 `exec`，共約 782 萬 input tokens（其中約 763 萬是快取）、1.1 萬 output tokens，九成在「現在做」那次（708 萬 input，含子代理）。
+花費：這一輪沒用 `claude -p`，API 總額維持約 5.12 美元。Codex 用 jacky 的 ChatGPT：8 次 `exec`，共約 782 萬 input tokens（其中約 758 萬是快取）、1.1 萬 output tokens，九成在「現在做」那次（708 萬 input，含子代理）。
 
 收尾：`codex-home-s2b`、`codex-home-s4b` 的 `auth.json` 測完刪掉。`dev`、`out`、`fake-pub(.git)`、`s2b`、`s4b` 和舊的 home 都留著，要清再說。
