@@ -187,6 +187,15 @@ class OuterPlugin(unittest.TestCase):
         self.assertEqual(self.decide("Write", self.main).zone, "Z7")
         shutil.rmtree(self.tmp / ".obsidian")
         self.assertEqual(self.decide("Write", self.main).zone, "Z11", "上層不見了，下一次判斷就不認")
+        # 不經 decide 直接叫 classify 的（kb 自己的程式）永遠現找，不吃上一次判斷留下的
+        from kb._lib.paths import normalize
+        from kb._lib import sources as sources_lib
+        vault_n, main_n = normalize(str(self.V), None), normalize(str(self.main), None)
+        src = sources_lib.load(self.V)
+        self.assertEqual(guard.classify(main_n, vault_n, src)[0], "Z11")
+        self.plug.mkdir(parents=True)
+        self.assertEqual(guard.classify(main_n, vault_n, src)[0], "Z7")
+        self.assertIsNone(guard._OUTER_SEEN, "判斷結束就關掉")
 
 
 if __name__ == "__main__":

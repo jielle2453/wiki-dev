@@ -858,7 +858,7 @@ def _outer_plugin_of(vault):
     return None
 
 
-_OUTER_SEEN = {}  # 同一次判斷（decide）裡找過的上層：{vault: [外掛夾]}；decide 一開始清掉，只在記憶體、不寫檔（第 11 條）
+_OUTER_SEEN = None  # decide 進行中是 {vault: [外掛夾]}（同一次判斷找過的重用，第 11 條）；平常是 None：直接叫 classify 的永遠現找
 
 
 def outer_plugin_dirs(vault):
@@ -866,7 +866,7 @@ def outer_plugin_dirs(vault):
     .obsidian/plugins/wiki-with-willy（照 normalize 在 Windows 的小寫）。知識庫路徑照字面找一次、realpath 後再找一次（kb 放外掛用的是
     realpath；路徑中間有 junction／symlink 時兩邊不同，裁定 2），回找到的（0～2 個，不重複）。每次判斷現找一次（一次 realpath、
     最多四次 isdir），同一次判斷裡重用，不寫狀態檔。"""
-    if vault in _OUTER_SEEN:
+    if _OUTER_SEEN is not None and vault in _OUTER_SEEN:
         return _OUTER_SEEN[vault]
     out = []
     try:
@@ -877,7 +877,8 @@ def outer_plugin_dirs(vault):
         got = _outer_plugin_of(v)
         if got is not None and got not in out:
             out.append(got)
-    _OUTER_SEEN[vault] = out
+    if _OUTER_SEEN is not None:
+        _OUTER_SEEN[vault] = out
     return out
 
 
@@ -2086,7 +2087,15 @@ def secret_in(command, tool, vault, cwd, root):
 
 def decide(payload):
     """照 tool_name 分流。回 Decision(decision, zone, reason_code, reason, ledger_rows, vault)。"""
-    _OUTER_SEEN.clear()  # 上層 vault 每次判斷重新找
+    global _OUTER_SEEN
+    _OUTER_SEEN = {}  # 上層 vault 每次判斷重新找、這一次裡重用；結束就關掉
+    try:
+        return _decide(payload)
+    finally:
+        _OUTER_SEEN = None
+
+
+def _decide(payload):
     tool = payload.get("tool_name", "") or ""
     ti = payload.get("tool_input") or {}
     cwd = payload.get("cwd") or os.getcwd()
