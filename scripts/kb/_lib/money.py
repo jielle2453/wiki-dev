@@ -1799,7 +1799,9 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
     today = today or _today()
     prof = _profile(vault) if prof is None else prof
     ents = _ents(vault) if ents is None else ents
+    given = link is not None  # 呼叫端帶進來的 link 整份照用；沒帶的，年頁（深一層）另建（#66 甲裁定 1，D-541）
     link = agenda.linker(vault, ents, mark_removed=True) if link is None else link
+    top_link = link
     live = _live(data)
     by_id = {i.get("id"): i for i in data["items"]}
     ucache = unit_cache(data)
@@ -1820,6 +1822,7 @@ def render_pages(vault, data, today=None, link=None, prof=None, ents=None):
     n = config.get(vault, "money_rank_n")
     for y in years:
         rel = year_rel(y)
+        link = top_link if given else agenda.linker(vault, ents, mark_removed=True, page=rel)
         frm, to = f"{y}-01-01", f"{y}-12-31"
         done = sorted((i for i in live if i.get("status") == "done" and _in_range(i.get("date"), frm, to)),
                       key=lambda i: (i.get("date") or "", i.get("id", "")))

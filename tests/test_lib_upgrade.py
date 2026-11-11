@@ -1153,9 +1153,33 @@ class FinishRelinks(FinishSetup):
         self.assert_new(*self.texts())
         self.assertEqual(renders.saved(self.V), [])  # 沒有一頁被當成她手改
         self.assertEqual(self.errors(), [])
+        # 裁定 2：已經是新寫法，再升一版（不同版本才會真的跑到重寫那段）三頁都不動、回合裡沒有總目錄的備份
+        from kb._lib import cards
         stamps = [p.stat().st_mtime_ns for p in self.pages]
-        self.assertTrue(self.finish()["already"])
+        self.PLUGIN = "0.21.1"
+        self.turn = turn.start(self.V, None, "再升級")["turn"]
+        with mock.patch.object(cards, "render_index", wraps=cards.render_index) as index:
+            again = self.finish()
+        self.assertEqual((again["already"], again["from"], again["to"]), (False, "0.21.0", "0.21.1"))
+        index.assert_not_called()
         self.assertEqual([p.stat().st_mtime_ns for p in self.pages], stamps)
+        self.assertNotIn(cards.INDEX_POSIX, [r["path"] for r in turn.entries(self.V, self.turn)])
+        self.assertEqual(self.errors(), [])
+
+    def test_index_is_rewritten_only_when_needed(self):
+        """裁定 2：總目錄不在、壞了、有不是 ./ 開頭的連結才重寫。"""
+        from kb._lib import cards
+        index = self.V / cards.INDEX_POSIX
+        self.assertTrue(upgrade._index_stale(self.V))  # setUp 留的是舊寫法
+        cards.render_index(self.V)
+        self.assertFalse(upgrade._index_stale(self.V))
+        good = index.read_text(encoding="utf-8")
+        index.write_text(good.replace("](./", "](", 1), encoding="utf-8", newline="\n")
+        self.assertTrue(upgrade._index_stale(self.V))
+        index.write_text("她把整頁換掉了\n", encoding="utf-8", newline="\n")
+        self.assertTrue(upgrade._index_stale(self.V))
+        index.unlink()
+        self.assertTrue(upgrade._index_stale(self.V))
 
     def test_one_render_failing_is_logged_and_does_not_stop_the_upgrade(self):
         from kb._lib import agenda, cards, synthesis

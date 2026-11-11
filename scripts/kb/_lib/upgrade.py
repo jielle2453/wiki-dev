@@ -813,12 +813,24 @@ def _run_init(vault):
         init.run(argparse.Namespace(path=str(vault), check=False, json=False))
 
 
+_INDEX_TARGET = re.compile(r"\]\(([^)]*)")
+
+
+def _index_stale(vault):
+    """總目錄.md 要不要重寫（#66 甲裁定 2）：不在、壞了，或有連結目標不是 ./ 開頭（舊寫法）。"""
+    from kb._lib import cards
+    if cards.index_broken(vault):
+        return True
+    text = (Path(vault) / cards.INDEX_POSIX).read_text(encoding="utf-8")
+    return any(not m.startswith("./") for m in _INDEX_TARGET.findall(text))
+
+
 def _relink(vault, turn_id):
-    """程式頁重產一次（D-541）：日程頁、總目錄、綜合卡「相關檔」的連結換成這一版的寫法。三支都是內容沒變不寫、寫前備進回合；
-    哪一支出錯記 hook-errors.log 後繼續，不擋升級。"""
+    """程式頁重產一次（D-541）：日程頁、總目錄、綜合卡「相關檔」的連結換成這一版的寫法。日程與綜合卡內容沒變不寫；
+    總目錄每次叫都會重寫，所以只在需要時叫（_index_stale）。寫前都備進回合。哪一支出錯記 hook-errors.log 後繼續，不擋升級。"""
     from kb._lib import agenda, cards, ledger, synthesis
     for what, run in (("日程.md", lambda: agenda.render(vault, turn_id)),
-                      ("總目錄.md", lambda: cards.render_index(vault, turn_id)),
+                      ("總目錄.md", lambda: _index_stale(vault) and cards.render_index(vault, turn_id)),
                       ("綜合卡的相關檔", lambda: synthesis.render_cache(vault, None, turn_id))):
         try:
             run()

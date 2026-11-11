@@ -303,7 +303,7 @@ class Pages(PageBase):
         self.put("收", "3000", date="2026-10-30", entities=["李小姐"])
         top = self.page()
         self.assertTrue(top.startswith("# 帳\n（程式產生"))
-        self.assertIn("## 還沒收付的\n- 11/20（五）收 50,000 [[案子/信義王/信義王|信義王]] 第二期　已過 3 天\n", top)
+        self.assertIn("## 還沒收付的\n- 11/20（五）收 50,000 [[../案子/信義王/信義王|信義王]] 第二期　已過 3 天\n", top)
         for title in ("## 庫存", "## 每季（淨）", "## 每年"):
             self.assertIn(title, top)
         self.assertIn("- [[系統/帳/2026|2026]]　收 3,000｜付 0｜淨 3,000", top)
@@ -350,8 +350,14 @@ class Pages(PageBase):
         """表格裡的連結寫 [[路徑\\|名字]]，連結裡的 | 不被當欄分隔（記帳 3 確認 #4）；表格外的連結照舊。"""
         self.put("收", "3000", date="2026-10-30", entities=["信義王"])
         year = self.page(money.year_rel("2026"))
-        self.assertIn("| [[案子/信義王/信義王\\|信義王]] | 3,000 | 0 |", year)
-        self.assertIn("> - 10/30（五）收 3,000 [[案子/信義王/信義王|信義王]]", year)
+        self.assertIn("| [[../../案子/信義王/信義王\\|信義王]] | 3,000 | 0 |", year)
+        self.assertIn("> - 10/30（五）收 3,000 [[../../案子/信義王/信義王|信義王]]", year)
+        # #66 甲裁定 1（D-541）：年頁在 系統/帳/ 底下、比總覽深一層，連結從年頁所在的夾算起
+        self.assertNotIn("[[../案子/", year)
+        self.assertNotIn("[[案子/", year)
+        given = money.render_pages(self.V, money.load(self.V), link=lambda name: f"<{name}>")  # 帶進來的 link 整份照用
+        self.assertIn("<信義王>", given[money.year_rel("2026")][0])
+        self.assertNotIn("案子/信義王/信義王", given[money.year_rel("2026")][0])
         self.assertEqual(agenda.table_cell("[[a/b|b]]、[[c\\|c]]、[[d]]、x|y"), "[[a/b\\|b]]、[[c\\|c]]、[[d]]、x|y")
 
     def test_04_stock_table(self):
@@ -501,10 +507,10 @@ class AgendaReadsMoney(PageBase):
 
     def test_07_links_follow_card_location(self):
         agenda.add(self.V, "會議", "2026-11-25", "見面", ["信義王"], self.t)
-        self.assertIn("見面（[[案子/信義王/信義王|信義王]]）", self.md())
+        self.assertIn("見面（[[../案子/信義王/信義王|信義王]]）", self.md())
         (Path(self.V) / "案子" / "信義王").rename(Path(self.V) / "業主" / "信義王")  # 卡搬到別的夾（D-308 之後可以搬）
         agenda.render(self.V, self.t)
-        self.assertIn("見面（[[業主/信義王/信義王|信義王]]）", self.md(), "卡搬過夾，連結跟著對")
+        self.assertIn("見面（[[../業主/信義王/信義王|信義王]]）", self.md(), "卡搬過夾，連結跟著對")
         self.assertIsNone(agenda.apply_hand(self.V, self.t), "沒動的不算改")
         p = Path(self.V) / agenda.MD_POSIX
         p.write_text(self.md().replace("2026-11-25（週三）會議", "2026-11-26（週三）會議"), encoding="utf-8", newline="\n")
@@ -517,13 +523,13 @@ class AgendaReadsMoney(PageBase):
         self.put("收", "1800", due="2026-11-27", entities=["李小姐"])
         self.put("收", "999", date="2026-11-01")
         md = self.md()
-        self.assertIn("## 逾期\n- 2026-11-20（週五）收 50,000 [[案子/信義王/信義王|信義王]] 第二期\n", md)
+        self.assertIn("## 逾期\n- 2026-11-20（週五）收 50,000 [[../案子/信義王/信義王|信義王]] 第二期\n", md)
         self.assertIn("## 今天\n- 2026-11-23（週一）付 3,200 文具\n", md)
         self.assertIn("- 2026-11-27（週五）收 1,800 李小姐", md)
         self.assertNotIn("999", md)
         self.assertEqual(agenda.counts(self.V, agenda.load(self.V)), {"overdue": 1, "today": 1, "upcoming": 1})
         p = Path(self.V) / agenda.MD_POSIX
-        p.write_text(md.replace("- 2026-11-20（週五）收 50,000 [[案子/信義王/信義王|信義王]] 第二期\n", ""),
+        p.write_text(md.replace("- 2026-11-20（週五）收 50,000 [[../案子/信義王/信義王|信義王]] 第二期\n", ""),
                      encoding="utf-8", newline="\n")
         report = agenda.apply_hand(self.V, self.t)
         self.assertEqual(money.get(self.V, late)["status"], "cancelled", report)
