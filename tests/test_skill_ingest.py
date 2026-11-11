@@ -159,8 +159,8 @@ class CardMakerSkeleton(unittest.TestCase):
         self.steps = self.body[self.body.index("## 骨架"):self.body.index("## 共通")]
 
     def test_dispatch_flow_in_order(self):
-        marks = ["cards todo --json", "cards dispatch --json", "Agent 工具", "subagent_type", "approval", "cards status",
-                 "cards stop --json", "TaskStop", "`asks` 有就問一件", "note_cmd", "turn note"]
+        marks = ["cards todo --json", "cards dispatch --json", "派一個子代理", "沒有派子代理的工具", "approval", "cards status",
+                 "cards stop --json", "你派的子代理都中斷", "`asks` 有就問一件", "note_cmd", "turn note"]
         pos = [self.steps.index(m) for m in marks]
         self.assertEqual(pos, sorted(pos), marks)
 
@@ -239,20 +239,15 @@ class SimpleCardForAiNotes(unittest.TestCase):
 
 
 class MoneyConfirm(unittest.TestCase):
-    """記帳確認報告 #3、#5：子代理都讀的 card-maker 說字有 $ 用單引號；ingest 的 money.md 範例用單引號、沒寫日期不給 --date --due。"""
+    """記帳確認報告 #3：子代理都讀的 card-maker 說字有 $ 用單引號。#65：ingest 的 money.md 與 fields.md 拿掉，批次不再讀。"""
 
     def test_3_single_quotes(self):
         agent = (ROOT / "agents" / "card-maker.md").read_text(encoding="utf-8")
         self.assertIn("單引號", agent)
         self.assertIn("`$`", agent)
-        money = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
-        self.assertIn("--text '<讀到什麼、哪裡看不出>'", money)
-        self.assertNotIn('--text "', money)
 
-    def test_5_no_date_is_open(self):
-        money = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
-        self.assertIn("沒寫日期", money)
-        self.assertIn("不要記成今天", money)
+    def test_money_md_gone(self):
+        self.assertFalse((SKILL_DIR / "references" / "money.md").exists())
 
 
 if __name__ == "__main__":

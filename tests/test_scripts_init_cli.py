@@ -14,9 +14,9 @@ from tests._guard_fixture import KB, ROOT, make_vault
 
 SKELETON = ROOT / "skeleton"
 EXPECTED_DIRS = ["暫存區", "檔案索引", "系統/工作日誌", "系統/健檢報告", ".claude", ".system"]
-EXPECTED_FILES = ["CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", ".system/sources.json", ".system/profile.json",
-                  "系統/客戶設定檔.md", "系統/日程.md", "系統/帳.md"]
-SKELETON_TRACKED = {"CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", "暫存區/.gitkeep", "檔案索引/.gitkeep",
+EXPECTED_FILES = ["AGENTS.md", "CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", ".system/sources.json", ".system/profile.json",
+                  "系統/客戶設定檔.md", "系統/日程.md"]
+SKELETON_TRACKED = {"AGENTS.md", "CLAUDE.md", ".claude/settings.json", ".gitignore", ".gitattributes", "暫存區/.gitkeep", "檔案索引/.gitkeep",
                     "系統/工作日誌/.gitkeep", "系統/健檢報告/.gitkeep"}
 
 
@@ -209,8 +209,8 @@ class InitProfile(unittest.TestCase):
         today = date.today().isoformat()
         want_md = (ROOT / "tests" / "fixtures" / "profile" / "客戶設定檔.md").read_text(encoding="utf-8")
         text = self.md().read_text(encoding="utf-8")
-        self.assertTrue(text.startswith(want_md.replace("2026-10-19", today)))  # fixture 是記帳 1b 之前的八節
-        self.assertEqual(text, profile.render_text(profile.defaults(today)))  # 新庫多九、十節（記帳 1b）
+        self.assertTrue(text.startswith(want_md.replace("2026-10-19", today)))  # fixture 是就是八節
+        self.assertEqual(text, profile.render_text(profile.defaults(today)))  # #65 起新庫只有八節
         data = self.json()
         want = profile.defaults(today)
         want["md_sha256"] = profile.md_sha256(self.V)
@@ -413,8 +413,8 @@ class InitProfile(unittest.TestCase):
         text = self.md().read_text(encoding="utf-8")
         self.assertIn("| 偏好 | 用在哪 | 來源 | 日期 |", text)
         cut = lambda t: t[:t.index("\n## 六、")] + t[t.index("\n## 七、"):]  # noqa: E731
-        self.assertEqual(cut(text).split("\n## 九、")[0], cut(old_md))  # 重畫多了九、十節（記帳 1b，等遷移補第十節）
-        self.assertIn("\n## 十、記帳\n", text)
+        self.assertEqual(cut(text), cut(old_md))  # #65 起只有八節，重畫跟舊 md 除了第六節一樣
+        self.assertNotIn("\n## 十、", text)
         self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
         self.assertEqual(self.init().strip(), f"{self.V} 已是知識庫，沒有缺的", "升過就不再印")
 
@@ -525,12 +525,10 @@ class AgendaMd(unittest.TestCase):
                          agenda.HEADER + "\n日程是空的；說「9/25 下午有個會」我就記下來。\n")
         self.assertFalse((self.V / ".system" / "agenda.json").exists())
 
-    def test_money_md_blank_page(self):
-        """記帳 3：帳.md 也是程式產生的頁，init 建一份空白的總覽，不建 money.json、不建年頁。"""
+    def test_no_money_md_page(self):
+        """#65 拿掉記帳：init 不再建 帳.md，也不建 money.json、年頁。"""
         self.init()
-        text = (self.V / "系統" / "帳.md").read_text(encoding="utf-8")
-        self.assertTrue(text.startswith("# 帳\n（程式產生"))
-        self.assertIn("## 還沒收付的\n（沒有）", text)
+        self.assertFalse((self.V / "系統" / "帳.md").exists())
         self.assertFalse((self.V / ".system" / "money.json").exists())
         self.assertFalse((self.V / "系統" / "帳").exists())
 
@@ -586,7 +584,8 @@ class UpgradeRecords(unittest.TestCase):
         manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(data["schema_version"], 1)
         self.assertEqual(data["version"], manifest["version"])
-        self.assertEqual(data["files"], {"CLAUDE.md": self.sha(SKELETON / "CLAUDE.md"),
+        self.assertEqual(data["files"], {"AGENTS.md": self.sha(SKELETON / "AGENTS.md"),
+                                         "CLAUDE.md": self.sha(SKELETON / "CLAUDE.md"),
                                          ".claude/settings.json": self.sha(SKELETON / ".claude" / "settings.json"),
                                          ".gitignore": self.sha(SKELETON / ".gitignore"),
                                          ".gitattributes": self.sha(SKELETON / ".gitattributes")})

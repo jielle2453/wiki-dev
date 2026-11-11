@@ -19,7 +19,7 @@ from kb._lib.io import FileLock, read_json, read_text, write_json_atomic, write_
 SKELETON_JSON = ".system/skeleton.json"
 SCHEMA_VERSION = 1
 GITKEEP = ".gitkeep"
-HIDDEN_ITEMS = ("CLAUDE.md", ".claude", ".system")  # 同 init.HIDDEN_ITEMS：換掉檔之後要把隱藏屬性設回去
+HIDDEN_ITEMS = ("CLAUDE.md", "AGENTS.md", ".claude", ".system")  # 同 init.HIDDEN_ITEMS：換掉檔之後要把隱藏屬性設回去
 NOT_SKELETON = "這不是骨架檔：{}"
 
 

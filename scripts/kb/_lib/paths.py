@@ -43,10 +43,17 @@ def rel_link(page, target):
     return ("../" * up if up else "./") + "/".join(there[same:])
 
 
+_PLUGIN_ROOT = None  # __file__ 一個行程內不會變，算一次就記住（#57：3 萬張卡每張 config.get 都叫它）
+
+
 def plugin_root():
+    global _PLUGIN_ROOT
+    if _PLUGIN_ROOT is not None:
+        return _PLUGIN_ROOT
     here = Path(__file__).resolve()
     for d in here.parents:
         if (d / MANIFEST_REL).is_file():
+            _PLUGIN_ROOT = d
             return d
     raise FileNotFoundError(f"從 {here} 往上找不到 {MANIFEST_REL}")
 

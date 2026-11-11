@@ -4,6 +4,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +113,43 @@ class Get(unittest.TestCase):
         (self.vault / ".system" / "config.json").write_text(json.dumps({"mystery": 1}), encoding="utf-8")
         with self.assertRaises(KeyError):
             config.get(self.vault, "mystery")
+
+
+class Remembered(unittest.TestCase):
+    """#57 實作疑義 1：讀設定記住（3 萬張卡的 cards.wip 每張都 config.get）。"""
+
+    def test_plugin_root_computed_once_per_process(self):
+        from kb._lib import paths
+        paths.plugin_root.cache_clear() if hasattr(paths.plugin_root, "cache_clear") else None
+        first = paths.plugin_root()
+        with unittest.mock.patch.object(Path, "resolve", side_effect=AssertionError("不該再算")):
+            self.assertEqual(paths.plugin_root(), first)
+
+    def test_defaults_read_once_until_file_changes(self):
+        from unittest import mock
+        tmp = Path(tempfile.mkdtemp(prefix="kbcfg-root-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "config").mkdir()
+        f = tmp / "config" / "defaults.json"
+        f.write_text('{"prompt_head_max": 1, "xs": [1]}', encoding="utf-8")
+        with mock.patch.object(config, "plugin_root", return_value=tmp):
+            self.assertEqual(config.defaults()["prompt_head_max"], 1)
+            with mock.patch.object(config, "read_json", side_effect=AssertionError("不該再讀")):
+                self.assertEqual(config.defaults()["prompt_head_max"], 1)
+            f.write_text('{"prompt_head_max": 22, "xs": [1]}', encoding="utf-8")  # 大小變了
+            self.assertEqual(config.defaults()["prompt_head_max"], 22)
+
+    def test_get_list_value_is_a_copy(self):
+        from unittest import mock
+        tmp = Path(tempfile.mkdtemp(prefix="kbcfg-root-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "config").mkdir()
+        (tmp / "config" / "defaults.json").write_text('{"xs": [1]}', encoding="utf-8")
+        vault = tmp / "v"
+        (vault / ".system").mkdir(parents=True)
+        with mock.patch.object(config, "plugin_root", return_value=tmp):
+            config.get(vault, "xs").append(2)
+            self.assertEqual(config.get(vault, "xs"), [1])
 
 
 if __name__ == "__main__":

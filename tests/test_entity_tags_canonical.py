@@ -19,9 +19,8 @@ from kb.lint import state  # noqa: E402
 from kb.lint.checks import tag_edits  # noqa: E402
 
 LI, LI_REL = "e-aaaa0001", "案子/內湖李/內湖李.md"
-OPENING_ONE = ("客戶在 Obsidian 卡的屬性欄改了 1 張綜合卡的標籤或數字（信義王）：跑 kb entity tag --from-card 記進去"
-               "（數字一起記，同 kb entity field --from-card），跟她說「你在卡的屬性欄改了標籤或數字：…（記了什麼）」；"
-               "不在字典的詞直接加進字典，不是數字的問她要記成多少。")  # 記帳 1b 第 6 點
+OPENING_ONE = ("客戶在 Obsidian 卡的屬性欄改了 1 張綜合卡的標籤（信義王）：跑 kb entity tag --from-card 記進去，"
+               "跟她說「你在卡的屬性欄改了標籤：…（記了什麼）」；不在字典的詞直接加進字典。")  # #65 拿掉數字欄
 SID = "test-sid"
 
 
@@ -276,7 +275,7 @@ class HandEdit(Base):
             os.utime(p, (time.time() + 30, time.time() + 30))
         self.edit("階段: 施工", "階段: 完工")
         (line,) = [x for x in self.opening() if x.startswith("客戶在 Obsidian 卡的屬性欄改了")]
-        self.assertTrue(line.startswith("客戶在 Obsidian 卡的屬性欄改了 5 張綜合卡的標籤或數字（"), line)
+        self.assertTrue(line.startswith("客戶在 Obsidian 卡的屬性欄改了 5 張綜合卡的標籤（"), line)
         self.assertEqual(line.split("（")[1].split("）")[0].count("、"), 2)
         self.assertIn("…）", line)
 

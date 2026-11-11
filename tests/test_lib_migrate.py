@@ -330,6 +330,79 @@ class SynthesisLayout(unittest.TestCase):
         self.assertNotIn(self.DAAN, [s["rel"] for s in got["skipped"]])
 
 
+class MoneyGone(Base):
+    """#65 拿掉記帳（驗收 3、4）：設定檔拿掉第九、十節與平常在哪，開著的帳待處理關掉，舊帳的檔原樣留著。"""
+    DAY = "2026-10-19"
+    OLD_TAIL = ("\n## 九、數字欄\n舊的提示\n\n| 型別 | 欄名 | 單位 | 來源 | 日期 |\n|---|---|---|---|---|\n| 產品 | 售價 | 元 | 確認 | 2026-10-19 |\n"
+                "\n## 十、記帳\n舊的提示\n\n| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| {mode} | 分店 | 確認 | 2026-10-19 |\n")
+
+    def put_old(self, mode="開", mode_key="on"):
+        from kb._lib import pending
+        data = profile.defaults(self.DAY)
+        data["about"] = [{"name": "小王", "kind": "person", "aliases": [], "place": "北店", "source": "said", "date": self.DAY}]
+        old_md = profile.render_text(data) + self.OLD_TAIL.format(mode=mode)
+        data["fields"] = [{"type": "產品", "field": "售價", "unit": "元", "source": "confirmed", "date": self.DAY}]
+        data["money"] = [{"mode": mode_key, "places": ["分店"], "source": "confirmed", "date": self.DAY}]
+        data["md_sha256"] = profile.sha256_text(old_md)
+        (self.V / "系統" / "客戶設定檔.md").write_text(old_md, encoding="utf-8", newline="\n")
+        (self.V / ".system" / "profile.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.kept = {".system/money.json": '{"schema_version": 1, "items": []}', "系統/帳.md": "# 帳\n舊的"}
+        for rel, text in self.kept.items():
+            (self.V / rel).write_text(text, encoding="utf-8")
+        pending.add(self.V, "money_dupe", ["f-1a2b3c4d"], "可能同一筆", None, self.turn)
+        pending.add(self.V, "money_unsure", ["f-1a2b3c4e"], "看不出", None, self.turn)
+        pending.add(self.V, "unreadable", ["f-1a2b3c4f"], "讀不到", "x", self.turn)
+
+    def states(self):
+        from kb._lib import pending
+        return {i["kind"]: (i["status"], i["how"]) for i in pending.load(self.V)["items"]}
+
+    def test_old_vault_is_listed_then_cleaned_and_idempotent(self):
+        self.put_old()
+        self.assertIn(".system/profile.json", [p["rel"] for p in migrate.pending(self.V)])
+        got = migrate.apply(self.V, self.turn)
+        self.assertEqual(got["skipped"], [])
+        data = read(self.V, ".system/profile.json")
+        self.assertNotIn("fields", data)
+        self.assertNotIn("money", data)
+        self.assertTrue(all("place" not in a for a in data["about"]))
+        md = (self.V / "系統" / "客戶設定檔.md").read_text(encoding="utf-8")
+        self.assertNotIn("## 九、", md)
+        self.assertNotIn("## 十、", md)
+        self.assertEqual(data["md_sha256"], profile.md_sha256(self.V))
+        for rel, text in self.kept.items():
+            self.assertEqual((self.V / rel).read_text(encoding="utf-8"), text, f"{rel} 不碰")
+        self.assertEqual(migrate.pending(self.V), [])
+        again = migrate.apply(self.V, self.turn)
+        self.assertEqual((again["migrated"], again["notes"]), ([], []))
+
+    def test_money_pending_closed_with_how_and_other_kinds_untouched(self):
+        self.put_old()
+        migrate.apply(self.V, self.turn)
+        st = self.states()
+        self.assertEqual(st["money_dupe"], ("closed", "記帳改成另外的客製功能"))
+        self.assertEqual(st["money_unsure"], ("closed", "記帳改成另外的客製功能"))
+        self.assertEqual(st["unreadable"][0], "open")
+
+    def test_note_only_when_money_was_on_or_spoken(self):
+        for mode, key, said in (("開", "on", True), ("只記我講的", "spoken", True), ("關", "off", False)):
+            with self.subTest(mode=mode):
+                self.tearDown()
+                self.setUp()
+                self.put_old(mode, key)
+                notes = migrate.apply(self.V, self.turn)["notes"]
+                self.assertEqual(notes, ["記帳改成另外的客製功能，你之前記的帳還在 系統/帳.md，不會再更新"] if said else [])
+
+    def test_only_open_money_pending_left_is_still_due(self):
+        """設定檔已經乾淨、只剩開著的帳待處理（例如別台舊版又寫了一件）：照樣關掉。"""
+        from kb._lib import pending
+        (self.V / ".system" / "profile.json").write_text(json.dumps(profile.defaults(self.DAY)), encoding="utf-8")
+        pending.add(self.V, "money_unsure", ["f-1a2b3c4e"], "看不出", None, self.turn)
+        self.assertEqual([p["rel"] for p in migrate.pending(self.V)], [".system/profile.json"])
+        migrate.apply(self.V, self.turn)
+        self.assertEqual(self.states()["money_unsure"][0], "closed")
+
+
 class OldExtras(Base):
     """#51（D-532）：_extras 改名那列拿掉，_extras 當一般夾。"""
 

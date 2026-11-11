@@ -57,9 +57,9 @@ class Body(unittest.TestCase):
         self.assertLessEqual(len(self.body.splitlines()), BODY_MAX_LINES)
         self.assertLessEqual(len(self.body), BODY_TARGET_CHARS)
 
-    def test_fields_reachable(self):
-        """記帳 2 測試報告中 #2：本文走得到數字欄與平常在哪那份。"""
-        self.assertIn("references/fields.md", self.body)
+    def test_no_fields_route(self):
+        """#65：數字欄拿掉，本文不再指向 fields.md。"""
+        self.assertNotIn("references/fields.md", self.body)
 
     def test_calls_kb_through_plugin_root(self):
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/kb.py", self.body)
@@ -258,7 +258,7 @@ class RecordAnswer(unittest.TestCase):
 
     def test_description_unchanged(self):
         desc = split(self.text)[0]
-        self.assertIn("description: 客戶口述要記的日程、帳與事：「9/25 下午有個會」「答應王先生 10/10 前給報價」「交屋改 12/10」"
+        self.assertIn("description: 客戶口述要記的日程與事：「9/25 下午有個會」「答應王先生 10/10 前給報價」「交屋改 12/10」"
                       "「提醒我寄發票」「收到尾款12萬」「信義王結案了」，偏好、糾正舊資料、決定、「把這個記下來」、加型別或改型別名、"
                       "開場有「日程：逾期」時都用這個；問現況、寫成一份筆記、整理檔案、加資料夾不用。", desc)
 
@@ -288,9 +288,9 @@ class Evals(unittest.TestCase):
                 self.assertTrue(any(want in q for q in negatives), want)
 
 
-class MoneyUnits(unittest.TestCase):
-    """references/money.md 的單位（D-344 補、再補，記帳2 測試第 4 輪 #17、#19、#20）：照講的記、不會被擋；成功句或庫存有
-    「（不知道一箱幾瓶）」問一次大的裝幾個小的、設 每<大的>=整數，不設小數，她不知道就算了；盤點換不了會退回、照樣問。"""
+class MoneySpoken(unittest.TestCase):
+    """references/money.md（#65 拿掉記帳）：錢一律記成口述加記號、問加總叫 kb statement sum；偏好說交給別的工具就照偏好；
+    不再提帳本、開關、數字欄。"""
 
     def setUp(self):
         self.text = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
@@ -298,45 +298,18 @@ class MoneyUnits(unittest.TestCase):
     def test_short(self):
         self.assertLessEqual(len(self.text.splitlines()), REFERENCE_MAX_LINES)
 
-    def test_17_asks_how_many_small_in_big(self):
-        for want in ("一箱幾瓶", "每<大的>=<整數>", "欄的單位是小的", "不要猜"):
-            with self.subTest(want=want):
-                self.assertIn(want, self.text)
-        self.assertNotIn("一瓶幾箱", self.text)
-
-    def test_19_unknown_pack_asked_once(self):
-        for want in ("成功句或庫存出現「（不知道一箱幾瓶）」", "她不知道就算了", "不再追問"):
+    def test_spoken_way_and_sum(self):
+        for want in ("statement add", "--money 收", "kb statement sum"):
             with self.subTest(want=want):
                 self.assertIn(want, self.text)
 
-    def test_20_not_blocked_count_refused(self):
-        for want in ("不會被擋", "盤點", "會退回"):
-            with self.subTest(want=want):
-                self.assertIn(want, self.text)
-        for gone in ("換不成同一個單位", "再照原句記"):
+    def test_preference_wins(self):
+        self.assertIn("設定檔的偏好說錢的事交給別的工具", self.text.splitlines()[2])
+
+    def test_no_ledger_left(self):
+        for gone in ("kb money", "money_mode", "fields.md", "記帳這版還沒開放", "帳關著"):
             with self.subTest(gone=gone):
                 self.assertNotIn(gone, self.text)
-
-
-class MoneyConfirm(unittest.TestCase):
-    """記帳確認報告 #1、#2、#6：欠多少走 money list --open（不帶區間）；「我墊了」用 --advanced-by 我、程式填這台的人，
-    不問不猜；她的話回答了待處理照 do 做、--resolves 由程式關。"""
-
-    def setUp(self):
-        self.text = (SKILL_DIR / "references" / "money.md").read_text(encoding="utf-8")
-
-    def test_1_owed_uses_open_list(self):
-        self.assertIn("kb money list --open --json", self.text)
-        self.assertIn("不帶 `--from --to`", self.text)
-
-    def test_2_me_filled_by_program(self):
-        self.assertIn("--advanced-by 我", self.text)
-        self.assertIn("程式填這台的人", self.text)
-        self.assertNotIn("<說話的人>", self.text)
-
-    def test_6_resolves(self):
-        self.assertIn("--resolves", self.text)
-        self.assertIn("`do`", self.text)
 
 
 if __name__ == "__main__":

@@ -542,6 +542,164 @@ class DestructiveCodeOpenMode(unittest.TestCase):
                      "open(p, mode='w')", "fopen('x.txt', 'w')"):
             self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
 
+    def test_holes25_open_modes(self):
+        """守門補洞 #25 要做的事 5：r+b、rb+ 與 os.open 寫入旗標。"""
+        for code in ("open(p, mode='r+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode=\"rb+\")",
+                     "os.open(p, os.O_WRONLY | os.O_TRUNC)", "os.open(p, os.O_RDWR)", "os.open(p, O_TRUNC)"):
+            self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+        for code in ("open(p, mode='rb')", "Path(p).open('rb')", "os.open(p, os.O_RDONLY)"):
+            self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code), code)
+
+
+class Holes25(unittest.TestCase):
+    """守門補洞 #25（D-348）：-EncodedCommand、PowerShell 別名、.NET 檔案靜態呼叫、Office 帶路徑的另存。"""
+
+    @staticmethod
+    def enc(text):
+        import base64
+        return base64.b64encode(text.encode("utf-16-le")).decode()
+
+    def test_encoded_command(self):
+        b64 = self.enc("Remove-Item x.md")
+        for words in (["powershell", "-EncodedCommand", b64], ["powershell", "-enc", b64], ["powershell", "-e", b64],
+                      ["pwsh", "-ec", b64], ["powershell.exe", "-NoProfile", "/enc", b64], ["pwsh", "-En", b64],
+                      ["powershell", "-ENCODEDCOMMAND", b64]):
+            with self.subTest(words=words):
+                self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
+        for words in (["powershell", "-Command", "Remove-Item x"], ["powershell", "-ExecutionPolicy", "Bypass", "-File", "a.ps1"],
+                      ["node", "-e", b64], ["perl", "-e", b64]):
+            with self.subTest(words=words):
+                self.assertIsNone(cmdparse.encoded_command(words))
+        for words in (["pwsh", "./x.ps1", "-e", "prod"], ["pwsh", "/c/proj/run.ps1", "-e", "prod"],
+                      ["powershell", "-co", "Get-Date", "-e", "x"],
+                      ["powershell", "-fi", "a.ps1", "-enc", "x"]):  # code review：-Command／-File 縮寫與腳本之後是參數
+            with self.subTest(words=words):
+                self.assertIsNone(cmdparse.encoded_command(words))
+        for words in (["powershell", "-enc", "這不是base64###"], ["powershell", "-enc"], ["pwsh", "-e", "abc"]):
+            with self.subTest(words=words), self.assertRaises(cmdparse.Unbalanced):
+                cmdparse.encoded_command(words)
+
+    def test_ruling5_encoded_forms(self):
+        """實作疑義裁定 5：-EncodedCommand:<b64> 冒號寫法、pwsh --encodedcommand。"""
+        b64 = self.enc("Remove-Item x.md")
+        for words in (["powershell", "-EncodedCommand:" + b64], ["pwsh", "--encodedcommand", b64], ["pwsh", "-ec:" + b64],
+                      ["pwsh", "--EncodedCommand:" + b64]):
+            with self.subTest(words=words):
+                self.assertEqual(cmdparse.encoded_command(words), "Remove-Item x.md")
+        self.assertIsNone(cmdparse.encoded_command(["pwsh", "--command", "x", "-e", b64]))
+        self.assertEqual(cmdparse.encoded_command(["powershell", "-e:", b64]), "Remove-Item x.md")  # 冒號後沒值：取下一個字
+        # -c:x、-File:x 冒號寫法不當停止點：後面的 -e 照解（解不開擋 unparsed，AI 改寫成一般指令就做得完；不讓編碼指令躲在後面）
+        self.assertEqual(cmdparse.encoded_command(["pwsh", "-c:x", "-e", b64]), "Remove-Item x.md")
+        self.assertEqual(cmdparse.encoded_command(["pwsh", "-File:run", "-e", b64]), "Remove-Item x.md")
+        with self.assertRaises(cmdparse.Unbalanced):
+            cmdparse.encoded_command(["powershell", "-EncodedCommand:這不是###"])
+
+    def test_ruling3_open_mode_whole_string(self):
+        """實作疑義裁定 3：開檔模式要整個字串是模式（結尾是引號）。"""
+        for code in ("Path('raw/a.txt').open()", "open('bar.txt')", "w.Documents.Open('a.docx')", "w.Documents.Open('raw/x.docx')",
+                     "Path(p).open('rb')", "open(p, mode='rb')"):
+            with self.subTest(code=code):
+                self.assertIsNone(cmdparse.DESTRUCTIVE_CODE.search(code))
+        for code in ("Path(p).open('w')", "Path(p).open('w+b')", "Path(p).open('r+b')", "Path(p).open('rb+')", "open(p, mode='wt')",
+                     "open(p, mode=\"a\")", "tf.open('a.tar', mode='w:gz')", "tf.open('a.tar', mode='w|gz')",
+                     "Pathname.new('a.txt').open('w:UTF-8')", "Pathname('a').open('wb:ASCII-8BIT')", "tf.open(p, mode='w:')",
+                     "Pathname('a').open('w:BINARY')", "Pathname('a').open('wb:binary')", "Pathname('a').open('w:sjis')"):
+            with self.subTest(code=code):
+                self.assertIsNotNone(cmdparse.DESTRUCTIVE_CODE.search(code))
+
+    def test_alias_write_words(self):
+        for text in ("clc a.txt", "epcsv a.csv", "sp a.txt -Name IsReadOnly -Value $true",
+                     "iwr https://x.tw/a -OutFile a.docx", "irm https://x.tw/a -OutFile:a.json",
+                     "Invoke-WebRequest https://x.tw -OutFile a", "Invoke-RestMethod -Uri https://x.tw -OutF a",
+                     "curl https://x.tw/a -OutFile a", "wget https://x.tw/a -OutFile a"):
+            with self.subTest(text=text):
+                self.assertTrue(cmdparse.WRITE_WORDS.search(text))
+        for text in ("iwr https://x.tw/a", "Invoke-RestMethod https://x.tw/api", "irm https://x.tw/a | ConvertTo-Json"):
+            with self.subTest(text=text):
+                self.assertIsNone(cmdparse.WRITE_WORDS.search(text))
+        self.assertIn("epcsv", cmdparse.CONTENT_SINKS)
+
+    def test_file_calls(self):
+        calls = cmdparse.file_calls
+        self.assertEqual(calls("[System.IO.File]::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("([type]'System.IO.File')::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("([type]\"System.IO.File\")::Delete('C:/x/a.docx')"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("[IO.Directory]::Delete('C:/x', $true)"), [("delete", ["'C:/x'", "$true"])])
+        self.assertEqual(calls("[IO.FileInfo]::new('C:/x/a.docx').Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("(Get-Item 'C:/x/a.docx').Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        for method in ("WriteAllText", "WriteAllBytes", "WriteAllLines", "AppendAllText", "AppendAllLines", "Create"):
+            with self.subTest(method=method):
+                self.assertEqual(calls(f"[IO.File]::{method}('C:/x/a.txt', 'y')")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Replace('C:/x/a', 'C:/x/b', $null)"), [("replace", ["'C:/x/a'", "'C:/x/b'", "$null"])])
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Truncate')")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', [IO.FileMode]::Append)")[0][0], "write")
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 'Open', 'Read')"), [])
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 5)")[0][0], "write")  # 數字的 FileMode Truncate
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 3, 2)")[0][0], "write")  # FileAccess Write
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', 3, 1)"), [])
+        self.assertEqual(calls("(Get-Item C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])  # 裸字也是字面路徑
+        self.assertEqual(calls("(gi -LiteralPath $p).Delete()"), [("delete", ["$p"])])
+        self.assertEqual(calls("(Get-Item -Path:C:/x/a.docx).Delete()"), [("delete", ["'C:/x/a.docx'"])])
+        self.assertEqual(calls("(Get-Item C:/x/a,C:/x/b).Delete()"), [("delete", ["C:/x/a,C:/x/b"])])  # 陣列不當一個路徑
+        self.assertEqual(calls("[IO.File]::Open('C:/x/a.txt', '5')")[0][0], "write")
+        for method in ("CreateText", "OpenWrite", "AppendText"):  # 實作疑義裁定 5
+            with self.subTest(method=method):
+                self.assertEqual(calls(f"[IO.File]::{method}('C:/x/a.txt').Close()"), [("write", ["'C:/x/a.txt'"])])
+                self.assertEqual(cmdparse.stage_kind("[io.file]::x", f"[IO.File]::{method}('C:/x/a.txt')", powershell=True),
+                                 "write")
+        self.assertTrue(cmdparse.is_write("(Get-Item a.txt).Delete()", True))
+        self.assertTrue(cmdparse.is_write("$d.SaveAs2('a.docx')", True))
+        self.assertEqual(cmdparse.stage_kind("pwsh", "pwsh -c \"(Get-Item 'C:/x').Delete()\"", powershell=False), "write")
+        self.assertEqual(calls("[IO.File]::Copy('C:/x/a', 'C:/x/b', $true)"), [("copy", ["'C:/x/a'", "'C:/x/b'", "$true"])])
+        self.assertEqual(calls("[System.IO.File]::Move('C:/x/a', 'C:/x/b')"), [("move", ["'C:/x/a'", "'C:/x/b'"])])
+        for text in ("[regex]::Replace($s, 'a', 'b')", "[Array]::Copy($a, $b, 3)", "[string]::Copy('x')", "$f.Delete()",
+                     "$d.Range(0, 5).Delete()", "[IO.File]::ReadAllText('C:/x/a.txt')", "[IO.Path]::Combine('a', 'b')"):
+            with self.subTest(text=text):
+                self.assertEqual(calls(text), [])
+
+    def test_outfile_targets(self):
+        """測試第 1 輪後裁定 11：-OutFile 的字面目標。"""
+        t = cmdparse.outfile_targets
+        self.assertEqual(t("iwr https://x.tw/a -OutFile 'C:/x/a.docx'"), ["C:/x/a.docx"])
+        self.assertEqual(t("Invoke-WebRequest -Uri https://x.tw -OutF:C:/x/b.pdf"), ["C:/x/b.pdf"])
+        self.assertEqual(t("irm https://x.tw -OutFile $p"), [])
+        self.assertEqual(t("Set-Content -OutFile C:/x/a"), [])  # 不是下載動詞
+        self.assertEqual(t("iwr https://x.tw/a"), [])
+
+    def test_office_save_targets(self):
+        targets = cmdparse.office_save_targets
+        self.assertEqual(targets("$d.SaveAs2('C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        self.assertEqual(targets("$d.SaveAs(\"C:/x/a.docx\")"), ["C:/x/a.docx"])
+        self.assertEqual(targets("$b.SaveCopyAs('C:/x/b.xlsx')"), ["C:/x/b.xlsx"])
+        self.assertEqual(targets("$d.ExportAsFixedFormat('C:/x/a.pdf', 17)"), ["C:/x/a.pdf"])
+        self.assertEqual(targets("d.SaveAs2(r'C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        # 實作疑義裁定 5：Excel 的 ExportAsFixedFormat(<型別>, <路徑>)、python 的 FileName= 具名參數
+        self.assertEqual(targets("$b.ExportAsFixedFormat(0, 'C:/x/a.pdf')"), ["C:/x/a.pdf"])
+        self.assertEqual(targets("$b.ExportAsFixedFormat([Microsoft.Office.Interop.Excel.XlFixedFormatType]::xlTypePDF, 'C:/x/a.pdf')"),
+                         ["C:/x/a.pdf"])
+        self.assertEqual(targets("wb.ExportAsFixedFormat(0, r'C:\\x\\a.pdf')"), ["C:\\x\\a.pdf"])
+        self.assertEqual(targets("d.SaveAs2(FileName=r'C:\\x\\a.docx')"), ["C:\\x\\a.docx"])
+        self.assertEqual(targets("d.SaveAs2(FileName='C:/x/a.docx', FileFormat=16)"), ["C:/x/a.docx"])
+        self.assertEqual(targets("$b.ExportAsFixedFormat(0, $p)"), [])
+        for text in ("$d.Save()", "$d.SaveAs2($p)", "$w.Documents.Open('C:/x/a.docx')", "$d.Range().Delete()", "$d.Close()"):
+            with self.subTest(text=text):
+                self.assertEqual(targets(text), [])
+
+    def test_stage_kind(self):
+        for text in ("[System.IO.File]::Delete('C:/x/a.docx')", "([type]'System.IO.File')::Delete('C:/x/a')",
+                     "[IO.Directory]::Delete('C:/x', $true)", "[IO.FileInfo]::new('C:/x/a').Delete()",
+                     "(Get-Item 'C:/x/a').Delete()", "$d.SaveAs2('C:/x/a.docx')", "$b.SaveCopyAs('C:/x/a.xlsx')",
+                     "$d.ExportAsFixedFormat('C:/x/a.pdf', 17)", "clc C:/x/a.txt", "iwr https://x.tw -OutFile C:/x/a"):
+            with self.subTest(text=text):
+                verb = cmdparse.verb_of(text.replace("(", " ").split())
+                self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "write")
+        for text in ("$w.Documents.Open('C:/x/a.docx')", "$d.Range(0, 5).Delete()", "$f.Delete()", "iwr https://x.tw",
+                     "[regex]::Replace($s, 'a', 'b')", "Get-Item 'C:/x/a'",
+                     "git grep '.SaveAs(' -- C:/x/a.txt", "git grep '(Get-Item x).Delete(' -- C:/x/a.txt"):  # 引號裡提到的不算
+            with self.subTest(text=text):
+                verb = cmdparse.verb_of(text.replace("(", " ").split())
+                self.assertEqual(cmdparse.stage_kind(verb, text, powershell=True), "read")
+
 
 if __name__ == "__main__":
     unittest.main()

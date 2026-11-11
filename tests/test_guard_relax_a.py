@@ -288,5 +288,235 @@ class HookRun(unittest.TestCase):
                 for ln in p.read_text(encoding="utf-8").splitlines()[1:]] if p.is_file() else []
 
 
+class Holes25(Base):
+    """守門補洞 #25（D-348）驗收 3、4：新擋的寫法照理由句改走會先留一份的路，再判一次是 allow 或 pass（客戶要的做得完）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        (cls.V / "暫存區" / "報價.docx").write_bytes(b"x")
+        (cls.V / "暫存區" / "報價.pdf").write_bytes(b"x")
+        (cls.V / "我的夾" / "筆記.txt").write_text("n", encoding="utf-8")
+        cls.src = (cls.tmp / "src").as_posix()
+
+    def kb(self, rest):
+        return self.d("Bash", f'python "{KB.as_posix()}" {rest}')
+
+    def allowed(self, d):
+        self.assertIn(d.decision, ("allow", "pass"), d)
+
+    def test_encoded_command(self):
+        """驗收 3：解出來是 Get-Content → pass；是 Remove-Item → deny delete；解不開 → deny unparsed、句子對 AI 說。"""
+        import base64
+
+        def enc(s):
+            return base64.b64encode(s.encode("utf-16-le")).decode()
+
+        self.passes("PowerShell", f"powershell -enc {enc('Get-Content ../src/x.txt')}")
+        d = self.denies("PowerShell", f"powershell -EncodedCommand {enc('Remove-Item ../src/x.txt')}", "delete")
+        self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{self.src}/x.txt"'))
+        d = self.denies("PowerShell", "powershell -enc 這不是base64###", "unparsed")
+        self.assertIn("改寫成簡單的指令", d.reason)
+        self.passes("PowerShell", "Get-Content ../src/x.txt")  # 改寫成一般指令
+
+    def test_delete_goes_to_trash(self):
+        v = self.V.as_posix()
+        for cmd in (f"[System.IO.File]::Delete('{v}/暫存區/報價.docx')", f"([type]'System.IO.File')::Delete('{self.src}/x.txt')",
+                    f"[IO.FileInfo]::new('{v}/我的夾/筆記.txt').Delete()", f"(Get-Item '{v}/暫存區/報價.docx').Delete()",
+                    f"[IO.Directory]::Delete('{v}/我的夾', $true)"):
+            with self.subTest(cmd=cmd):
+                d = self.denies("PowerShell", cmd, "delete")
+                self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{v}/暫存區/報價.docx" "{v}/我的夾"'))
+
+    def test_office_save_as_goes_to_kb_office(self):
+        v = self.V.as_posix()
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        for tool, cmd in (("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價.docx')"),
+                          ("PowerShell", word + f"$d.ExportAsFixedFormat('{v}/暫存區/報價.pdf', 17)"),
+                          ("Bash", "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; "
+                                   f"d.SaveAs2(r'{v}/暫存區/報價.docx')\"")):
+            with self.subTest(cmd=cmd):
+                d = self.denies(tool, cmd, "content")
+                self.assertIn("kb office", d.reason)
+        self.allowed(self.kb(f'office copy "{v}/暫存區/報價.docx" --unpack'))
+        self.allowed(self.kb(f'output save "{v}/.system/temp/office/報價_unpacked" --to "{v}/暫存區/報價.docx"'))
+        self.passes("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價（新）.docx')")  # 另存成新檔照放
+
+    def test_text_write_goes_to_edit_write(self):
+        v = self.V.as_posix()
+        for tool, cmd, code in (("PowerShell", f"[IO.File]::WriteAllText('{v}/我的夾/筆記.txt', 'x')", "content"),
+                                ("PowerShell", f"clc '{v}/我的夾/筆記.txt'", "content"),
+                                ("PowerShell", f"Get-Process | epcsv '{v}/我的夾/筆記.txt'", "content"),
+                                ("Bash", f"python -c \"open(r'{v}/我的夾/筆記.txt', mode='r+b').truncate(0)\"", "code"),
+                                ("Bash", f"python -c \"import os; os.open(r'{v}/我的夾/筆記.txt', os.O_WRONLY | os.O_TRUNC)\"", "code")):
+            with self.subTest(cmd=cmd):
+                d = self.denies(tool, cmd, code)
+                self.assertIn("Edit", d.reason)
+        self.allowed(self.d("Write", self.V / "我的夾" / "筆記.txt"))
+        self.allowed(self.d("Edit", self.V / "我的夾" / "筆記.txt"))
+
+    def test_outfile_overwrite_trash_or_new_name(self):
+        v = self.V.as_posix()
+        target = self.V / "我的夾" / "下載.txt"
+        target.write_text("舊", encoding="utf-8")
+        for verb in ("iwr", "irm", "Invoke-WebRequest", "Invoke-RestMethod", "curl"):
+            with self.subTest(verb=verb):
+                self.denies("PowerShell", f"{verb} https://example.com/a.txt -OutFile '{v}/我的夾/下載.txt'", "content")
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載（新）.txt'")  # 下載成新檔名
+        self.allowed(self.kb(f'source-edit trash "{v}/我的夾/下載.txt"'))  # 或先丟進回收筒
+        target.unlink()
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載.txt'")  # 回收之後再下載
+
+    def test_net_copy_overwrite_goes_to_move(self):
+        v = self.V.as_posix()
+        d = self.denies("PowerShell", f"[IO.File]::Copy('{self.src}/x.txt', '{v}/我的夾/筆記.txt', $true)", "overwrite")
+        self.assertIn("kb source-edit move", d.reason)
+        self.allowed(self.kb(f'source-edit move "{self.src}/x.txt" --to "{v}/我的夾"'))
+        self.passes("PowerShell", f"[IO.File]::Copy('{self.src}/x.txt', '{v}/我的夾/筆記.txt')")  # 沒覆蓋旗標：同名會報錯、不會蓋
+
+    def test_code_review_keeps_old_behavior(self):
+        """收尾 code review：別的方法括號照舊當看不出目標、引號裡提到 .SaveAs( 不算寫、Get-Item 的裸字路徑也算字面路徑。"""
+        self.denies("PowerShell", "Remove-Item $p.Replace('b.txt','a.txt')", "delete", cwd=self.V / "我的夾")
+        self.passes("PowerShell", "git grep '.SaveAs(' -- 我的夾/筆記.txt")
+        v = self.V.as_posix()
+        self.denies("PowerShell", f"(Get-Item {v}/我的夾/筆記.txt).Delete()", "delete")
+        self.denies("PowerShell", f"(Get-Item -Path:{v}/我的夾/筆記.txt).Delete()", "delete")
+        self.denies("PowerShell", f"$x = (Get-Item '{v}/我的夾/筆記.txt').Delete()", "delete")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); "
+        self.denies("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價.pdf', 17)", "content")
+        self.passes("PowerShell", word + f"$w.Documents.Open('{v}/暫存區/報價.docx').SaveAs2('{v}/暫存區/報價（新）.pdf', 17)")
+
+    def test_ruling5_rewrites_finish(self):
+        """實作疑義裁定 5：補進來的寫法擋下後，照理由句改寫再判一次是 allow 或 pass（驗收 4）。"""
+        import base64
+        v = self.V.as_posix()
+        for m in ("CreateText", "OpenWrite", "AppendText"):  # 寫文字檔 → Edit／Write
+            with self.subTest(method=m):
+                d = self.denies("PowerShell", f"[IO.File]::{m}('{v}/我的夾/筆記.txt').Close()", "content")
+                self.assertIn("Edit", d.reason)
+        self.allowed(self.d("Write", self.V / "我的夾" / "筆記.txt"))
+        excel = "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); "
+        for tool, cmd in (("PowerShell", excel + f"$e.ActiveWorkbook.ExportAsFixedFormat(0, '{v}/暫存區/報價.pdf')"),
+                          ("Bash", "python -c \"import win32com.client as c; c.GetActiveObject('Excel.Application').ActiveWorkbook."
+                                   f"ExportAsFixedFormat(0, r'{v}/暫存區/報價.pdf')\""),
+                          ("Bash", "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; "
+                                   f"d.SaveAs2(FileName=r'{v}/暫存區/報價.docx')\"")):
+            with self.subTest(cmd=cmd):  # 改 Office 既有檔 → kb office
+                d = self.denies(tool, cmd, "content")
+                self.assertIn("kb office", d.reason)
+        self.allowed(self.kb(f'office copy "{v}/暫存區/報價.docx" --unpack'))
+        self.allowed(self.kb(f'output save "{v}/.system/temp/office/報價_unpacked" --to "{v}/暫存區/報價.docx"'))
+        self.passes("PowerShell", excel + f"$e.ActiveWorkbook.ExportAsFixedFormat(0, '{v}/暫存區/報價（新）.pdf')")  # 匯出成新檔照放
+        b64 = base64.b64encode("Remove-Item ../src/x.txt".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -EncodedCommand:{b64}", f"pwsh --encodedcommand {b64}"):  # 刪 → kb source-edit trash
+            with self.subTest(cmd=cmd):
+                d = self.denies("PowerShell", cmd, "delete")
+                self.assertIn("kb source-edit trash", d.reason)
+        self.allowed(self.kb(f'source-edit trash "{self.src}/x.txt"'))
+        hi = base64.b64encode("echo hi".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -ec:{hi} -c \"Remove-Item 我的夾/筆記.txt\"",  # code review：解開的不蓋掉同一行的 -c
+                    "powershell -e: -c \"Remove-Item 我的夾/筆記.txt\""):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.d("PowerShell", cmd).decision, "deny")
+        b64 = base64.b64encode("Remove-Item 我的夾/筆記.txt".encode("utf-16-le")).decode()
+        for cmd in (f"powershell -c:x -e {b64}", f"pwsh -f: -e {b64}"):  # 冒號寫法後面的編碼指令照解（code review 第五輪）
+            with self.subTest(cmd=cmd):
+                self.denies("PowerShell", cmd, "delete")
+        self.passes("PowerShell", "git grep \"mode='rb+'\" -- 我的夾/筆記.txt")  # 引號裡提到的模式不讓這段變成寫
+
+    def test_round1_workspace_saves(self):
+        """測試第 1 輪後裁定 11：另存、匯出、下載成新檔到工作區 .system/temp/office/ 放行；既有檔照蓋掉（content）；工作區以外的 .system 照舊 willy。"""
+        v = self.V.as_posix()
+        ws = self.V / ".system" / "temp" / "office"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "舊.docx").write_bytes(b"x")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        w = f"{v}/.system/temp/office"
+        for cmd in (word + f"$d.SaveAs2('{w}/新.docx')", word + f"$d.ExportAsFixedFormat('{w}/新.pdf', 17)",
+                    f"iwr https://example.com/a.docx -OutFile '{w}/新下載.docx'"):
+            with self.subTest(cmd=cmd):
+                self.passes("PowerShell", cmd)
+        for cmd in (word + f"$d.SaveAs2('{w}/舊.docx')", f"iwr https://example.com/a.docx -OutFile '{w}/舊.docx'"):
+            with self.subTest(cmd=cmd):
+                self.denies("PowerShell", cmd, "content")
+        self.denies("PowerShell", word + f"$d.SaveAs2('{v}/.system/新.docx')", "willy")
+        self.denies("PowerShell", f"Set-Content '{w}/舊.docx' x", "willy")  # 工作區只放另存、匯出、下載，別的寫照舊
+        # code review：同一句別段寫到同一個路徑、提到另存的字串、既有夾、Bash 的 curl 都不給豁免
+        (ws / "sub").mkdir(exist_ok=True)
+        (ws / "sub" / "a.txt").write_text("a", encoding="utf-8")
+        for tool, cmd in (("PowerShell", f"Remove-Item -Recurse -Force '{w}/sub'; $d.SaveAs2('{w}/sub')"),
+                          ("PowerShell", f"Remove-Item '{w}/sub' -Recurse; iwr https://x.tw -OutFile '{w}/sub'"),
+                          ("Bash", f"rm -rf {w}/sub; echo \".SaveAs('{w}/sub')\""),
+                          ("PowerShell", f"Set-Content '{w}/新.txt' x; $d.SaveAs2('{w}/新.txt')"),
+                          ("PowerShell", f"iwr https://x.tw -OutFile '{w}/n.docx'; Move-Item '{v}/我的夾/筆記.txt' '{w}/n.docx'"),
+                          ("PowerShell", f"iwr https://x.tw/a -OutFile '{w}/sub'"),
+                          ("Bash", f"curl https://x.tw/a -OutFile '{w}/new5.docx'"),
+                          ("Bash", f"python -c \"import os; os.rename(r'{v}/我的夾/筆記.txt', r'{w}/nb12.txt') "
+                                   f"# .SaveAs('{w}/nb12.txt')\""),
+                          ("PowerShell", f"python -c \"import os; os.rename(r'{v}/我的夾/筆記.txt', r'{w}/nb12.txt') "
+                                         f"# .SaveAs('{w}/nb12.txt')\"")):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.d(tool, cmd).decision, "deny")
+        for name in ("rm", "ni"):  # 檔名剛好是動詞名的新檔照放（code review 第二輪）
+            with self.subTest(name=name):
+                self.passes("PowerShell", word + f"$d.SaveAs2('{w}/{name}')")
+
+    def test_round1_content_reason_sentences(self):
+        """測試第 1 輪後裁定 12：CONTENT_REASON 補兩句；照新句子改寫後做得完（驗收 4）。"""
+        v = self.V.as_posix()
+        target = self.V / "我的夾" / "下載2.txt"
+        target.write_text("舊", encoding="utf-8")
+        d = self.denies("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2.txt'", "content")
+        self.assertIn("下載或匯出會蓋掉既有檔：存成新檔名，或先 kb source-edit trash 舊的再存", d.reason)
+        self.assertIn("要存的是她開著的那份 Office 檔：用附著那份的 .Save()，不要另存到同一路徑", d.reason)
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2（新）.txt'")  # 存成新檔名
+        self.allowed(self.kb(f'source-edit trash "{v}/我的夾/下載2.txt"'))  # 或先丟回收筒再存
+        target.unlink()
+        self.passes("PowerShell", f"iwr https://example.com/a.txt -OutFile '{v}/我的夾/下載2.txt'")
+        word = "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; "
+        self.denies("PowerShell", word + f"$d.SaveAs2('{v}/暫存區/報價.docx')", "content")
+        self.passes("PowerShell", word + "$d.Save()")  # 存她開著的那份：附著那份的 .Save()
+
+    def test_round1_same_stage_full_name_verb(self):
+        """測試第 1 輪後裁定 13：同一段有 .NET 寫入與全名寫入動詞，全名那個照判（改前就擋，改後不能放）。"""
+        v = self.V.as_posix()
+        for cmd in (f"Set-Content '{v}/我的夾/筆記.txt' -Value ([IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x'))",
+                    f"Set-Content '{v}/我的夾/筆記.txt' ([IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x'))"):
+            with self.subTest(cmd=cmd):
+                self.denies("PowerShell", cmd, "content")
+        self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', 'x')")  # 只有 .NET 寫新檔照放
+        # code review：.NET 呼叫的內容參數（剛好是既有檔的路徑）不當全名動詞的目標
+        self.passes("PowerShell", f"Set-Content -Path '{v}/我的夾/new.txt' -Value ([IO.File]::WriteAllText('{v}/我的夾/n.txt', "
+                                  f"'{v}/我的夾/筆記.txt'))")
+        # code review 第二輪：全名動詞自己的目標剛好也出現在 .NET 參數裡，照樣判；.NET 參數裡的 copy、cp 字串不當動詞
+        self.denies("PowerShell", f"Set-Content '{v}/我的夾/筆記.txt' -Value ([IO.File]::WriteAllText('{v}/暫存區/新x.txt', "
+                                  f"'{v}/我的夾/筆記.txt'))", "content")
+        self.denies("PowerShell", f"Add-Content '{v}/我的夾/筆記.txt' ([IO.File]::Copy('{v}/我的夾/筆記.txt', '{v}/暫存區/bak.txt'))",
+                    "content")
+        for word in ("copy", "cp", "xcopy"):
+            with self.subTest(word=word):
+                self.passes("PowerShell", f"[IO.File]::WriteAllText('{v}/暫存區/新.txt', '{word}')")
+        # code review 第三輪：萬用字元目標、效用 cwd 推不出來時的絕對目標照判
+        self.denies("PowerShell", f"Set-Content '{v}/我的夾/筆*.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))", "content")
+        self.denies("PowerShell", f"cd $env:TEMP; Set-Content '{v}/我的夾/筆記.txt' ([IO.File]::WriteAllText('{v}/我的夾/n.txt','x'))",
+                    "content")
+        # code review 第四輪：只出現在 .NET 參數裡的萬用字元或 [ ] 不當全名動詞的目標
+        t = self.tmp.as_posix()
+        (self.V / "我的夾" / "b.txt").touch()
+        for cmd in (f"Set-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/list.txt', '*.txt'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '*'))",  # 第六輪：沒斜線的萬用字元
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '筆*'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '*a*'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::WriteAllText('{t}/ext/n.txt', '{v}/我的夾/筆*'))",
+                    f"Add-Content '{t}/ext/log.txt' ([IO.File]::Move('{t}/ext/a.txt', '{v}/我的夾/[b].txt'))"):
+            with self.subTest(cmd=cmd):
+                self.passes("PowerShell", cmd, cwd=self.V / "我的夾")
+        for cmd in (f"Set-Content 筆* ([IO.File]::WriteAllText('{t}/ext/n.txt','x'))", "Set-Content '筆*' ([IO.File]::Copy('a', 'b'))"):
+            with self.subTest(cmd=cmd):  # code review 第五輪：全名動詞自己的萬用字元（沒副檔名）照展開照判
+                self.denies("PowerShell", cmd, "content", cwd=self.V / "我的夾")
+
+
 if __name__ == "__main__":
     unittest.main()

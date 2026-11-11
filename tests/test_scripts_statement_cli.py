@@ -206,5 +206,53 @@ class WithdrawRestore(Base):
         self.assertEqual(statements.load_archive(self.V)["statements"], [])
 
 
+class Sum(Base):
+    """kb statement sum（#65，原 kb money sum 帳關著那條搬來）：照標過錢的口述算收、付、淨、逐筆、比較。"""
+
+    def sum(self, *args, code=0):
+        r = run_kb("statement", "sum", *args, "--json", cwd=self.V)
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        return json.loads(r.stdout)
+
+    def test_sum_json(self):
+        today = statements._today()
+        self.add("幫公司收了信義王 5,000", "信義王", "--money", "收", "5000")
+        r = run_kb("statement", "add", "--text", "今天付了 1,200", "--money", "付", "1200", "--json", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.kb("add", "--text", "今天天氣好", code=3)
+        got = self.sum("--from", today[:8] + "01", "--to", today)
+        self.assertEqual((got["in"], got["out"], got["net"], len(got["items"])), (5000, 1200, 3800, 2))
+        self.assertEqual(set(got), {"from", "to", "in", "out", "net", "items", "vs", "diff"})
+        self.assertEqual(set(got["items"][0]), {"id", "text", "date", "dir", "amount", "entities"})
+        self.assertIsNone(got["vs"])
+        self.assertIsNone(got["diff"])
+
+    def test_sum_entity_and_vs(self):
+        today = statements._today()
+        self.add("幫公司收了信義王 5,000", "信義王", "--money", "收", "5000")
+        self.add("信義王又付了 800", "信義王", "--money", "付", "800")
+        got = self.sum("--from", today, "--to", today, "--entity", "信義王", "--vs-from", "2000-01-01", "--vs-to", "2000-01-31")
+        self.assertEqual((got["in"], got["out"]), (5000, 800))
+        self.assertEqual(got["vs"]["in"], 0)
+        self.assertEqual(got["diff"]["in"]["diff"], 5000)
+        self.assertIsNone(got["diff"]["in"]["pct"])
+        r = run_kb("statement", "sum", "--from", today, "--to", today, "--entity", "不存在的人", cwd=self.V)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+
+    def test_sum_human_line(self):
+        today = statements._today()
+        self.add("幫公司收了信義王 5,000", "信義王", "--money", "收", "5000")
+        r = run_kb("statement", "sum", "--from", today, "--to", today, cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("收 5,000", r.stdout)
+        self.assertIn("付 0", r.stdout)
+        self.assertNotIn("未收", r.stdout)
+
+    def test_money_marks_still_work(self):
+        s = self.add("幫公司收了信義王 5,000", "信義王", "--money", "收", "5000")
+        self.assertEqual(self.items()[s]["money"]["dir"], "in")
+        self.assertEqual(len(json.loads(run_kb("statement", "list", "--money", "--json", cwd=self.V).stdout)["statements"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11643,6 +11643,2190 @@
    ],
    "來源": "開檔與Office一起改 裁定 31",
    "note": "(5) 開新檔的 Documents.Add( 照擋；放寬甲對齊：原 deny，改 pass（使用者區規則 U1～U6）"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/查報價/SKILL.md"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "skill夾放寫 驗收 1、7",
+   "note": "D-538：Z13 willy 不管，檔案工具寫 pass（夾還不在也是 Z13）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "echo x > .claude/skills/查報價/SKILL.md"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "skill夾放寫 驗收 3",
+   "note": "D-538：Z13 指令寫 pass（照 Z11）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content -Path '<V>\\.claude\\skills\\查報價\\SKILL.md' -Value x"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "skill夾放寫 驗收 3",
+   "note": "D-538：Z13 指令寫 pass（照 Z11）"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 資料與介面格式",
+   "note": "skills 夾本身照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/../settings.json"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 5",
+   "note": ".. 跳出 skills 照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/x/settings.json"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.claude/skills/",
+    "junction: <V>/.claude/skills/x -> <V>/.claude"
+   ],
+   "來源": "skill夾放寫 驗收 6",
+   "note": "skills 底下的 junction 連到 .claude：照 Z7"
+  },
+  {
+   "tool": "Write",
+   "input": {
+    "file_path": "<V>/.claude/skills/查報價/SKILL.md",
+    "content": "---\nname: 查報價\nhooks:\n  PreToolUse: []\n---\n現在 !`echo x`\n"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "來源": "skill夾放寫 驗收 11（D-538）",
+   "note": "SKILL.md 不看內容"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "echo x > .claude/skills/查報價/SKILL.md; echo y > 系統/x.md"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "來源": "skill夾放寫 驗收 3（D-538）",
+   "note": "skill 夾 pass，同一句寫系統區照擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtACAA+3xxfVwAeAAuAG0AZAA="
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "-EncodedCommand 解開是 Remove-Item 系統（Z6）→ 照 -Command 判 willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -enc UgBlAG0AbwB2AGUALQBJAHQAZQBtACAAq2ZYW0BTXABhAC4AZABvAGMAeAA="
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "-enc 解開是 Remove-Item 暫存區既有檔（Z4）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -e UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "-e 解開是 Remove-Item 原檔（Z9）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "pwsh -ec UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "pwsh -ec（Z9）→ delete"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "powershell.exe -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtACAA+3xxfVwAeAAuAG0AZAA="
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Bash 裡叫 powershell -EncodedCommand（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell /enc UgBlAG0AbwB2AGUALQBJAHQAZQBtACAAq2ZYW0BTXABhAC4AZABvAGMAeAA="
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "/enc 斜線旗標（Z4）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-enc','UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Start-Process powershell -ArgumentList '-enc',…（Z9）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Start-Process powershell -ArgumentList '-enc','UgBlAG0AbwB2AGUALQBJAHQAZQBtACAA+3xxfVwAeAAuAG0AZAA='"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Start-Process powershell -ArgumentList '-enc',…（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -enc 這不是base64###"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "-enc 解不開 → unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -enc RwBlAHQALQBDAG8AbgB0AGUAbgB0ACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：-enc 解開是 Get-Content 原檔 → pass"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -Command \"Remove-Item ..\\raw\\客戶案件\\a.docx\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：全名寫法 -Command Remove-Item（Z9）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "node -e \"console.log(1)\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：node 的 -e 不受影響"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "clc '<V>\\系統\\x.md'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "clc（Clear-Content 別名）Z6 既有檔 → 同 Clear-Content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Get-Process | epcsv '<V>\\系統\\x.md'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "epcsv（Export-Csv 別名）Z6 既有檔 → 同 Export-Csv"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "clc '<V>\\暫存區\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "clc（Clear-Content 別名）Z4 既有檔 → 同 Clear-Content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Get-Process | epcsv '<V>\\暫存區\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "epcsv（Export-Csv 別名）Z4 既有檔 → 同 Export-Csv"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "clc '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "clc（Clear-Content 別名）Z9 既有檔 → 同 Clear-Content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Get-Process | epcsv '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "epcsv（Export-Csv 別名）Z9 既有檔 → 同 Export-Csv"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Clear-Content '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：全名 Clear-Content Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Get-Process | Export-Csv '<V>\\暫存區\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：全名 Export-Csv Z4"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\系統\\x.md'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "iwr -OutFile 到系統（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "irm https://example.com/a.docx -OutFile '<V>\\暫存區\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "irm -OutFile 蓋暫存區既有檔（Z4）→ content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Invoke-WebRequest https://example.com/a.docx -OutFile '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Invoke-WebRequest -OutFile 蓋原檔（Z9）→ content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Invoke-RestMethod -Uri https://example.com/a.docx -OutFile '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Invoke-RestMethod -OutFile（Z9）→ content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "curl https://example.com/a.docx -OutFile '<V>\\暫存區\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "PowerShell 的 curl -OutFile（Z4）→ content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "wget https://example.com/a.docx -OutFile '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：PS wget -OutFile 原本就擋"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：iwr 不帶 -OutFile 是讀"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\暫存區\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：-OutFile 到新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Invoke-WebRequest https://example.com/a.docx -OutFile '<RAW>\\客戶案件\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：-OutFile 到原檔夾的新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "sp '<V>\\系統\\x.md' -Name IsReadOnly -Value $true"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "sp（Set-ItemProperty 別名）Z6 → willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "sp '<V>\\暫存區\\a.docx' -Name IsReadOnly -Value $true"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "sp Z4 → 同 Set-ItemProperty 放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "sp '<RAW>\\客戶案件\\a.docx' -Name IsReadOnly -Value $true"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "sp Z9 → 同 Set-ItemProperty 放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-ItemProperty '<V>\\系統\\x.md' -Name IsReadOnly -Value $true"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：全名 Set-ItemProperty Z6"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[System.IO.File]::Delete('<V>\\系統\\x.md')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[System.IO.File]::Delete Z6 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<V>\\系統\\x.md', 'x')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::WriteAllText Z6 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.FileInfo]::new('<V>\\系統\\x.md').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.FileInfo]::new(…).Delete() Z6 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "(Get-Item '<V>\\系統\\x.md').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "(Get-Item …).Delete() Z6 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Create('<V>\\系統\\x.md')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Create Z6 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[System.IO.File]::Delete('<V>\\暫存區\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[System.IO.File]::Delete Z4 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<V>\\暫存區\\a.docx', 'x')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::WriteAllText Z4 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.FileInfo]::new('<V>\\暫存區\\a.docx').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.FileInfo]::new(…).Delete() Z4 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "(Get-Item '<V>\\暫存區\\a.docx').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "(Get-Item …).Delete() Z4 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Create('<V>\\暫存區\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Create Z4 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[System.IO.File]::Delete('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[System.IO.File]::Delete Z9 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<RAW>\\客戶案件\\a.docx', 'x')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::WriteAllText Z9 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.FileInfo]::new('<RAW>\\客戶案件\\a.docx').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.FileInfo]::new(…).Delete() Z9 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "(Get-Item '<RAW>\\客戶案件\\a.docx').Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "(Get-Item …).Delete() Z9 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Create('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Create Z9 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "([type]'System.IO.File')::Delete('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "([type]'System.IO.File')::Delete Z9 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "([type]\"System.IO.File\")::Delete('<V>\\暫存區\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "([type]\"System.IO.File\")::Delete Z4 → delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::AppendAllText('<RAW>\\客戶案件\\a.docx', 'x')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::AppendAllText Z9 既有檔 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Copy('<V>\\暫存區\\a.docx', '<RAW>\\客戶案件\\a.docx', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Copy 覆蓋旗標 $true、目的地 Z9 已有 → overwrite"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Copy('<RAW>\\客戶案件\\a.docx', '<V>\\系統\\x.md', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Copy 到系統（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Move('<RAW>\\客戶案件\\a.docx', '<V>\\暫存區\\a.docx', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Move 覆蓋旗標 $true、目的地 Z4 已有 → overwrite"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Replace('<V>\\暫存區\\舊夾\\b.txt', '<RAW>\\客戶案件\\a.docx', $null)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Replace 目的地 Z9 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Open('<RAW>\\客戶案件\\a.docx', 'Truncate')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.File]::Open 截斷模式 Z9 → content"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.Directory]::Delete('<RAW>\\客戶案件', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.Directory]::Delete 原檔夾（Z9）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[System.IO.Directory]::Delete('<V>\\暫存區\\舊夾', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[System.IO.Directory]::Delete 暫存區有東西的夾（Z4）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.Directory]::Delete('<V>\\系統', $true)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "[IO.Directory]::Delete 系統（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Copy('<V>\\暫存區\\a.docx', '<RAW>\\客戶案件\\新.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[IO.File]::Copy 到新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Copy('<V>\\暫存區\\a.docx', '<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[IO.File]::Copy 沒有覆蓋旗標（同名會報錯、不會蓋掉），照 Move-Item 不加 -Force 放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<V>\\暫存區\\新的.txt', 'x')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[IO.File]::WriteAllText 新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::Open('<RAW>\\客戶案件\\a.docx', 'Open', 'Read')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[IO.File]::Open 讀的模式放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[regex]::Replace((Get-Content '<RAW>\\客戶案件\\a.docx' -Raw), 'a', 'b')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[regex]::Replace 是字串，不是檔"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$a = 1,2,3; $b = New-Object int[] 3; [Array]::Copy($a, $b, 3)"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：[Array]::Copy 是陣列"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$f = Get-Item '<RAW>\\客戶案件\\a.docx'; $f.Delete()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：$f.Delete() 沒有字面路徑（決策 6，等 #67）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Get-Content '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：Get-Content 讀"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "gc '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：gc 讀"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\系統\\x.md')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "PowerShell 附著 Word 後 SaveAs2 到既有檔 Z6"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=w.ActiveDocument; d.SaveAs2(r'<V>\\系統\\x.md')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python 附著 Word 後 SaveAs2 到既有檔 Z6"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\暫存區\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "PowerShell 附著 Word 後 SaveAs2 到既有檔 Z4"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=w.ActiveDocument; d.SaveAs2(r'<V>\\暫存區\\a.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python 附著 Word 後 SaveAs2 到既有檔 Z4"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "PowerShell 附著 Word 後 SaveAs2 到既有檔 Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=w.ActiveDocument; d.SaveAs2(r'<RAW>\\客戶案件\\a.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python 附著 Word 後 SaveAs2 到既有檔 Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.SaveCopyAs('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "PowerShell 附著 Excel 後 SaveCopyAs 到既有檔 Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.ExportAsFixedFormat('<RAW>\\客戶案件\\a.pdf', 17)"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "ExportAsFixedFormat 到既有 PDF（Z9）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; e=c.GetActiveObject('Excel.Application'); e.ActiveWorkbook.SaveCopyAs(r'<V>\\暫存區\\a.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python SaveCopyAs 到既有檔 Z4"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\暫存區\\新報價.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：SaveAs2 到新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "python -c \"import win32com.client as c; w=c.GetActiveObject('Word.Application'); d=w.ActiveDocument; d.SaveAs2(r'<RAW>\\客戶案件\\新報價.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：python SaveAs2 到新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $w.Documents.Open('<RAW>\\客戶案件\\a.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：Documents.Open 是讀"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.Range(0, 5).Delete(); $d.Save()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：附著後 Range.Delete(); .Save()（D-515）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "clc (@($w.Documents).FullName -eq '<V>\\暫存區\\x.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "FullName 比對豁免：別名收了之後照 Clear-Content 擋"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"f=open(r'<V>\\系統\\x.md', mode='r+b'); f.truncate(0)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python open(p, mode='r+b') Z6 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"f=open(r'<V>\\暫存區\\a.docx', mode='r+b'); f.truncate(0)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python open(p, mode='r+b') Z4 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"f=open(r'<RAW>\\客戶案件\\a.docx', mode='r+b'); f.truncate(0)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "python open(p, mode='r+b') Z9 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"from pathlib import Path; Path(r'<RAW>\\客戶案件\\a.docx').open('r+b').truncate(0)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Path(p).open('r+b') Z9 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"from pathlib import Path; Path(r'<V>\\暫存區\\a.docx').open('rb+').write(b'x')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "Path(p).open('rb+') Z4 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import os; os.open(r'<RAW>\\客戶案件\\a.docx', os.O_WRONLY | os.O_TRUNC)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "os.open O_WRONLY|O_TRUNC Z9 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import os; os.open(r'<V>\\系統\\x.md', os.O_RDWR)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "os.open O_RDWR Z6 → code"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import os; os.open(r'<V>\\暫存區\\a.docx', os.O_RDONLY)\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：os.open 唯讀放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"print(open(r'<RAW>\\客戶案件\\a.docx', mode='rb').read(10))\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<V>/暫存區/舊夾/b.txt",
+    "<RAW>/客戶案件/a.pdf"
+   ],
+   "來源": "守門補洞 #25",
+   "note": "對照：open mode='rb' 唯讀放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"from pathlib import Path; print(Path('raw/a.txt').open().read())\""
+   },
+   "cwd": "<V>/暫存區",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 3 對照：Path('raw/a.txt').open() 是讀"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"print(open('bar.txt').read())\""
+   },
+   "cwd": "<V>/暫存區",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 3 對照：open('bar.txt') 是讀"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; c.GetActiveObject('Word.Application').Documents.Open('a.docx')\""
+   },
+   "cwd": "<V>/暫存區",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 3 對照：.Open('a.docx') 的路徑以 a 開頭，不是寫入模式"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"from pathlib import Path; Path('a.txt').open('w+b').write(b'x')\""
+   },
+   "cwd": "<V>/暫存區",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 3：Path(p).open('w+b') 整串是模式 → code"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::CreateText('<RAW>\\客戶案件\\a.docx').Close()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：[IO.File]::CreateText 既有檔 Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::OpenWrite('<V>\\暫存區\\a.docx').Close()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：[IO.File]::OpenWrite 既有檔 Z4"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::AppendText('<RAW>\\客戶案件\\a.docx').Close()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：[IO.File]::AppendText 既有檔 Z9"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::CreateText('<V>\\系統\\x.md').Close()"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：[IO.File]::CreateText 既有檔 Z6"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::CreateText('<V>\\暫存區\\新的.txt').Close()"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5 對照：CreateText 新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.ExportAsFixedFormat(0, '<RAW>\\客戶案件\\a.pdf')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：Excel ExportAsFixedFormat 第二個參數是既有 PDF（Z9）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.ExportAsFixedFormat([Microsoft.Office.Interop.Excel.XlFixedFormatType]::xlTypePDF, '<V>\\系統\\x.md')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：Excel ExportAsFixedFormat 第二個參數在系統（Z6）"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.ExportAsFixedFormat(0, '<V>\\暫存區\\新報表.pdf')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5 對照：Excel 匯出到新檔放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; c.GetActiveObject('Excel.Application').ActiveWorkbook.ExportAsFixedFormat(0, r'<RAW>\\客戶案件\\a.pdf')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：python Excel ExportAsFixedFormat 第二個參數是既有 PDF（Z9）"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; c.GetActiveObject('Excel.Application').ActiveWorkbook.ExportAsFixedFormat(0, r'<V>\\暫存區\\新報表.pdf')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5 對照：python Excel 匯出到新檔放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; d.SaveAs2(FileName=r'<RAW>\\客戶案件\\a.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：python SaveAs2(FileName=) 既有檔 Z9"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; d.SaveAs2(FileName=r'<V>\\暫存區\\a.docx', FileFormat=16)\""
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：python SaveAs2(FileName=) 既有檔 Z4"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; d=c.GetActiveObject('Word.Application').ActiveDocument; d.SaveAs2(FileName=r'<V>\\暫存區\\新報價.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5 對照：FileName= 新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -EncodedCommand:UgBlAG0AbwB2AGUALQBJAHQAZQBtACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：-EncodedCommand: 冒號寫法（Z9）→ delete"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "pwsh --encodedcommand UgBlAG0AbwB2AGUALQBJAHQAZQBtACAA+3xxfVwAeAAuAG0AZAA="
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：pwsh --encodedcommand（Z6）→ willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "pwsh -ec:RwBlAHQALQBDAG8AbgB0AGUAbgB0ACAALgAuAFwAcgBhAHcAXACiWzZiSGj2TlwAYQAuAGQAbwBjAHgA"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5 對照：-ec: 解開是 Get-Content → pass"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "powershell -EncodedCommand:這不是base64###"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/系統/x.md",
+    "<V>/暫存區/a.docx",
+    "<RAW>/客戶案件/a.docx",
+    "<RAW>/客戶案件/a.pdf",
+    "<V>/暫存區/a.txt"
+   ],
+   "來源": "守門補洞 #25 裁定",
+   "note": "裁定 5：冒號寫法解不開 → unparsed"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\temp\\office\\新.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：SaveAs2 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.ExportAsFixedFormat('<V>\\.system\\temp\\office\\新.pdf', 17)"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：ExportAsFixedFormat 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\temp\\office\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：-OutFile 到工作區新檔放行"
+  },
+  {
+   "tool": "Bash",
+   "input": {
+    "command": "python -c \"import win32com.client as c; c.GetActiveObject('Word.Application').ActiveDocument.SaveAs2(r'<V>\\.system\\temp\\office\\新2.docx')\""
+   },
+   "cwd": "<V>",
+   "expect": "pass",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：python SaveAs2 到工作區新檔放行"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\temp\\office\\舊.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：SaveAs2 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$e=[Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); $b=$e.ActiveWorkbook; $b.ExportAsFixedFormat(0, '<V>\\.system\\temp\\office\\舊.pdf')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：ExportAsFixedFormat 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\temp\\office\\舊.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11：-OutFile 到工作區既有檔照蓋掉判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "$w=[Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application'); $d=$w.ActiveDocument; $d.SaveAs2('<V>\\.system\\新.docx')"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11 對照：工作區以外的 .system 照舊 willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "iwr https://example.com/a.docx -OutFile '<V>\\.system\\新下載.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 11 對照：-OutFile 到工作區以外的 .system 照舊 willy"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content '<RAW>\\客戶案件\\a.docx' -Value ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同段有 [IO.File]::WriteAllText 新檔與 Set-Content 既有檔，照 Set-Content 判"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Set-Content '<RAW>\\客戶案件\\a.docx' ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同上，-Value 用位置參數"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "Clear-Content '<RAW>\\客戶案件\\a.docx' ([IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'))"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：同段 Clear-Content 既有檔"
+  },
+  {
+   "tool": "PowerShell",
+   "input": {
+    "command": "[IO.File]::WriteAllText('<V>\\暫存區\\新.txt', 'x'); Clear-Content '<RAW>\\客戶案件\\a.docx'"
+   },
+   "cwd": "<V>",
+   "expect": "deny",
+   "needs": [
+    "<V>/.system/temp/office/舊.docx",
+    "<V>/.system/temp/office/舊.pdf",
+    "<RAW>/客戶案件/a.docx"
+   ],
+   "來源": "守門補洞 #25 測試第 1 輪後裁定",
+   "note": "裁定 13：分兩段也照判"
   }
  ]
 }
