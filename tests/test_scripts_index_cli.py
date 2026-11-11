@@ -3,6 +3,8 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -10,6 +12,7 @@ from unittest import mock
 
 from tests import _cards
 from tests import _entities as E
+from tests._guard_fixture import ROOT
 from tests.test_scripts_inventory_cli import run_kb
 from kb._lib import card_index, cards, find, lookup  # noqa: E402
 from kb._lib import vault as vault_lib  # noqa: E402
@@ -145,6 +148,65 @@ class IndexCli(unittest.TestCase):
                 new = (self.V / "總目錄.md").read_text(encoding="utf-8")
             self.assertEqual(new, old)
             self.assertIn("沒編號但有標題", new)
+
+    def same_as_files(self):
+        got = card_index.groups(self.V)
+        self.assertIsNotNone(got)
+        self.assertEqual(got, cards._scan_groups_files(self.V))
+
+    def age(self):
+        """卡的修改時間設成兩小時前：寫進索引時不算「剛改」，之後的改動靠修改時間、大小抓到。"""
+        t = time.time() - 7200
+        os.utime(self.path, (t, t))
+
+    def test_entity_rename_follows(self):  # 驗收 2(c)：真的跑 kb entity rename（改很多張的檔頭）
+        self.age()
+        self.assertEqual(self.files("信義王"), [self.rel])
+        self.same_as_files()
+        r = run_kb("entity", "rename", "信義王", "--to", "信義王宅邸", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("信義王宅邸", self.path.read_text(encoding="utf-8"))
+        self.assertEqual(self.files("信義王宅邸"), [self.rel])
+        self.same_as_files()
+        self.assertEqual(card_index.groups(self.V)[0][next(iter(card_index.groups(self.V)[0]))][0]["front"]["實體"], ["信義王宅邸"])
+
+    def test_versions_revert_follows(self):  # 驗收 2(d)：真的跑 kb versions revert（退回一句做卡的話）
+        from tests import test_cardmaker_revert as R
+        sid = "sid-index"
+
+        def hook(name, data):
+            env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT))
+            r = subprocess.run([sys.executable, str(ROOT / "hooks" / name)], input=json.dumps(data, ensure_ascii=False),
+                               capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT), env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout
+
+        def prompt(text):
+            hook("turn.py", {"session_id": sid, "cwd": str(self.V), "prompt": text, "hook_event_name": "UserPromptSubmit"})
+
+        def tool(event, path):
+            return hook("guard.py" if event == "PreToolUse" else "output_log.py", {
+                "session_id": sid, "cwd": str(self.V), "hook_event_name": event, "tool_name": "Write",
+                "tool_input": {"file_path": str(path)}})
+
+        self.age()
+        self.assertEqual(self.files("新卡獨特詞"), [])  # 索引建好
+        prompt("好，整理這份")
+        item = E.new_item(self.V, _cards.MEETING)
+        new = _cards.card_path(self.V, item, "會議紀錄")
+        self.assertIn('"allow"', tool("PreToolUse", new))
+        new.parent.mkdir(parents=True, exist_ok=True)
+        new.write_text(_cards.card_text(item, "會議紀錄", body="新卡獨特詞。\n"), encoding="utf-8", newline="\n")
+        self.assertEqual(tool("PostToolUse", new), "")
+        newrel = new.relative_to(self.V).as_posix()
+        self.assertEqual(self.files("新卡獨特詞"), [newrel])
+        self.same_as_files()
+        prompt("退回上一句")
+        r = run_kb("versions", "revert", cwd=self.V)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(new.exists())
+        self.assertEqual(self.files("新卡獨特詞"), [])
+        self.same_as_files()
 
 
 if __name__ == "__main__":

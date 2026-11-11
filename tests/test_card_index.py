@@ -171,6 +171,14 @@ class Hits(Base):
         self.assertEqual(hit, {"檔案索引/a.md"})
         self.assertIn("abc 全形 d", find._body(self.V, "檔案索引/a.md"))
 
+    def test_crlf_card_header_not_in_body(self):  # 實作疑義 5：手改成 CRLF 的卡，檔頭不當內文
+        text = card("f-1", "報價單", "交期三週").replace("\n", "\r\n")
+        put(self.V, "檔案索引/a.md", text, OLD)
+        card_index.groups(self.V)
+        self.assertEqual(card_index.body_hits(self.V, ["交期三週"])["交期三週"], {"檔案索引/a.md"})
+        self.assertEqual(card_index.body_hits(self.V, ["卡型: 報價"])["卡型: 報價"], set())
+        self.same()
+
 
 class Unusable(Base):
     def setUp(self):
