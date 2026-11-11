@@ -35,6 +35,19 @@ class Learn(Base):
         self.assertFalse(inventory.learning(self.V))
         self.assertIsNone(_checks.line_learning(self.V))
 
+    def test_big_local_inventory_not_read(self):
+        """裁定 32：本機清冊大於 4 KB 就當有東西，不讀整份（3 萬份 0.2 s）。"""
+        if self.learned.exists():
+            self.learned.unlink()
+        self.local.write_text(json.dumps({"items": {}, "pad": "x" * 5000}), encoding="utf-8")
+        with mock.patch.object(inventory, "_local_items", side_effect=AssertionError("不該讀本機清冊")):
+            self.assertFalse(inventory.learning(self.V))
+
+    def test_new_clone_without_local_still_learning(self):
+        """裁定 32：本機清冊沒有、共用的有東西、沒學過 → 照舊算在認檔案（新同事第一次照樣觸發）。"""
+        self.new_clone()
+        self.assertTrue(inventory.learning(self.V))
+
     def test_new_clone_learning_line_scan_silent_then_learn(self):
         self.new_clone()
         self.assertTrue(inventory.learning(self.V))

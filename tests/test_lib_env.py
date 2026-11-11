@@ -75,10 +75,25 @@ class Env(unittest.TestCase):
         self.assertTrue(env.missing_reported(self.V, "src-3f9a"))
 
     def test_machine_name_falls_back_to_unknown(self):
-        with mock.patch("platform.node", return_value=""):
+        with mock.patch("socket.gethostname", return_value=""):
             self.assertEqual(env.machine_name(), "unknown")
-        with mock.patch("platform.node", return_value="DESKTOP-ABC"):
+        with mock.patch("socket.gethostname", return_value="DESKTOP-ABC"):
             self.assertEqual(env.machine_name(), "DESKTOP-ABC")
+
+    def test_machine_name_is_hostname_same_as_platform_node(self):
+        """裁定 24：改用 socket.gethostname（platform.node 走 WMI，有負載 1.4～1.7 s）；值要跟 platform.node 一樣，
+        不然流水檔會把同一台當成另一台。真的去叫，不模擬。"""
+        import platform
+        import socket
+        self.assertEqual(socket.gethostname(), platform.node())
+        self.assertEqual(env.machine_name(), platform.node())
+        with mock.patch("platform.node", side_effect=AssertionError("不該叫 platform.node")):
+            env.machine_name()
+
+    def test_machine_name_oserror_same_as_platform_node(self):
+        """裁定 24：gethostname 丟 OSError 時跟 platform.node 一樣當 ''，machine_name 照舊回 unknown。"""
+        with mock.patch("socket.gethostname", side_effect=OSError("no host")):
+            self.assertEqual(env.machine_name(), "unknown")
 
 
 if __name__ == "__main__":

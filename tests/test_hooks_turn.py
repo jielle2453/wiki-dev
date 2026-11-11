@@ -417,6 +417,8 @@ class EachTurnChecks(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def say(self, prompt="問"):
+        from tests.test_hooks_session import background_scan
+        background_scan(self.V)  # 排程跑過（D-536）：每句開頭只讀清單
         r = run_hook(prompt_payload(self.V, prompt))
         self.assertEqual(r.returncode, 0, r.stderr)
         if not r.stdout:

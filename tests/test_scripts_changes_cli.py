@@ -16,9 +16,12 @@ def run_kb(*args, cwd):
                           cwd=str(cwd), env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(ROOT)))
 
 
+LIST = "local/changes.json"  # 背景比對的清單（D-536）：kb changes 比完也更新，其他一律不動
+
+
 def snapshot(root):
     return {p.relative_to(root).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns)
-            for p in root.rglob("*") if p.is_file()}
+            for p in root.rglob("*") if p.is_file() and p.relative_to(root).as_posix() != LIST}
 
 
 class Changes(unittest.TestCase):
@@ -102,7 +105,7 @@ class Changes(unittest.TestCase):
         self.assertFalse(json.loads(self.changes("--json").stdout)["incomplete"])
 
     def test_writes_nothing(self):
-        """驗收 8：.system/ 任何檔不動、沒有新回合、沒有程式段。"""
+        """驗收 8：.system/ 除了背景比對的清單，任何檔不動、沒有新回合、沒有程式段。"""
         self.applied()
         (self.raw / "客戶案件" / "新案.txt").write_text("新案\n", encoding="utf-8")
         before = snapshot(self.V / ".system")

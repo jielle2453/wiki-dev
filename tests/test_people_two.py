@@ -1,5 +1,5 @@
 """多人共用 2：兩台模擬（老闆 boss-pc、小王 wang-laptop）的日程、偏好、口述出處、可以讀、來源位置、開場問名字。
-兩台用 platform.node 換機器名模擬（env.json 照機器名分）；kb 子行程用真的機器名。"""
+兩台用 socket.gethostname 換機器名模擬（env.json 照機器名分）；kb 子行程用真的機器名。"""
 import json
 import os
 import shutil
@@ -14,6 +14,13 @@ from kb._lib import sources as sources_lib  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 import _checks  # noqa: E402
+
+
+def background_scan(vault):
+    """在這個行程裡跑一次背景比對（D-536，as_machine 換的機器名才算得到），清掉 _checks 讀過的清單。"""
+    from kb._lib import changes_list, inventory
+    changes_list.write(vault, inventory.scan(vault, sources_lib.load(vault)), "background", 0.0)
+    _checks._SCAN.clear()
 import session  # noqa: E402
 
 
@@ -181,6 +188,7 @@ class TwoMachines(Base):
         self.kb("folders", "add", str(other), "--alias", "會消失")
         shutil.rmtree(other)
         with self.as_machine("wang-laptop"):
+            background_scan(self.V)
             line = _checks.line_missing_sources(self.V)
             self.assertIsNotNone(line)
             self.assertIn("kb folders locate 會消失 <路徑>", line)
@@ -263,6 +271,7 @@ class Colleague(TwoMachines):
         (other / "a.txt").unlink()
         _checks.START = __import__("time").monotonic()  # 每句開頭的時限從這裡算
         with self.as_machine("wang-laptop"):
+            background_scan(self.V)
             lines, _told = _checks.change_lines(self.V, [], None)
         text = "\n".join(lines)
         self.assertIn("可能是同事動的", text)
@@ -275,6 +284,7 @@ class Colleague(TwoMachines):
         (other / "a.txt").unlink()
         _checks.START = __import__("time").monotonic()
         with self.as_machine("boss-pc"):
+            background_scan(self.V)
             lines, _told = _checks.change_lines(self.V, [], None)
         self.assertTrue(lines)
         self.assertNotIn("可能是同事動的", "\n".join(lines))
