@@ -69,22 +69,19 @@ class Defaults(unittest.TestCase):
         self.assertTrue(all(e["action"] == "kind_only" and e["source"] == "inferred" for e in d["exclusions"]))
 
     def test_fixture_json_is_defaults_with_md_sha(self):
-        """fixture 是記帳 1b 之前的預設（沒有九、十節）：其餘跟現在的預設一樣。"""
+        """fixture 的預設就是八節（#65 拿掉九、十節）：跟現在的預設一樣。"""
         data = json.loads((PROFILE / "profile.json").read_text(encoding="utf-8"))
         want = profile.defaults(DAY)
         want["md_sha256"] = profile.sha256_text(fixture_md())
-        self.assertEqual((want.pop("fields"), [m["mode"] for m in want.pop("money")]), ([], ["off"]))  # 新庫是關（#59；記帳 1b 原本是開）
         self.assertEqual(data, want)
 
 
 class Render(unittest.TestCase):
     def test_render_equals_fixture(self):
-        """fixture 的 md 是記帳 1b 之前的八節：現在的預設多畫九、十節，前八節一字不差。"""
+        """fixture 的 md 是八節，現在的預設一字不差（#65 起沒有九、十節）。"""
         text = profile.render_text(profile.defaults(DAY))
-        self.assertTrue(text.startswith(fixture_md()))
-        self.assertEqual(text[len(fixture_md()):].count("\n## "), 2)
-        self.assertIn("\n## 九、數字欄\n", text)
-        self.assertTrue(text.endswith("| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| 關 |  | 推測 | 2026-10-19 |\n"))
+        self.assertEqual(text, fixture_md())
+        self.assertNotIn("\n## 九、", text)
 
     def test_round_trip(self):
         d = profile.defaults(DAY)
@@ -127,8 +124,7 @@ class Parse(unittest.TestCase):
     def test_three_sections_empty_is_ok(self):
         self.assertEqual(profile.parse_md(md_with(cards=[], exclusions=[])),
                          {"types": [], "card_types": [], "exclusions": [], "synthesis_sections": [], "about": [],
-                          "preferences": [], "templates": [], "tags": [], "fields": [],
-                          "money": [{"mode": "off", "places": [], "source": "inferred", "date": DAY}]})
+                          "preferences": [], "templates": [], "tags": []})
 
     def test_missing_section(self):
         text = md_with().replace("## 二、卡型與段落", "## 卡型與段落")
@@ -510,7 +506,7 @@ class SchemaTwo(unittest.TestCase):
                           "topic": []})
 
     def test_category_hints_money_3(self):
-        """記帳 3（D-279）：時程、金額寫說明不寫會變的日期與已付；規格的數量改包裝。帳關著時給製卡的金額提示換回舊的。"""
+        """記帳 3（D-279）：時程、金額寫說明不寫會變的日期與已付；規格的數量改包裝。金額提示一律是舊的（#65 起沒有記帳）。"""
         from kb._lib import synthesis
         hints = {n: h for v in profile.CATEGORY_SECTIONS.values() for n, h in v}
         self.assertEqual((hints["時程"], hints["金額"], hints["規格"]), ("工期怎麼排、為什麼延、卡在哪；日期在卡底下的日程與帳", "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳", "型號、尺寸、包裝（一盒幾顆、一箱幾瓶）"))
@@ -518,13 +514,60 @@ class SchemaTwo(unittest.TestCase):
         d["types"] = [{"name": "案子", "category": "matter", "note": "", "source": "inferred", "date": DAY}]
         d["synthesis_sections"] = profile.default_sections(d["types"], DAY)
         money_hint = lambda prof: next(x["hint"] for x in synthesis.sections_for(prof, "案子") if x["name"] == "金額")  # noqa: E731
-        self.assertEqual(money_hint(d), "報價、合約總價、付款期別與已付", "新庫第十節是關（#59）：舊提示")
-        d["money"] = [{"mode": "spoken", "places": [], "source": "confirmed", "date": DAY}]
-        self.assertEqual(money_hint(d), "報價怎麼算、付款條件（分幾期、怎麼付）、追加減項的來由；已付未付在卡底下的日程與帳")
-        d["money"] = [{"mode": "off", "places": [], "source": "confirmed", "date": DAY}]
         self.assertEqual(money_hint(d), "報價、合約總價、付款期別與已付")
         d["synthesis_sections"][0]["sections"][1]["hint"] = "她自己寫的"
         self.assertEqual(money_hint(d), "她自己寫的", "她改過的提示不換")
+
+
+class MoneyGone(unittest.TestCase):
+    """#65 拿掉記帳：第九、十節與第五節的平常在哪讀舊檔照略過（不報錯），不寫回。"""
+    OLD_TAIL = ("\n## 九、數字欄\n舊的提示\n\n| 型別 | 欄名 | 單位 | 來源 | 日期 |\n|---|---|---|---|---|\n| 產品 | 售價 | 元 | 確認 | 2026-10-19 |\n"
+                "\n## 十、記帳\n舊的提示\n\n| 狀態 | 地點的型別 | 來源 | 日期 |\n|---|---|---|---|\n| 開 | 分店 | 確認 | 2026-10-19 |\n")
+
+    def test_load_drops_old_fields_money_and_place(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".system").mkdir()
+            d = profile.defaults(DAY)
+            d["fields"] = [{"type": "產品", "field": "售價", "unit": "元", "source": "confirmed", "date": DAY}]
+            d["money"] = [{"mode": "on", "places": ["分店"], "source": "confirmed", "date": DAY}]
+            d["about"] = [{"name": "小王", "kind": "person", "aliases": [], "place": "北店", "source": "said", "date": DAY}]
+            (Path(tmp) / ".system" / "profile.json").write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            got = profile.load(tmp)
+        self.assertNotIn("fields", got)
+        self.assertNotIn("money", got)
+        self.assertEqual(got["about"], [{"name": "小王", "kind": "person", "aliases": [], "source": "said", "date": DAY}])
+
+    def test_parse_old_md_with_nine_ten_and_place_column(self):
+        text = profile.render_text(profile.defaults(DAY))
+        text = text.replace("| 名稱 | 是什麼 | 別名 | 來源 | 日期 |\n|---|---|---|---|---|\n",
+                            "| 名稱 | 是什麼 | 別名 | 平常在哪 | 來源 | 日期 |\n|---|---|---|---|---|---|\n"
+                            "| 小王 | 成員 |  | 北店 | 確認 | 2026-10-19 |\n", 1) + self.OLD_TAIL
+        got = profile.parse_md(text)
+        self.assertNotIn("fields", got)
+        self.assertNotIn("money", got)
+        self.assertEqual([(a["name"], a["kind"], "place" in a) for a in got["about"]], [("小王", "person", False)])
+        self.assertEqual(got["tags"], [], "第九節的列沒有併進第八節")
+
+    def test_render_and_sections_have_no_money_or_place(self):
+        d = profile.defaults(DAY)
+        self.assertNotIn("money", d)
+        self.assertNotIn("fields", d)
+        names = [s["name"] for s in profile.sections_schema(d)]
+        self.assertEqual(names, ["型別", "卡型", "不整理與敏感", "每類段落", "關於你", "偏好", "範本", "標籤"])
+        about = next(s for s in profile.sections_schema(d) if s["name"] == "關於你")
+        self.assertEqual([c["name"] for c in about["columns"]], ["名稱", "是什麼", "別名"])
+        for name in ("money_mode", "place_types", "usual_place", "fields_for", "field_groups", "place_names"):
+            self.assertFalse(hasattr(profile, name), name)
+
+    def test_no_money_in_streams_and_pending_kinds(self):
+        from kb._lib import pending, streams
+        self.assertNotIn("money", streams.KINDS)
+        self.assertNotIn("money", streams.APPEND_ONLY)
+        self.assertEqual(streams.FORMAT_VERSION, 2)
+        self.assertFalse({"money_dupe", "money_unsure"} & set(pending.KINDS))
+        self.assertFalse({"money_dupe", "money_unsure"} & {k for k, _ in pending.SECTIONS})
 
 
 class SchemaOneMigration(unittest.TestCase):
@@ -761,7 +804,7 @@ class Edited(unittest.TestCase):
         self.assertEqual((got3["about"], res["message"]), ([], "已拿掉關於你：林美華"))
 
     def test_bad_section_and_column(self):
-        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤、數字欄、記帳")
+        self.assertEqual(self.err("偏好啦", "add", 偏好="x"), "沒有「偏好啦」這一節；節是 型別、卡型、不整理與敏感、每類段落、關於你、偏好、範本、標籤")
         self.assertEqual(self.err("偏好", "add", 名稱="x"), "「偏好」這一節沒有「名稱」欄；欄是 偏好、用在哪、序號")
         self.assertEqual(self.err("卡型", "remove", 提示="x"), "「卡型」這一節沒有「提示」欄；欄是 卡型、段落")
 
@@ -773,11 +816,7 @@ class SectionsSchema(unittest.TestCase):
         d["preferences"] = [pref("回答先講結論")]
         got = profile.sections_schema(d)
         self.assertEqual([s["name"] for s in got], list(profile.SECTION_NAMES))
-        types, cards, ex, synth, about, prefs, templates, tags, fields, money = got
-        self.assertEqual((fields["number"], fields["key"], fields["add"]),
-                         (9, ["型別", "欄名"], "kb profile add 數字欄 型別={型別} 欄名={欄名} 單位={單位}"))
-        self.assertEqual((money["number"], money["key"], money["remove"]), (10, [], None))
-        self.assertEqual(money["columns"][0], {"name": "狀態", "choices": ["開", "只記我講的", "關"]})
+        types, cards, ex, synth, about, prefs, templates, tags = got
         self.assertEqual((tags["number"], tags["key"], tags["remove"]), (8, ["型別", "欄名"], None))
         self.assertEqual(tags["add"], "kb profile add 標籤 型別={型別} 欄名={欄名} 詞={詞} 可多選={可多選}")
         self.assertEqual((templates["key"], templates["add"], templates["remove"]),
@@ -905,7 +944,7 @@ class SchemaFive(unittest.TestCase):
 
     def test_render_has_section_eight(self):
         text = profile.render_text(profile.defaults(DAY))
-        self.assertIn(SECTION8 + "\n## 九、數字欄", text)  # 記帳 1b：第八節後面接九、十節
+        self.assertTrue(text.endswith(SECTION8), "#65 起第八節是最後一節")
         self.assertEqual(profile.defaults(DAY)["tags"], [])
         self.assertEqual(profile.SCHEMA_VERSION, 7)
 

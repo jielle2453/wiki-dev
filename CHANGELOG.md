@@ -4,6 +4,35 @@
 bump `plugin.json` 版號的那個 commit 要同時寫這裡，不事後補；事後補就會變成第二份會漂的清單。
 為什麼只寫 spec 或決策裡有的，查不到寫「待補」，不推測。
 
+## 0.40.0 — 2026-11-11
+- **給客戶的一句話**：willy 不再內建記帳：你講到錢（收了、付了、售價多少）我照樣記下來、問加總也算得出來，文件上的付款期限照舊進日程提醒你；要正式記帳的，另外幫你裝記帳工具。之前記過的帳還在「系統/帳.md」，不會再更新。
+- **改了什麼**（#65，D-537，定案 1～7，裁定 1～14）：
+  - 拿掉：`kb money` 整組、`money.py`、`money_cli.py`、帳頁（`系統/帳.md`、`系統/帳/`）的產生與套用、首頁與 `kb lookup`／`kb entity panel` 的帳、製卡抽錢與抽數字欄、錢的待處理（`money_dupe`、`money_unsure`）、低庫存、報帳（「公司還欠你」）、帳與日程連動、設定檔第十節（記帳開關與地點型別）與第五節「平常在哪」、Obsidian 外掛畫的帳。
+  - 數字欄一起拿掉：設定檔第九節、`kb entity field`、`kb profile add 數字欄`、清冊 `money_fp`、綜合卡檔頭新渲染的數字欄。
+  - 留下：`kb tally`、`kb statement add --money`、`kb statement list --money`；加總從 `kb money sum` 搬成 `kb statement sum`。
+  - 製卡：金額不另外抽，付款、收款的期限照 D-062 進日程（例：「12/5 前匯款」加成到期）。
+  - note、answer 加一句：設定檔偏好說錢的事交給別的工具（裝了客製記帳的客戶）就照偏好，不記口述、不加總（定案 5）。
+  - 守門：子代理的 `money`、`entity field` 放行拿掉；`TAG_DENY` 只管 `entity tag`。
+  - 升級遷移（看內容，不看版號）：拿掉設定檔第九、十節與「平常在哪」；舊庫還開著的帳待處理關掉（how「記帳改成另外的客製功能」）；第十節原本是開的，升級輸出多一句舊帳在哪。`.system/money.json`、`.system/streams/money/`、`系統/帳.md`、實體的 `欄:`、清冊 `money_fp`、0.36 已渲染在綜合卡上的數字欄行都原樣留著、不再讀寫；`.gitignore` 照舊排除 `.system/money.json`。
+- **為什麼**：一般客戶不需要記帳；要記帳的客戶要的是多人同時寫不出錯的帳（主機資料庫、單一入口），willy 的流水檔做不到，記帳改成客製（C002-記帳）、要的客戶才加（jacky 2026-11-09，#58 關；jie 2026-11-10 開 #65）。數字欄是為記帳算錢做的，帳拿掉後只剩顯示、跟口述重疊（jacky 2026-11-10）。0.35 起記帳預設關（#59、D-534），應該沒有客戶開過；C001～C003 都沒用過數字欄。
+- **commit**：3686a42e、f5b2f6a3、ed7aa3d6（甲段）；1d8e4a3f、da512e3f、ac1dc8c6（乙段與測試、確認後修）
+- **spec**：design/specs/2026-11-10-拿掉記帳.md
+- **關掉的 issue**：#65
+- **還沒驗、還沒定的**：開過記帳的舊庫，舊帳裡未付的那筆升級後只留在 `系統/帳.md`、不進日程（裁定 12）；在對話外升級的，之後不會再講「舊帳在哪」那句（裁定 4、B-541）；`kb statement list --money` 沒掛實體的那筆括號多一個逗號（B-540，0.39 就有）。main 上本來就紅、不是這版改的：`test_skill_answer::Body::test_size`、`test_small_fixes_1026::SkillText::test_14_ingest_body_size`（B-534）、`test_lib_restore::Apply::test_restored_state_equals_backup_time_except_preserved`（B-539）。
+
+## 0.39.0 — 2026-11-11
+- **給客戶的一句話**：卡片多了以後找東西也很快：在搜尋框打字、或問 willy「哪份檔有提到交期」，幾千張卡也在一兩秒內找到，兩個字的詞也找得到；你在 Obsidian 改了卡、退回、同事同步進來的，下一次找就是新的。
+- **改了什麼**（#57，D-345，裁定 1～17）：
+  - 新 `scripts/kb/_lib/card_index.py`：檔案卡的檔頭與正規化後的標題、內文存進知識庫外的 SQLite 快取（`%LOCALAPPDATA%\wiki-with-willy\index\<vault id>-<路徑雜湊>.sqlite`，測試用 `WIKI_WITH_WILLY_INDEX_DIR`）；每次讀全部的卡先走 `檔案索引/` 比修改時間與大小，只重讀有變的，剛改不到 2 秒的下次一定重讀；讀卡暫時失敗（被鎖、OneDrive 還沒下載）不寫進索引；索引沒有、壞了、鎖住就照舊逐卡讀、不報錯，壞了當場刪掉重建。
+  - `cards._scan_groups` 改走索引（原本的逐卡讀搬成 `_scan_groups_files`）；`_render_index` 用它的結果。`kb find` 與 `kb lookup` 找內文用 SQLite `instr`；`kb find`、`kb lookup`、`kb cards list` 一個指令只走一遍目錄（`card_index.once`）。背景比對（`kb changes --background`）順便更新索引。新指令 `kb index rebuild`。
+  - `paths.plugin_root()`、`config.defaults()` 同一個行程記住，不再每次重讀（裁定 1）；`config.get` 對清單、字典型預設值回複本。
+  - 寫卡的程式一個都沒改：不管誰改的卡（AI、程式、退回、Obsidian 手改、git pull），下一次讀就對。
+- **為什麼**：壓力測試（2026-11-09）3 萬張卡 `kb find` 47～122 s、`kb lookup` 84～111 s，慢在每查一次都把每張卡打開解析；設定檔每張卡重讀一次又多 18 s。實測（測試第 1 輪，3 萬張）：`kb find` 2.3～5.1 s、1 萬張 ≤ 1.8 s、1 千張約 0.3 s；`kb lookup` 3 萬張 13～16 s（B-535）；寫一張卡後的 hook 11.6 → 5.8 s；背景比對 37.5 → 19.6 s。
+- **commit**：2b242a16、cb44fdc0、b8dbd069
+- **spec**：design/specs/2026-11-11-卡片索引.md
+- **關掉的 issue**：#57（B-104 收進）；同一張的第二份「主機補做沒整理的檔」（D-346）另記 B-533，還沒做
+- **還沒驗、還沒定的**：Mac 沒跑過（路徑算法有非 Windows 分支）；知識庫刪掉後 LOCALAPPDATA 裡的索引檔留著；`kb lookup` 3 萬張仍要十幾秒（`cards.wip` 逐張跑 problems，B-535）；確認時 AI 同一個對話接著問沒先跑 `kb find`（B-536）。main 上本來就紅、不是這版改的：`test_skill_answer::Body::test_size`、`test_small_fixes_1026::SkillText::test_14_ingest_body_size`（B-534）、`test_lib_restore::Apply::test_restored_state_equals_backup_time_except_preserved`（B-539）。
+
 ## 0.38.0 — 2026-11-11
 - **給客戶的一句話**：現在可以叫 willy 在知識庫裡幫你做 skill（例如「幫我做一個查報價的 skill」），第一次寫進去時 Claude 會問你允不允許，按允許就好。用 Codex 的：升級到這版後，在 Codex 打一次 `/hooks` 重新信任 willy，不然 willy 不會動。
 - **改了什麼**：

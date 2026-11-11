@@ -6,8 +6,8 @@
  * 找 kb、叫 kb（一律帶 --via obsidian）、把 kb 給的 JSON 畫出來、把四個動作變成 kb 指令（和反悔的相反指令；D-266）。
  * 要測的純函式都從 module.exports 的 `lib` 匯出（tests/obsidian/*.test.js 用假的 obsidian 模組載入）。
  * 不把任何路徑寫進設定（D-019）：每次載入照 installed_plugins.json 找 kb.py。
- * 記帳 3（issue #27，D-340）：她打開綜合卡（檔頭編號是 e-）時叫 kb entity panel，把「日程與帳」接在卡的最後（閱讀與即時預覽各一份），
- * 不寫進卡檔；首頁待辦多帳的到期件（打勾 = kb money settle）、庫存不足、公司還欠你，上方多一個「帳」連結。
+ * 她打開綜合卡（檔頭編號是 e-）時叫 kb entity panel，把「日程」接在卡的最後（閱讀與即時預覽各一份），不寫進卡檔（D-340）。
+ * 帳（帳頁、首頁的帳、庫存不足、公司還欠你）#65 起不畫；舊版 kb 給了 stock、owed、links、money 也忽略。
  */
 
 const obsidian = require('obsidian');
@@ -24,7 +24,7 @@ const { Plugin, ItemView, Modal, Notice, MarkdownView } = obsidian;
 
 const PLUGIN_ID = 'wiki-with-willy';
 const VIEW_TYPE = 'wiki-with-willy-home';
-const WATCH_FILES = ['agenda.json', 'pending.json', 'entities.json', 'inventory.json', 'profile.json', 'money.json'];
+const WATCH_FILES = ['agenda.json', 'pending.json', 'entities.json', 'inventory.json', 'profile.json'];
 const DEBOUNCE_MS = 300;
 // 多人共用 3（D-293）：git pull 會改 .git 底下這幾個檔；變了等 2 秒（去抖）叫 kb refresh。不靠 Obsidian 自己的通知。
 const GIT_WATCH_FILES = ['HEAD', 'ORIG_HEAD', 'FETCH_HEAD'];
@@ -49,11 +49,9 @@ const KNOWN_KINDS = Object.keys(KIND_LABEL);
 const KIND_BY_LABEL = { 到期: 'deadline', 會議: 'meeting', 承諾: 'promise', 提醒: 'reminder', 期間: 'period' };
 const KNOWN_SHAPES = ['bar', 'point'];
 const WEEKDAY = ['日', '一', '二', '三', '四', '五', '六'];
-const MONEY_PAGE = '系統/帳.md';
-const MANAGED_PAGES = ['系統/日程.md', '系統/待處理.md', '系統/裁示.md', MONEY_PAGE];
-const MONEY_YEAR_RE = /^系統\/帳\/\d{4}\.md$/; // 帳的每年一頁：照「系統/帳/ 底下」認（記帳 3）
+const MANAGED_PAGES = ['系統/日程.md', '系統/待處理.md', '系統/裁示.md'];
 const PANEL_CLS = 'wwh-panel';
-const PANEL_TITLE = '日程與帳';
+const PANEL_TITLE = '日程';
 const PANEL_CARD_ATTR = 'data-wwh-card'; // 那段是哪張卡的：分頁換了檔，不是它的就拿掉
 const PANEL_REDRAW_MS = 50; // 切閱讀模式／即時預覽後，等 Obsidian 畫好那一邊再接
 const GENERATED_BANNER = '這頁由程式產生；要改請在首頁改，或直接跟 Claude 說';
@@ -640,10 +638,7 @@ function normalizeHome(raw) {
       overdue: asArray(todo.overdue),
       today: asArray(todo.today),
       week: asArray(todo.week),
-      stock: asArray(todo.stock).filter(isObject), // 記帳 3：庫存不足（D-282）
-      owed: asArray(todo.owed).filter(isObject), // 記帳 3：公司還欠你（D-338）
     },
-    links: { money: isObject(r.links) && typeof r.links.money === 'string' ? r.links.money : null },
     confirm: asArray(r.confirm).filter(isObject),
     claude: asArray(r.claude).filter(isObject), // 要跟 Claude 一起看的題（裁定 39）：{key, kind, text}
     others: asArray(r.others).filter(isObject),
@@ -658,20 +653,7 @@ function todoGroups(home) {
     { key: 'today', label: '今天', items: asArray(t.today), defaultCollapsed: false },
     { key: 'week', label: '這週', items: asArray(t.week), defaultCollapsed: true },
   ];
-  // 記帳 3：有才畫，沒有勾選框
-  if (asArray(t.stock).length) out.push({ key: 'stock', label: '庫存不足', items: asArray(t.stock), defaultCollapsed: false });
-  if (asArray(t.owed).length) out.push({ key: 'owed', label: '公司還欠你', items: asArray(t.owed), defaultCollapsed: false });
   return out;
-}
-
-function isMoneyItem(it) {
-  return !!it && it.source === 'money';
-}
-
-/** 金額寫千分位（kb 給的是數字）。 */
-function money(n) {
-  const v = Number(n);
-  return Number.isFinite(v) ? v.toLocaleString('en-US') : String(n == null ? '' : n);
 }
 
 /** 頁上的那一行（kb 給的 match）：整行一樣的先、再找包含的、再找去掉「已過 N 天」的前段；找不到回 0（頁頂）。 */
@@ -688,19 +670,12 @@ function findPageLine(content, match) {
   return at < 0 ? 0 : at;
 }
 
-/** kb entity panel 的結果 → 要畫的（D-340）；沒有日程也沒有帳的回 null（不畫）。商品的庫存已經在帳那行，不另畫。 */
+/** kb entity panel 的結果 → 要畫的（D-340）；沒有日程的回 null（不畫）。舊版 kb 給的 money、stock 不畫。 */
 function panelModel(j) {
   if (!isObject(j)) return null;
   const agenda = asArray(j.agenda).filter(isObject);
-  const m = isObject(j.money) ? j.money : null;
-  const st = isObject(j.stock) ? j.stock : null;
-  const stockLine = st && typeof st.line === 'string' && !('total' in st) ? st.line : null;
-  if (!agenda.length && !m && !stockLine) return null;
-  return {
-    agenda,
-    money: m ? { head: m.head || '', open: asArray(m.open).filter(isObject), recent: asArray(m.recent).filter(isObject), total: Number(m.total_n) || 0, page: m.page || MONEY_PAGE } : null,
-    stockLine,
-  };
+  if (!agenda.length) return null;
+  return { agenda };
 }
 
 function versionMismatch(homeVersion, pluginVersion) {
@@ -991,7 +966,6 @@ const actions = {
   /** 打勾：done；復原 reopen（重複的日程完成會跳到下一次，復原改回原日期）。 */
   done(item) {
     const id = item.id;
-    if (isMoneyItem(item)) return { id: 'done', args: ['money', 'settle', id], undo: () => ({ args: ['money', 'reopen', id] }) }; // 全額收付（新定 2）
     return {
       id: 'done',
       args: ['agenda', 'done', id],
@@ -1005,12 +979,6 @@ const actions = {
   /** 改日期、時間：只送有變的；復原改回原值（原本沒有時間的沒辦法清掉，那一項不復原）。 */
   edit(item, change) {
     const id = item.id;
-    if (isMoneyItem(item)) {
-      const was = itemDate(item);
-      const v = change && change.date;
-      if (!v || v === was) return null;
-      return { id: 'edit', args: ['money', 'edit', id, '--due', v], undo: was ? () => ({ args: ['money', 'edit', id, '--due', was]}) : null };
-    }
     const args = ['agenda', 'edit', id];
     const back = ['agenda', 'edit', id];
     const orig = { date: itemDate(item), start: item.start || '', time: item.time || '' };
@@ -1196,7 +1164,7 @@ async function openOriginal(ctx, open) {
 
 function isManagedPage(p) {
   const s = String(p || '').replace(/\\/g, '/');
-  return MANAGED_PAGES.includes(s) || MONEY_YEAR_RE.test(s);
+  return MANAGED_PAGES.includes(s);
 }
 
 function isGeneratedPage(p) {
@@ -1963,12 +1931,6 @@ class HomeView extends ItemView {
     el.appendChild(
       h('div', { cls: 'wwh-greet' }, h('p', { cls: 'wwh-date', text: longDate(home.today) }), h('h1', { cls: 'wwh-cheer', text: home.cheer || '' })),
     );
-    const link = home.links && home.links.money; // 記帳 3：帳關著而且沒有任何筆時 kb 給 null，不出
-    if (link) {
-      el.appendChild(
-        h('div', { cls: 'wwh-top-links' }, h('a', { cls: 'wwh-link wwh-money-link', text: '帳', title: '開帳頁', on: { click: () => this.plugin.openPathInVault(link) } })),
-      );
-    }
   }
 
   // ---- 搜尋 ----
@@ -2804,37 +2766,17 @@ class HomeView extends ItemView {
         box.appendChild(h('div', { cls: 'wwh-empty', text: '沒有' }));
         continue;
       }
-      for (const it of g.items) box.appendChild(g.key === 'stock' ? this.stockRow(it) : g.key === 'owed' ? this.owedRow(it) : this.todoRow(it, g.key));
+      for (const it of g.items) box.appendChild(this.todoRow(it, g.key));
     }
-  }
-
-  /** 庫存不足（D-282）：沒有勾選框，點了開那個商品的卡；補了貨 kb 就不給了。 */
-  stockRow(it) {
-    const unit = it.unit ? ` ${it.unit}` : '';
-    const amount = typeof it.text === 'string' && it.text ? it.text : `${money(it.stock)}${unit}`; // D-344 補：換不了的分開列
-    const text = `${it.entity || ''}剩 ${amount}（安全庫存 ${money(it.min)}）`;
-    const open = () => (it.card ? this.plugin.openPathInVault(it.card) : this.plugin.openEntity(it.entity));
-    return h('div', { cls: ['wwh-todo', 'is-stock'] }, h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開這個商品的卡', text, on: { click: open } })));
-  }
-
-  /** 公司還欠你（D-338，只有墊的人看得到）：沒有勾選框，點了開帳頁那一行。 */
-  owedRow(it) {
-    const text = `公司還欠你 ${money(it.amount)}` + (it.text ? `（${it.text}）` : '');
-    return h(
-      'div',
-      { cls: ['wwh-todo', 'is-owed'] },
-      h('div', { cls: 'wwh-todo-body' }, h('span', { cls: 'wwh-todo-text', title: '開帳頁那一行', text, on: { click: () => this.plugin.openPageLine(it.page || MONEY_PAGE, it.match) } })),
-    );
   }
 
   /** 一件待辦：勾選框、標題（點下去開日程.md 那一行）、案子·種類·推測合成一行淡小字、日期（點了改日期時間）。 */
   todoRow(it, groupKey) {
     const row = h('div', { cls: ['wwh-todo', groupKey === 'overdue' || it.late ? 'is-late' : '', it.inferred ? 'is-inferred' : ''] });
-    // 帳的件（記帳 3，新定 2）：打勾 = 全額收付；金額未知的不給勾（點標題開帳頁那一行，部分收付跟 AI 說）
-    const box = isMoneyItem(it) && it.settle_ok === false ? h('span', { cls: 'wwh-check-none', title: '金額未知：點標題開帳頁，或跟 Claude 說收了多少' }) : h('input', {
+    const box = h('input', {
       cls: 'wwh-check',
       attrs: { type: 'checkbox' },
-      title: isMoneyItem(it) ? '打勾 = 整筆收付了' : '打勾 = 完成',
+      title: '打勾 = 完成',
       on: {
         click: () => {
           row.classList.add('is-done');
@@ -3632,7 +3574,6 @@ class WikiWithWillyPlugin extends Plugin {
   // ---- 點下去：日程開相關的卡、案子開綜合卡（D-266、裁定 32）----
   /** 點日程那件：kb 給的 card（origin 的檔案卡 → 掛的第一個實體的綜合卡）；都沒有才開日程.md 那一行。 */
   async openItem(it) {
-    if (isMoneyItem(it)) return this.openPageLine(it.page || MONEY_PAGE, it.match); // 帳的件開帳頁那一行（記帳 3）
     const card = it && isObject(it.card) ? it.card : null;
     if (card && card.path) {
       this.openPathInVault(card.path);
@@ -3658,7 +3599,7 @@ class WikiWithWillyPlugin extends Plugin {
     }
   }
 
-  /** 開一頁、游標跳到 kb 給的那一行（帳頁、年頁、日程頁；卡底下那段與首頁帳的件用）。 */
+  /** 開一頁、游標跳到 kb 給的那一行（日程頁；卡底下那段用）。 */
   async openPageLine(rel, match) {
     let line = 0;
     try {
@@ -3714,16 +3655,6 @@ class WikiWithWillyPlugin extends Plugin {
   }
 
   async editDateForm(it) {
-    if (isMoneyItem(it)) { // 帳的件只改到期日（kb money edit --due）
-      const v = await openForm(this.app, { title: `改「${it.text || ''}」的到期日`, okText: '改', fields: [{ key: 'date', label: '到期日', type: 'date', value: itemDate(it), required: true }] });
-      if (!v) return null;
-      const a = actions.edit(it, v);
-      if (!a) {
-        this.toast('沒有要改的');
-        return null;
-      }
-      return this.runAction(a);
-    }
     const isPeriod = isPeriodKind(it.kind);
     const fields = [{ key: 'date', label: isPeriod ? '結束日' : '日期', type: 'date', value: itemDate(it), required: true }];
     if (isPeriod) fields.unshift({ key: 'start', label: '開始日', type: 'date', value: it.start || '' });
@@ -3785,7 +3716,7 @@ class WikiWithWillyPlugin extends Plugin {
     if (p && file) this.showPanel(file);
   }
 
-  // ---- 綜合卡底下的「日程與帳」（記帳 3，D-340）：畫面，不寫進卡檔 ----
+  // ---- 綜合卡底下的「日程」（D-340）：畫面，不寫進卡檔 ----
   /** 是綜合卡（檔頭的編號是 e-）才叫 kb entity panel；kb 叫不到時那段不畫、不報錯（記 console）。 */
   async showPanel(file) {
     const p = this.filePathOf(file);
@@ -3837,7 +3768,7 @@ class WikiWithWillyPlugin extends Plugin {
     }
   }
 
-  /** 分頁換了檔（點那段的一行跳到帳頁）：不是它現在這個檔的那段拿掉（記帳 3 確認 #3）。 */
+  /** 分頁換了檔（點那段的一行跳到日程頁）：不是它現在這個檔的那段拿掉（記帳 3 確認 #3）。 */
   sweepPanels() {
     for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
       const view = leaf.view;
@@ -3856,7 +3787,7 @@ class WikiWithWillyPlugin extends Plugin {
     }, PANEL_REDRAW_MS);
   }
 
-  /** 首頁資料重讀時（日程或帳變了），開著的綜合卡底下那段跟著重算。 */
+  /** 首頁資料重讀時（日程變了），開著的綜合卡底下那段跟著重算。 */
   refreshPanels() {
     if (!this.panels || !this.panels.size) return;
     const open = new Map();
@@ -3872,18 +3803,7 @@ class WikiWithWillyPlugin extends Plugin {
     const line = (text, page, match) =>
       h('li', { cls: 'wwh-panel-line', text, title: '開那一頁的這一行', on: { click: () => this.openPageLine(page, match) } });
     const box = h('div', { cls: [PANEL_CLS, 'markdown-rendered'], attrs: { contenteditable: 'false' } }, h('div', { cls: 'wwh-panel-title', text: PANEL_TITLE }));
-    if (model.agenda.length) {
-      box.appendChild(h('div', { cls: 'wwh-panel-head', text: '日程' }));
-      box.appendChild(h('ul', {}, ...model.agenda.map((a) => line(a.line || a.text || '', a.page || MANAGED_PAGES[0], a.match || a.text))));
-    }
-    const m = model.money;
-    if (m) {
-      box.appendChild(h('div', { cls: 'wwh-panel-head', text: `帳：${m.head}` }));
-      const rows = m.open.concat(m.recent).map((x) => line(x.line || '', x.page || m.page, x.match));
-      if (m.total > m.recent.length) rows.push(h('li', { cls: 'wwh-panel-more wwh-link', text: `…共 ${m.total} 筆，看帳`, on: { click: () => this.openPathInVault(m.page) } }));
-      if (rows.length) box.appendChild(h('ul', {}, ...rows));
-    }
-    if (model.stockLine) box.appendChild(h('div', { cls: 'wwh-panel-stock', text: model.stockLine }));
+    box.appendChild(h('ul', {}, ...model.agenda.map((a) => line(a.line || a.text || '', a.page || MANAGED_PAGES[0], a.match || a.text))));
     return box;
   }
 
@@ -4207,7 +4127,6 @@ module.exports.lib = {
   isGeneratedPage,
   findPageLine,
   panelModel,
-  MONEY_PAGE,
   createApplyTracker,
   shouldToastModified,
   gitRefreshNotice,
