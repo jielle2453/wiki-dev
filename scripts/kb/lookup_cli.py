@@ -72,7 +72,7 @@ def wip_lines(got):
 
 def _lines(got):
     if got["entity"] is None:
-        names = "、".join(f"{x['name']}（{x['type']}）" for x in got.get("similar") or [])
+        names = "、".join(x["name"] + (f"（{x['type']}）" if x.get("type") else "") for x in got.get("similar") or [])
         similar = [f"名稱有這個字的：{names}；要哪個用全名再查"] if names else []
         if not got["mentions"]:
             return [lookup_lib.NOTHING] + similar + wip_lines(got)
