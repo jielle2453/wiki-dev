@@ -242,27 +242,29 @@ class ProfileLocalSha(StreamsTest):
 
 
 class FormatVersion(StreamsTest):
-    """記帳 1a（D-335）：流水檔格式版本 2；舊版（格式 1）讀到 v2 的行照讀、要寫才擋。"""
+    """記帳 1a（D-335）：流水檔格式版本跟大升級走（記帳 1a 升 2，#68 拿掉承諾升 3）；舊版讀到比它新的行照讀、要寫才擋（D-298）。"""
 
-    def test_format_version_is_2_and_rows_carry_it(self):
-        self.assertEqual(streams.FORMAT_VERSION, 2)
+    def test_format_version_is_3_and_rows_carry_it(self):
+        self.assertEqual(streams.FORMAT_VERSION, 3)
         streams.write(self.V, "agenda", {}, {"a-1": {"t": 1}})
         row = json.loads(streams.own_file(self.V, "agenda").read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(row["v"], 2)
+        self.assertEqual(row["v"], 3)
 
     def test_v1_rows_still_read(self):
         self.put("m-a", "agenda", {"v": 1, "op": "create", "id": "a-1", "seq": 1, "base": 0, "by": "m-a", "set": {"t": 1}})
         self.assertEqual(streams.load(self.V, "agenda").records["a-1"], {"t": 1})
         streams.check_writable(self.V, "agenda")  # 舊的行不擋新版寫
 
-    def test_old_program_refuses_to_write_after_v2_row(self):
+    def test_old_program_refuses_to_write_after_newer_row(self):
+        """格式 2 的舊程式（0.41.x）讀到 v3 的行照讀、寫之前停；格式 1（0.33.0）也一樣。"""
         from unittest import mock
         streams.write(self.V, "agenda", {}, {"a-1": {"t": 1}})
-        with mock.patch.object(streams, "FORMAT_VERSION", 1):  # 0.33.0 的 check_writable：同一套、格式版本 1
-            self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 1)
-            with self.assertRaises(streams.NewerFormat) as cm:
-                streams.check_writable(self.V, "agenda")
-        self.assertEqual(cm.exception.version, 2)
+        for old in (1, 2):
+            with self.subTest(old=old), mock.patch.object(streams, "FORMAT_VERSION", old):  # 舊版的 check_writable：同一套、格式版本 old
+                self.assertEqual(streams.load(self.V, "agenda").records["a-1"]["t"], 1)
+                with self.assertRaises(streams.NewerFormat) as cm:
+                    streams.check_writable(self.V, "agenda")
+                self.assertEqual(cm.exception.version, 3)
 
 
 H0 = {"date": "2026-11-01", "change": "建立", "by": "ai", "turn": "t0"}

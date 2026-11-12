@@ -565,7 +565,7 @@ class MoneyGone(unittest.TestCase):
         from kb._lib import pending, streams
         self.assertNotIn("money", streams.KINDS)
         self.assertNotIn("money", streams.APPEND_ONLY)
-        self.assertEqual(streams.FORMAT_VERSION, 2)
+        self.assertEqual(streams.FORMAT_VERSION, 3)  # #68 拿掉承諾升 3（D-335）
         self.assertFalse({"money_dupe", "money_unsure"} & set(pending.KINDS))
         self.assertFalse({"money_dupe", "money_unsure"} & {k for k, _ in pending.SECTIONS})
 
