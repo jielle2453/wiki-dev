@@ -150,6 +150,46 @@ class NotRegistered(Base):
         self.assertEqual(lookup.lookup(self.V, "信義王報價")["in_progress"], [])  # 有卡提到就不附（只附在都沒有時）
 
 
+class Partial(Base):
+    """#37 重開：沒登記時，名稱或別名含有問的字（2 字以上）的 active 實體——只有一個就照它查，好幾個列 similar。"""
+
+    def add(self, *rows):
+        data = json.loads((self.V / ".system" / "entities.json").read_text(encoding="utf-8"))["entities"]
+        E.put_entities(self.V, data + list(rows))
+
+    def test_one_match_looks_up_full_name(self):
+        self.add(E.entity("e-1a1a1a1a", "永豐鋼鐵", "廠商"))
+        s, _ = statements.add(self.V, "永豐鋼鐵 H 型鋼 12 月起每噸漲 800 元", ["永豐鋼鐵"], self.t)
+        got = lookup.lookup(self.V, "永豐")
+        self.assertEqual((got["entity"]["name"], got["query"], got["partial"]), ("永豐鋼鐵", "永豐", "永豐鋼鐵"))
+        self.assertEqual([x["id"] for x in got["statements"]], [s["id"]])
+        self.assertNotIn("similar", got)
+        out = self.kb("永豐").splitlines()
+        self.assertEqual(out[0], "沒有登記「永豐」，照「永豐鋼鐵」查：")
+        self.assertTrue(out[1].startswith("永豐鋼鐵（廠商）："), out)
+
+    def test_alias_part_and_one_char(self):
+        self.add(E.entity("e-2b2b2b2b", "甲公司", "廠商", aliases=["永豐金屬"]))
+        self.assertEqual(lookup.lookup(self.V, "金屬")["partial"], "甲公司")
+        one = lookup.lookup(self.V, "董")  # 1 字不比（王先生的別名王董）
+        self.assertIsNone(one["entity"])
+        self.assertEqual(one["similar"], [])
+
+    def test_many_matches_listed(self):
+        self.add(E.entity("e-1a1a1a1a", "永豐鋼鐵", "廠商"), E.entity("e-3c3c3c3c", "永豐五金", "廠商"),
+                 E.entity("e-4d4d4d4d", "永豐建材", "廠商", status="removed"))
+        got = lookup.lookup(self.V, "永豐")
+        self.assertIsNone(got["entity"])
+        self.assertEqual(got["similar"], [{"name": "永豐五金", "type": "廠商"}, {"name": "永豐鋼鐵", "type": "廠商"}])
+        self.assertIn("名稱有這個字的：永豐五金（廠商）、永豐鋼鐵（廠商）；要哪個用全名再查", self.kb("永豐").splitlines())
+
+    def test_registered_has_no_partial(self):
+        got = lookup.lookup(self.V, "信義王")
+        self.assertNotIn("partial", got)
+        self.assertNotIn("similar", got)
+        self.assertEqual(lookup.lookup(self.V, "沒這個")["similar"], [])
+
+
 class Knowledge(Base):
     def test_rulings_ruled_out_and_spoken_first(self):
         banned = rulings.add(self.V, "不採用", [], [self.contract], "合約是舊的，別信", self.t)
