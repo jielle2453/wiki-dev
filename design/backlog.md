@@ -325,6 +325,11 @@
 - B-539（要做、中）main（0.38.0 起）test_lib_restore 還原比對多出 AGENTS.md 而紅
 - B-681（要做、低）TMP 指到中文路徑時，node 跑 `tests/obsidian` 整檔…
 - B-682（要做、低）selftest 的 `upgrade --background` 5 秒上…
+- B-683（要做、低）`kb init` 不帶回合重畫日程.md 時，重複的會議或…
+- B-684（要做、低）`renders.json` 沒記日程.md base（最後…
+- B-685（要做、低）`test_hooks_session.py::Backgr…
+- B-686（要做、低）Obsidian 開著時 `kb obsidian open…
+- B-687（要做、低）spec 範本與 process 沒提醒「動 `_lib/m…
 
 **延伸**
 
@@ -512,6 +517,11 @@
 | B-680 | 2026-11-11 | 要做 | 低 | 日程 | 同一句先記日程再做綜合卡時，日程頁那條暫時沒有連結，要等下次 `kb agenda` 重產才有 | 外掛上層vault-確認.md #1 |
 | B-681 | 2026-11-11 | 要做 | 低 | 流程與文件 | TMP 指到中文路徑時，node 跑 `tests/obsidian` 整檔崩潰（0xC0000409）；英文路徑 212 全過，0.40.1 一樣 | 0.41.0 發行 |
 | B-682 | 2026-11-11 | 要做 | 低 | 流程與文件 | selftest 的 `upgrade --background` 5 秒上限在 jacky 這台偶爾逾時，0.40.1 一樣 | 0.41.0 發行 |
+| B-683 | 2026-11-12 | 要做 | 低 | 日程 | `kb init` 不帶回合重畫日程.md 時，重複的會議或提醒過期滾動（`_roll_all`）會走到 `turn.backup(None)` 丟 TypeError，init 只接 ValueError（main 既有） | #68 實作回報 |
+| B-684 | 2026-11-12 | 要做 | 低 | 日程 | `renders.json` 沒記日程.md base（最後畫頁在 0.22.0 以前）時，舊承諾那幾行重算寫「到期」對不上：她在舊頁打勾不會記成完成，落到頁尾「你加的（還沒處理）」（#68 裁定 6 接受） | 拿掉承諾-測試.md #1 |
+| B-685 | 2026-11-12 | 要做 | 低 | 流程與文件 | `test_hooks_session.py::BackgroundLint` 兩條（test_eight_days_ago_spawns、test_no_lint_json_spawns）跟相關測試長串循序合跑時紅、單檔綠，main fbbf1d67 一樣（順序污染） | 拿掉承諾-測試.md #2 |
+| B-686 | 2026-11-12 | 要做 | 低 | 升級與發行 | Obsidian 開著時 `kb obsidian open` 在放外掛檔之前就 exit 3，知識庫留著舊版外掛 | 拿掉承諾-確認.md #4 |
+| B-687 | 2026-11-12 | 要做 | 低 | 流程與文件 | spec 範本與 process 沒提醒「動 `_lib/migrate.py` 的 `STATE_FILES` 就要升 `streams.FORMAT_VERSION`」（D-335），#68 spec 漏了、到發行才被 release.py 擋（0.42.0 tag 沒發布、改發 0.42.1）；建議 spec 範本「資料與介面格式」節加一句 | #68 發行 |
 | B-511 | 2026-10-30 | 做完 | 中 | 整理成卡 | 她在 Obsidian 手改綜合卡內文（D-256 准什麼都能改），下次 Claude 更新那張卡時「現況」照 S-22 改寫、檔頭整個換新（標籤行照 D-505 正本），她改的字可能不見、沒有提示；「紀事」只增，她加的會留、她刪的 hook 會要求補回。候選：更新前比對上次寫的版本，她改過的段先問或照她的寫；或 Obsidian 裡綜合卡內文唯讀、改要經對話。10-30 使用者選前者（A）：更新前比對上次寫的版本，她改過的段先問或照她的寫；#22 之後另開題做。10-31 擴大成 D-270：檔案卡也算，她改的算她說的、相關的跟著改，下次開對話時 Claude 先處理 | #22 實作回報待查 1 |
 | B-512 | 2026-10-30 | 要做 | 低 | 健檢與待處理 | #22 起日程、待處理、裁示重新產生時認出手改直接照做，`renders.handle_list` 沒人叫、handedit 待處理只剩升級前的舊件；`kb lint handedit` 與 lint 的 handedits 那項之後拿掉，或改成列「你加的（還沒處理）」 | #22 實作回報 |
 | B-513 | 2026-10-30 | 要做 | 中 | 守門與密碼 | `hooks/guard.py` 的 `_has_flag` 只認字面的旗標，`kb_args` 在 PowerShell 只剝整個 token 被引號包住的；`--v"ia" obsidian`（或 `--t"urn"`、`--s"ession"`）守門 allow、PowerShell 交給 python 的是 `--via`，模型做的事記成別的回合、對話退回挑不到。Bash 的 `{--via,x}`、`--via$X` 回 ask。候選：PowerShell 比對旗標前先去掉 token 裡的引號與反引號 | #22 測試第 1 輪 #1 |
