@@ -180,9 +180,9 @@ class SessionHook(unittest.TestCase):
 
 
 KB = ROOT / "scripts" / "kb.py"
-WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；先跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525
-MISSING = "有 {} 份不見：跑 kb inventory scan 再 kb cards sync 拿掉卡；不派整理、不做卡。"
-MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，就先跑 kb inventory scan，再照 ingest 只整理這幾份"
+WIP = "有 {} 份新放或改過（製作中）：不整理、不跟客戶提；先回答她這句，回答完再跑 kb inventory scan 記進清冊；問到這幾份讀原檔答。"  # D-525、D-548
+MISSING = "有 {} 份不見：先回答她這句，回答完再跑 kb inventory scan、kb cards sync 拿掉卡；不派整理、不做卡。"
+MD = ("有 {} 份 md 新放或改過（{}）：她這句沒說整理，先回答她這句，回答完再跑 kb inventory scan、照 ingest 只整理這幾份"
       "（kb cards dispatch --ids <編號>，編號看 kb cards todo --json）；她說了整理就照 ingest 整理全部、不帶 --ids。")  # 裁定 15
 DRIFT = ("實體夾有變 {}：跑 kb cards todo --json，照 ingest「實體夾有變」那段處理"
          "（刪了綜合卡照 entity_drift 判斷、做完說一聲），不做卡。")  # D-525 裁定 1；刪綜合卡說一聲 第 2 點
