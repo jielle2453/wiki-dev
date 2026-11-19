@@ -9,9 +9,9 @@
 各模組照舊「整份讀進、整份交回」：io.read_json／write_json_atomic 認得 LEGACY 的檔名，轉到這裡（doc_to_records／records_to_doc）。
 刪掉一筆寫 set {"_del": true}（讀回來不列）；undo 一筆新增寫 RETRACT 的收回欄（kb versions undo）。
 """
-import copy
 import hashlib
 import json
+import marshal
 import os
 import secrets
 import time
@@ -79,8 +79,8 @@ COMPACT_BYTES = 1_000_000  # 自己的檔超過這個大小，寫完順手併掉
 hard_delete = False  # purge 期間：刪掉的筆連這台檔裡的舊行一起拿掉（原文不留在自己的檔裡）
 stats = {"merges": 0}  # 快取沒命中、真的合併的次數（測試計次用）
 _TURN = {}  # (vault, kind) → 最近一次 turn.backup 記的回合代號
-_MEMO = {}  # (vault 絕對路徑, kind) → (靠的檔的樣子, 整份文件)：同一個 process 內 read_doc 的結果，不寫檔、不跨指令（D-548 (3)）
-GEN = [0]  # 每清一次 +1：inventory.load 記住的跟著失效
+_MEMO = {}  # (vault 絕對路徑, kind) → (靠的檔的樣子, 整份文件的 marshal 快照)：同一個 process 內 read_doc 的結果，不寫檔、不跨指令（D-548 (3)）
+GEN = [0]  # 清全部或清清冊時 +1：inventory.load 記住的跟著失效
 
 
 # ---------- 本機代號 ----------
@@ -134,7 +134,8 @@ def memo_sig(vault, kind):
 
 def forget(vault=None, kind=None):
     """清掉 read_doc（與 inventory.load）記住的結果：不給 vault 清全部（測試用）；給了清這種類，連同一份流水檔的封存視角。"""
-    GEN[0] += 1
+    if vault is None or base(kind) == "inventory":
+        GEN[0] += 1
     if vault is None:
         _MEMO.clear()
         return
@@ -871,18 +872,19 @@ def records_to_doc(kind, recs):
 
 def read_doc(vault, kind):
     """流水檔合起來的整份文件；沒有流水檔回 None（呼叫端改讀舊檔）。
-    同一個 process 內記住：靠的檔（memo_sig）沒變就回記住那份的複本，不重讀（D-548 (3)）。"""
+    同一個 process 內記住：靠的檔（memo_sig）沒變就回記住那份的複本，不重讀（D-548 (3)）。
+    複本用 marshal 快照還原（同 deepcopy 的效果，1 萬筆清冊 0.13 秒，deepcopy 要 0.76 秒）。"""
     key = (_vkey(vault), kind)
     sig = memo_sig(vault, kind)
     hit = _MEMO.get(key)
     if hit is not None and hit[0] == sig:
-        return copy.deepcopy(hit[1])
+        return marshal.loads(hit[1])
     _MEMO.pop(key, None)
     doc = _read_doc(vault, kind)
     if doc is not None:
         after = memo_sig(vault, kind)
         if after[:-2] == sig[:-2]:  # 讀的時候只重寫了副本與記號才記；流水檔、本機那一半中途變了（吸收外部改動、別的行程寫）下次重讀
-            _MEMO[key] = (after, copy.deepcopy(doc))
+            _MEMO[key] = (after, marshal.dumps(doc))
     return doc
 
 
